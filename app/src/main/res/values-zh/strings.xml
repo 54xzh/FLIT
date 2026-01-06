@@ -859,6 +859,8 @@
     <string name="assistant_page_reflection_sheet_title">反思建议</string>
     <string name="assistant_page_reflection_no_suggestions">暂无建议</string>
     <string name="assistant_page_reflection_apply_selected">应用所选</string>
+    <string name="assistant_page_memory_consolidation_entry_title">记忆整合与反思</string>
+    <string name="assistant_page_memory_consolidation_entry_desc">配置记忆整合/反思，并可手动运行</string>
     <string name="assistant_page_memory_mode_off_name">关闭</string>
     <string name="assistant_page_memory_mode_off_desc">记忆功能已禁用</string>
     <string name="assistant_page_memory_mode_basic_name">基础</string>

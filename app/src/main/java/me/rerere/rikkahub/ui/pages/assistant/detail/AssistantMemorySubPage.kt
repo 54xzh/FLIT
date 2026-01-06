@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
@@ -50,6 +51,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
@@ -59,6 +61,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -67,6 +70,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -92,6 +96,7 @@ import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.utils.toLocalString
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
@@ -199,6 +204,9 @@ fun AssistantMemorySettings(
     val defaultModel = Model("default", "Default (Background Model)")
     val modelOptions = listOf(defaultModel) + allModels
     val selectedModel = allModels.find { it.id == assistant.summarizerModelId } ?: defaultModel
+    val consolidationSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val consolidationSheetScope = rememberCoroutineScope()
+    var isConsolidationSheetVisible by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -305,7 +313,7 @@ fun AssistantMemorySettings(
                 MemorySettingsItem(
                     title = stringResource(R.string.assistant_page_rag_advanced_memory_title),
                     subtitle = stringResource(R.string.assistant_page_rag_advanced_memory_desc),
-                    position = "LAST",
+                    position = "MIDDLE",
                     trailing = {
                         HapticSwitch(
                             checked = assistant.enableMemoryConsolidation,
@@ -323,6 +331,19 @@ fun AssistantMemorySettings(
                             }
                         )
                     }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = assistant.enableMemory && assistant.useRagMemoryRetrieval,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                MemorySettingsItem(
+                    title = stringResource(R.string.assistant_page_memory_consolidation_entry_title),
+                    subtitle = stringResource(R.string.assistant_page_memory_consolidation_entry_desc),
+                    position = "LAST",
+                    onClick = { isConsolidationSheetVisible = true }
                 )
             }
         }
@@ -420,6 +441,33 @@ fun AssistantMemorySettings(
                     )
                 }
             }
+        }
+    }
+
+    if (isConsolidationSheetVisible) {
+        ModalBottomSheet(
+            onDismissRequest = { isConsolidationSheetVisible = false },
+            sheetState = consolidationSheetState,
+            sheetGesturesEnabled = false,
+            dragHandle = {
+                IconButton(
+                    onClick = {
+                        consolidationSheetScope.launch {
+                            consolidationSheetState.hide()
+                            isConsolidationSheetVisible = false
+                        }
+                    }
+                ) {
+                    Icon(Icons.Rounded.KeyboardArrowDown, null)
+                }
+            }
+        ) {
+            AssistantMemoryConsolidationSubPage(
+                vm = assistantDetailVM,
+                assistant = assistant,
+                onUpdate = onUpdateAssistant,
+                onConsolidate = { fullScan -> assistantDetailVM.consolidateMemories(fullScan) }
+            )
         }
     }
 }
