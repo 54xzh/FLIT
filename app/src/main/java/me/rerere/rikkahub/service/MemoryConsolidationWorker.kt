@@ -52,6 +52,7 @@ class MemoryConsolidationWorker(
     private val embeddingService: EmbeddingService by inject()
     private val providerManager: me.rerere.ai.provider.ProviderManager by inject()
     private val requestLogManager: AIRequestLogManager by inject()
+    private val memoryReflectionService: MemoryReflectionService by inject()
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
@@ -341,6 +342,21 @@ class MemoryConsolidationWorker(
             }
             }
         } // End of enableMemoryConsolidation check
+
+        // =========================================================================================
+        // TRACK B: Reflection (Phase 1: create/skip only)
+        // =========================================================================================
+        runCatching {
+            val result = memoryReflectionService.runAutoReflectionIfNeeded(
+                assistantId = assistantId,
+                isFullScan = isFullScan,
+            )
+            if (result != null) {
+                Log.i("MemoryConsolidation", "Reflection (auto): ${result.result}")
+            }
+        }.onFailure { e ->
+            Log.e("MemoryConsolidation", "Reflection (auto) failed", e)
+        }
 
         // =========================================================================================
         // PRUNING: The "Throw Out" Mechanism

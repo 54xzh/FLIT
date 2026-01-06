@@ -197,6 +197,7 @@ fun AIRequestSource.displayName(): String {
         AIRequestSource.GROUP_CHAT_ROUTING -> stringResource(R.string.request_log_source_group_chat_routing)
         AIRequestSource.WELCOME_PHRASES -> stringResource(R.string.request_log_source_welcome_phrases)
         AIRequestSource.MEMORY_CONSOLIDATION -> stringResource(R.string.request_log_source_memory_consolidation)
+        AIRequestSource.MEMORY_REFLECTION -> stringResource(R.string.request_log_source_memory_reflection)
         AIRequestSource.MEMORY_EMBEDDING -> stringResource(R.string.request_log_source_memory_embedding)
         AIRequestSource.MEMORY_RETRIEVAL -> stringResource(R.string.request_log_source_memory_retrieval)
         AIRequestSource.TOOL_RESULT_EMBEDDING -> stringResource(R.string.request_log_source_tool_result_embedding)

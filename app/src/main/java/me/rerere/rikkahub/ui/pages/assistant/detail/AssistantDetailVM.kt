@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -13,6 +14,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.dao.ChatEpisodeDAO
@@ -21,6 +23,8 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.Tag
+import me.rerere.rikkahub.data.model.MemoryReflectionAction
+import me.rerere.rikkahub.service.MemoryReflectionService
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.utils.deleteChatFiles
 import kotlin.uuid.Uuid
@@ -35,6 +39,7 @@ class AssistantDetailVM(
     private val context: Application,
     private val chatEpisodeDAO: ChatEpisodeDAO,
     private val providerManager: me.rerere.ai.provider.ProviderManager,
+    private val memoryReflectionService: MemoryReflectionService,
 ) : ViewModel() {
     private val assistantId = Uuid.parse(id)
 
@@ -61,6 +66,65 @@ class AssistantDetailVM(
 
     fun updateMemorySearchQuery(query: String) {
         _memorySearchQuery.value = query
+    }
+
+    private val _reflectionSuggestions = MutableStateFlow<List<MemoryReflectionAction>>(emptyList())
+    val reflectionSuggestions = _reflectionSuggestions.asStateFlow()
+
+    private val _isReflectionLoading = MutableStateFlow(false)
+    val isReflectionLoading = _isReflectionLoading.asStateFlow()
+
+    private val _isReflectionSheetVisible = MutableStateFlow(false)
+    val isReflectionSheetVisible = _isReflectionSheetVisible.asStateFlow()
+
+    fun hideReflectionSheet() {
+        _isReflectionSheetVisible.value = false
+    }
+
+    fun previewReflection() {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (_isReflectionLoading.value) return@launch
+            _isReflectionLoading.value = true
+            try {
+                val suggestions = memoryReflectionService.previewReflectionSuggestions(assistantId.toString())
+                withContext(Dispatchers.Main) {
+                    _reflectionSuggestions.value = suggestions
+                    _isReflectionSheetVisible.value = true
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "previewReflection failed", e)
+            } finally {
+                _isReflectionLoading.value = false
+            }
+        }
+    }
+
+    fun applyReflectionSuggestions(
+        selected: List<MemoryReflectionAction>,
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (selected.isEmpty()) return@launch
+            val (created, skipped) = memoryReflectionService.applyCreateSuggestions(
+                assistantId = assistantId.toString(),
+                suggestions = selected,
+                auto = false,
+            )
+            val resultMsg = if (created > 0) {
+                "新增 $created 条核心记忆（手动）"
+            } else if (skipped > 0) {
+                "无新增（手动），已跳过 $skipped 条建议"
+            } else {
+                "无新增（手动）"
+            }
+            memoryReflectionService.updateAssistantReflectionStats(
+                assistantUuid = assistantId,
+                time = System.currentTimeMillis(),
+                result = resultMsg,
+            )
+            withContext(Dispatchers.Main) {
+                _isReflectionSheetVisible.value = false
+            }
+        }
     }
 
     val memories = combine(

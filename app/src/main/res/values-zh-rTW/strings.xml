@@ -847,6 +847,17 @@
   <string name="assistant_page_consolidation_reflection_interval">反思間隔</string>
   <string name="assistant_page_consolidation_reflection_interval_value">反思間隔: %d 小時</string>
   <string name="assistant_page_consolidation_reflection_interval_desc">多久反思一次情景記憶以形成核心記憶</string>
+  <string name="assistant_page_reflection_enable">啟用反思（Track B）</string>
+  <string name="assistant_page_reflection_enable_desc">從情景記憶中提取穩定資訊寫入核心記憶</string>
+  <string name="assistant_page_reflection_mode">反思模式</string>
+  <string name="assistant_page_reflection_mode_confirm">需確認</string>
+  <string name="assistant_page_reflection_mode_auto">自動（保守）</string>
+  <string name="assistant_page_reflection_interval_value">反思間隔: %d 小時</string>
+  <string name="assistant_page_reflection_interval_desc">自動執行反思的頻率（僅自動模式生效）</string>
+  <string name="assistant_page_reflection_run_now">立即反思</string>
+  <string name="assistant_page_reflection_sheet_title">反思建議</string>
+  <string name="assistant_page_reflection_no_suggestions">暫無建議</string>
+  <string name="assistant_page_reflection_apply_selected">套用所選</string>
   <string name="assistant_page_memory_mode_off_name">關閉</string>
   <string name="assistant_page_memory_mode_off_desc">記憶功能已禁用</string>
   <string name="assistant_page_memory_mode_basic_name">基礎</string>
@@ -1256,6 +1267,7 @@
   <string name="request_log_source_group_chat_routing">群聊路由</string>
   <string name="request_log_source_welcome_phrases">歡迎詞</string>
   <string name="request_log_source_memory_consolidation">記憶整合</string>
+  <string name="request_log_source_memory_reflection">記憶反思</string>
   <string name="request_log_source_memory_embedding">記憶嵌入</string>
   <string name="request_log_source_memory_retrieval">記憶檢索</string>
   <string name="request_log_source_tool_result_embedding">工具結果嵌入</string>

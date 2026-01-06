@@ -20,6 +20,18 @@ enum class ToolResultHistoryMode {
     DISCARD,
 }
 
+@Serializable
+enum class MemoryReflectionMode {
+    @SerialName("off")
+    OFF,
+
+    @SerialName("confirm")
+    CONFIRM,
+
+    @SerialName("auto_conservative")
+    AUTO_CONSERVATIVE,
+}
+
 /**
  * Per-assistant UI settings. All nullable - null means "use global setting".
  */
@@ -106,6 +118,13 @@ data class Assistant(
     val consolidationDelayMinutes: Int = 30, // Wait time before consolidating a chat
     val lastConsolidationTime: Long = 0L,
     val lastConsolidationResult: String = "",
+
+    // Reflection (Track B)
+    val enableMemoryReflection: Boolean = false,
+    val memoryReflectionMode: MemoryReflectionMode = MemoryReflectionMode.CONFIRM,
+    val memoryReflectionIntervalHours: Int = 24,
+    val lastReflectionTime: Long = 0L,
+    val lastReflectionResult: String = "",
 
     // Per-assistant UI customization (null = use global setting)
     val uiSettings: AssistantUISettings = AssistantUISettings(),

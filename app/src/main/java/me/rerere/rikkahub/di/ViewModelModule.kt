@@ -50,6 +50,7 @@ val viewModelModule = module {
             context = get(),
             chatEpisodeDAO = get(),
             providerManager = get(),
+            memoryReflectionService = get(),
         )
     }
     viewModelOf(::TranslatorVM)

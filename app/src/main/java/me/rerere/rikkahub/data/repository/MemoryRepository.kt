@@ -275,6 +275,49 @@ class MemoryRepository(
         embeddingCacheDAO.deleteByMemoryId(id, MemoryType.CORE)
     }
 
+    suspend fun isLikelyDuplicateCoreMemory(
+        assistantId: String,
+        content: String,
+        similarityThreshold: Float = 0.82f,
+    ): Boolean {
+        val trimmed = content.trim()
+        if (trimmed.length < 6) return false
+
+        val coreMemories = memoryDAO.getMemoriesOfAssistant(assistantId)
+            .filter { it.type == MemoryType.CORE }
+
+        if (coreMemories.isEmpty()) return false
+
+        val embedding = try {
+            embeddingService.embed(
+                text = trimmed,
+                assistantId = assistantId,
+                source = AIRequestSource.MEMORY_EMBEDDING,
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return false
+        }
+
+        for (memory in coreMemories) {
+            val existingEmbedding = getOrCreateEmbedding(
+                memoryId = memory.id,
+                memoryType = MemoryType.CORE,
+                content = memory.content,
+                assistantId = assistantId,
+                existingEmbedding = memory.embedding,
+                existingModelId = memory.embeddingModelId,
+            ) ?: continue
+
+            val similarity = VectorEngine.cosineSimilarity(embedding, existingEmbedding)
+            if (similarity >= similarityThreshold) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     /**
      * Retrieve relevant memories with scores for debugging
      */

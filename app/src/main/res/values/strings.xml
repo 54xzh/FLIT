@@ -42,6 +42,7 @@
     <string name="request_log_source_group_chat_routing">Group Chat Routing</string>
     <string name="request_log_source_welcome_phrases">Welcome Phrases</string>
     <string name="request_log_source_memory_consolidation">Memory Consolidation</string>
+    <string name="request_log_source_memory_reflection">Memory Reflection</string>
     <string name="request_log_source_memory_embedding">Memory Embedding</string>
     <string name="request_log_source_memory_retrieval">Memory Retrieval</string>
     <string name="request_log_source_tool_result_embedding">Tool Result Embedding</string>
@@ -910,6 +911,17 @@
     <string name="assistant_page_consolidation_reflection_interval">Reflection Interval</string>
     <string name="assistant_page_consolidation_reflection_interval_value">Reflection Interval: %d hours</string>
     <string name="assistant_page_consolidation_reflection_interval_desc">How often to reflect on episodes to form core memories</string>
+    <string name="assistant_page_reflection_enable">Enable Reflection (Track B)</string>
+    <string name="assistant_page_reflection_enable_desc">Extract stable information from episodes into core memories</string>
+    <string name="assistant_page_reflection_mode">Reflection Mode</string>
+    <string name="assistant_page_reflection_mode_confirm">Confirm</string>
+    <string name="assistant_page_reflection_mode_auto">Auto (Conservative)</string>
+    <string name="assistant_page_reflection_interval_value">Reflection Interval: %d hours</string>
+    <string name="assistant_page_reflection_interval_desc">How often to run reflection automatically (auto mode only)</string>
+    <string name="assistant_page_reflection_run_now">Run Reflection Now</string>
+    <string name="assistant_page_reflection_sheet_title">Reflection Suggestions</string>
+    <string name="assistant_page_reflection_no_suggestions">No suggestions</string>
+    <string name="assistant_page_reflection_apply_selected">Apply Selected</string>
     <string name="assistant_page_memory_mode_off_name">Off</string>
     <string name="assistant_page_memory_mode_off_desc">Memory is disabled</string>
     <string name="assistant_page_memory_mode_basic_name">Basic</string>
