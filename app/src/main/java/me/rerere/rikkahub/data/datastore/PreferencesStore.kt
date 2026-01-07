@@ -869,26 +869,73 @@ internal val DEFAULT_ASSISTANTS_IDS = DEFAULT_ASSISTANTS.map { it.id }
 /**
  * Sanitize settings after backup restore.
  * Cleans up deprecated fields and invalid references.
+ * @param context Android context for fixing avatar file paths (optional)
  * @return Pair of sanitized settings and cleanup result with statistics
  */
-fun Settings.sanitize(): Pair<Settings, me.rerere.rikkahub.data.sync.BackupCleanupResult> {
+fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkahub.data.sync.BackupCleanupResult> {
     var invalidSearchModeCount = 0
     var orphanedTagReferences = 0
     var orphanedModelReferences = 0
+    var fixedAvatarPaths = 0
 
-    // 1. Fix invalid searchMode.Provider indices
+    // Helper function to fix avatar path for the current device
+    fun fixAvatarPath(avatar: Avatar): Avatar {
+        if (context == null) return avatar
+        if (avatar !is Avatar.Image) return avatar
+
+        val url = avatar.url
+        // Check if this is a local file path that needs fixing
+        if (!url.startsWith("file://")) return avatar
+
+        // Extract the filename from the path
+        val fileName = url.substringAfterLast("/")
+        if (fileName.isBlank()) return avatar
+
+        // Determine which folder this file belongs to
+        val folder = when {
+            url.contains("/avatars/") -> "avatars"
+            url.contains("/upload/") -> "upload"
+            url.contains("/images/") -> "images"
+            url.contains("/custom_icons/") -> "custom_icons"
+            else -> return avatar // Unknown folder, don't modify
+        }
+
+        // Generate the correct path for the current device
+        // Note: We don't check if file exists because during restore,
+        // settings.json is processed before avatar files are extracted
+        val currentPath = File(context.filesDir, "$folder/$fileName")
+        val newUrl = Uri.fromFile(currentPath).toString()
+        if (newUrl != url) {
+            fixedAvatarPaths++
+            Log.i("Settings.sanitize", "Fixed avatar path: $url -> $newUrl")
+            return Avatar.Image(newUrl)
+        }
+
+        return avatar
+    }
+
+    // 1. Fix invalid searchMode.Provider indices and avatar paths
     val sanitizedAssistants = assistants.map { assistant ->
-        when (val mode = assistant.searchMode) {
+        var updatedAssistant = assistant
+
+        // Fix avatar path
+        val fixedAvatar = fixAvatarPath(assistant.avatar)
+        if (fixedAvatar != assistant.avatar) {
+            updatedAssistant = updatedAssistant.copy(avatar = fixedAvatar)
+        }
+
+        // Fix searchMode
+        when (val mode = updatedAssistant.searchMode) {
             is me.rerere.rikkahub.data.model.AssistantSearchMode.Provider -> {
                 if (mode.index < 0 || mode.index >= searchServices.size) {
                     invalidSearchModeCount++
-                    assistant.copy(searchMode = me.rerere.rikkahub.data.model.AssistantSearchMode.Off)
-                } else {
-                    assistant
+                    updatedAssistant = updatedAssistant.copy(searchMode = me.rerere.rikkahub.data.model.AssistantSearchMode.Off)
                 }
             }
-            else -> assistant
+            else -> { /* no change needed */ }
         }
+
+        updatedAssistant
     }
 
     // 2. Remove orphaned tag references from assistants
@@ -926,6 +973,29 @@ fun Settings.sanitize(): Pair<Settings, me.rerere.rikkahub.data.sync.BackupClean
         0
     }
 
+    // 5. Fix user avatar path in display settings
+    val fixedUserAvatar = fixAvatarPath(displaySetting.userAvatar)
+    val cleanedDisplaySetting = if (fixedUserAvatar != displaySetting.userAvatar) {
+        displaySetting.copy(userAvatar = fixedUserAvatar)
+    } else {
+        displaySetting
+    }
+
+    // 6. Fix lorebook cover paths
+    val cleanedLorebooks = lorebooks.map { lorebook ->
+        val cover = lorebook.cover
+        if (cover != null) {
+            val fixedCover = fixAvatarPath(cover)
+            if (fixedCover != cover) {
+                lorebook.copy(cover = fixedCover)
+            } else {
+                lorebook
+            }
+        } else {
+            lorebook
+        }
+    }
+
     val fallbackAssistantId = cleanedAssistants.firstOrNull()?.id ?: DEFAULT_ASSISTANT_ID
     val sanitizedAssistantId = if (assistantId in validAssistantIds) assistantId else fallbackAssistantId
     val sanitizedChatTarget = when (val target = chatTarget) {
@@ -947,12 +1017,15 @@ fun Settings.sanitize(): Pair<Settings, me.rerere.rikkahub.data.sync.BackupClean
         groupChatTemplates = cleanedGroupChats,
         favoriteModels = cleanedFavorites,
         searchServiceSelected = clampedSearchSelected,
+        displaySetting = cleanedDisplaySetting,
+        lorebooks = cleanedLorebooks,
     )
 
     val result = me.rerere.rikkahub.data.sync.BackupCleanupResult(
         invalidSearchModeCount = invalidSearchModeCount,
         orphanedTagReferences = orphanedTagReferences,
         orphanedModelReferences = orphanedModelReferences,
+        fixedAvatarPaths = fixedAvatarPaths,
     )
 
     return cleanedSettings to result

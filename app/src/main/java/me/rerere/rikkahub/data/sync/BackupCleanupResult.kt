@@ -13,10 +13,12 @@ data class BackupCleanupResult(
     val orphanedTagReferences: Int = 0,
     /** Number of orphaned favorite model references removed */
     val orphanedModelReferences: Int = 0,
+    /** Number of avatar paths that were fixed to match the current device's file system */
+    val fixedAvatarPaths: Int = 0,
 ) {
     /** Total count of issues found and fixed */
     val totalIssuesFixed: Int
-        get() = invalidSearchModeCount + orphanedTagReferences + orphanedModelReferences
+        get() = invalidSearchModeCount + orphanedTagReferences + orphanedModelReferences + fixedAvatarPaths
 
     /** Whether any cleanup was performed */
     val hasCleanup: Boolean
@@ -28,5 +30,6 @@ data class BackupCleanupResult(
         invalidSearchModeCount = invalidSearchModeCount + other.invalidSearchModeCount,
         orphanedTagReferences = orphanedTagReferences + other.orphanedTagReferences,
         orphanedModelReferences = orphanedModelReferences + other.orphanedModelReferences,
+        fixedAvatarPaths = fixedAvatarPaths + other.fixedAvatarPaths,
     )
 }

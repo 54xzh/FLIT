@@ -134,7 +134,11 @@ class WebdavSync(
 
             try {
                 // 解压并恢复备份文件
-                restoreFromBackupFile(backupFile, webDavConfig)
+                // Force include both DATABASE and FILES during restore to ensure all data is restored
+                val restoreConfig = webDavConfig.copy(
+                    items = listOf(WebDavConfig.BackupItem.DATABASE, WebDavConfig.BackupItem.FILES)
+                )
+                restoreFromBackupFile(backupFile, restoreConfig)
             } finally {
                 // 清理临时文件
                 if (backupFile.exists()) {
@@ -168,7 +172,11 @@ class WebdavSync(
             }
 
             try {
-                restoreFromBackupFile(file, webDavConfig) // Never returns - exits process
+                // Force include both DATABASE and FILES during restore to ensure all data is restored
+                val restoreConfig = webDavConfig.copy(
+                    items = listOf(WebDavConfig.BackupItem.DATABASE, WebDavConfig.BackupItem.FILES)
+                )
+                restoreFromBackupFile(file, restoreConfig) // Never returns - exits process
             } catch (e: Exception) {
                 Log.e(TAG, "restoreFromLocalFile: Failed to restore from local file", e)
                 throw Exception("Restore failed: ${e.message}")
@@ -280,7 +288,9 @@ class WebdavSync(
     private suspend fun restoreFromBackupFile(backupFile: File, webDavConfig: WebDavConfig): Nothing =
         withContext(Dispatchers.IO) {
             Log.i(TAG, "restoreFromBackupFile: Starting restore from ${backupFile.absolutePath}")
-            
+            Log.i(TAG, "restoreFromBackupFile: webDavConfig.items = ${webDavConfig.items}")
+            Log.i(TAG, "restoreFromBackupFile: context.filesDir = ${context.filesDir.absolutePath}")
+
             var unsupportedZipEntriesBytes: Long = 0
             var settingsCleanupResult = BackupCleanupResult()
 
@@ -306,8 +316,8 @@ class WebdavSync(
                                 Log.i(TAG, "restoreFromBackupFile: Restoring settings")
                                 try {
                                     val settings = json.decodeFromString<Settings>(settingsJson)
-                                    // Sanitize settings to clean up deprecated/invalid data
-                                    val (cleanedSettings, cleanupResult) = settings.sanitize()
+                                    // Sanitize settings to clean up deprecated/invalid data and fix avatar paths
+                                    val (cleanedSettings, cleanupResult) = settings.sanitize(context)
                                     settingsCleanupResult = cleanupResult
                                     settingsStore.update(cleanedSettings)
                                     Log.i(
