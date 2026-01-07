@@ -49,16 +49,10 @@ class MemoryReflectionService(
         val candidates = selectCandidateEpisodes(episodes, maxEpisodes)
         if (candidates.isEmpty()) return@withContext emptyList()
 
-        val coreMemories = memoryRepository.getMemoryEntitiesOfAssistant(assistantId)
-            .filter { it.type == me.rerere.rikkahub.data.db.entity.MemoryType.CORE }
-            .sortedByDescending { it.lastAccessedAt }
-            .take(30)
-
         val locale = Locale.getDefault()
         val localeHint = "${locale.toLanguageTag()} (${locale.displayName})"
         val prompt = buildPrompt(
             candidates = candidates,
-            coreMemories = coreMemories.map { it.content },
             maxActions = maxActions,
             localeHint = localeHint,
         )
@@ -267,7 +261,6 @@ class MemoryReflectionService(
 
     private fun buildPrompt(
         candidates: List<ChatEpisodeEntity>,
-        coreMemories: List<String>,
         maxActions: Int,
         localeHint: String,
     ): String {
@@ -275,18 +268,6 @@ class MemoryReflectionService(
             val tag = "E${episode.id}"
             val sig = episode.significance.coerceIn(1, 10)
             "[#$tag sig=$sig start=${episode.startTime} end=${episode.endTime}] ${episode.content}"
-        }
-
-        val coreText = if (coreMemories.isEmpty()) {
-            "NONE"
-        } else {
-            coreMemories
-                .asSequence()
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-                .take(30)
-                .mapIndexed { index, text -> "${index + 1}. $text" }
-                .joinToString("\n")
         }
 
         val max = maxActions.coerceIn(3, 7)
@@ -308,10 +289,8 @@ class MemoryReflectionService(
             - Do NOT include short-term mood, day-to-day status, one-off tasks, or guesses.
             - For each created memory, include evidence_episode_ids using the episode tags (e.g. ["E123"]).
             - Mark sensitivity: HIGH if it contains personal identifiers (phone/email/address/ID), medical or financial details.
-            
-            Existing core memories (for avoiding duplicates):
-            $coreText
-            
+            - Important: Only use the Episodes content as evidence/source. Do NOT create memories from anything else.
+
             Episodes (tagged):
             $episodesText
             

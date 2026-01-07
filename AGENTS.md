@@ -2,7 +2,8 @@
 
 ## 0. Codex CLI Safety Rules (Workspace Only)
 
-- Only read/write files inside the current workspace (this repo). Do not access or modify any paths outside the workspace.
+- Default: Only read/write files inside the current workspace (this repo). Do not access or modify any paths outside the workspace.
+- Exception (explicitly allowed): You may copy build artifacts (e.g., APK files) from this repo to `D:\Sync\` only.
 - Forbidden commands: `rm`, `rmdir` (do not use them even if requested).
 
 ## 1. Core Principles & Design Philosophy
