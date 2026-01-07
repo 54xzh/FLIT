@@ -82,10 +82,12 @@ import me.rerere.rikkahub.R
 import me.rerere.highlight.LocalHighlighter
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findModelById
+import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.rikkahub.ui.components.ui.BitmapComposer
+import me.rerere.rikkahub.ui.components.ui.UIAvatar
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -100,6 +102,7 @@ import java.io.FileOutputStream
 import java.time.LocalDateTime
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.DurationUnit
+import kotlin.uuid.Uuid
 
 @Composable
 fun ChatExportSheet(
@@ -431,7 +434,8 @@ private fun ExportedChatImage(
                         ExportedChatMessage(
                             message = message,
                             options = options,
-                            prevMessage = messages.getOrNull(messages.indexOf(message) - 1)
+                            prevMessage = messages.getOrNull(messages.indexOf(message) - 1),
+                            conversationAssistantId = conversation.assistantId,
                         )
                     }
 
@@ -453,13 +457,16 @@ private fun ExportedChatImage(
 private fun ExportedChatMessage(
     message: UIMessage,
     prevMessage: UIMessage? = null,
-    options: ImageExportOptions = ImageExportOptions()
+    options: ImageExportOptions = ImageExportOptions(),
+    conversationAssistantId: Uuid? = null,
 ) {
     if (message.parts.isEmptyUIMessage()) return
     val context = LocalContext.current
     val settings = LocalSettings.current
     val model = message.modelId?.let { settings.findModelById(it) }
-    // Always show model icon for assistant messages in exported images
+    val assistantId = message.speakerAssistantId ?: conversationAssistantId
+    val assistant = assistantId?.let { settings.getAssistantById(it) }
+    // Prefer assistant avatar for assistant messages in exported images
     val showModelIcon = message.role == MessageRole.ASSISTANT && prevMessage?.role == MessageRole.USER
     val iconLabel = when {
         model?.modelId?.isNotBlank() == true -> model.modelId
@@ -537,12 +544,23 @@ private fun ExportedChatMessage(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(top = 8.dp)
         ) {
-            AutoAIIcon(
-                name = iconLabel,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .size(36.dp)
-            )
+            if (assistant != null) {
+                UIAvatar(
+                    name = assistant.name.ifBlank { iconLabel },
+                    value = assistant.avatar,
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .size(36.dp),
+                    loading = false,
+                )
+            } else {
+                AutoAIIcon(
+                    name = iconLabel,
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .size(36.dp)
+                )
+            }
 
             Text(
                 text = iconLabel,

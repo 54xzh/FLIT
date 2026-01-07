@@ -24,6 +24,7 @@ import me.rerere.rikkahub.data.model.MemoryReflectionResponse
 import me.rerere.rikkahub.data.model.MemoryReflectionSensitivity
 import me.rerere.rikkahub.data.model.MemoryReflectionStability
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import java.util.Locale
 
 private const val TAG = "MemoryReflection"
 
@@ -53,10 +54,13 @@ class MemoryReflectionService(
             .sortedByDescending { it.lastAccessedAt }
             .take(30)
 
+        val locale = Locale.getDefault()
+        val localeHint = "${locale.toLanguageTag()} (${locale.displayName})"
         val prompt = buildPrompt(
             candidates = candidates,
             coreMemories = coreMemories.map { it.content },
             maxActions = maxActions,
+            localeHint = localeHint,
         )
 
         val params = TextGenerationParams(model = model, temperature = 0.2f)
@@ -265,6 +269,7 @@ class MemoryReflectionService(
         candidates: List<ChatEpisodeEntity>,
         coreMemories: List<String>,
         maxActions: Int,
+        localeHint: String,
     ): String {
         val episodesText = candidates.joinToString("\n") { episode ->
             val tag = "E${episode.id}"
@@ -298,6 +303,8 @@ class MemoryReflectionService(
             - Return ONLY JSON. No markdown, no extra text.
             - Actions MUST be only: "create" or "skip". Do NOT output "update" or "merge".
             - Output at most $max actions, sorted by importance.
+            - Output language: All natural-language fields MUST be written in the user's system language: $localeHint.
+              Natural-language fields include: content, reason, notes.
             - Do NOT include short-term mood, day-to-day status, one-off tasks, or guesses.
             - For each created memory, include evidence_episode_ids using the episode tags (e.g. ["E123"]).
             - Mark sensitivity: HIGH if it contains personal identifiers (phone/email/address/ID), medical or financial details.

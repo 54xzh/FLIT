@@ -41,6 +41,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.request.crossfade
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.ui.hooks.rememberAvatarShape
@@ -86,6 +89,7 @@ fun UIAvatar(
     onClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val export = LocalExportContext.current
     var showPickOption by remember { mutableStateOf(false) }
     var showEmojiPicker by remember { mutableStateOf(false) }
     var showUrlInput by remember { mutableStateOf(false) }
@@ -123,8 +127,15 @@ fun UIAvatar(
             ) {
                 when (value) {
                     is Avatar.Image -> {
+                        val imageRequest = remember(value.url, export, context) {
+                            ImageRequest.Builder(context)
+                                .data(value.url)
+                                .allowHardware(!export)
+                                .crossfade(!export)
+                                .build()
+                        }
                         AsyncImage(
-                            model = value.url,
+                            model = imageRequest,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,
@@ -144,8 +155,15 @@ fun UIAvatar(
                     }
 
                     is Avatar.Resource -> {
+                        val imageRequest = remember(value.id, export, context) {
+                            ImageRequest.Builder(context)
+                                .data(value.id)
+                                .allowHardware(!export)
+                                .crossfade(!export)
+                                .build()
+                        }
                         AsyncImage(
-                            model = value.id,
+                            model = imageRequest,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,
@@ -178,8 +196,15 @@ fun UIAvatar(
             ) {
                 when (value) {
                     is Avatar.Image -> {
+                        val imageRequest = remember(value.url, export, context) {
+                            ImageRequest.Builder(context)
+                                .data(value.url)
+                                .allowHardware(!export)
+                                .crossfade(!export)
+                                .build()
+                        }
                         AsyncImage(
-                            model = value.url,
+                            model = imageRequest,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,
@@ -199,8 +224,15 @@ fun UIAvatar(
                     }
 
                     is Avatar.Resource -> {
+                        val imageRequest = remember(value.id, export, context) {
+                            ImageRequest.Builder(context)
+                                .data(value.id)
+                                .allowHardware(!export)
+                                .crossfade(!export)
+                                .build()
+                        }
                         AsyncImage(
-                            model = value.id,
+                            model = imageRequest,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,

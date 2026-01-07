@@ -137,7 +137,7 @@ class BitmapComposer(private val mainScope: CoroutineScope) {
 
                     // Step 6: Clean up - remove the container
                     decorView.removeView(composeViewContainer)
-                }, 100) // delay to allow ComposeView to finish rendering
+                }, 350) // delay to allow ComposeView to finish rendering
             }
         }
     }
