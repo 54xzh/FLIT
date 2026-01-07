@@ -150,6 +150,75 @@ fun AssistantMemoryConsolidationSubPage(
                         }
                     }
 
+                    // Memory Lifecycle (Archive & Cleanup)
+                    if (assistant.enableMemory) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.assistant_page_memory_auto_archive),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = stringResource(R.string.assistant_page_memory_auto_archive_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            HapticSwitch(
+                                checked = assistant.enableMemoryAutoArchive,
+                                onCheckedChange = { enabled ->
+                                    onUpdate(
+                                        if (enabled) {
+                                            assistant.copy(enableMemoryAutoArchive = true)
+                                        } else {
+                                            assistant.copy(
+                                                enableMemoryAutoArchive = false,
+                                                enableMemoryAutoPurgeArchived = false,
+                                            )
+                                        }
+                                    )
+                                }
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.assistant_page_memory_auto_purge),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = stringResource(R.string.assistant_page_memory_auto_purge_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            HapticSwitch(
+                                checked = assistant.enableMemoryAutoPurgeArchived,
+                                enabled = assistant.enableMemoryAutoArchive,
+                                onCheckedChange = { enabled ->
+                                    onUpdate(assistant.copy(enableMemoryAutoPurgeArchived = enabled))
+                                }
+                            )
+                        }
+
+                        Text(
+                            text = stringResource(R.string.assistant_page_memory_lifecycle_note),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
                     // Reflection (Track B)
                     if (assistant.enableMemory) {
                         Row(
@@ -206,6 +275,7 @@ fun AssistantMemoryConsolidationSubPage(
                                 val modes = listOf(
                                     MemoryReflectionMode.CONFIRM,
                                     MemoryReflectionMode.AUTO_CONSERVATIVE,
+                                    MemoryReflectionMode.AUTO_AGGRESSIVE,
                                 )
                                 val selectedIndex = modes.indexOf(assistant.memoryReflectionMode).coerceAtLeast(0)
 
@@ -220,6 +290,7 @@ fun AssistantMemoryConsolidationSubPage(
                                                 text = when (mode) {
                                                     MemoryReflectionMode.CONFIRM -> stringResource(R.string.assistant_page_reflection_mode_confirm)
                                                     MemoryReflectionMode.AUTO_CONSERVATIVE -> stringResource(R.string.assistant_page_reflection_mode_auto)
+                                                    MemoryReflectionMode.AUTO_AGGRESSIVE -> stringResource(R.string.assistant_page_reflection_mode_auto_aggressive)
                                                     MemoryReflectionMode.OFF -> stringResource(R.string.assistant_page_reflection_mode_confirm)
                                                 }
                                             )

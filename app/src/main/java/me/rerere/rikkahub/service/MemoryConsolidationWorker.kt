@@ -22,11 +22,14 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.db.dao.ChatEpisodeDAO
+import me.rerere.rikkahub.data.db.dao.EmbeddingCacheDAO
+import me.rerere.rikkahub.data.db.dao.MemoryDAO
 import me.rerere.rikkahub.data.db.entity.ChatEpisodeEntity
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.rikkahub.utils.MemoryForgettingCurve
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -48,6 +51,8 @@ class MemoryConsolidationWorker(
     private val conversationRepository: ConversationRepository by inject()
     private val memoryRepository: MemoryRepository by inject()
     private val chatEpisodeDAO: ChatEpisodeDAO by inject()
+    private val memoryDAO: MemoryDAO by inject()
+    private val embeddingCacheDAO: EmbeddingCacheDAO by inject()
     private val settingsStore: SettingsStore by inject()
     private val embeddingService: EmbeddingService by inject()
     private val providerManager: me.rerere.ai.provider.ProviderManager by inject()
@@ -96,6 +101,8 @@ class MemoryConsolidationWorker(
         val isFullScan = inputData.getBoolean("FULL_SCAN", false)
         val forceConversationId = inputData.getString("FORCE_CONVERSATION_ID")
         val groupChatTemplateId = inputData.getString("GROUP_CHAT_TEMPLATE_ID")
+        val allowPurgeArchived = inputData.getBoolean("ALLOW_PURGE_ARCHIVED", false)
+        val now = System.currentTimeMillis()
 
         if (!groupChatTemplateId.isNullOrBlank()) {
             val templateId = runCatching { kotlin.uuid.Uuid.parse(groupChatTemplateId) }.getOrNull()
@@ -109,6 +116,28 @@ class MemoryConsolidationWorker(
                     isFullScan = isFullScan,
                     forcedConversationId = null,
                 )
+                template.seats.asSequence()
+                    .map { it.assistantId.toString() }
+                    .distinct()
+                    .forEach { assistantId ->
+                        val assistantUuid = runCatching { kotlin.uuid.Uuid.parse(assistantId) }.getOrNull()
+                        val targetAssistant = assistantUuid?.let { id -> settings.getAssistantById(id) }
+                        if (targetAssistant == null) return@forEach
+                        if (!targetAssistant.enableMemory) return@forEach
+
+                        val enableAutoArchive = targetAssistant.enableMemoryAutoArchive
+                        val enableAutoPurge = enableAutoArchive && targetAssistant.enableMemoryAutoPurgeArchived && allowPurgeArchived
+                        runCatching {
+                            maintainMemoryLifecycle(
+                                assistantId = assistantId,
+                                enableAutoArchive = enableAutoArchive,
+                                enableAutoPurge = enableAutoPurge,
+                                now = now,
+                            )
+                        }.onFailure { e ->
+                            Log.e("MemoryConsolidation", "Lifecycle maintenance failed (group chat): $assistantId", e)
+                        }
+                    }
             }
             return
         }
@@ -125,6 +154,28 @@ class MemoryConsolidationWorker(
                         isFullScan = true,
                         forcedConversationId = conversation.id.toString(),
                     )
+                    template.seats.asSequence()
+                        .map { it.assistantId.toString() }
+                        .distinct()
+                        .forEach { assistantId ->
+                            val assistantUuid = runCatching { kotlin.uuid.Uuid.parse(assistantId) }.getOrNull()
+                            val targetAssistant = assistantUuid?.let { id -> settings.getAssistantById(id) }
+                            if (targetAssistant == null) return@forEach
+                            if (!targetAssistant.enableMemory) return@forEach
+
+                            val enableAutoArchive = targetAssistant.enableMemoryAutoArchive
+                            val enableAutoPurge = enableAutoArchive && targetAssistant.enableMemoryAutoPurgeArchived && allowPurgeArchived
+                            runCatching {
+                                maintainMemoryLifecycle(
+                                    assistantId = assistantId,
+                                    enableAutoArchive = enableAutoArchive,
+                                    enableAutoPurge = enableAutoPurge,
+                                    now = now,
+                                )
+                            }.onFailure { e ->
+                                Log.e("MemoryConsolidation", "Lifecycle maintenance failed (group chat): $assistantId", e)
+                            }
+                        }
                     return
                 }
             }
@@ -135,7 +186,11 @@ class MemoryConsolidationWorker(
 
         if (!assistant.enableMemory) {
             if (!isFullScan && forceConversationId.isNullOrBlank()) {
-                consolidateAllGroupChatTemplates(settings = settings)
+                consolidateAllGroupChatTemplates(
+                    settings = settings,
+                    allowPurgeArchived = allowPurgeArchived,
+                    now = now,
+                )
             }
             return
         }
@@ -147,7 +202,6 @@ class MemoryConsolidationWorker(
         val providerHandler = providerManager.getProviderByType(provider)
 
         var trackACount = 0
-        val now = System.currentTimeMillis()
         
         // Only process conversations if consolidation is enabled
         if (assistant.enableMemoryConsolidation || forceConversationId != null) {
@@ -359,28 +413,31 @@ class MemoryConsolidationWorker(
         }
 
         // =========================================================================================
-        // PRUNING: The "Throw Out" Mechanism
+        // LIFECYCLE: Archive & Purge (two-stage)
         // =========================================================================================
-        val allEpisodes = chatEpisodeDAO.getEpisodesOfAssistant(assistantId)
-        
-        var prunedCount = 0
-        for (episode in allEpisodes) {
-            val age = now - episode.startTime
-            val timeSinceAccess = now - episode.lastAccessedAt
-            
-            // Default 30 days retention
-            val retentionDays = 30L
-            
-            val retentionMs = retentionDays * 24 * 60 * 60 * 1000L
-            
-            // If older than retention period AND not accessed recently (7 days buffer)
-            if (age > retentionMs && timeSinceAccess > (7L * 24 * 60 * 60 * 1000L)) {
-                chatEpisodeDAO.deleteEpisode(episode.id)
-                prunedCount++
+        runCatching {
+            val enableAutoArchive = assistant.enableMemoryAutoArchive
+            val enableAutoPurge = enableAutoArchive && assistant.enableMemoryAutoPurgeArchived && allowPurgeArchived
+            val result = maintainMemoryLifecycle(
+                assistantId = assistantId,
+                enableAutoArchive = enableAutoArchive,
+                enableAutoPurge = enableAutoPurge,
+                now = now,
+            )
+            if (result.archivedCoreCount > 0 || result.archivedEpisodeCount > 0) {
+                Log.i(
+                    "MemoryConsolidation",
+                    "Archived core=${result.archivedCoreCount}, episodic=${result.archivedEpisodeCount}"
+                )
             }
-        }
-        if (prunedCount > 0) {
-            Log.i("MemoryConsolidation", "Pruned $prunedCount fading episodic memories")
+            if (result.purgedCoreCount > 0 || result.purgedEpisodeCount > 0) {
+                Log.i(
+                    "MemoryConsolidation",
+                    "Purged core=${result.purgedCoreCount}, episodic=${result.purgedEpisodeCount} (purge=$enableAutoPurge)"
+                )
+            }
+        }.onFailure { e ->
+            Log.e("MemoryConsolidation", "Lifecycle maintenance failed", e)
         }
 
         // =========================================================================================
@@ -396,11 +453,156 @@ class MemoryConsolidationWorker(
         }
 
         if (!isFullScan && forceConversationId.isNullOrBlank()) {
-            consolidateAllGroupChatTemplates(settings = settings)
+            consolidateAllGroupChatTemplates(
+                settings = settings,
+                allowPurgeArchived = allowPurgeArchived,
+                now = now,
+            )
         }
     }
 
-    private suspend fun consolidateAllGroupChatTemplates(settings: Settings) {
+    private data class LifecycleMaintenanceResult(
+        val archivedCoreCount: Int,
+        val purgedCoreCount: Int,
+        val archivedEpisodeCount: Int,
+        val purgedEpisodeCount: Int,
+    )
+
+    private suspend fun maintainMemoryLifecycle(
+        assistantId: String,
+        enableAutoArchive: Boolean,
+        enableAutoPurge: Boolean,
+        now: Long,
+    ): LifecycleMaintenanceResult {
+        val params = MemoryForgettingCurve.Default
+        val canArchive = enableAutoArchive
+        val canPurge = enableAutoArchive && enableAutoPurge
+
+        val coreMemories = memoryDAO.getMemoriesOfAssistant(assistantId)
+            .asSequence()
+            .filter { it.type == MemoryType.CORE }
+            .toList()
+
+        val episodes = chatEpisodeDAO.getEpisodesOfAssistant(assistantId)
+
+        val unarchivePinnedCoreIds = mutableListOf<Int>()
+        val archiveCoreIds = mutableListOf<Int>()
+        val purgeCoreIds = mutableListOf<Int>()
+
+        for (memory in coreMemories) {
+            if (memory.isPinned && memory.archivedAt != null) {
+                unarchivePinnedCoreIds.add(memory.id)
+                continue
+            }
+
+            val normalizedCreatedAt = if (memory.createdAt > 0L) memory.createdAt else now
+            val normalizedLastAccessedAt = if (memory.lastAccessedAt > 0L) memory.lastAccessedAt else normalizedCreatedAt
+            if (normalizedCreatedAt != memory.createdAt || normalizedLastAccessedAt != memory.lastAccessedAt) {
+                memoryDAO.updateMemory(
+                    memory.copy(
+                        createdAt = normalizedCreatedAt,
+                        lastAccessedAt = normalizedLastAccessedAt,
+                    )
+                )
+            }
+
+            if (memory.isPinned) continue
+
+            val archivedAt = memory.archivedAt
+            if (archivedAt == null) {
+                if (canArchive) {
+                    val retention = MemoryForgettingCurve.retentionScoreForCore(
+                        lastAccessedAt = normalizedLastAccessedAt,
+                        createdAt = normalizedCreatedAt,
+                        accessCount = memory.accessCount,
+                        isPinned = false,
+                        now = now,
+                        params = params,
+                    )
+                    if (MemoryForgettingCurve.shouldArchiveCore(retentionScore = retention, isPinned = false, params = params)) {
+                        archiveCoreIds.add(memory.id)
+                    }
+                }
+            } else if (canPurge && MemoryForgettingCurve.shouldPurgeArchived(
+                    archivedAt = archivedAt,
+                    purgeAfterDays = params.corePurgeAfterDays,
+                    now = now,
+                )
+            ) {
+                purgeCoreIds.add(memory.id)
+            }
+        }
+
+        if (unarchivePinnedCoreIds.isNotEmpty()) {
+            memoryDAO.unarchiveMemories(unarchivePinnedCoreIds)
+        }
+        if (archiveCoreIds.isNotEmpty()) {
+            memoryDAO.archiveMemories(archiveCoreIds, now)
+        }
+
+        val purgedCoreCount = if (canPurge && purgeCoreIds.isNotEmpty()) {
+            val deleted = memoryDAO.deleteMemoriesByIds(purgeCoreIds)
+            embeddingCacheDAO.deleteByMemoryIds(MemoryType.CORE, purgeCoreIds)
+            deleted
+        } else {
+            0
+        }
+
+        val archiveEpisodeIds = mutableListOf<Int>()
+        val purgeEpisodeIds = mutableListOf<Int>()
+
+        for (episode in episodes) {
+            val archivedAt = episode.archivedAt
+            if (archivedAt == null) {
+                if (canArchive) {
+                    val retention = MemoryForgettingCurve.retentionScoreForEpisode(
+                        lastAccessedAt = episode.lastAccessedAt,
+                        startTime = episode.startTime,
+                        endTime = episode.endTime,
+                        significance = episode.significance,
+                        accessCount = episode.accessCount,
+                        now = now,
+                        params = params,
+                    )
+                    if (MemoryForgettingCurve.shouldArchiveEpisode(retentionScore = retention, params = params)) {
+                        archiveEpisodeIds.add(episode.id)
+                    }
+                }
+            } else if (canPurge && MemoryForgettingCurve.shouldPurgeArchived(
+                    archivedAt = archivedAt,
+                    purgeAfterDays = params.episodicPurgeAfterDays,
+                    now = now,
+                )
+            ) {
+                purgeEpisodeIds.add(episode.id)
+            }
+        }
+
+        if (archiveEpisodeIds.isNotEmpty()) {
+            chatEpisodeDAO.archiveEpisodes(archiveEpisodeIds, now)
+        }
+
+        val purgedEpisodeCount = if (canPurge && purgeEpisodeIds.isNotEmpty()) {
+            val deleted = chatEpisodeDAO.deleteEpisodesByIds(purgeEpisodeIds)
+            embeddingCacheDAO.deleteByMemoryIds(MemoryType.EPISODIC, purgeEpisodeIds)
+            deleted
+        } else {
+            0
+        }
+
+        return LifecycleMaintenanceResult(
+            archivedCoreCount = archiveCoreIds.size,
+            purgedCoreCount = purgedCoreCount,
+            archivedEpisodeCount = archiveEpisodeIds.size,
+            purgedEpisodeCount = purgedEpisodeCount,
+        )
+    }
+
+    private suspend fun consolidateAllGroupChatTemplates(
+        settings: Settings,
+        allowPurgeArchived: Boolean,
+        now: Long,
+    ) {
         settings.groupChatTemplates.forEach { template ->
             consolidateGroupChatTemplate(
                 settings = settings,
@@ -408,6 +610,29 @@ class MemoryConsolidationWorker(
                 isFullScan = false,
                 forcedConversationId = null,
             )
+
+            template.seats.asSequence()
+                .map { it.assistantId.toString() }
+                .distinct()
+                .forEach { assistantId ->
+                    val assistantUuid = runCatching { kotlin.uuid.Uuid.parse(assistantId) }.getOrNull()
+                    val targetAssistant = assistantUuid?.let { id -> settings.getAssistantById(id) }
+                    if (targetAssistant == null) return@forEach
+                    if (!targetAssistant.enableMemory) return@forEach
+
+                    val enableAutoArchive = targetAssistant.enableMemoryAutoArchive
+                    val enableAutoPurge = enableAutoArchive && targetAssistant.enableMemoryAutoPurgeArchived && allowPurgeArchived
+                    runCatching {
+                        maintainMemoryLifecycle(
+                            assistantId = assistantId,
+                            enableAutoArchive = enableAutoArchive,
+                            enableAutoPurge = enableAutoPurge,
+                            now = now,
+                        )
+                    }.onFailure { e ->
+                        Log.e("MemoryConsolidation", "Lifecycle maintenance failed (group chat): $assistantId", e)
+                    }
+                }
         }
     }
 

@@ -14,6 +14,7 @@ import me.rerere.rikkahub.data.db.entity.MemoryEntity
 import me.rerere.rikkahub.data.db.entity.MemoryType
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.rikkahub.utils.MemoryForgettingCurve
 
 class MemoryRepository(
     private val memoryDAO: MemoryDAO,
@@ -22,7 +23,7 @@ class MemoryRepository(
     private val embeddingCacheDAO: EmbeddingCacheDAO
 ) {
     fun getMemoriesOfAssistantFlow(assistantId: String): Flow<List<AssistantMemory>> =
-        memoryDAO.getMemoriesOfAssistantFlow(assistantId)
+        memoryDAO.getActiveMemoriesOfAssistantByTypeFlow(assistantId, MemoryType.CORE)
             .map { entities ->
                 entities.map { AssistantMemory(it.id, it.content, it.type, it.embedding != null, it.embeddingModelId, it.createdAt) }
             }
@@ -33,8 +34,8 @@ class MemoryRepository(
      */
     fun getCombinedMemoriesFlow(assistantId: String): Flow<List<AssistantMemory>> =
         kotlinx.coroutines.flow.combine(
-            memoryDAO.getMemoriesOfAssistantFlow(assistantId),
-            chatEpisodeDAO.getEpisodesOfAssistantFlow(assistantId)
+            memoryDAO.getActiveMemoriesOfAssistantByTypeFlow(assistantId, MemoryType.CORE),
+            chatEpisodeDAO.getActiveEpisodesOfAssistantFlow(assistantId)
         ) { memories, episodes ->
             val coreMemories = memories.map { 
                 AssistantMemory(it.id, it.content, it.type, it.embedding != null, it.embeddingModelId, it.createdAt)
@@ -46,7 +47,7 @@ class MemoryRepository(
         }
 
     fun getAverageMemoryLength(assistantId: String): Flow<Int> =
-        memoryDAO.getMemoriesOfAssistantFlow(assistantId)
+        memoryDAO.getActiveMemoriesOfAssistantByTypeFlow(assistantId, MemoryType.CORE)
             .map { entities ->
                 if (entities.isEmpty()) return@map 150 // Default estimate
                 val totalLength = entities.sumOf { it.content.length.toLong() }
@@ -54,16 +55,16 @@ class MemoryRepository(
             }
 
     suspend fun getMemoriesOfAssistant(assistantId: String): List<AssistantMemory> {
-        return memoryDAO.getMemoriesOfAssistant(assistantId)
+        return memoryDAO.getActiveMemoriesOfAssistantByType(assistantId, MemoryType.CORE)
             .map { AssistantMemory(it.id, it.content, it.type, it.embedding != null, it.embeddingModelId, it.createdAt) }
     }
 
     suspend fun getMemoryEntitiesOfAssistant(assistantId: String): List<MemoryEntity> {
-        return memoryDAO.getMemoriesOfAssistant(assistantId)
+        return memoryDAO.getActiveMemoriesOfAssistantByType(assistantId, MemoryType.CORE)
     }
 
     suspend fun getEpisodeEntitiesOfAssistant(assistantId: String): List<ChatEpisodeEntity> {
-        return chatEpisodeDAO.getEpisodesOfAssistant(assistantId)
+        return chatEpisodeDAO.getActiveEpisodesOfAssistant(assistantId)
     }
 
     suspend fun getRecentCombinedMemories(
@@ -73,12 +74,12 @@ class MemoryRepository(
         includeEpisodes: Boolean = true,
     ): List<AssistantMemory> {
         val coreEntities = if (includeCore) {
-            memoryDAO.getRecentMemoriesOfAssistant(assistantId, limit)
+            memoryDAO.getRecentActiveMemoriesOfAssistantByType(assistantId, MemoryType.CORE, limit)
         } else {
             emptyList()
         }
         val episodeEntities = if (includeEpisodes) {
-            chatEpisodeDAO.getRecentEpisodesOfAssistant(assistantId, limit)
+            chatEpisodeDAO.getRecentActiveEpisodesOfAssistant(assistantId, limit)
         } else {
             emptyList()
         }
@@ -225,7 +226,7 @@ class MemoryRepository(
         )
     }
 
-    suspend fun addMemory(assistantId: String, content: String): AssistantMemory {
+    suspend fun addMemory(assistantId: String, content: String, isPinned: Boolean = true): AssistantMemory {
         val embeddingResult = try {
             embeddingService.embedWithModelId(
                 text = content,
@@ -244,7 +245,8 @@ class MemoryRepository(
             embeddingModelId = embeddingResult?.modelId,
             type = MemoryType.CORE,
             createdAt = System.currentTimeMillis(),
-            lastAccessedAt = System.currentTimeMillis()
+            lastAccessedAt = System.currentTimeMillis(),
+            isPinned = isPinned,
         )
         
         val id = memoryDAO.insertMemory(entity)
@@ -351,7 +353,8 @@ class MemoryRepository(
         limit: Int = 5,
         similarityThreshold: Float = 0.5f,
         includeCore: Boolean = true,
-        includeEpisodes: Boolean = true
+        includeEpisodes: Boolean = true,
+        includeArchived: Boolean = false,
     ): List<Pair<AssistantMemory, Float>> {
         val queryEmbedding = try {
             embeddingService.embed(
@@ -364,9 +367,27 @@ class MemoryRepository(
             return emptyList()
         }
 
-        // Get both core memories and episodes
-        val memories = if (includeCore) memoryDAO.getMemoriesOfAssistant(assistantId) else emptyList()
-        val episodes = if (includeEpisodes) chatEpisodeDAO.getEpisodesOfAssistant(assistantId) else emptyList()
+        val now = System.currentTimeMillis()
+
+        // Get both core memories and episodes (exclude archived by default)
+        val memories = if (includeCore) {
+            if (includeArchived) {
+                memoryDAO.getMemoriesOfAssistant(assistantId).filter { it.type == MemoryType.CORE }
+            } else {
+                memoryDAO.getActiveMemoriesOfAssistantByType(assistantId, MemoryType.CORE)
+            }
+        } else {
+            emptyList()
+        }
+        val episodes = if (includeEpisodes) {
+            if (includeArchived) {
+                chatEpisodeDAO.getEpisodesOfAssistant(assistantId)
+            } else {
+                chatEpisodeDAO.getActiveEpisodesOfAssistant(assistantId)
+            }
+        } else {
+            emptyList()
+        }
         
         // Score core memories - use cache for embeddings
         val memoryScores = memories.mapNotNull { memory ->
@@ -381,11 +402,18 @@ class MemoryRepository(
             
             val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
             
-            // Core memories don't decay, score is just similarity
-            // But we can give them a slight boost to ensure important facts are prioritized
-            val score = similarity * 1.05f 
+            val retention = MemoryForgettingCurve.retentionScoreForCore(
+                lastAccessedAt = memory.lastAccessedAt,
+                createdAt = memory.createdAt,
+                accessCount = memory.accessCount,
+                isPinned = memory.isPinned,
+                now = now,
+            )
+
+            // Core memories: similarity × retention, with a slight boost for stability.
+            val score = similarity * retention * 1.05f
             
-            if (score >= similarityThreshold) {
+            if (similarity >= similarityThreshold) {
                 Triple(memory, score, true) // true = is memory
             } else null
         }
@@ -403,16 +431,18 @@ class MemoryRepository(
             
             val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
             
-            // Calculate Recency Score
-            // Decay over 7 days (half-life)
-            val ageInMillis = System.currentTimeMillis() - episode.startTime
-            val ageInDays = ageInMillis / (1000.0 * 60 * 60 * 24)
-            val recency = (1.0 / (1.0 + (ageInDays / 7.0))).toFloat()
+            val retention = MemoryForgettingCurve.retentionScoreForEpisode(
+                lastAccessedAt = episode.lastAccessedAt,
+                startTime = episode.startTime,
+                endTime = episode.endTime,
+                significance = episode.significance,
+                accessCount = episode.accessCount,
+                now = now,
+            )
+
+            val score = similarity * retention
             
-            // Dual-Track Score Formula
-            val score = (similarity * 0.7f) + (recency * 0.3f)
-            
-            if (score >= similarityThreshold) {
+            if (similarity >= similarityThreshold) {
                 Triple(episode as Any, score, false) // false = is episode
             } else null
         }
@@ -420,15 +450,22 @@ class MemoryRepository(
         // Combine and sort by score
         val allScored = (memoryScores + episodeScores).sortedByDescending { it.second }
         
-        // Update lastAccessedAt for retrieved memories
-        allScored.take(limit).forEach { (item, _, isMemory) ->
-            if (isMemory) {
-                val memory = item as MemoryEntity
-                memoryDAO.updateMemory(memory.copy(lastAccessedAt = System.currentTimeMillis()))
-            } else {
-                val episode = item as ChatEpisodeEntity
-                chatEpisodeDAO.insertEpisode(episode.copy(lastAccessedAt = System.currentTimeMillis()))
-            }
+        // Reinforce Top-K hits (accessCount +1 and lastAccessedAt update)
+        val top = allScored.take(limit)
+        val topMemoryIds = top.asSequence()
+            .filter { it.third }
+            .map { (it.first as MemoryEntity).id }
+            .toList()
+        val topEpisodeIds = top.asSequence()
+            .filter { !it.third }
+            .map { (it.first as ChatEpisodeEntity).id }
+            .toList()
+
+        if (topMemoryIds.isNotEmpty()) {
+            memoryDAO.reinforceMemories(topMemoryIds, now)
+        }
+        if (topEpisodeIds.isNotEmpty()) {
+            chatEpisodeDAO.reinforceEpisodes(topEpisodeIds, now)
         }
         
         return allScored.take(limit).mapNotNull { triple ->
@@ -460,8 +497,8 @@ class MemoryRepository(
         assistantId: String,
         onProgress: (Int, Int) -> Unit
     ): Pair<Int, Int> {
-        val allMemories = memoryDAO.getMemoriesOfAssistant(assistantId)
-        val allEpisodes = chatEpisodeDAO.getEpisodesOfAssistant(assistantId)
+        val allMemories = memoryDAO.getActiveMemoriesOfAssistantByType(assistantId, MemoryType.CORE)
+        val allEpisodes = chatEpisodeDAO.getActiveEpisodesOfAssistant(assistantId)
         
         // Get current embedding model ID
         val currentModelId = embeddingService.getEmbeddingModelId(assistantId)
@@ -551,8 +588,8 @@ class MemoryRepository(
      * @return Pair of (successCount, failureCount)
      */
     suspend fun embedMissingMemories(assistantId: String): Pair<Int, Int> {
-        val memories = memoryDAO.getMemoriesOfAssistant(assistantId)
-        val episodes = chatEpisodeDAO.getEpisodesOfAssistant(assistantId)
+        val memories = memoryDAO.getActiveMemoriesOfAssistantByType(assistantId, MemoryType.CORE)
+        val episodes = chatEpisodeDAO.getActiveEpisodesOfAssistant(assistantId)
         val currentModelId = embeddingService.getEmbeddingModelId(assistantId)
         
         var successCount = 0
@@ -632,8 +669,8 @@ class MemoryRepository(
      * Used to determine if the regenerate button should be shown.
      */
     suspend fun countMemoriesNeedingEmbedding(assistantId: String): Int {
-        val memories = memoryDAO.getMemoriesOfAssistant(assistantId)
-        val episodes = chatEpisodeDAO.getEpisodesOfAssistant(assistantId)
+        val memories = memoryDAO.getActiveMemoriesOfAssistantByType(assistantId, MemoryType.CORE)
+        val episodes = chatEpisodeDAO.getActiveEpisodesOfAssistant(assistantId)
         val currentModelId = embeddingService.getEmbeddingModelId(assistantId)
         
         val memoriesNeedingEmbedding = memories.count { 

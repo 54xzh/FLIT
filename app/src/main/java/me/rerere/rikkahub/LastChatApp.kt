@@ -40,6 +40,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.workDataOf
 import me.rerere.rikkahub.service.MemoryConsolidationWorker
 import me.rerere.rikkahub.service.SpontaneousWorker
 import me.rerere.rikkahub.service.scheduledtask.ScheduledTaskRescheduleWorker
@@ -136,6 +137,7 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
                         PeriodicWorkRequestBuilder<MemoryConsolidationWorker>(
                             interval.toLong().coerceAtLeast(15), TimeUnit.MINUTES
                         )
+                            .setInputData(workDataOf("ALLOW_PURGE_ARCHIVED" to true))
                             .setConstraints(constraints)
                             .build()
                     )

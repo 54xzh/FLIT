@@ -30,6 +30,9 @@ enum class MemoryReflectionMode {
 
     @SerialName("auto_conservative")
     AUTO_CONSERVATIVE,
+
+    @SerialName("auto_aggressive")
+    AUTO_AGGRESSIVE,
 }
 
 /**
@@ -128,6 +131,10 @@ data class Assistant(
 
     // Per-assistant UI customization (null = use global setting)
     val uiSettings: AssistantUISettings = AssistantUISettings(),
+
+    // Memory Lifecycle
+    val enableMemoryAutoArchive: Boolean = true, // Auto-archive low-retention memories/episodes
+    val enableMemoryAutoPurgeArchived: Boolean = false, // Purge archived memories (requires periodic worker + explicit allow)
 )
 
 @Serializable

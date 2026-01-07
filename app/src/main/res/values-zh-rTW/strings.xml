@@ -847,11 +847,17 @@
   <string name="assistant_page_consolidation_reflection_interval">反思間隔</string>
   <string name="assistant_page_consolidation_reflection_interval_value">反思間隔: %d 小時</string>
   <string name="assistant_page_consolidation_reflection_interval_desc">多久反思一次情景記憶以形成核心記憶</string>
+  <string name="assistant_page_memory_auto_archive">自動歸檔（遺忘曲線）</string>
+  <string name="assistant_page_memory_auto_archive_desc">依遺忘曲線自動歸檔低保留度的記憶與情景記憶，使其逐漸淡出檢索。</string>
+  <string name="assistant_page_memory_auto_purge">自動清理歸檔內容</string>
+  <string name="assistant_page_memory_auto_purge_desc">開啟後，歸檔超過緩衝期將被刪除（僅背景週期任務生效）。</string>
+  <string name="assistant_page_memory_lifecycle_note">提示：你手動新增或透過工具寫入的核心記憶預設受保護，不會衰減或被自動清理。</string>
   <string name="assistant_page_reflection_enable">啟用反思（Track B）</string>
   <string name="assistant_page_reflection_enable_desc">從情景記憶中提取穩定資訊寫入核心記憶</string>
   <string name="assistant_page_reflection_mode">反思模式</string>
   <string name="assistant_page_reflection_mode_confirm">需確認</string>
   <string name="assistant_page_reflection_mode_auto">自動（保守）</string>
+  <string name="assistant_page_reflection_mode_auto_aggressive">自動（激進）</string>
   <string name="assistant_page_reflection_interval_value">反思間隔: %d 小時</string>
   <string name="assistant_page_reflection_interval_desc">自動執行反思的頻率（僅自動模式生效）</string>
   <string name="assistant_page_reflection_run_now">立即反思</string>

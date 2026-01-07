@@ -18,8 +18,32 @@ interface ChatEpisodeDAO {
     @Query("SELECT * FROM ChatEpisodeEntity WHERE assistant_id = :assistantId ORDER BY end_time DESC")
     fun getEpisodesOfAssistantFlow(assistantId: String): Flow<List<ChatEpisodeEntity>>
 
+    @Query("SELECT * FROM ChatEpisodeEntity WHERE assistant_id = :assistantId AND archived_at IS NULL ORDER BY end_time DESC")
+    suspend fun getActiveEpisodesOfAssistant(assistantId: String): List<ChatEpisodeEntity>
+
+    @Query("SELECT * FROM ChatEpisodeEntity WHERE assistant_id = :assistantId AND archived_at IS NULL ORDER BY end_time DESC LIMIT :limit")
+    suspend fun getRecentActiveEpisodesOfAssistant(assistantId: String, limit: Int): List<ChatEpisodeEntity>
+
+    @Query("SELECT * FROM ChatEpisodeEntity WHERE assistant_id = :assistantId AND archived_at IS NULL ORDER BY end_time DESC")
+    fun getActiveEpisodesOfAssistantFlow(assistantId: String): Flow<List<ChatEpisodeEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEpisode(episode: ChatEpisodeEntity): Long
+
+    @Query("UPDATE ChatEpisodeEntity SET last_accessed_at = :now, access_count = access_count + 1 WHERE id IN (:ids)")
+    suspend fun reinforceEpisodes(ids: List<Int>, now: Long)
+
+    @Query("UPDATE ChatEpisodeEntity SET archived_at = :archivedAt WHERE id IN (:ids)")
+    suspend fun archiveEpisodes(ids: List<Int>, archivedAt: Long)
+
+    @Query("UPDATE ChatEpisodeEntity SET archived_at = NULL WHERE id IN (:ids)")
+    suspend fun unarchiveEpisodes(ids: List<Int>)
+
+    @Query("SELECT id FROM ChatEpisodeEntity WHERE assistant_id = :assistantId AND archived_at IS NOT NULL AND archived_at <= :archivedBefore")
+    suspend fun getPurgableEpisodeIds(assistantId: String, archivedBefore: Long): List<Int>
+
+    @Query("DELETE FROM ChatEpisodeEntity WHERE id IN (:ids)")
+    suspend fun deleteEpisodesByIds(ids: List<Int>): Int
 
     @Query("DELETE FROM ChatEpisodeEntity WHERE id = :id")
     suspend fun deleteEpisode(id: Int)

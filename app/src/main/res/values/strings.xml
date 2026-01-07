@@ -911,11 +911,17 @@
     <string name="assistant_page_consolidation_reflection_interval">Reflection Interval</string>
     <string name="assistant_page_consolidation_reflection_interval_value">Reflection Interval: %d hours</string>
     <string name="assistant_page_consolidation_reflection_interval_desc">How often to reflect on episodes to form core memories</string>
+    <string name="assistant_page_memory_auto_archive">Auto Archive (Forgetting Curve)</string>
+    <string name="assistant_page_memory_auto_archive_desc">Automatically archive low-retention memories and episodes so they fade out of retrieval.</string>
+    <string name="assistant_page_memory_auto_purge">Auto Cleanup Archived</string>
+    <string name="assistant_page_memory_auto_purge_desc">When enabled, archived items will be deleted after a grace period (periodic background task only).</string>
+    <string name="assistant_page_memory_lifecycle_note">Note: Core memories created by you or via tools are protected by default and will not decay or be auto-cleaned.</string>
     <string name="assistant_page_reflection_enable">Enable Reflection (Track B)</string>
     <string name="assistant_page_reflection_enable_desc">Extract stable information from episodes into core memories</string>
     <string name="assistant_page_reflection_mode">Reflection Mode</string>
     <string name="assistant_page_reflection_mode_confirm">Confirm</string>
     <string name="assistant_page_reflection_mode_auto">Auto (Conservative)</string>
+    <string name="assistant_page_reflection_mode_auto_aggressive">Auto (Aggressive)</string>
     <string name="assistant_page_reflection_interval_value">Reflection Interval: %d hours</string>
     <string name="assistant_page_reflection_interval_desc">How often to run reflection automatically (auto mode only)</string>
     <string name="assistant_page_reflection_run_now">Run Reflection Now</string>

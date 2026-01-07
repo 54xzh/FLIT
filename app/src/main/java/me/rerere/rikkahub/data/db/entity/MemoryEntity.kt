@@ -22,6 +22,12 @@ data class MemoryEntity(
     val lastAccessedAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "created_at", defaultValue = "0")
     val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "access_count", defaultValue = "0")
+    val accessCount: Int = 0,
+    @ColumnInfo(name = "archived_at")
+    val archivedAt: Long? = null,
+    @ColumnInfo(name = "is_pinned", defaultValue = "1")
+    val isPinned: Boolean = true,
 )
 
 object MemoryType {

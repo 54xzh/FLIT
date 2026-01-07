@@ -122,26 +122,49 @@ class MemoryReflectionService(
 
         if (!assistant.enableMemory || !assistant.enableMemoryConsolidation) return@withContext null
         if (!assistant.enableMemoryReflection) return@withContext null
-        if (assistant.memoryReflectionMode != MemoryReflectionMode.AUTO_CONSERVATIVE) return@withContext null
+        val mode = assistant.memoryReflectionMode
+        if (mode != MemoryReflectionMode.AUTO_CONSERVATIVE && mode != MemoryReflectionMode.AUTO_AGGRESSIVE) return@withContext null
 
         val now = System.currentTimeMillis()
         val intervalMs = assistant.memoryReflectionIntervalHours.coerceIn(1, 72) * 60 * 60 * 1000L
         val due = isFullScan || (assistant.lastReflectionTime <= 0L) || (now - assistant.lastReflectionTime >= intervalMs)
         if (!due) return@withContext null
 
-        val suggestions = previewReflectionSuggestions(assistantId = assistantId)
+        val (maxEpisodes, maxActions) = when (mode) {
+            MemoryReflectionMode.AUTO_AGGRESSIVE -> 30 to 12
+            else -> 20 to 7
+        }
+
+        val suggestions = previewReflectionSuggestions(
+            assistantId = assistantId,
+            maxEpisodes = maxEpisodes,
+            maxActions = maxActions,
+        )
         val (createdCount, skippedCount) = applyCreateSuggestions(
             assistantId = assistantId,
             suggestions = suggestions,
             auto = true,
+            autoMode = mode,
         )
 
         val resultMsg = if (createdCount > 0) {
-            "新增 $createdCount 条核心记忆（自动）"
+            if (mode == MemoryReflectionMode.AUTO_AGGRESSIVE) {
+                "新增 $createdCount 条核心记忆（自动·激进）"
+            } else {
+                "新增 $createdCount 条核心记忆（自动）"
+            }
         } else if (skippedCount > 0) {
-            "无新增（自动），已跳过 $skippedCount 条建议"
+            if (mode == MemoryReflectionMode.AUTO_AGGRESSIVE) {
+                "无新增（自动·激进），已跳过 $skippedCount 条建议"
+            } else {
+                "无新增（自动），已跳过 $skippedCount 条建议"
+            }
         } else {
-            "无新增（自动）"
+            if (mode == MemoryReflectionMode.AUTO_AGGRESSIVE) {
+                "无新增（自动·激进）"
+            } else {
+                "无新增（自动）"
+            }
         }
 
         updateAssistantReflectionStats(
@@ -157,6 +180,7 @@ class MemoryReflectionService(
         assistantId: String,
         suggestions: List<MemoryReflectionAction>,
         auto: Boolean,
+        autoMode: MemoryReflectionMode = MemoryReflectionMode.AUTO_CONSERVATIVE,
     ): Pair<Int, Int> = withContext(Dispatchers.IO) {
         var created = 0
         var skipped = 0
@@ -166,17 +190,21 @@ class MemoryReflectionService(
             if (content.isBlank()) continue
 
             if (auto) {
+                val (minConfidence, minEvidenceCount) = when (autoMode) {
+                    MemoryReflectionMode.AUTO_AGGRESSIVE -> 0.65 to 1
+                    else -> 0.78 to 2
+                }
                 val confidence = suggestion.confidence ?: 0.0
                 val evidenceCount = suggestion.evidence_episode_ids.size
                 if (suggestion.sensitivity == MemoryReflectionSensitivity.HIGH) {
                     skipped++
                     continue
                 }
-                if (confidence < 0.78) {
+                if (confidence < minConfidence) {
                     skipped++
                     continue
                 }
-                if (evidenceCount < 2) {
+                if (evidenceCount < minEvidenceCount) {
                     skipped++
                     continue
                 }
@@ -192,7 +220,7 @@ class MemoryReflectionService(
                 continue
             }
 
-            memoryRepository.addMemory(assistantId, content)
+            memoryRepository.addMemory(assistantId, content, isPinned = !auto)
             created++
         }
 

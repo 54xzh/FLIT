@@ -129,7 +129,7 @@ class AssistantDetailVM(
 
     val memories = combine(
         memoryRepository.getMemoriesOfAssistantFlow(assistantId.toString()),
-        chatEpisodeDAO.getEpisodesOfAssistantFlow(assistantId.toString()),
+        chatEpisodeDAO.getActiveEpisodesOfAssistantFlow(assistantId.toString()),
         _memorySearchQuery
     ) { coreMemories, episodes, query ->
         val core = coreMemories
@@ -164,7 +164,7 @@ class AssistantDetailVM(
         scope = viewModelScope, started = SharingStarted.Lazily, initialValue = ""
     )
 
-    val episodes = chatEpisodeDAO.getEpisodesOfAssistantFlow(assistantId.toString())
+    val episodes = chatEpisodeDAO.getActiveEpisodesOfAssistantFlow(assistantId.toString())
         .stateIn(
             scope = viewModelScope, started = SharingStarted.Lazily, initialValue = emptyList()
         )
