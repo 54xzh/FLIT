@@ -2391,7 +2391,12 @@ class ChatService(
                         })
                         put("input", buildJsonObject {
                             put("type", "object")
-                            put("description", "Input object passed to the script's run(input: dict) function (default: {})")
+                            put("description", "Input object passed to the script's run(input: dict) function (default: {}). For CLI-style scripts, use `argv` instead.")
+                        })
+                        put("argv", buildJsonObject {
+                            put("type", "array")
+                            put("items", buildJsonObject { put("type", "string") })
+                            put("description", "Optional argv list for CLI-style scripts (when the script has no run(input)). Example: [\"--help\"]")
                         })
                         put("timeout_ms", buildJsonObject {
                             put("type", "integer")
@@ -2418,6 +2423,7 @@ class ChatService(
                     appendLine("- The script path must be under `scripts/` and end with `.py`.")
                     appendLine("- Scripts run with the working directory set to the current conversation's workspace folder.")
                     appendLine("- Prefer reading SKILL.md / script source via `read_skill_file` before running.")
+                    appendLine("- If the script is CLI-style (no run(input)), pass `argv` (e.g., [\"--help\"]) to run it.")
                     appendLine("Allowed skills for script execution:")
                     allowedSkills.forEach { skill ->
                         append("- name: ")
@@ -2496,6 +2502,26 @@ class ChatService(
                     else -> return@Tool buildJsonObject {
                         put("ok", false)
                         put("error", "Invalid input: expected object")
+                    }
+                }
+
+                val argvElement = obj["argv"]
+                val argv = when (argvElement) {
+                    null -> null
+                    is JsonArray -> {
+                        val parsed = argvElement.mapNotNull { it.jsonPrimitiveOrNull?.contentOrNull }
+                        if (parsed.size != argvElement.size) {
+                            return@Tool buildJsonObject {
+                                put("ok", false)
+                                put("error", "Invalid argv: expected array of strings")
+                            }
+                        }
+                        parsed
+                    }
+
+                    else -> return@Tool buildJsonObject {
+                        put("ok", false)
+                        put("error", "Invalid argv: expected array of strings")
                     }
                 }
 
@@ -2642,7 +2668,15 @@ class ChatService(
                             }
                         }
 
-                        val inputJson = inputObject.toString()
+                        val mergedInputObject = if (argv == null) {
+                            inputObject
+                        } else {
+                            JsonObject(inputObject.toMutableMap().apply {
+                                put("argv", buildJsonArray { argv.forEach { add(JsonPrimitive(it)) } })
+                            })
+                        }
+
+                        val inputJson = mergedInputObject.toString()
                         if (inputJson.length > 200_000) {
                             return@withContext buildJsonObject {
                                 put("ok", false)

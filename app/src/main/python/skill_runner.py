@@ -1,8 +1,11 @@
 import contextlib
 import io
+import inspect
 import json
 import os
+import pathlib
 import runpy
+import sys
 import traceback
 
 
@@ -14,6 +17,46 @@ def _truncate(text: str, max_chars: int):
     if len(text) <= max_chars:
         return text, False
     return text[:max_chars] + "\n... (truncated)", True
+
+
+def _patch_pathlib_write_text_newline():
+    """
+    Backport `Path.write_text(..., newline=...)` for older Python runtimes where
+    `newline` is not supported (e.g., Python < 3.10).
+
+    Returns a list of (cls, original_write_text) for restoration.
+    """
+    patched = []
+
+    def needs_newline_backport(fn):
+        try:
+            sig = inspect.signature(fn)
+            return "newline" not in sig.parameters
+        except Exception:
+            return False
+
+    def make_wrapper(orig_fn):
+        def write_text(self, data, encoding=None, errors=None, newline=None):
+            if newline is None:
+                return orig_fn(self, data, encoding=encoding, errors=errors)
+            with self.open(mode="w", encoding=encoding, errors=errors, newline=newline) as f:
+                return f.write(data)
+
+        return write_text
+
+    for cls_name in ("Path", "PosixPath", "WindowsPath"):
+        cls = getattr(pathlib, cls_name, None)
+        if cls is None:
+            continue
+        orig = getattr(cls, "write_text", None)
+        if orig is None:
+            continue
+        if not needs_newline_backport(orig):
+            continue
+        setattr(cls, "write_text", make_wrapper(orig))
+        patched.append((cls, orig))
+
+    return patched
 
 
 def run_script(
@@ -39,29 +82,74 @@ def run_script(
         input_obj = json.loads(input_json) if input_json else {}
         if input_obj is None:
             input_obj = {}
+        if not isinstance(input_obj, dict):
+            input_obj = {"_value": input_obj}
     except Exception:
         input_obj = {}
+
+    argv = None
+    raw_argv = input_obj.get("argv") or input_obj.get("_argv")
+    if isinstance(raw_argv, list) and all(isinstance(x, str) for x in raw_argv):
+        argv = raw_argv
 
     out_buf = io.StringIO()
     err_buf = io.StringIO()
 
     prev_cwd = os.getcwd()
+    prev_argv = list(sys.argv)
+    prev_sys_path = list(sys.path)
     try:
         os.makedirs(work_dir, exist_ok=True)
         os.chdir(work_dir)
 
         with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
-            scope = runpy.run_path(script_path, run_name="__main__")
-            fn = scope.get("run")
-            if not callable(fn):
-                raise RuntimeError("脚本未提供 run(input: dict) 函数")
+            patched_pathlib = []
+            try:
+                sys.argv = [script_path]
 
-            result = fn(input_obj)
+                script_dir = os.path.dirname(os.path.abspath(script_path))
+                skill_root_dir = os.path.dirname(script_dir) if script_dir else ""
+                if script_dir and script_dir not in sys.path:
+                    sys.path.insert(0, script_dir)
+                if skill_root_dir and skill_root_dir not in sys.path:
+                    sys.path.insert(0, skill_root_dir)
+
+                patched_pathlib = _patch_pathlib_write_text_newline()
+
+                scope = runpy.run_path(script_path, run_name="__skill__")
+                fn = scope.get("run")
+                if callable(fn):
+                    result = fn(input_obj)
+                    ok = True
+                else:
+                    if argv is None:
+                        raise RuntimeError(
+                            "脚本未提供 run(input: dict) 函数。若该脚本为命令行脚本，请传入 argv（或 input.argv）参数列表，例如 ['--help'] 查看用法。"
+                        )
+                    sys.argv = [script_path] + argv
+                    runpy.run_path(script_path, run_name="__main__")
+                    result = None
+                    ok = True
+            finally:
+                for cls, orig in reversed(patched_pathlib):
+                    try:
+                        setattr(cls, "write_text", orig)
+                    except Exception:
+                        pass
+                sys.argv = prev_argv
+                sys.path[:] = prev_sys_path
+    except BaseException as e:
+        if isinstance(e, SystemExit) and e.code in (0, None):
             ok = True
-    except Exception as e:
-        error = str(e)
-        err_buf.write("\n")
-        err_buf.write(traceback.format_exc())
+            error = None
+        else:
+            ok = False
+            if isinstance(e, SystemExit) and e.code == 2:
+                error = "SystemExit: 2（可能是 argparse 参数错误：请检查 argv（或 input.argv），或改用 run(input) 入口）"
+            else:
+                error = str(e) or e.__class__.__name__
+            err_buf.write("\n")
+            err_buf.write(traceback.format_exc())
     finally:
         try:
             os.chdir(prev_cwd)
