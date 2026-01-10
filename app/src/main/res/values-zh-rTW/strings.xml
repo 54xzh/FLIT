@@ -422,6 +422,10 @@
   <string name="setting_display_page_show_model_name_title">顯示模型名稱</string>
   <string name="setting_display_page_show_token_usage_desc">顯示token用量和消息數量</string>
   <string name="setting_display_page_show_token_usage_title">顯示Token和上下文統計</string>
+  <string name="setting_display_page_message_input_style_title">消息輸入欄樣式</string>
+  <string name="setting_display_page_message_input_style_desc">在標準與極簡輸入欄之間切換</string>
+  <string name="setting_display_page_message_input_style_standard">標準</string>
+  <string name="setting_display_page_message_input_style_minimal">極簡</string>
   <string name="setting_display_page_show_updates_desc">是否顯示應用更新通知</string>
   <string name="setting_display_page_show_updates_title">顯示更新</string>
   <string name="setting_display_page_show_user_avatar_desc">是否在聊天消息中顯示用戶頭像</string>
@@ -1028,6 +1032,7 @@
   <string name="toast_failed_to_open_url">打開鏈接失敗：%1$s</string>
   <string name="toast_failed_to_write_clipboard">寫入剪貼板失敗</string>
   <string name="tokens_format">%1$s tokens</string>
+  <string name="tokens_cached_suffix">（已快取 %1$s）</string>
   <string name="translator_page_copy_translation">復制翻譯</string>
   <string name="translator_page_paste_text">粘貼文本</string>
   <string name="update_download_notification_desc">正在下載 %1$s...</string>
@@ -1424,4 +1429,14 @@
   <string name="global">全域</string>
   <string name="custom">自訂</string>
   <string name="global_value_format">全域（%s）</string>
+  <string name="minimal_input_thinking">思考</string>
+  <string name="minimal_input_thinking_desc">更長的思考，獲得更好的回答</string>
+  <string name="minimal_input_search">搜尋</string>
+  <string name="minimal_input_search_desc">搜尋網頁資訊</string>
+  <string name="minimal_input_modes">模式</string>
+  <string name="minimal_input_modes_desc">改變助手的行為</string>
+  <string name="minimal_input_lorebooks">世界書</string>
+  <string name="minimal_input_lorebooks_desc">從世界書加入上下文</string>
+  <string name="minimal_input_summarize">總結</string>
+  <string name="minimal_input_summarize_desc">總結對話</string>
 </resources>

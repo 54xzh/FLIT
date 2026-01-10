@@ -204,7 +204,7 @@ fun SearchPickerButton(
 }
 
 @Composable
-private fun SearchPicker(
+internal fun SearchPicker(
     enableSearch: Boolean,
     settings: Settings,
     model: Model?,

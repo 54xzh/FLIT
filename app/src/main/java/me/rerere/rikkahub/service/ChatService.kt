@@ -924,6 +924,13 @@ class ChatService(
                 )
                 saveConversation(conversationId, newConversation)
 
+                // 记录每日活跃（用于连续聊天天数统计，独立于对话数据，避免删除聊天导致 streak 丢失）
+                try {
+                    conversationRepo.recordDailyActivity()
+                } catch (e: Exception) {
+                    Log.w(TAG, "sendMessage: recordDailyActivity failed (${e.message})", e)
+                }
+
                 // 开始补全
                 if(answer){
                     handleMessageComplete(

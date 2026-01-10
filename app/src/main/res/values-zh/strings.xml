@@ -451,6 +451,10 @@
   <string name="setting_display_page_show_model_name_title">显示模型名称</string>
   <string name="setting_display_page_show_token_usage_desc">显示token用量和消息数量</string>
   <string name="setting_display_page_show_token_usage_title">显示Token和上下文统计</string>
+  <string name="setting_display_page_message_input_style_title">消息输入栏样式</string>
+  <string name="setting_display_page_message_input_style_desc">在标准与极简输入栏之间切换</string>
+  <string name="setting_display_page_message_input_style_standard">标准</string>
+  <string name="setting_display_page_message_input_style_minimal">极简</string>
   <string name="setting_display_page_show_context_stacks_desc">在消息工具栏中显示上下文来源（模式、记忆、世界书）</string>
   <string name="setting_display_page_show_context_stacks_title">显示上下文堆栈</string>
   <string name="setting_display_page_show_updates_desc">是否显示应用更新通知</string>
@@ -1034,6 +1038,7 @@
     <string name="toast_failed_to_open_url">打开链接失败：%1$s</string>
     <string name="toast_failed_to_write_clipboard">写入剪贴板失败</string>
     <string name="tokens_format">%1$s Token</string>
+    <string name="tokens_cached_suffix">（已缓存 %1$s）</string>
     <string name="translator_page_copy_translation">复制翻译</string>
     <string name="translator_page_paste_text">粘贴文本</string>
     <string name="update_download_notification_desc">正在下载 %1$s...</string>
@@ -1428,5 +1433,15 @@
     <string name="setting_android_integration_desc">文本选择弹窗设置</string>
 
     <string name="setting_provider_page_add_from_list">从列表添加</string>
+    <string name="minimal_input_thinking">思考</string>
+    <string name="minimal_input_thinking_desc">更长的思考，获得更好的回答</string>
+    <string name="minimal_input_search">搜索</string>
+    <string name="minimal_input_search_desc">搜索网页信息</string>
+    <string name="minimal_input_modes">模式</string>
+    <string name="minimal_input_modes_desc">改变助手的行为</string>
+    <string name="minimal_input_lorebooks">世界书</string>
+    <string name="minimal_input_lorebooks_desc">从世界书添加上下文</string>
+    <string name="minimal_input_summarize">总结</string>
+    <string name="minimal_input_summarize_desc">总结对话</string>
 </resources>
 

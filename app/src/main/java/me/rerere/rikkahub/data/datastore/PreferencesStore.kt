@@ -731,6 +731,12 @@ enum class KeepAliveMode {
 }
 
 @Serializable
+enum class MessageInputStyle {
+    STANDARD,
+    MINIMAL,
+}
+
+@Serializable
 data class DisplaySetting(
     val userAvatar: Avatar = Avatar.Dummy,
     val userNickname: String = "",
@@ -738,6 +744,7 @@ data class DisplaySetting(
     val showModelIcon: Boolean = true,
     val showModelName: Boolean = true,
     val showTokenUsage: Boolean = false,
+    val messageInputStyle: MessageInputStyle = MessageInputStyle.STANDARD,
     val autoCloseThinking: Boolean = true,
     val showUpdates: Boolean = false,
     val checkForUpdates: Boolean = true, // Check GitHub for app updates

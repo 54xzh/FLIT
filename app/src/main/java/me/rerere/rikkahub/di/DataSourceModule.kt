@@ -92,6 +92,10 @@ val dataSourceModule = module {
         get<AppDatabase>().scheduledTaskRunDao()
     }
 
+    single {
+        get<AppDatabase>().dailyActivityDao()
+    }
+
     single { McpManager(settingsStore = get(), appScope = get()) }
 
     single {

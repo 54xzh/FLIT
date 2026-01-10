@@ -28,14 +28,16 @@ class MenuVM(
 
     val stats: StateFlow<MenuStats> = combine(
         conversationRepository.getConversationCountFlow(),
-        conversationRepository.getDistinctUpdateDatesFlow(),
+        conversationRepository.getDailyActivitiesFlow(),
         conversationRepository.getMostActiveAssistantIdFlow(),
         conversationRepository.getEpisodeCountFlow(),
         settingsStore.settingsFlow
-    ) { totalChats, distinctDates, mostActiveAssistantId, episodeCount, settings ->
+    ) { totalChats, activities, mostActiveAssistantId, episodeCount, settings ->
         
-        // Daily Chat Streak - now using pre-computed distinct dates from SQL
-        val streak = calculateStreak(distinctDates)
+        val activityDates = activities.map { it.date }
+
+        // Daily Chat Streak - uses persistent daily activity table
+        val streak = calculateStreak(activityDates)
 
         // Most Active Assistant
         val mostActiveAssistantName = mostActiveAssistantId?.let { id ->
@@ -46,14 +48,11 @@ class MenuVM(
             }
         } ?: "None"
 
-        // Average Messages Per Day - use a simpler approximation based on chat count
-        // This avoids loading all messages; for exact count, consider a separate SQL query
-        val daysActive = if (distinctDates.isNotEmpty()) {
-            distinctDates.size.coerceAtLeast(1)
+        val avgMessagesPerDay = if (activities.isNotEmpty()) {
+            activities.sumOf { it.messageCount }.toFloat() / activities.size.coerceAtLeast(1)
         } else {
-            1
+            0f
         }
-        val avgMessagesPerDay = totalChats.toFloat() / daysActive
 
         MenuStats(
             totalChats = totalChats,

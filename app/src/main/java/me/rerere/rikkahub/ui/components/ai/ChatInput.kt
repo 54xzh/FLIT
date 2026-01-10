@@ -2120,7 +2120,7 @@ private fun BigIconTextButtonPreview() {
 }
 
 @Composable
-private fun ModesPickerSheet(
+internal fun ModesPickerSheet(
     settings: me.rerere.rikkahub.data.datastore.Settings,
     conversation: Conversation,
     onUpdateConversation: (Conversation) -> Unit,
@@ -2264,7 +2264,7 @@ private fun ModesPickerSheet(
 }
 
 @Composable
-private fun LorebooksPickerSheet(
+internal fun LorebooksPickerSheet(
     settings: me.rerere.rikkahub.data.datastore.Settings,
     assistant: Assistant,
     onUpdateAssistant: (Assistant) -> Unit,

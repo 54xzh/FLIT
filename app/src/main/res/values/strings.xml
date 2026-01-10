@@ -536,6 +536,10 @@
     <string name="setting_display_page_show_model_name_title">Show Model Name</string>
     <string name="setting_display_page_show_token_usage_desc">Show token statistics below AI responses</string>
     <string name="setting_display_page_show_token_usage_title">Show Token Statistics</string>
+    <string name="setting_display_page_message_input_style_title">Message Input Style</string>
+    <string name="setting_display_page_message_input_style_desc">Choose between the standard and minimal input bar</string>
+    <string name="setting_display_page_message_input_style_standard">Standard</string>
+    <string name="setting_display_page_message_input_style_minimal">Minimal</string>
     <string name="setting_display_page_show_context_stacks_desc">Show context sources (modes, memories, lorebooks) in message toolbar</string>
     <string name="setting_display_page_show_context_stacks_title">Show Context Stacks</string>
     <string name="setting_display_page_show_updates_desc">Show app update notifications</string>
@@ -1102,6 +1106,7 @@
     <string name="toast_failed_to_open_url">Failed to open URL: %1$s</string>
     <string name="toast_failed_to_write_clipboard">Failed to write text into clipboard</string>
     <string name="tokens_format">%1$s tokens</string>
+    <string name="tokens_cached_suffix"> (%1$s cached)</string>
     <string name="translator_page_copy_translation">Copy translation</string>
     <string name="translator_page_paste_text">Paste Text</string>
     <string name="update_download_notification_desc">Downloading %1$s...</string>
@@ -1433,6 +1438,16 @@
     <string name="text_selection_setup_instructions">Select text anywhere on your device, look for \"LastChat\" in the toolbar that appears, and tap it to use these features.</string>
     <string name="text_selection_demo_text">This is sample text you can select! Try long-pressing to select these words, then look for \"LastChat\" in the selection toolbar. If you don\'t see it, you may need to tap the overflow menu (⋮) to find it.</string>
     <string name="text_selection_demo_hint">👆 Long-press the text above to try selecting it</string>
+    <string name="minimal_input_thinking">Thinking</string>
+    <string name="minimal_input_thinking_desc">Think longer for better answers</string>
+    <string name="minimal_input_search">Search</string>
+    <string name="minimal_input_search_desc">Search the web for information</string>
+    <string name="minimal_input_modes">Modes</string>
+    <string name="minimal_input_modes_desc">Change how the assistant behaves</string>
+    <string name="minimal_input_lorebooks">Lorebooks</string>
+    <string name="minimal_input_lorebooks_desc">Add context from your lorebooks</string>
+    <string name="minimal_input_summarize">Summarize</string>
+    <string name="minimal_input_summarize_desc">Summarize the conversation</string>
 </resources>
 
 

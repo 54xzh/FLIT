@@ -702,7 +702,12 @@ private fun TokenStatisticsRow(
                 tint = grayColor
             )
             Text(
-                text = stringResource(R.string.tokens_format, usage.promptTokens.formatNumber()),
+                text = buildString {
+                    append(stringResource(R.string.tokens_format, usage.promptTokens.formatNumber()))
+                    if (usage.cachedTokens > 0) {
+                        append(stringResource(R.string.tokens_cached_suffix, usage.cachedTokens.formatNumber()))
+                    }
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = grayColor
             )
@@ -739,7 +744,11 @@ private fun TokenStatisticsRow(
                     tint = grayColor
                 )
                 Text(
-                    text = String.format("%.1f tok/s", tps),
+                    text = if (tps < 1000) {
+                        String.format("%.0f tok/s", tps)
+                    } else {
+                        String.format("%.1f tok/s", tps)
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = grayColor
                 )
@@ -776,7 +785,12 @@ private fun TokenStatisticsRowInline(
                 tint = grayColor
             )
             Text(
-                text = "${usage.promptTokens.formatNumber()} tokens",
+                text = buildString {
+                    append("${usage.promptTokens.formatNumber()} tokens")
+                    if (usage.cachedTokens > 0) {
+                        append(" (${usage.cachedTokens.formatNumber()} cached)")
+                    }
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = grayColor
             )
@@ -813,7 +827,11 @@ private fun TokenStatisticsRowInline(
                     tint = grayColor
                 )
                 Text(
-                    text = String.format("%.1f tok/s", tps),
+                    text = if (tps < 1000) {
+                        String.format("%.0f tok/s", tps)
+                    } else {
+                        String.format("%.1f tok/s", tps)
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = grayColor
                 )

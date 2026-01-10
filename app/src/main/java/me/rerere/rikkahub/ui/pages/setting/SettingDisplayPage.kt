@@ -42,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.DisplaySetting
 import me.rerere.rikkahub.data.datastore.KeepAliveMode
+import me.rerere.rikkahub.data.datastore.MessageInputStyle
 import me.rerere.rikkahub.data.model.ToolResultHistoryMode
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
@@ -316,6 +317,33 @@ fun SettingDisplayPage(vm: SettingVM = koinViewModel()) {
                                 onCheckedChange = {
                                     updateDisplaySetting(displaySetting.copy(showTokenUsage = it))
                                 }
+                            )
+                        }
+                    )
+                    SettingGroupItem(
+                        title = stringResource(R.string.setting_display_page_message_input_style_title),
+                        subtitle = stringResource(R.string.setting_display_page_message_input_style_desc),
+                        trailing = {
+                            val options = remember { MessageInputStyle.entries.toList() }
+                            val selected = remember(displaySetting) { displaySetting.messageInputStyle }
+                            Select(
+                                options = options,
+                                selectedOption = selected,
+                                onOptionSelected = { option ->
+                                    updateDisplaySetting(displaySetting.copy(messageInputStyle = option))
+                                },
+                                optionToString = { option ->
+                                    when (option) {
+                                        MessageInputStyle.STANDARD -> stringResource(
+                                            R.string.setting_display_page_message_input_style_standard
+                                        )
+
+                                        MessageInputStyle.MINIMAL -> stringResource(
+                                            R.string.setting_display_page_message_input_style_minimal
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.widthIn(min = 64.dp, max = 140.dp)
                             )
                         }
                     )

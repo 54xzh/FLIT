@@ -5,14 +5,18 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.map
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
+import me.rerere.rikkahub.data.db.dao.DailyActivityDAO
 import me.rerere.rikkahub.data.db.dao.EmbeddingCacheDAO
 import me.rerere.rikkahub.data.db.dao.ToolResultArchiveDao
 import me.rerere.rikkahub.data.db.dao.ToolResultArchiveChunkDao
 import me.rerere.rikkahub.data.db.entity.ConversationEntity
+import me.rerere.rikkahub.data.db.entity.DailyActivityEntity
 import me.rerere.rikkahub.data.db.entity.MemoryType
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
@@ -27,6 +31,9 @@ import kotlinx.serialization.json.put
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.deleteChatFiles
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import kotlin.uuid.Uuid
 
 class ConversationRepository(
@@ -36,6 +43,7 @@ class ConversationRepository(
     private val toolResultArchiveDao: ToolResultArchiveDao,
     private val toolResultArchiveChunkDao: ToolResultArchiveChunkDao,
     private val embeddingCacheDAO: EmbeddingCacheDAO,
+    private val dailyActivityDAO: DailyActivityDAO,
 ) {
     companion object {
         private const val PAGE_SIZE = 20
@@ -300,6 +308,47 @@ class ConversationRepository(
 
     fun getMostActiveAssistantIdFlow(): Flow<String?> = conversationDAO.getMostActiveAssistantFlow()
         .map { it?.assistantId }
+
+    // ===== Daily Activity Tracking (for persistent streaks) =====
+
+    /**
+     * Record that the user was active today (sent a message).
+     * This persists independently of conversations, so streak data
+     * is preserved even when chats are deleted.
+     */
+    suspend fun recordDailyActivity() = withContext(Dispatchers.IO) {
+        val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        dailyActivityDAO.recordActivity(today)
+    }
+
+    /**
+     * Get all activity dates for streak calculation.
+     * Returns dates in ISO format (YYYY-MM-DD), ordered most recent first.
+     */
+    fun getDailyActivityDatesFlow(): Flow<List<String>> = dailyActivityDAO.getAllDatesFlow()
+
+    /**
+     * Get all daily activity entries (most recent first).
+     */
+    fun getDailyActivitiesFlow(): Flow<List<DailyActivityEntity>> = dailyActivityDAO.getAllActivitiesFlow()
+
+    /**
+     * Migrate existing conversation dates to the daily activity table.
+     * Called once during app initialization to preserve existing streaks.
+     */
+    suspend fun migrateConversationDatesToActivity() = withContext(Dispatchers.IO) {
+        val existingDates = conversationDAO.getDistinctUpdateDatesFlow().first()
+        for (dateStr in existingDates) {
+            try {
+                val date = LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE)
+                val isoDate = date.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                val timestamp = date.atStartOfDay().toEpochSecond(ZoneOffset.UTC) * 1000
+                dailyActivityDAO.insertDateIfNotExists(isoDate, timestamp)
+            } catch (e: Exception) {
+                // Skip invalid dates
+            }
+        }
+    }
 
     private fun conversationSummaryToConversation(entity: LightConversationEntity): Conversation {
         return Conversation(

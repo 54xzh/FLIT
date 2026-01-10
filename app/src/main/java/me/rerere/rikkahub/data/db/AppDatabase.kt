@@ -15,6 +15,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.data.db.dao.ChatEpisodeDAO
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.AIRequestLogDao
+import me.rerere.rikkahub.data.db.dao.DailyActivityDAO
 import me.rerere.rikkahub.data.db.dao.EmbeddingCacheDAO
 import me.rerere.rikkahub.data.db.dao.GenMediaDAO
 import me.rerere.rikkahub.data.db.dao.MemoryDAO
@@ -25,6 +26,7 @@ import me.rerere.rikkahub.data.db.dao.ToolResultArchiveChunkDao
 import me.rerere.rikkahub.data.db.entity.AIRequestLogEntity
 import me.rerere.rikkahub.data.db.entity.ChatEpisodeEntity
 import me.rerere.rikkahub.data.db.entity.ConversationEntity
+import me.rerere.rikkahub.data.db.entity.DailyActivityEntity
 import me.rerere.rikkahub.data.db.entity.EmbeddingCacheEntity
 import me.rerere.rikkahub.data.db.entity.GenMediaEntity
 import me.rerere.rikkahub.data.db.entity.MemoryEntity
@@ -47,8 +49,9 @@ import me.rerere.rikkahub.utils.JsonInstant
         AIRequestLogEntity::class,
         ScheduledTaskEntity::class,
         ScheduledTaskRunEntity::class,
+        DailyActivityEntity::class,
     ],
-    version = 28,
+    version = 29,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -74,6 +77,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 25, to = 26),
         AutoMigration(from = 26, to = 27),
         AutoMigration(from = 27, to = 28),
+        AutoMigration(from = 28, to = 29),
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -97,6 +101,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun scheduledTaskDao(): ScheduledTaskDao
 
     abstract fun scheduledTaskRunDao(): ScheduledTaskRunDao
+
+    abstract fun dailyActivityDao(): DailyActivityDAO
 
     companion object {
         const val TAG = "AppDatabase"

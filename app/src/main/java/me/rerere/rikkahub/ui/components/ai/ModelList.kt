@@ -242,7 +242,7 @@ fun ModelSelector(
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 @Composable
-private fun ColumnScope.ModelList(
+internal fun ColumnScope.ModelList(
     currentModel: Uuid? = null,
     providers: List<ProviderSetting>,
     modelType: ModelType,

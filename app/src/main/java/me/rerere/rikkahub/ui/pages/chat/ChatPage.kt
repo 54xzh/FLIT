@@ -95,6 +95,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.service.selectWelcomePhrase
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.datastore.MessageInputStyle
 import me.rerere.rikkahub.data.datastore.RpStyleRule
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
@@ -106,6 +107,7 @@ import me.rerere.rikkahub.data.model.GroupChatTemplate
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.ui.components.ai.ChatInput
 import me.rerere.rikkahub.ui.components.ai.ChatInputUiMode
+import me.rerere.rikkahub.ui.components.ai.MinimalChatInput
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
@@ -831,137 +833,274 @@ private fun ChatPageContent(
                         )
                 )
 
-                ChatInput(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .onSizeChanged { chatInputHeightPx = it.height },
-                    state = inputState,
-                    settings = setting,
-                    conversation = conversation,
-                    mcpManager = vm.mcpManager,
-                    uiMode = if (isGroupChatTemplate) ChatInputUiMode.GroupChat else ChatInputUiMode.Normal,
-                    chatSuggestions = conversation.chatSuggestions,
-                    onClickSuggestion = { suggestion ->
-                        if (currentChatModel != null) {
-                            vm.handleMessageSend(
-                                listOf(me.rerere.ai.ui.UIMessagePart.Text(suggestion)),
-                                isTemporaryChat = isTemporaryChat
-                            )
-                            scope.launch {
-                                chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
-                            }
-                        } else {
-                            toaster.show("Please select a model first", type = ToastType.Error)
-                        }
-                    },
-                    onCancelClick = {
-                        loadingJob?.cancel()
-                    },
-                    enableSearch = if (isGroupChatTemplate) false else enableWebSearch,
-                    onToggleSearch = {
-                        if (enableWebSearch) {
-                            vm.updateAssistantSearchMode(me.rerere.rikkahub.data.model.AssistantSearchMode.Off)
-                        } else {
-                            // Turn on search - restore last selected provider
-                            if (setting.searchServices.isNotEmpty()) {
-                                // Ensure index is valid (in case providers were removed)
-                                val validIndex = lastProviderIndex.coerceIn(0, setting.searchServices.lastIndex)
-                                vm.updateAssistantSearchMode(me.rerere.rikkahub.data.model.AssistantSearchMode.Provider(validIndex))
-                            }
-                        }
-                    },
-                     onSendClick = {
-                        if (!isGroupChatTemplate && currentChatModel == null) {
-                            toaster.show("Please select a model first", type = ToastType.Error)
-                            return@ChatInput
-                        }
-                        if (inputState.isEditing()) {
-                            vm.handleMessageEdit(
-                                parts = inputState.getContents(),
-                                messageId = inputState.editingMessage!!,
-                            )
-                            inputState.clearInput()
-                        } else {
-                            val content = inputState.getContents()
-                            val groupTemplate = groupChatTemplate
-                            if (isGroupChatTemplate && groupTemplate != null) {
-                                val userText = content
-                                    .filterIsInstance<UIMessagePart.Text>()
-                                    .joinToString("\n") { it.text }
-                                    .trim()
-                                val analysis = analyzeGroupChatMentionText(
-                                    text = userText,
-                                    settings = setting,
-                                    template = groupTemplate,
+                val messageInputStyle = setting.displaySetting.messageInputStyle
+                val useMinimalInput = !isGroupChatTemplate && messageInputStyle == MessageInputStyle.MINIMAL
+
+                if (useMinimalInput) {
+                    MinimalChatInput(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .onSizeChanged { chatInputHeightPx = it.height },
+                        state = inputState,
+                        settings = setting,
+                        conversation = conversation,
+                        mcpManager = vm.mcpManager,
+                        uiMode = if (isGroupChatTemplate) ChatInputUiMode.GroupChat else ChatInputUiMode.Normal,
+                        chatSuggestions = conversation.chatSuggestions,
+                        onClickSuggestion = { suggestion ->
+                            if (currentChatModel != null) {
+                                vm.handleMessageSend(
+                                    listOf(me.rerere.ai.ui.UIMessagePart.Text(suggestion)),
+                                    isTemporaryChat = isTemporaryChat
                                 )
-                                if (analysis.ambiguousKeysInOrder.isNotEmpty()) {
-                                    mentionDisambiguationState = GroupChatMentionDisambiguationState(
-                                        template = groupTemplate,
-                                        analysis = analysis,
-                                        selectedSeatIdsByKey = analysis.ambiguousKeysInOrder.associateWith { key ->
-                                            analysis.keyToInfo[key]?.seatIds?.firstOrNull()?.let(::setOf).orEmpty()
-                                        },
-                                        pendingContent = content,
-                                        isTemporaryChat = isTemporaryChat,
-                                    )
-                                    return@ChatInput
+                                scope.launch {
+                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                                }
+                            } else {
+                                toaster.show("Please select a model first", type = ToastType.Error)
+                            }
+                        },
+                        onCancelClick = {
+                            loadingJob?.cancel()
+                        },
+                        enableSearch = if (isGroupChatTemplate) false else enableWebSearch,
+                        onToggleSearch = {
+                            if (enableWebSearch) {
+                                vm.updateAssistantSearchMode(me.rerere.rikkahub.data.model.AssistantSearchMode.Off)
+                            } else {
+                                // Turn on search - restore last selected provider
+                                if (setting.searchServices.isNotEmpty()) {
+                                    // Ensure index is valid (in case providers were removed)
+                                    val validIndex = lastProviderIndex.coerceIn(0, setting.searchServices.lastIndex)
+                                    vm.updateAssistantSearchMode(me.rerere.rikkahub.data.model.AssistantSearchMode.Provider(validIndex))
                                 }
                             }
-
-                            vm.handleMessageSend(content, isTemporaryChat = isTemporaryChat)
-                            scope.launch {
-                                chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                        },
+                        onSendClick = onSendClick@{
+                            if (!isGroupChatTemplate && currentChatModel == null) {
+                                toaster.show("Please select a model first", type = ToastType.Error)
+                                return@onSendClick
                             }
-                            inputState.clearInput()
-                        }
-                    },
-                    onLongSendClick = {
-                        if (inputState.isEditing()) {
-                            vm.handleMessageEdit(
-                                parts = inputState.getContents(),
-                                messageId = inputState.editingMessage!!,
-                            )
-                        } else {
-                            vm.handleMessageSend(content = inputState.getContents(), answer = false, isTemporaryChat = isTemporaryChat)
-                            scope.launch {
-                                chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
-                            }
-                        }
-                        inputState.clearInput()
-                    },
-                    onUpdateChatModel = {
-                        vm.setChatModel(assistant = setting.getCurrentAssistant(), model = it)
-                    },
-                    onUpdateAssistant = {
-                        vm.updateSettings(
-                            setting.copy(
-                                assistants = setting.assistants.map { assistant ->
-                                    if (assistant.id == it.id) {
-                                        it
-                                    } else {
-                                        assistant
+                            if (inputState.isEditing()) {
+                                vm.handleMessageEdit(
+                                    parts = inputState.getContents(),
+                                    messageId = inputState.editingMessage!!,
+                                )
+                                inputState.clearInput()
+                            } else {
+                                val content = inputState.getContents()
+                                val groupTemplate = groupChatTemplate
+                                if (isGroupChatTemplate && groupTemplate != null) {
+                                    val userText = content
+                                        .filterIsInstance<UIMessagePart.Text>()
+                                        .joinToString("\n") { it.text }
+                                        .trim()
+                                    val analysis = analyzeGroupChatMentionText(
+                                        text = userText,
+                                        settings = setting,
+                                        template = groupTemplate,
+                                    )
+                                    if (analysis.ambiguousKeysInOrder.isNotEmpty()) {
+                                        mentionDisambiguationState = GroupChatMentionDisambiguationState(
+                                            template = groupTemplate,
+                                            analysis = analysis,
+                                            selectedSeatIdsByKey = analysis.ambiguousKeysInOrder.associateWith { key ->
+                                                analysis.keyToInfo[key]?.seatIds?.firstOrNull()?.let(::setOf).orEmpty()
+                                            },
+                                            pendingContent = content,
+                                            isTemporaryChat = isTemporaryChat,
+                                        )
+                                        return@onSendClick
                                     }
                                 }
+
+                                vm.handleMessageSend(content, isTemporaryChat = isTemporaryChat)
+                                scope.launch {
+                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                                }
+                                inputState.clearInput()
+                            }
+                        },
+                        onLongSendClick = {
+                            if (inputState.isEditing()) {
+                                vm.handleMessageEdit(
+                                    parts = inputState.getContents(),
+                                    messageId = inputState.editingMessage!!,
+                                )
+                            } else {
+                                vm.handleMessageSend(content = inputState.getContents(), answer = false, isTemporaryChat = isTemporaryChat)
+                                scope.launch {
+                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                                }
+                            }
+                            inputState.clearInput()
+                        },
+                        onUpdateChatModel = {
+                            vm.setChatModel(assistant = setting.getCurrentAssistant(), model = it)
+                        },
+                        onUpdateAssistant = {
+                            vm.updateSettings(
+                                setting.copy(
+                                    assistants = setting.assistants.map { assistant ->
+                                        if (assistant.id == it.id) {
+                                            it
+                                        } else {
+                                            assistant
+                                        }
+                                    }
+                                )
                             )
-                        )
-                    },
-                    onUpdateSearchService = { index ->
-                        // Only persist the selection to the assistant's searchMode to avoid double-update flicker
-                        // The global setting 'searchServiceSelected' is deprecated in favor of assistant-specific settings
-                        vm.updateAssistantSearchMode(me.rerere.rikkahub.data.model.AssistantSearchMode.Provider(index))
-                    },
-                    onClearContext = {
-                        vm.handleMessageTruncate()
-                    },
-                    onUpdateConversation = { updatedConversation ->
-                        vm.updateConversation(updatedConversation)
-                        vm.saveConversationAsync()
-                    },
-                    onNavigateToLorebook = { lorebookId ->
-                        navController.navigate(Screen.SettingLorebookDetail(lorebookId))
-                    },
-                    onRefreshContext = { vm.refreshContext() },
-                )
+                        },
+                        onUpdateSearchService = { index ->
+                            // Only persist the selection to the assistant's searchMode to avoid double-update flicker
+                            // The global setting 'searchServiceSelected' is deprecated in favor of assistant-specific settings
+                            vm.updateAssistantSearchMode(me.rerere.rikkahub.data.model.AssistantSearchMode.Provider(index))
+                        },
+                        onClearContext = {
+                            vm.handleMessageTruncate()
+                        },
+                        onUpdateConversation = { updatedConversation ->
+                            vm.updateConversation(updatedConversation)
+                            vm.saveConversationAsync()
+                        },
+                        onNavigateToLorebook = { lorebookId ->
+                            navController.navigate(Screen.SettingLorebookDetail(lorebookId))
+                        },
+                        onRefreshContext = { vm.refreshContext() },
+                    )
+                } else {
+                    ChatInput(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .onSizeChanged { chatInputHeightPx = it.height },
+                        state = inputState,
+                        settings = setting,
+                        conversation = conversation,
+                        mcpManager = vm.mcpManager,
+                        uiMode = if (isGroupChatTemplate) ChatInputUiMode.GroupChat else ChatInputUiMode.Normal,
+                        chatSuggestions = conversation.chatSuggestions,
+                        onClickSuggestion = { suggestion ->
+                            if (currentChatModel != null) {
+                                vm.handleMessageSend(
+                                    listOf(me.rerere.ai.ui.UIMessagePart.Text(suggestion)),
+                                    isTemporaryChat = isTemporaryChat
+                                )
+                                scope.launch {
+                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                                }
+                            } else {
+                                toaster.show("Please select a model first", type = ToastType.Error)
+                            }
+                        },
+                        onCancelClick = {
+                            loadingJob?.cancel()
+                        },
+                        enableSearch = if (isGroupChatTemplate) false else enableWebSearch,
+                        onToggleSearch = {
+                            if (enableWebSearch) {
+                                vm.updateAssistantSearchMode(me.rerere.rikkahub.data.model.AssistantSearchMode.Off)
+                            } else {
+                                // Turn on search - restore last selected provider
+                                if (setting.searchServices.isNotEmpty()) {
+                                    // Ensure index is valid (in case providers were removed)
+                                    val validIndex = lastProviderIndex.coerceIn(0, setting.searchServices.lastIndex)
+                                    vm.updateAssistantSearchMode(me.rerere.rikkahub.data.model.AssistantSearchMode.Provider(validIndex))
+                                }
+                            }
+                        },
+                        onSendClick = onSendClick@{
+                            if (!isGroupChatTemplate && currentChatModel == null) {
+                                toaster.show("Please select a model first", type = ToastType.Error)
+                                return@onSendClick
+                            }
+                            if (inputState.isEditing()) {
+                                vm.handleMessageEdit(
+                                    parts = inputState.getContents(),
+                                    messageId = inputState.editingMessage!!,
+                                )
+                                inputState.clearInput()
+                            } else {
+                                val content = inputState.getContents()
+                                val groupTemplate = groupChatTemplate
+                                if (isGroupChatTemplate && groupTemplate != null) {
+                                    val userText = content
+                                        .filterIsInstance<UIMessagePart.Text>()
+                                        .joinToString("\n") { it.text }
+                                        .trim()
+                                    val analysis = analyzeGroupChatMentionText(
+                                        text = userText,
+                                        settings = setting,
+                                        template = groupTemplate,
+                                    )
+                                    if (analysis.ambiguousKeysInOrder.isNotEmpty()) {
+                                        mentionDisambiguationState = GroupChatMentionDisambiguationState(
+                                            template = groupTemplate,
+                                            analysis = analysis,
+                                            selectedSeatIdsByKey = analysis.ambiguousKeysInOrder.associateWith { key ->
+                                                analysis.keyToInfo[key]?.seatIds?.firstOrNull()?.let(::setOf).orEmpty()
+                                            },
+                                            pendingContent = content,
+                                            isTemporaryChat = isTemporaryChat,
+                                        )
+                                        return@onSendClick
+                                    }
+                                }
+
+                                vm.handleMessageSend(content, isTemporaryChat = isTemporaryChat)
+                                scope.launch {
+                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                                }
+                                inputState.clearInput()
+                            }
+                        },
+                        onLongSendClick = {
+                            if (inputState.isEditing()) {
+                                vm.handleMessageEdit(
+                                    parts = inputState.getContents(),
+                                    messageId = inputState.editingMessage!!,
+                                )
+                            } else {
+                                vm.handleMessageSend(content = inputState.getContents(), answer = false, isTemporaryChat = isTemporaryChat)
+                                scope.launch {
+                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                                }
+                            }
+                            inputState.clearInput()
+                        },
+                        onUpdateChatModel = {
+                            vm.setChatModel(assistant = setting.getCurrentAssistant(), model = it)
+                        },
+                        onUpdateAssistant = {
+                            vm.updateSettings(
+                                setting.copy(
+                                    assistants = setting.assistants.map { assistant ->
+                                        if (assistant.id == it.id) {
+                                            it
+                                        } else {
+                                            assistant
+                                        }
+                                    }
+                                )
+                            )
+                        },
+                        onUpdateSearchService = { index ->
+                            // Only persist the selection to the assistant's searchMode to avoid double-update flicker
+                            // The global setting 'searchServiceSelected' is deprecated in favor of assistant-specific settings
+                            vm.updateAssistantSearchMode(me.rerere.rikkahub.data.model.AssistantSearchMode.Provider(index))
+                        },
+                        onClearContext = {
+                            vm.handleMessageTruncate()
+                        },
+                        onUpdateConversation = { updatedConversation ->
+                            vm.updateConversation(updatedConversation)
+                            vm.saveConversationAsync()
+                        },
+                        onNavigateToLorebook = { lorebookId ->
+                            navController.navigate(Screen.SettingLorebookDetail(lorebookId))
+                        },
+                        onRefreshContext = { vm.refreshContext() },
+                    )
+                }
 
                 val disambiguationState = mentionDisambiguationState
                 if (disambiguationState != null) {
