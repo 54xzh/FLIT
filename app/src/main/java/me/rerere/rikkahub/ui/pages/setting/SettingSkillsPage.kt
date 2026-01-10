@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -44,9 +46,11 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -111,6 +115,8 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
     var renamingFolder by remember { mutableStateOf<SkillFolder?>(null) }
     var renameFolderName by remember { mutableStateOf("") }
 
+    var showEnableScriptExecutionDialog by remember { mutableStateOf(false) }
+
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -155,6 +161,26 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                 }
             }
         }
+    }
+
+    val workspaceRootLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        }
+        vm.updateSettings { old ->
+            old.copy(
+                workspaceRootTreeUri = uri.toString(),
+                conversationWorkDirs = emptyMap(),
+            )
+        }
+        haptics.perform(HapticPattern.Success)
+        toaster.show(message = context.getString(R.string.workspace_root_set_success))
     }
 
     fun requestImport() {
@@ -435,6 +461,14 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    TextButton(
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            workspaceRootLauncher.launch(null)
+                        }
+                    ) {
+                        Text(stringResource(R.string.workspace_root_choose))
+                    }
                     Spacer(Modifier.width(1.dp))
                 }
             }
@@ -448,9 +482,115 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                    .padding(horizontal = 16.dp)
+                    .padding(
+                        top = 16.dp,
+                        bottom = if (isSelectionMode) 16.dp else 96.dp,
+                    ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                item(key = "skill_scripts_settings") {
+                    Card(
+                        shape = AppShapes.CardLarge,
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = stringResource(R.string.skill_scripts_title),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.skill_scripts_description),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Switch(
+                                    checked = settings.enableSkillScriptExecution,
+                                    onCheckedChange = { checked ->
+                                        haptics.perform(HapticPattern.Pop)
+                                        if (checked && !settings.enableSkillScriptExecution) {
+                                            showEnableScriptExecutionDialog = true
+                                        } else {
+                                            vm.updateSettings { old -> old.copy(enableSkillScriptExecution = checked) }
+                                        }
+                                    },
+                                )
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = stringResource(R.string.workspace_root_title),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Text(
+                                        text = if (settings.workspaceRootTreeUri.isNullOrBlank()) {
+                                            stringResource(R.string.workspace_root_not_set)
+                                        } else {
+                                            stringResource(R.string.workspace_root_set)
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        haptics.perform(HapticPattern.Pop)
+                                        workspaceRootLauncher.launch(null)
+                                    }
+                                ) {
+                                    Text(stringResource(R.string.workspace_root_choose))
+                                }
+                                if (!settings.workspaceRootTreeUri.isNullOrBlank()) {
+                                    TextButton(
+                                        onClick = {
+                                            haptics.perform(HapticPattern.Thud)
+                                            val uri = runCatching { Uri.parse(settings.workspaceRootTreeUri) }.getOrNull()
+                                            if (uri != null) {
+                                                runCatching {
+                                                    context.contentResolver.releasePersistableUriPermission(
+                                                        uri,
+                                                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                                    )
+                                                }
+                                            }
+                                            vm.updateSettings { old ->
+                                                old.copy(
+                                                    workspaceRootTreeUri = null,
+                                                    conversationWorkDirs = emptyMap(),
+                                                )
+                                            }
+                                            toaster.show(message = context.getString(R.string.workspace_root_cleared))
+                                        }
+                                    ) {
+                                        Text(stringResource(R.string.clear))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
                 settings.skillFolders.forEachIndexed { folderIndex, folder ->
                     val skillsInFolder = settings.skills.filter { it.folderId == folder.id }
 
@@ -550,6 +690,18 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                                                     }
                                                 },
                                                 onRequestDelete = { deletingSkill = skill },
+                                                scriptEnabled = settings.enabledSkillScriptIds.contains(skill.id),
+                                                scriptToggleEnabled = settings.enableSkillScriptExecution,
+                                                onToggleScriptEnabled = { enabled ->
+                                                    vm.updateSettings { old ->
+                                                        val updated = if (enabled) {
+                                                            old.enabledSkillScriptIds + skill.id
+                                                        } else {
+                                                            old.enabledSkillScriptIds - skill.id
+                                                        }
+                                                        old.copy(enabledSkillScriptIds = updated)
+                                                    }
+                                                },
                                             )
                                         }
                                     }
@@ -635,6 +787,18 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                                                 }
                                             },
                                             onRequestDelete = { deletingSkill = skill },
+                                            scriptEnabled = settings.enabledSkillScriptIds.contains(skill.id),
+                                            scriptToggleEnabled = settings.enableSkillScriptExecution,
+                                            onToggleScriptEnabled = { enabled ->
+                                                vm.updateSettings { old ->
+                                                    val updated = if (enabled) {
+                                                        old.enabledSkillScriptIds + skill.id
+                                                    } else {
+                                                        old.enabledSkillScriptIds - skill.id
+                                                    }
+                                                    old.copy(enabledSkillScriptIds = updated)
+                                                }
+                                            },
                                         )
                                     }
                                 }
@@ -685,6 +849,29 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                 },
                 dismissButton = {
                     TextButton(onClick = { showBatchDeleteDialog = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                }
+            )
+        }
+
+        if (showEnableScriptExecutionDialog) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showEnableScriptExecutionDialog = false },
+                title = { Text(stringResource(R.string.skill_scripts_risk_title)) },
+                text = { Text(stringResource(R.string.skill_scripts_risk_message)) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            haptics.perform(HapticPattern.Thud)
+                            vm.updateSettings { old -> old.copy(enableSkillScriptExecution = true) }
+                            showEnableScriptExecutionDialog = false
+                            toaster.show(message = context.getString(R.string.skill_scripts_enabled_success))
+                        }
+                    ) { Text(stringResource(R.string.skill_scripts_enable_action)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showEnableScriptExecutionDialog = false }) {
                         Text(stringResource(R.string.cancel))
                     }
                 }
@@ -861,6 +1048,9 @@ private fun SkillRow(
     isSelected: Boolean,
     onToggleSelected: (Boolean) -> Unit,
     onRequestDelete: () -> Unit,
+    scriptEnabled: Boolean,
+    scriptToggleEnabled: Boolean,
+    onToggleScriptEnabled: ((Boolean) -> Unit)?,
 ) {
     if (isSelectionMode) {
         ListSelectableItem(
@@ -868,7 +1058,12 @@ private fun SkillRow(
             onSelectChange = onToggleSelected,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            SkillRowContent(skill = skill)
+            SkillRowContent(
+                skill = skill,
+                scriptEnabled = scriptEnabled,
+                scriptToggleEnabled = false,
+                onToggleScriptEnabled = null,
+            )
         }
         return
     }
@@ -879,12 +1074,24 @@ private fun SkillRow(
         onDelete = onRequestDelete,
         modifier = Modifier.fillMaxWidth()
     ) {
-        SkillCard(skill = skill, position = position)
+        SkillCard(
+            skill = skill,
+            position = position,
+            scriptEnabled = scriptEnabled,
+            scriptToggleEnabled = scriptToggleEnabled,
+            onToggleScriptEnabled = onToggleScriptEnabled,
+        )
     }
 }
 
 @Composable
-private fun SkillRowContent(skill: Skill) {
+private fun SkillRowContent(
+    skill: Skill,
+    scriptEnabled: Boolean,
+    scriptToggleEnabled: Boolean,
+    onToggleScriptEnabled: ((Boolean) -> Unit)?,
+) {
+    val haptics = rememberPremiumHaptics()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -906,6 +1113,28 @@ private fun SkillRowContent(skill: Skill) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
         )
+
+        if (onToggleScriptEnabled != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = stringResource(R.string.skill_scripts_skill_toggle_label),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Switch(
+                    checked = scriptEnabled,
+                    onCheckedChange = { checked ->
+                        haptics.perform(HapticPattern.Pop)
+                        onToggleScriptEnabled(checked)
+                    },
+                    enabled = scriptToggleEnabled,
+                )
+            }
+        }
     }
 }
 
@@ -913,6 +1142,9 @@ private fun SkillRowContent(skill: Skill) {
 private fun SkillCard(
     skill: Skill,
     position: ItemPosition,
+    scriptEnabled: Boolean,
+    scriptToggleEnabled: Boolean,
+    onToggleScriptEnabled: ((Boolean) -> Unit)?,
 ) {
     val cornerRadius = 28.dp
     val smallCorner = 8.dp
@@ -935,7 +1167,12 @@ private fun SkillCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
     ) {
-        SkillRowContent(skill = skill)
+        SkillRowContent(
+            skill = skill,
+            scriptEnabled = scriptEnabled,
+            scriptToggleEnabled = scriptToggleEnabled,
+            onToggleScriptEnabled = onToggleScriptEnabled,
+        )
     }
 }
 

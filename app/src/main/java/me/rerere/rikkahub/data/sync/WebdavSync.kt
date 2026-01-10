@@ -276,6 +276,21 @@ class WebdavSync(
                         "prepareBackupFile: Images folder does not exist or is not a directory"
                     )
                 }
+
+                // 备份 Skills 包（文件系统内容，非仅 settings 引用）
+                val skillsFolder = File(context.filesDir, "skills")
+                if (skillsFolder.exists() && skillsFolder.isDirectory) {
+                    Log.i(
+                        TAG,
+                        "prepareBackupFile: Backing up skills from ${skillsFolder.absolutePath}"
+                    )
+                    addDirectoryToZip(zipOut, skillsFolder, "skills")
+                } else {
+                    Log.i(
+                        TAG,
+                        "prepareBackupFile: Skills folder does not exist or is not a directory"
+                    )
+                }
             }
         }
 
@@ -457,6 +472,11 @@ class WebdavSync(
                                             prefix = "images/"
                                         )
 
+                                        zipEntry.name.startsWith("skills/") -> restoreToFilesDirSubfolder(
+                                            subfolder = "skills",
+                                            prefix = "skills/"
+                                        )
+
                                         else -> skipEntry(reason = "unsupported")
                                     }
                                 } else {
@@ -505,6 +525,21 @@ private fun addFileToZip(zipOut: ZipOutputStream, file: File, entryName: String)
         zipOut.closeEntry()
         Log.d(TAG, "addFileToZip: Added $entryName (${file.length()} bytes) to zip")
     }
+}
+
+private fun addDirectoryToZip(zipOut: ZipOutputStream, dir: File, entryPrefix: String) {
+    if (!dir.exists() || !dir.isDirectory) return
+    val prefix = entryPrefix.trim('/')
+    if (prefix.isBlank()) return
+
+    dir.walkTopDown()
+        .filter { it.isFile }
+        .forEach { file ->
+            val relPath = runCatching { file.relativeTo(dir).path.replace('\\', '/') }.getOrNull()
+                ?: return@forEach
+            if (relPath.isBlank()) return@forEach
+            addFileToZip(zipOut, file, "$prefix/$relPath")
+        }
 }
 
 private fun addVirtualFileToZip(zipOut: ZipOutputStream, name: String, content: String) {

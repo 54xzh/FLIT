@@ -165,6 +165,10 @@ class SettingsStore(
         // Skills
         val SKILLS = stringPreferencesKey("skills")
         val SKILL_FOLDERS = stringPreferencesKey("skill_folders")
+        val ENABLE_SKILL_SCRIPT_EXECUTION = booleanPreferencesKey("enable_skill_script_execution")
+        val ENABLED_SKILL_SCRIPT_IDS = stringPreferencesKey("enabled_skill_script_ids")
+        val WORKSPACE_ROOT_TREE_URI = stringPreferencesKey("workspace_root_tree_uri")
+        val CONVERSATION_WORK_DIRS = stringPreferencesKey("conversation_work_dirs")
 
         // Android Integration
         val TEXT_SELECTION_CONFIG = stringPreferencesKey("text_selection_config")
@@ -395,6 +399,14 @@ class SettingsStore(
                 skills = preferences[SKILLS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
+                enableSkillScriptExecution = preferences[ENABLE_SKILL_SCRIPT_EXECUTION] == true,
+                enabledSkillScriptIds = preferences[ENABLED_SKILL_SCRIPT_IDS]?.let {
+                    runCatching { JsonInstant.decodeFromString<Set<Uuid>>(it) }.getOrNull()
+                } ?: emptySet(),
+                workspaceRootTreeUri = preferences[WORKSPACE_ROOT_TREE_URI],
+                conversationWorkDirs = preferences[CONVERSATION_WORK_DIRS]?.let {
+                    runCatching { JsonInstant.decodeFromString<Map<String, ConversationWorkDirBinding>>(it) }.getOrNull()
+                } ?: emptyMap(),
             )
         }
         .map {
@@ -595,6 +607,12 @@ class SettingsStore(
             preferences[LOREBOOKS] = JsonInstant.encodeToString(finalSettingsToSave.lorebooks)
             preferences[SKILL_FOLDERS] = JsonInstant.encodeToString(finalSettingsToSave.skillFolders)
             preferences[SKILLS] = JsonInstant.encodeToString(finalSettingsToSave.skills)
+            preferences[ENABLE_SKILL_SCRIPT_EXECUTION] = finalSettingsToSave.enableSkillScriptExecution
+            preferences[ENABLED_SKILL_SCRIPT_IDS] = JsonInstant.encodeToString(finalSettingsToSave.enabledSkillScriptIds)
+            finalSettingsToSave.workspaceRootTreeUri?.let {
+                preferences[WORKSPACE_ROOT_TREE_URI] = it
+            } ?: preferences.remove(WORKSPACE_ROOT_TREE_URI)
+            preferences[CONVERSATION_WORK_DIRS] = JsonInstant.encodeToString(finalSettingsToSave.conversationWorkDirs)
         }
     }
 
@@ -687,6 +705,12 @@ data class Settings(
     // Skills (imported from zip; loaded by local tool on demand)
     val skillFolders: List<SkillFolder> = emptyList(),
     val skills: List<Skill> = emptyList(),
+
+    // Skill scripts & workspace (Android SAF workspace root + per-conversation work dirs)
+    val enableSkillScriptExecution: Boolean = false,
+    val enabledSkillScriptIds: Set<Uuid> = emptySet(),
+    val workspaceRootTreeUri: String? = null,
+    val conversationWorkDirs: Map<String, ConversationWorkDirBinding> = emptyMap(),
 ) {
     companion object {
         // 构造一个用于初始化的settings, 但它不能用于保存，防止使用初始值存储
@@ -729,6 +753,18 @@ enum class KeepAliveMode {
     ALWAYS,
     GENERATION,
 }
+
+@Serializable
+enum class ConversationWorkDirMode {
+    AUTO,
+    MANUAL,
+}
+
+@Serializable
+data class ConversationWorkDirBinding(
+    val mode: ConversationWorkDirMode = ConversationWorkDirMode.AUTO,
+    val relPath: String = "",
+)
 
 @Serializable
 enum class MessageInputStyle {
@@ -1017,6 +1053,10 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
         }
     }
     val validSkillIds = cleanedSkills.map { it.id }.toSet()
+    val cleanedEnabledSkillScriptIds = enabledSkillScriptIds.filter { it in validSkillIds }.toSet()
+    val cleanedConversationWorkDirs = conversationWorkDirs.filterValues { binding ->
+        binding.relPath.isNotBlank()
+    }
 
     // 2. Remove orphaned tag references from assistants
     val validTagIds = assistantTags.map { it.id }.toSet()
@@ -1106,6 +1146,9 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
         assistants = cleanedAssistantsWithSkills,
         skillFolders = dedupedSkillFolders,
         skills = cleanedSkills,
+        enabledSkillScriptIds = cleanedEnabledSkillScriptIds,
+        workspaceRootTreeUri = workspaceRootTreeUri?.trim().takeIf { !it.isNullOrBlank() },
+        conversationWorkDirs = cleanedConversationWorkDirs,
         groupChatTemplates = cleanedGroupChats,
         favoriteModels = cleanedFavorites,
         searchServiceSelected = clampedSearchSelected,

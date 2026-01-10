@@ -18,6 +18,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.res.ResourcesCompat
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -37,16 +38,21 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
-import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.put
+import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.Model
@@ -68,6 +74,7 @@ import me.rerere.rikkahub.data.ai.AIRequestLogManager
 import me.rerere.rikkahub.data.ai.AIRequestSource
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.tools.LocalTools
+import me.rerere.rikkahub.data.ai.tools.SkillScriptRunner
 import me.rerere.rikkahub.data.ai.transformers.Base64ImageToLocalFileTransformer
 import me.rerere.rikkahub.data.ai.transformers.DocumentAsPromptTransformer
 import me.rerere.rikkahub.data.ai.transformers.OcrTransformer
@@ -76,6 +83,8 @@ import me.rerere.rikkahub.data.ai.transformers.RegexOutputTransformer
 import me.rerere.rikkahub.data.ai.transformers.TemplateTransformer
 import me.rerere.rikkahub.data.ai.transformers.ThinkTagTransformer
 import me.rerere.rikkahub.data.datastore.KeepAliveMode
+import me.rerere.rikkahub.data.datastore.ConversationWorkDirBinding
+import me.rerere.rikkahub.data.datastore.ConversationWorkDirMode
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findModelById
@@ -90,6 +99,7 @@ import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.GroupChatSeat
 import me.rerere.rikkahub.data.model.GroupChatSeatOverrides
 import me.rerere.rikkahub.data.model.GroupChatTemplate
+import me.rerere.rikkahub.data.model.Skill
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.data.model.id
 import me.rerere.rikkahub.data.model.toMessageNode
@@ -98,6 +108,9 @@ import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.JsonInstantPretty
+import me.rerere.rikkahub.utils.SkillScriptPathUtils
+import me.rerere.rikkahub.utils.WorkspaceSync
+import me.rerere.rikkahub.utils.WorkspaceSyncLimits
 import me.rerere.rikkahub.utils.applyPlaceholders
 import me.rerere.rikkahub.utils.deleteChatFiles
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
@@ -167,6 +180,9 @@ class ChatService(
     private val liveUpdateLargeIcons = ConcurrentHashMap<Uuid, Icon>()
 
     private val keepAliveActiveGenerationCount = AtomicInteger(0)
+
+    private val skillScriptRunner by lazy { SkillScriptRunner(context) }
+    private val skillScriptMutexes = ConcurrentHashMap<Uuid, Mutex>()
 
     fun setPendingUiWelcomePhraseForAppContext(conversationId: Uuid, welcomePhrase: String) {
         val normalized = welcomePhrase.replace("\r", "").trim()
@@ -1243,6 +1259,14 @@ class ChatService(
                     val enabledSkills = settings.skills.filter { skill -> skill.id in assistant.enabledSkillIds }
                     if (enabledSkills.isNotEmpty()) {
                         add(localTools.createSkillFileTool(enabledSkills))
+                        val scriptableSkills = if (settings.enableSkillScriptExecution) {
+                            enabledSkills.filter { skill -> skill.id in settings.enabledSkillScriptIds }
+                        } else {
+                            emptyList()
+                        }
+                        if (scriptableSkills.isNotEmpty()) {
+                            add(createSkillScriptTool(conversationId = conversation.id, allowedSkills = scriptableSkills))
+                        }
                     }
                     mcpManager.getAllAvailableTools().forEach { tool ->
                         add(
@@ -1522,6 +1546,14 @@ class ChatService(
                 val enabledSkills = settings.skills.filter { skill -> skill.id in seatAssistant.enabledSkillIds }
                 if (enabledSkills.isNotEmpty()) {
                     add(localTools.createSkillFileTool(enabledSkills))
+                    val scriptableSkills = if (settings.enableSkillScriptExecution) {
+                        enabledSkills.filter { skill -> skill.id in settings.enabledSkillScriptIds }
+                    } else {
+                        emptyList()
+                    }
+                    if (scriptableSkills.isNotEmpty()) {
+                        add(createSkillScriptTool(conversationId = conversation.id, allowedSkills = scriptableSkills))
+                    }
                 }
             }
 
@@ -2329,6 +2361,341 @@ class ChatService(
         val end = trimmed.lastIndexOf('}')
         if (start < 0 || end <= start) return null
         return trimmed.substring(start, end + 1)
+    }
+
+    private fun createSkillScriptTool(
+        conversationId: Uuid,
+        allowedSkills: List<Skill>,
+    ): Tool {
+        val allowedSkillIds = allowedSkills.map { it.id.toString() }.toSet()
+        val allowedSkillsById = allowedSkills.associateBy { it.id.toString() }
+        val allowedSkillsByName = allowedSkills.groupBy { it.name.trim().lowercase(Locale.ROOT) }
+
+        return Tool(
+            name = "run_skill_script",
+            description = "Execute a Python script (scripts/*.py) from an installed Skill package. Requires user-authorized workspace folder.",
+            parameters = {
+                InputSchema.Obj(
+                    properties = buildJsonObject {
+                        put("skill_name", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Skill name from the available skills list (preferred). If duplicated, also pass skill_id to disambiguate.")
+                        })
+                        put("skill_id", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Skill id (UUID) from the available skills list (for disambiguation / backward compatibility)")
+                        })
+                        put("path", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Relative script path inside the skill folder (must start with scripts/ and end with .py)")
+                        })
+                        put("input", buildJsonObject {
+                            put("type", "object")
+                            put("description", "Input object passed to the script's run(input: dict) function (default: {})")
+                        })
+                        put("timeout_ms", buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Execution timeout in milliseconds (default: 60000, max: 300000)")
+                        })
+                        put("max_stdout_chars", buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Maximum stdout characters to return (default: 20000, max: 200000)")
+                        })
+                        put("max_stderr_chars", buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Maximum stderr characters to return (default: 20000, max: 200000)")
+                        })
+                    },
+                    required = listOf("skill_name", "path"),
+                )
+            },
+            systemPrompt = { _, _ ->
+                if (allowedSkills.isEmpty()) return@Tool ""
+                buildString {
+                    appendLine("You can execute trusted local Skill scripts via the tool `run_skill_script`.")
+                    appendLine("Rules:")
+                    appendLine("- Only run scripts from the allowed skills list below.")
+                    appendLine("- The script path must be under `scripts/` and end with `.py`.")
+                    appendLine("- Scripts run with the working directory set to the current conversation's workspace folder.")
+                    appendLine("- Prefer reading SKILL.md / script source via `read_skill_file` before running.")
+                    appendLine("Allowed skills for script execution:")
+                    allowedSkills.forEach { skill ->
+                        append("- name: ")
+                        append(skill.name)
+                        append(" | id: ")
+                        appendLine(skill.id.toString())
+                    }
+                }
+            },
+            execute = { args ->
+                val obj = args.jsonObject
+                val skillNameRaw = obj["skill_name"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
+                val skillIdRaw = obj["skill_id"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
+
+                val resolvedSkill = when {
+                    !skillIdRaw.isNullOrBlank() -> {
+                        if (skillIdRaw !in allowedSkillIds) {
+                            return@Tool buildJsonObject {
+                                put("ok", false)
+                                put("error", "Skill not allowed: $skillIdRaw")
+                            }
+                        }
+                        allowedSkillsById[skillIdRaw]
+                    }
+
+                    !skillNameRaw.isNullOrBlank() -> {
+                        val candidates = allowedSkillsByName[skillNameRaw.lowercase(Locale.ROOT)].orEmpty()
+                        when {
+                            candidates.isEmpty() -> {
+                                return@Tool buildJsonObject {
+                                    put("ok", false)
+                                    put("error", "Skill not allowed: $skillNameRaw")
+                                }
+                            }
+
+                            candidates.size > 1 -> {
+                                return@Tool buildJsonObject {
+                                    put("ok", false)
+                                    put("error", "Ambiguous skill_name: $skillNameRaw")
+                                    put("candidates", buildJsonArray {
+                                        candidates.forEach { skill ->
+                                            add(buildJsonObject {
+                                                put("id", skill.id.toString())
+                                                put("name", skill.name)
+                                            })
+                                        }
+                                    })
+                                }
+                            }
+
+                            else -> candidates.single()
+                        }
+                    }
+
+                    else -> null
+                }
+
+                if (resolvedSkill == null) {
+                    return@Tool buildJsonObject {
+                        put("ok", false)
+                        put("error", "Missing skill_name")
+                    }
+                }
+
+                val scriptPathRaw = obj["path"]?.jsonPrimitiveOrNull?.contentOrNull?.trim().orEmpty()
+                val scriptRelativePath = SkillScriptPathUtils.normalizeAndValidateScriptPath(scriptPathRaw)
+                    ?: return@Tool buildJsonObject {
+                        put("ok", false)
+                        put("error", "Invalid script path")
+                    }
+
+                val inputElement = obj["input"]
+                val inputObject = when (inputElement) {
+                    null -> buildJsonObject {}
+                    is JsonObject -> inputElement
+                    else -> return@Tool buildJsonObject {
+                        put("ok", false)
+                        put("error", "Invalid input: expected object")
+                    }
+                }
+
+                val timeoutMs = obj["timeout_ms"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?.toLongOrNull()
+                    ?.coerceIn(1_000, 300_000)
+                    ?: 60_000L
+                val maxStdoutChars = obj["max_stdout_chars"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?.toIntOrNull()
+                    ?.coerceIn(1, 200_000)
+                    ?: 20_000
+                val maxStderrChars = obj["max_stderr_chars"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?.toIntOrNull()
+                    ?.coerceIn(1, 200_000)
+                    ?: 20_000
+
+                val mutex = skillScriptMutexes.computeIfAbsent(conversationId) { Mutex() }
+                mutex.withLock {
+                    withContext(Dispatchers.IO) {
+                        val settingsSnapshot = settingsStore.settingsFlow.value
+                        if (!settingsSnapshot.enableSkillScriptExecution) {
+                            return@withContext buildJsonObject {
+                                put("ok", false)
+                                put("error", "Skill script execution is disabled in settings")
+                            }
+                        }
+                        if (resolvedSkill.id !in settingsSnapshot.enabledSkillScriptIds) {
+                            return@withContext buildJsonObject {
+                                put("ok", false)
+                                put("error", "Skill script execution not allowed for this skill")
+                            }
+                        }
+
+                        val workspaceRootUri = settingsSnapshot.workspaceRootTreeUri?.trim().orEmpty()
+                        if (workspaceRootUri.isBlank()) {
+                            return@withContext buildJsonObject {
+                                put("ok", false)
+                                put("error", "Workspace root is not set")
+                            }
+                        }
+
+                        val skillId = resolvedSkill.id.toString()
+                        val skillRoot = File(context.filesDir, "skills/$skillId")
+                        val scriptFile = runCatching {
+                            val target = File(skillRoot, scriptRelativePath)
+                            val rootPath = skillRoot.canonicalFile.toPath()
+                            val filePath = target.canonicalFile.toPath()
+                            if (!filePath.startsWith(rootPath)) null else target
+                        }.getOrNull()
+                            ?: return@withContext buildJsonObject {
+                                put("ok", false)
+                                put("error", "Invalid script path")
+                            }
+
+                        val rootDoc = runCatching {
+                            DocumentFile.fromTreeUri(context, Uri.parse(workspaceRootUri))
+                        }.getOrNull()
+                        if (rootDoc?.isDirectory != true) {
+                            return@withContext buildJsonObject {
+                                put("ok", false)
+                                put("error", "Workspace root is not accessible")
+                            }
+                        }
+
+                        fun resolveOrCreateDirByRelPath(relPath: String): DocumentFile? {
+                            val segments = relPath.split('/').filter { it.isNotBlank() }
+                            if (segments.isEmpty()) return null
+                            var current: DocumentFile = rootDoc
+                            segments.forEach { seg ->
+                                val existing = current.findFile(seg)
+                                current = when {
+                                    existing != null && existing.isDirectory -> existing
+                                    existing != null -> return null
+                                    else -> current.createDirectory(seg) ?: return null
+                                }
+                            }
+                            return current
+                        }
+
+                        suspend fun ensureAutoWorkDirRelPath(): String? {
+                            val key = conversationId.toString()
+                            val existingBinding = settingsSnapshot.conversationWorkDirs[key]
+                            val existingRelPath = existingBinding?.relPath?.trim().orEmpty()
+                            val validatedExisting = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(existingRelPath)
+                            if (existingBinding?.mode == ConversationWorkDirMode.AUTO && !validatedExisting.isNullOrBlank()) {
+                                return validatedExisting
+                            }
+
+                            val conversation = getConversationFlow(conversationId).value
+                            val base = SkillScriptPathUtils.sanitizeWorkDirBaseName(conversation.title)
+                            val existingNames = runCatching {
+                                rootDoc.listFiles().mapNotNull { it.name }.toSet()
+                            }.getOrDefault(emptySet())
+                            val unique = SkillScriptPathUtils.pickUniqueName(existingNames, base)
+                            val created = rootDoc.createDirectory(unique) ?: return null
+
+                            settingsStore.update { current ->
+                                current.copy(
+                                    conversationWorkDirs = current.conversationWorkDirs + (
+                                        key to ConversationWorkDirBinding(
+                                            mode = ConversationWorkDirMode.AUTO,
+                                            relPath = unique,
+                                        )
+                                    )
+                                )
+                            }
+                            return created.name ?: unique
+                        }
+
+                        val workDirRelPath = when (val binding = settingsSnapshot.conversationWorkDirs[conversationId.toString()]) {
+                            null -> ensureAutoWorkDirRelPath()
+                            else -> when (binding.mode) {
+                                ConversationWorkDirMode.MANUAL -> SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
+                                ConversationWorkDirMode.AUTO -> {
+                                    val v = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
+                                    v ?: ensureAutoWorkDirRelPath()
+                                }
+                            }
+                        } ?: return@withContext buildJsonObject {
+                            put("ok", false)
+                            put("error", "Failed to resolve workspace work directory")
+                        }
+
+                        val externalWorkDir = resolveOrCreateDirByRelPath(workDirRelPath)
+                            ?: return@withContext buildJsonObject {
+                                put("ok", false)
+                                put("error", "Workspace work directory is not accessible")
+                            }
+
+                        val internalWorkDir = File(context.filesDir, "skill_workspaces/${conversationId}")
+                        val limits = WorkspaceSyncLimits()
+
+                        val syncIn = runCatching {
+                            WorkspaceSync.syncExternalToInternal(
+                                context = context,
+                                externalDir = externalWorkDir,
+                                internalDir = internalWorkDir,
+                                limits = limits,
+                            )
+                        }.getOrElse {
+                            return@withContext buildJsonObject {
+                                put("ok", false)
+                                put("error", "Failed to sync workspace in: ${it.message}")
+                            }
+                        }
+
+                        val inputJson = inputObject.toString()
+                        if (inputJson.length > 200_000) {
+                            return@withContext buildJsonObject {
+                                put("ok", false)
+                                put("error", "Input is too large")
+                            }
+                        }
+
+                        val scriptResult = skillScriptRunner.run(
+                            scriptFile = scriptFile,
+                            inputJson = inputJson,
+                            workDir = internalWorkDir,
+                            timeoutMs = timeoutMs,
+                            maxStdoutChars = maxStdoutChars,
+                            maxStderrChars = maxStderrChars,
+                        )
+
+                        val syncOut = runCatching {
+                            WorkspaceSync.syncInternalToExternal(
+                                context = context,
+                                internalDir = internalWorkDir,
+                                externalDir = externalWorkDir,
+                                limits = limits,
+                            )
+                        }.getOrElse {
+                            return@withContext buildJsonObject {
+                                put("ok", false)
+                                put("error", "Failed to sync workspace out: ${it.message}")
+                            }
+                        }
+
+                        val baseResult: MutableMap<String, JsonElement> =
+                            (scriptResult as? JsonObject)?.toMutableMap()
+                                ?: mutableMapOf<String, JsonElement>(
+                                    "ok" to JsonPrimitive(false),
+                                    "error" to JsonPrimitive("Invalid script output"),
+                                )
+                        baseResult["skill_id"] = JsonPrimitive(skillId)
+                        baseResult["skill_name"] = JsonPrimitive(resolvedSkill.name)
+                        baseResult["script_path"] = JsonPrimitive(scriptRelativePath)
+                        baseResult["work_dir"] = JsonPrimitive(workDirRelPath)
+                        baseResult["sync"] = buildJsonObject {
+                            put("in_files", syncIn.filesCopied)
+                            put("in_bytes", syncIn.bytesCopied)
+                            put("in_skipped", syncIn.skippedFiles)
+                            put("out_files", syncOut.filesCopied)
+                            put("out_bytes", syncOut.bytesCopied)
+                            put("out_skipped", syncOut.skippedFiles)
+                        }
+                        JsonObject(baseResult)
+                    }
+                }
+            }
+        )
     }
 
     // 创建搜索工具

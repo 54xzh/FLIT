@@ -59,6 +59,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.datastore.ConversationWorkDirBinding
+import me.rerere.rikkahub.data.datastore.ConversationWorkDirMode
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.model.ChatTarget
 import me.rerere.rikkahub.data.model.Conversation
@@ -103,6 +105,9 @@ fun ChatDrawerContent(
     )
 
     val recentlyRestoredIds by vm.recentlyRestoredIds.collectAsStateWithLifecycle()
+
+    var managingWorkDirConversation by remember { mutableStateOf<Conversation?>(null) }
+    var manualWorkDirRelPath by remember { mutableStateOf("") }
 
     // 昵称编辑状态
     val nicknameEditState = useEditState<String> { newNickname ->
@@ -243,6 +248,10 @@ fun ChatDrawerContent(
                 onPin = {
                     vm.updatePinnedStatus(it)
                 },
+                onManageWorkDir = { conversation ->
+                    managingWorkDirConversation = conversation
+                    manualWorkDirRelPath = settings.conversationWorkDirs[conversation.id.toString()]?.relPath.orEmpty()
+                },
                 showUnconsolidatedDot = canConsolidate,
                 showConsolidateOption = canConsolidate,
             )
@@ -340,6 +349,106 @@ fun ChatDrawerContent(
     }
 
     // 昵称编辑对话框
+    managingWorkDirConversation?.let { conversation ->
+        val haptics = rememberPremiumHaptics()
+        val workspaceReady = !settings.workspaceRootTreeUri.isNullOrBlank()
+        val currentBinding = settings.conversationWorkDirs[conversation.id.toString()]
+
+        AlertDialog(
+            onDismissRequest = { managingWorkDirConversation = null },
+            title = { Text(stringResource(R.string.workdir_manage_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = conversation.title.ifBlank { stringResource(R.string.chat_page_new_message) },
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+
+                    Text(
+                        text = if (workspaceReady) {
+                            when (currentBinding?.mode) {
+                                ConversationWorkDirMode.MANUAL -> stringResource(
+                                    R.string.workdir_current_manual,
+                                    currentBinding.relPath
+                                )
+
+                                else -> stringResource(R.string.workdir_current_auto)
+                            }
+                        } else {
+                            stringResource(R.string.workspace_root_required_hint)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    OutlinedTextField(
+                        value = manualWorkDirRelPath,
+                        onValueChange = { manualWorkDirRelPath = it },
+                        enabled = workspaceReady,
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.workdir_manual_label)) },
+                        placeholder = { Text(stringResource(R.string.workdir_manual_placeholder)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        enabled = workspaceReady,
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            vm.updateSettings(
+                                settings.copy(
+                                    conversationWorkDirs = settings.conversationWorkDirs - conversation.id.toString(),
+                                )
+                            )
+                            managingWorkDirConversation = null
+                            manualWorkDirRelPath = ""
+                            toaster.show(message = context.getString(R.string.workdir_reset_success))
+                        }
+                    ) {
+                        Text(stringResource(R.string.workdir_reset_to_auto))
+                    }
+                    TextButton(
+                        enabled = workspaceReady,
+                        onClick = {
+                            val relPath = manualWorkDirRelPath.trim()
+                            if (relPath.isBlank()) {
+                                haptics.perform(HapticPattern.Error)
+                                toaster.show(message = context.getString(R.string.workdir_manual_empty))
+                                return@TextButton
+                            }
+                            haptics.perform(HapticPattern.Thud)
+                            vm.updateSettings(
+                                settings.copy(
+                                    conversationWorkDirs = settings.conversationWorkDirs + (
+                                        conversation.id.toString() to ConversationWorkDirBinding(
+                                            mode = ConversationWorkDirMode.MANUAL,
+                                            relPath = relPath,
+                                        )
+                                    )
+                                )
+                            )
+                            managingWorkDirConversation = null
+                            toaster.show(message = context.getString(R.string.workdir_manual_saved))
+                        }
+                    ) {
+                        Text(stringResource(R.string.save))
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { managingWorkDirConversation = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
     nicknameEditState.EditStateContent { nickname, onUpdate ->
         AlertDialog(
             onDismissRequest = {

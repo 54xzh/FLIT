@@ -309,6 +309,7 @@
     <string name="built_in_search_title">Built-in Search</string>
     <string name="calculating">Calculating...</string>
     <string name="cancel">Cancel</string>
+    <string name="clear">Clear</string>
     <string name="cancel_edit">Cancel Edit</string>
     <string name="chat_input_placeholder">Message</string>
     <string name="chat_message_tool_call_generic">Calling tool %1$s</string>
@@ -324,6 +325,8 @@
     <string name="chat_message_tool_search_prefix">Searching: %1$s</string>
     <string name="chat_message_tool_search_results_count">%1$d results</string>
     <string name="chat_message_tool_search_web">Search Web: %1$s</string>
+    <string name="chat_message_tool_run_script">Run script %1$s</string>
+    <string name="chat_message_tool_run_script_generic">Run script</string>
     <string name="chat_page_cancel">Cancel</string>
     <string name="chat_page_clear_context">Clear Context</string>
     <string name="chat_page_date_format_different_year">%1$d-%2$d-%3$d</string>
@@ -351,6 +354,17 @@
     <string name="chat_page_no_conversations">No conversations</string>
     <string name="chat_page_recent">Recent</string>
     <string name="chat_page_regenerate_title">Regenerate Title</string>
+    <string name="chat_page_manage_work_dir">Work directory</string>
+    <string name="workdir_manage_title">Work directory</string>
+    <string name="workdir_current_auto">Mode: Auto (by conversation title)</string>
+    <string name="workdir_current_manual">Mode: Manual (%1$s)</string>
+    <string name="workspace_root_required_hint">Workspace root folder is required. Please set it in Settings → Skills.</string>
+    <string name="workdir_manual_label">Manual path (relative)</string>
+    <string name="workdir_manual_placeholder">Example: ProjectA/task-1</string>
+    <string name="workdir_reset_to_auto">Reset to Auto</string>
+    <string name="workdir_reset_success">Reset to auto</string>
+    <string name="workdir_manual_empty">Path cannot be empty</string>
+    <string name="workdir_manual_saved">Saved</string>
     <string name="chat_page_consolidate">Consolidate</string>
     <string name="chat_page_save">Save</string>
     <string name="chat_page_scroll_to_bottom">Scroll to Bottom</string>
@@ -659,6 +673,19 @@
     <string name="skills_delete_desc">This will remove “%1$s” from device storage.</string>
     <string name="skills_unnamed">Unnamed skill</string>
     <string name="skills_no_description">No description</string>
+    <string name="skill_scripts_title">Skill scripts</string>
+    <string name="skill_scripts_description">Execute scripts/*.py inside Skill packages (Python)</string>
+    <string name="workspace_root_title">Workspace root</string>
+    <string name="workspace_root_not_set">Not set</string>
+    <string name="workspace_root_set">Set</string>
+    <string name="workspace_root_choose">Choose workspace root</string>
+    <string name="workspace_root_set_success">Workspace root set</string>
+    <string name="workspace_root_cleared">Workspace root cleared</string>
+    <string name="skill_scripts_risk_title">Enable script execution?</string>
+    <string name="skill_scripts_risk_message">Scripts can read/write your workspace folder and run code on your device. Only enable for trusted Skill packages.</string>
+    <string name="skill_scripts_enable_action">Enable</string>
+    <string name="skill_scripts_enabled_success">Enabled</string>
+    <string name="skill_scripts_skill_toggle_label">Allow script execution</string>
 
     <string name="skills_selected_count">%1$d selected</string>
     <string name="skills_action_create_folder">Create folder</string>

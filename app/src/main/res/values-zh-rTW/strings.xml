@@ -225,6 +225,7 @@
   <string name="built_in_search_title">模型內建搜尋</string>
   <string name="calculating">計算中...</string>
   <string name="cancel">取消</string>
+  <string name="clear">清除</string>
   <string name="cancel_edit">取消編輯</string>
   <string name="chat_input_placeholder">輸入訊息與AI聊天</string>
   <string name="chat_message_tool_call_generic">調用工具 %1$s</string>
@@ -240,6 +241,8 @@
   <string name="chat_message_tool_search_prefix">搜尋: %1$s</string>
   <string name="chat_message_tool_search_results_count">共 %1$d 條結果</string>
   <string name="chat_message_tool_search_web">搜尋網頁: %1$s</string>
+  <string name="chat_message_tool_run_script">執行腳本 %1$s</string>
+  <string name="chat_message_tool_run_script_generic">執行腳本</string>
   <string name="chat_page_cancel">取消</string>
   <string name="chat_page_clear_context">清空上下文</string>
   <string name="chat_page_date_format_different_year">%1$d年%2$d月%3$d日</string>
@@ -265,6 +268,17 @@
   <string name="chat_page_no_conversations">沒有對話記錄</string>
   <string name="chat_page_recent">最近</string>
   <string name="chat_page_regenerate_title">重新生成標題</string>
+  <string name="chat_page_manage_work_dir">工作目錄管理</string>
+  <string name="workdir_manage_title">工作目錄管理</string>
+  <string name="workdir_current_auto">模式：自動（按對話標題）</string>
+  <string name="workdir_current_manual">模式：手動（%1$s）</string>
+  <string name="workspace_root_required_hint">需要先設定工作區根目錄，請在 設定 → 技能 中授權。</string>
+  <string name="workdir_manual_label">手動路徑（相對）</string>
+  <string name="workdir_manual_placeholder">範例：ProjectA/task-1</string>
+  <string name="workdir_reset_to_auto">重設為自動</string>
+  <string name="workdir_reset_success">已重設為自動</string>
+  <string name="workdir_manual_empty">路徑不能為空</string>
+  <string name="workdir_manual_saved">已儲存</string>
   <string name="chat_page_save">保存</string>
   <string name="chat_page_scroll_to_bottom">滾動到底部</string>
   <string name="chat_page_search_placeholder">搜尋對話記錄</string>
@@ -527,6 +541,19 @@
   <string name="skills_delete_desc">將從裝置中移除「%1$s」。</string>
   <string name="skills_unnamed">未命名技能</string>
   <string name="skills_no_description">無描述</string>
+  <string name="skill_scripts_title">技能腳本</string>
+  <string name="skill_scripts_description">執行技能包內 scripts/*.py（Python）</string>
+  <string name="workspace_root_title">工作區根目錄</string>
+  <string name="workspace_root_not_set">未設定</string>
+  <string name="workspace_root_set">已設定</string>
+  <string name="workspace_root_choose">選擇工作根目錄</string>
+  <string name="workspace_root_set_success">已設定工作區根目錄</string>
+  <string name="workspace_root_cleared">已清除工作區根目錄</string>
+  <string name="skill_scripts_risk_title">啟用腳本執行？</string>
+  <string name="skill_scripts_risk_message">腳本可以讀寫你授權的工作區資料夾，並在裝置上執行程式碼。僅對可信的技能包啟用。</string>
+  <string name="skill_scripts_enable_action">啟用</string>
+  <string name="skill_scripts_enabled_success">已啟用</string>
+  <string name="skill_scripts_skill_toggle_label">允許腳本執行</string>
 
   <string name="skills_selected_count">已選取 %1$d 項</string>
   <string name="skills_action_create_folder">建立資料夾</string>

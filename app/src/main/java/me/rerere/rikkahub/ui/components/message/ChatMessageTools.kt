@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Terminal
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -106,6 +107,7 @@ fun ToolCallItem(
                         "search_web" -> Icons.Rounded.Public
                         "scrape_web" -> Icons.Rounded.Public
                         "read_skill_file" -> Icons.Rounded.Extension
+                        "run_skill_script" -> Icons.Rounded.Terminal
                         else -> Icons.Rounded.Build
                     },
                     contentDescription = null,
@@ -119,6 +121,12 @@ fun ToolCallItem(
                 val skillNameOrId = if (toolName == "read_skill_file") {
                     arguments.jsonObject["skill_name"]?.jsonPrimitiveOrNull?.contentOrNull
                         ?: arguments.jsonObject["skill_id"]?.jsonPrimitiveOrNull?.contentOrNull
+                } else null
+                val scriptName = if (toolName == "run_skill_script") {
+                    arguments.jsonObject["path"]?.jsonPrimitiveOrNull?.contentOrNull
+                        ?.replace('\\', '/')
+                        ?.substringAfterLast('/')
+                        ?.takeIf { it.isNotBlank() }
                 } else null
                 Text(
                     text = when (toolName) {
@@ -137,6 +145,14 @@ fun ToolCallItem(
                                 stringResource(R.string.chat_message_tool_call_generic, toolName)
                             } else {
                                 stringResource(R.string.chat_message_tool_call_skill, name)
+                            }
+                        }
+                        "run_skill_script" -> {
+                            val name = scriptName.orEmpty()
+                            if (name.isBlank()) {
+                                stringResource(R.string.chat_message_tool_run_script_generic)
+                            } else {
+                                stringResource(R.string.chat_message_tool_run_script, name)
                             }
                         }
                         else -> stringResource(
@@ -416,16 +432,31 @@ private fun ToolCallPreviewSheet(
                         FormItem(
                             label = {
                                 Text(
-                                    if (toolName == "read_skill_file") {
-                                        val name = arguments.jsonObject["skill_name"]?.jsonPrimitiveOrNull?.contentOrNull
-                                            ?: arguments.jsonObject["skill_id"]?.jsonPrimitiveOrNull?.contentOrNull
-                                        if (name.isNullOrBlank()) {
-                                            stringResource(R.string.chat_message_tool_call_label, toolName)
-                                        } else {
-                                            stringResource(R.string.chat_message_tool_call_skill, name)
+                                    when (toolName) {
+                                        "read_skill_file" -> {
+                                            val name =
+                                                arguments.jsonObject["skill_name"]?.jsonPrimitiveOrNull?.contentOrNull
+                                                    ?: arguments.jsonObject["skill_id"]?.jsonPrimitiveOrNull?.contentOrNull
+                                            if (name.isNullOrBlank()) {
+                                                stringResource(R.string.chat_message_tool_call_label, toolName)
+                                            } else {
+                                                stringResource(R.string.chat_message_tool_call_skill, name)
+                                            }
                                         }
-                                    } else {
-                                        stringResource(R.string.chat_message_tool_call_label, toolName)
+
+                                        "run_skill_script" -> {
+                                            val name = arguments.jsonObject["path"]?.jsonPrimitiveOrNull?.contentOrNull
+                                                ?.replace('\\', '/')
+                                                ?.substringAfterLast('/')
+                                                .orEmpty()
+                                            if (name.isBlank()) {
+                                                stringResource(R.string.chat_message_tool_run_script_generic)
+                                            } else {
+                                                stringResource(R.string.chat_message_tool_run_script, name)
+                                            }
+                                        }
+
+                                        else -> stringResource(R.string.chat_message_tool_call_label, toolName)
                                     }
                                 )
                             }

@@ -3,6 +3,8 @@ package me.rerere.rikkahub.data.ai.tools
 import android.content.Context
 import com.whl.quickjs.wrapper.QuickJSContext
 import com.whl.quickjs.wrapper.QuickJSObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonPrimitive
@@ -459,8 +461,13 @@ class LocalTools(private val context: Context) {
                     return@Tool buildJsonObject { put("error", "File not found: $relativePath") }
                 }
 
-                val text = runCatching { target.readText(Charsets.UTF_8) }
-                    .getOrElse { return@Tool buildJsonObject { put("error", "Failed to read file: ${it.message}") } }
+                val text = try {
+                    withContext(Dispatchers.IO) {
+                        target.readText(Charsets.UTF_8)
+                    }
+                } catch (e: Exception) {
+                    return@Tool buildJsonObject { put("error", "Failed to read file: ${e.message}") }
+                }
 
                 val truncated = text.length > maxChars
                 val content = if (truncated) text.take(maxChars) else text

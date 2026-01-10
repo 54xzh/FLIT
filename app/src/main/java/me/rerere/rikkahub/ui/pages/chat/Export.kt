@@ -63,6 +63,7 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Terminal
 import me.rerere.rikkahub.ui.components.ui.ToastType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -646,6 +647,7 @@ private fun ExportedToolCall(
                     "delete_memory" -> Icons.Rounded.Delete
                     "search_web" -> Icons.Rounded.Public
                     "scrape_web" -> Icons.Rounded.Public
+                    "run_skill_script" -> Icons.Rounded.Terminal
                     else -> Icons.Rounded.Build
                 },
                 contentDescription = null,
@@ -666,6 +668,19 @@ private fun ExportedToolCall(
                             stringResource(R.string.chat_message_tool_search_web, query)
                         }
                         "scrape_web" -> stringResource(R.string.chat_message_tool_scrape_web)
+                        "run_skill_script" -> {
+                            val name = runCatching {
+                                JsonInstant.parseToJsonElement(toolCall.arguments).jsonObject["path"]?.jsonPrimitiveOrNull?.contentOrNull
+                                    ?.replace('\\', '/')
+                                    ?.substringAfterLast('/')
+                                    ?: ""
+                            }.getOrDefault("")
+                            if (name.isBlank()) {
+                                stringResource(R.string.chat_message_tool_run_script_generic)
+                            } else {
+                                stringResource(R.string.chat_message_tool_run_script, name)
+                            }
+                        }
                         else -> stringResource(R.string.chat_message_tool_call_generic, toolCall.toolName)
                     },
                     style = MaterialTheme.typography.titleSmall,
@@ -694,6 +709,7 @@ private fun ExportedToolResult(toolResult: UIMessagePart.ToolResult) {
                     "delete_memory" -> Icons.Rounded.Delete
                     "search_web" -> Icons.Rounded.Public
                     "scrape_web" -> Icons.Rounded.Public
+                    "run_skill_script" -> Icons.Rounded.Terminal
                     else -> Icons.Rounded.Build
                 },
                 contentDescription = null,
@@ -713,6 +729,17 @@ private fun ExportedToolResult(toolResult: UIMessagePart.ToolResult) {
                             stringResource(R.string.chat_message_tool_search_web, query)
                         }
                         "scrape_web" -> stringResource(R.string.chat_message_tool_scrape_web)
+                        "run_skill_script" -> {
+                            val name = toolResult.arguments.jsonObject["path"]?.jsonPrimitiveOrNull?.contentOrNull
+                                ?.replace('\\', '/')
+                                ?.substringAfterLast('/')
+                                .orEmpty()
+                            if (name.isBlank()) {
+                                stringResource(R.string.chat_message_tool_run_script_generic)
+                            } else {
+                                stringResource(R.string.chat_message_tool_run_script, name)
+                            }
+                        }
                         else -> stringResource(R.string.chat_message_tool_call_generic, toolResult.toolName)
                     },
                     style = MaterialTheme.typography.titleSmall,

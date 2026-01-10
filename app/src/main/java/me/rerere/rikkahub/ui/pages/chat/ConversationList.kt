@@ -73,6 +73,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Memory
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
@@ -117,6 +118,7 @@ fun ColumnScope.ConversationList(
     onRegenerateTitle: (Conversation) -> Unit = {},
     onConsolidate: (Conversation) -> Unit = {},
     onPin: (Conversation) -> Unit = {},
+    onManageWorkDir: (Conversation) -> Unit = {},
     showUnconsolidatedDot: Boolean = false,
     showConsolidateOption: Boolean = false
 ) {
@@ -389,6 +391,7 @@ fun ColumnScope.ConversationList(
                             onRegenerateTitle = onRegenerateTitle,
                             onConsolidate = onConsolidate,
                             onPin = onPin,
+                            onManageWorkDir = onManageWorkDir,
                             showUnconsolidatedDot = showUnconsolidatedDot,
                             showConsolidateOption = showConsolidateOption,
                             modifier = Modifier.animateItem(
@@ -528,6 +531,7 @@ private fun ConversationItem(
     onRegenerateTitle: (Conversation) -> Unit = {},
     onConsolidate: (Conversation) -> Unit = {},
     onPin: (Conversation) -> Unit = {},
+    onManageWorkDir: (Conversation) -> Unit = {},
     showUnconsolidatedDot: Boolean = false,
     showConsolidateOption: Boolean = false,
     onClick: (Conversation) -> Unit
@@ -682,6 +686,20 @@ private fun ConversationItem(
                     },
                     leadingIcon = {
                         Icon(Icons.Rounded.Refresh, null)
+                    }
+                )
+
+                DropdownMenuItem(
+                    text = {
+                        Text(stringResource(id = R.string.chat_page_manage_work_dir))
+                    },
+                    onClick = {
+                        haptics.perform(HapticPattern.Pop)
+                        onManageWorkDir(conversation)
+                        showDropdownMenu = false
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Rounded.Folder, null)
                     }
                 )
 
