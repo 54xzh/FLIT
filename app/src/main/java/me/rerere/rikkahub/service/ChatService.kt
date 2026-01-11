@@ -14,6 +14,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Icon
 import android.net.Uri
 import android.util.Log
+import android.webkit.MimeTypeMap
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -73,6 +74,7 @@ import me.rerere.rikkahub.data.ai.GenerationHandler
 import me.rerere.rikkahub.data.ai.AIRequestLogManager
 import me.rerere.rikkahub.data.ai.AIRequestSource
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.ai.tools.LocalToolOption
 import me.rerere.rikkahub.data.ai.tools.LocalTools
 import me.rerere.rikkahub.data.ai.tools.SkillScriptRunner
 import me.rerere.rikkahub.data.ai.transformers.Base64ImageToLocalFileTransformer
@@ -121,6 +123,7 @@ import okhttp3.Request
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
+import java.security.MessageDigest
 import java.time.Instant
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -183,6 +186,19 @@ class ChatService(
 
     private val skillScriptRunner by lazy { SkillScriptRunner(context) }
     private val skillScriptMutexes = ConcurrentHashMap<Uuid, Mutex>()
+
+    private data class WorkspaceFileToolConfirmation(
+        val token: String,
+        val conversationId: Uuid,
+        val toolName: String,
+        val actionKey: String,
+        val expiresAtMs: Long,
+    )
+
+    private val workspaceFileToolConfirmationsLock = Any()
+    private val workspaceFileToolConfirmations = LinkedHashMap<String, WorkspaceFileToolConfirmation>()
+    private val workspaceFileToolConfirmationTtlMs = 5 * 60 * 1000L
+    private val workspaceFileToolMaxConfirmations = 100
 
     fun setPendingUiWelcomePhraseForAppContext(conversationId: Uuid, welcomePhrase: String) {
         val normalized = welcomePhrase.replace("\r", "").trim()
@@ -1255,6 +1271,9 @@ class ChatService(
                         assistantId = assistant.id,
                         conversationId = conversation.id
                     ))
+                    if (assistant.localTools.contains(LocalToolOption.WorkspaceFiles)) {
+                        addAll(createWorkspaceFileTools(conversationId = conversation.id, settingsSnapshot = settings))
+                    }
 
                     val enabledSkills = settings.skills.filter { skill -> skill.id in assistant.enabledSkillIds }
                     if (enabledSkills.isNotEmpty()) {
@@ -1541,6 +1560,10 @@ class ChatService(
                             )
                         )
                     }
+                }
+
+                if (seatAssistant.localTools.contains(LocalToolOption.WorkspaceFiles)) {
+                    addAll(createWorkspaceFileTools(conversationId = conversation.id, settingsSnapshot = settings))
                 }
 
                 val enabledSkills = settings.skills.filter { skill -> skill.id in seatAssistant.enabledSkillIds }
@@ -2729,6 +2752,999 @@ class ChatService(
                     }
                 }
             }
+        )
+    }
+
+    private fun registerWorkspaceFileToolConfirmation(
+        conversationId: Uuid,
+        toolName: String,
+        actionKey: String,
+    ): String {
+        val now = System.currentTimeMillis()
+        val token = Uuid.random().toString()
+        val entry = WorkspaceFileToolConfirmation(
+            token = token,
+            conversationId = conversationId,
+            toolName = toolName,
+            actionKey = actionKey,
+            expiresAtMs = now + workspaceFileToolConfirmationTtlMs,
+        )
+        synchronized(workspaceFileToolConfirmationsLock) {
+            pruneWorkspaceFileToolConfirmationsLocked(now)
+            workspaceFileToolConfirmations[token] = entry
+            while (workspaceFileToolConfirmations.size > workspaceFileToolMaxConfirmations) {
+                val oldest = workspaceFileToolConfirmations.entries.firstOrNull()?.key ?: break
+                workspaceFileToolConfirmations.remove(oldest)
+            }
+        }
+        return token
+    }
+
+    private fun consumeWorkspaceFileToolConfirmation(
+        conversationId: Uuid,
+        toolName: String,
+        actionKey: String,
+        token: String?,
+    ): Boolean {
+        if (token.isNullOrBlank()) return false
+        val now = System.currentTimeMillis()
+        synchronized(workspaceFileToolConfirmationsLock) {
+            pruneWorkspaceFileToolConfirmationsLocked(now)
+            val entry = workspaceFileToolConfirmations[token] ?: return false
+            if (entry.expiresAtMs < now) {
+                workspaceFileToolConfirmations.remove(token)
+                return false
+            }
+            if (entry.conversationId != conversationId || entry.toolName != toolName || entry.actionKey != actionKey) {
+                return false
+            }
+            workspaceFileToolConfirmations.remove(token)
+            return true
+        }
+    }
+
+    private fun pruneWorkspaceFileToolConfirmationsLocked(now: Long) {
+        val iterator = workspaceFileToolConfirmations.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if (entry.value.expiresAtMs < now) {
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun sha256Hex(value: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+        val hex = StringBuilder(bytes.size * 2)
+        for (b in bytes) {
+            val i = b.toInt() and 0xff
+            hex.append(i.toString(16).padStart(2, '0'))
+        }
+        return hex.toString()
+    }
+
+    private fun guessMimeType(name: String): String {
+        val ext = name.substringAfterLast('.', missingDelimiterValue = "").lowercase(Locale.ROOT)
+        if (ext.isBlank()) return "application/octet-stream"
+        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+        return mime ?: "application/octet-stream"
+    }
+
+    private fun splitRelPath(relPath: String): List<String> {
+        return relPath.split('/').filter { it.isNotBlank() }
+    }
+
+    private fun resolveDocumentByRelPath(root: DocumentFile, relPath: String): DocumentFile? {
+        val segments = splitRelPath(relPath)
+        if (segments.isEmpty()) return root
+        var current = root
+        segments.forEachIndexed { index, seg ->
+            val next = current.findFile(seg) ?: return null
+            if (index < segments.lastIndex && !next.isDirectory) return null
+            current = next
+        }
+        return current
+    }
+
+    private fun resolveOrCreateDirByRelPath(root: DocumentFile, relPath: String): DocumentFile? {
+        val segments = splitRelPath(relPath)
+        var current = root
+        for (seg in segments) {
+            val existing = current.findFile(seg)
+            current = when {
+                existing != null && existing.isDirectory -> existing
+                existing != null -> return null
+                else -> current.createDirectory(seg) ?: return null
+            }
+        }
+        return current
+    }
+
+    private fun deleteDocumentRecursively(target: DocumentFile): Boolean {
+        if (target.isDirectory) {
+            target.listFiles().forEach { child ->
+                deleteDocumentRecursively(child)
+            }
+        }
+        return runCatching { target.delete() }.getOrDefault(false)
+    }
+
+    private suspend fun resolveConversationWorkspaceDir(
+        settingsSnapshot: Settings,
+        conversationId: Uuid,
+    ): DocumentFile = withContext(Dispatchers.IO) {
+        val workspaceRootUri = settingsSnapshot.workspaceRootTreeUri?.trim().orEmpty()
+        if (workspaceRootUri.isBlank()) {
+            error("Workspace root is not set")
+        }
+
+        val rootDoc = runCatching {
+            DocumentFile.fromTreeUri(context, Uri.parse(workspaceRootUri))
+        }.getOrNull()
+        if (rootDoc?.isDirectory != true) {
+            error("Workspace root is not accessible")
+        }
+
+        suspend fun ensureAutoWorkDirRelPath(): String? {
+            val key = conversationId.toString()
+            val existingBinding = settingsSnapshot.conversationWorkDirs[key]
+            val existingRelPath = existingBinding?.relPath?.trim().orEmpty()
+            val validatedExisting = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(existingRelPath)
+            if (existingBinding?.mode == ConversationWorkDirMode.AUTO && !validatedExisting.isNullOrBlank()) {
+                return validatedExisting
+            }
+
+            val conversation = getConversationFlow(conversationId).value
+            val base = SkillScriptPathUtils.sanitizeWorkDirBaseName(conversation.title)
+            val existingNames = runCatching {
+                rootDoc.listFiles().mapNotNull { it.name }.toSet()
+            }.getOrDefault(emptySet())
+            val unique = SkillScriptPathUtils.pickUniqueName(existingNames, base)
+            val created = rootDoc.createDirectory(unique) ?: return null
+
+            settingsStore.update { current ->
+                current.copy(
+                    conversationWorkDirs = current.conversationWorkDirs + (
+                        key to ConversationWorkDirBinding(
+                            mode = ConversationWorkDirMode.AUTO,
+                            relPath = unique,
+                        )
+                    )
+                )
+            }
+            return created.name ?: unique
+        }
+
+        val workDirRelPath = when (val binding = settingsSnapshot.conversationWorkDirs[conversationId.toString()]) {
+            null -> ensureAutoWorkDirRelPath()
+            else -> when (binding.mode) {
+                ConversationWorkDirMode.MANUAL -> SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
+                ConversationWorkDirMode.AUTO -> {
+                    val v = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
+                    v ?: ensureAutoWorkDirRelPath()
+                }
+            }
+        } ?: error("Failed to resolve workspace work directory")
+
+        resolveOrCreateDirByRelPath(rootDoc, workDirRelPath)
+            ?: error("Workspace work directory is not accessible")
+    }
+
+    private fun createWorkspaceFileTools(
+        conversationId: Uuid,
+        settingsSnapshot: Settings,
+    ): List<Tool> {
+        return listOf(
+            createWorkspaceListTool(conversationId = conversationId, settingsSnapshot = settingsSnapshot),
+            createWorkspaceReadFileTool(conversationId = conversationId, settingsSnapshot = settingsSnapshot),
+            createWorkspaceWriteFileTool(conversationId = conversationId, settingsSnapshot = settingsSnapshot),
+            createWorkspaceMkdirTool(conversationId = conversationId, settingsSnapshot = settingsSnapshot),
+            createWorkspaceDeleteTool(conversationId = conversationId, settingsSnapshot = settingsSnapshot),
+            createWorkspaceRenameTool(conversationId = conversationId, settingsSnapshot = settingsSnapshot),
+        )
+    }
+
+    private fun parseWorkspaceToolBool(obj: JsonObject, key: String, defaultValue: Boolean = false): Boolean {
+        return obj[key]?.jsonPrimitiveOrNull?.contentOrNull
+            ?.trim()
+            ?.toBooleanStrictOrNull()
+            ?: defaultValue
+    }
+
+    private fun parseWorkspaceToolInt(obj: JsonObject, key: String, defaultValue: Int, min: Int, max: Int): Int {
+        return obj[key]?.jsonPrimitiveOrNull?.contentOrNull
+            ?.trim()
+            ?.toIntOrNull()
+            ?.coerceIn(min, max)
+            ?: defaultValue
+    }
+
+    private fun parseWorkspaceToolString(obj: JsonObject, key: String): String? {
+        return obj[key]?.jsonPrimitiveOrNull?.contentOrNull?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    private fun normalizeWorkspaceToolPath(rawPath: String?, allowBlank: Boolean): String? {
+        val trimmed = rawPath?.trim().orEmpty()
+        if (trimmed.isBlank()) return if (allowBlank) "" else null
+        return SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath(trimmed)
+    }
+
+    private fun requireWorkspaceToolConfirmationOrNull(
+        conversationId: Uuid,
+        settingsSnapshot: Settings,
+        toolName: String,
+        actionKey: String,
+        obj: JsonObject,
+        preview: JsonObject,
+    ): JsonObject? {
+        if (settingsSnapshot.workspaceFileToolsAllowAll) return null
+        val confirmed = parseWorkspaceToolBool(obj, "confirm", defaultValue = false)
+        val token = parseWorkspaceToolString(obj, "confirm_token")
+        if (confirmed && consumeWorkspaceFileToolConfirmation(conversationId, toolName, actionKey, token)) {
+            return null
+        }
+        val newToken = registerWorkspaceFileToolConfirmation(conversationId, toolName, actionKey)
+        return buildJsonObject {
+            put("ok", false)
+            put("requires_confirmation", true)
+            put("confirm_token", newToken)
+            put("action_key", actionKey)
+            put("preview", preview)
+        }
+    }
+
+    private fun workspaceToolSystemPrompt(toolName: String): String {
+        return """
+            ## tool: $toolName
+            
+            ### scope
+            - Operates only within the current conversation workspace directory under the user-authorized workspace root.
+            - All paths are relative to the conversation workspace directory.
+            
+            ### confirmation (default)
+            - If the tool returns `requires_confirmation=true`, you MUST ask the user for confirmation.
+            - On user confirmation, call the same tool again with:
+              - `confirm=true`
+              - `confirm_token` from the previous tool result
+              - the same parameters
+            
+            ### setup
+            - If you see an error like "Workspace root is not set", ask the user to set it in Settings -> Skills.
+        """.trimIndent()
+    }
+
+    private fun createWorkspaceListTool(
+        conversationId: Uuid,
+        settingsSnapshot: Settings,
+    ): Tool {
+        return Tool(
+            name = "workspace_list",
+            description = "List files/directories in the current conversation workspace directory.",
+            parameters = {
+                InputSchema.Obj(
+                    properties = buildJsonObject {
+                        put("path", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Relative path inside the conversation workspace directory (default: root).")
+                        })
+                        put("recursive", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Whether to list recursively (default: false).")
+                        })
+                        put("max_entries", buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Maximum entries to return (default: 2000, max: 10000).")
+                        })
+                        put("confirm", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Set true to confirm the operation.")
+                        })
+                        put("confirm_token", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Confirmation token returned by a previous requires_confirmation response.")
+                        })
+                    }
+                )
+            },
+            execute = { args ->
+                val obj = args.jsonObject
+                val normalizedPath = normalizeWorkspaceToolPath(parseWorkspaceToolString(obj, "path"), allowBlank = true)
+                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid path") }
+
+                val recursive = parseWorkspaceToolBool(obj, "recursive", defaultValue = false)
+                val maxEntries = parseWorkspaceToolInt(obj, "max_entries", defaultValue = 2000, min = 1, max = 10_000)
+
+                val actionKey = "list:${normalizedPath}|r=${recursive}|m=${maxEntries}"
+                val maybeConfirm = requireWorkspaceToolConfirmationOrNull(
+                    conversationId = conversationId,
+                    settingsSnapshot = settingsSnapshot,
+                    toolName = "workspace_list",
+                    actionKey = actionKey,
+                    obj = obj,
+                    preview = buildJsonObject {
+                        put("path", normalizedPath.ifBlank { "/" })
+                        put("recursive", recursive)
+                        put("max_entries", maxEntries)
+                    },
+                )
+                if (maybeConfirm != null) return@Tool maybeConfirm
+
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val workDir = resolveConversationWorkspaceDir(settingsSnapshot, conversationId)
+                        val dir = if (normalizedPath.isBlank()) {
+                            workDir
+                        } else {
+                            resolveDocumentByRelPath(workDir, normalizedPath)
+                        } ?: return@withContext buildJsonObject {
+                            put("ok", false)
+                            put("error", "Path not found: ${normalizedPath.ifBlank { "/" }}")
+                        }
+
+                        if (!dir.isDirectory) {
+                            return@withContext buildJsonObject {
+                                put("ok", false)
+                                put("error", "Not a directory: ${normalizedPath.ifBlank { "/" }}")
+                            }
+                        }
+
+                        var truncated = false
+                        var count = 0
+                        val entries = buildJsonArray {
+                            val stack = ArrayDeque<Pair<DocumentFile, String>>()
+                            stack.addLast(dir to normalizedPath)
+                            while (stack.isNotEmpty()) {
+                                val (current, prefix) = stack.removeLast()
+                                current.listFiles().forEach { child ->
+                                    if (count >= maxEntries) {
+                                        truncated = true
+                                        return@forEach
+                                    }
+                                    val name = child.name ?: return@forEach
+                                    val childPath = if (prefix.isBlank()) name else "$prefix/$name"
+                                    add(buildJsonObject {
+                                        put("path", childPath)
+                                        put("type", if (child.isDirectory) "dir" else "file")
+                                        if (child.isFile) {
+                                            put("bytes", child.length())
+                                            put("last_modified", child.lastModified())
+                                        }
+                                    })
+                                    count++
+                                    if (recursive && child.isDirectory) {
+                                        stack.addLast(child to childPath)
+                                    }
+                                }
+                            }
+                        }
+
+                        buildJsonObject {
+                            put("ok", true)
+                            put("path", normalizedPath.ifBlank { "/" })
+                            put("entries", entries)
+                            put("truncated", truncated)
+                        }
+                    }
+                }.getOrElse { e ->
+                    buildJsonObject { put("ok", false); put("error", e.message ?: "Unknown error") }
+                }
+            },
+            systemPrompt = { _, _ -> workspaceToolSystemPrompt("workspace_list") }
+        )
+    }
+
+    private fun createWorkspaceReadFileTool(
+        conversationId: Uuid,
+        settingsSnapshot: Settings,
+    ): Tool {
+        return Tool(
+            name = "workspace_read_file",
+            description = "Read a text file (UTF-8) from the current conversation workspace directory.",
+            parameters = {
+                InputSchema.Obj(
+                    properties = buildJsonObject {
+                        put("path", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Relative file path inside the conversation workspace directory.")
+                        })
+                        put("max_chars", buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Maximum characters to return (default: 200000, max: 2000000).")
+                        })
+                        put("confirm", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Set true to confirm the operation.")
+                        })
+                        put("confirm_token", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Confirmation token returned by a previous requires_confirmation response.")
+                        })
+                    },
+                    required = listOf("path"),
+                )
+            },
+            execute = { args ->
+                val obj = args.jsonObject
+                val normalizedPath = normalizeWorkspaceToolPath(parseWorkspaceToolString(obj, "path"), allowBlank = false)
+                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid path") }
+
+                val maxChars = parseWorkspaceToolInt(obj, "max_chars", defaultValue = 200_000, min = 1, max = 2_000_000)
+
+                val actionKey = "read:${normalizedPath}|m=${maxChars}"
+                val maybeConfirm = requireWorkspaceToolConfirmationOrNull(
+                    conversationId = conversationId,
+                    settingsSnapshot = settingsSnapshot,
+                    toolName = "workspace_read_file",
+                    actionKey = actionKey,
+                    obj = obj,
+                    preview = buildJsonObject {
+                        put("path", normalizedPath)
+                        put("max_chars", maxChars)
+                    },
+                )
+                if (maybeConfirm != null) return@Tool maybeConfirm
+
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val workDir = resolveConversationWorkspaceDir(settingsSnapshot, conversationId)
+                        val file = resolveDocumentByRelPath(workDir, normalizedPath)
+                            ?: return@withContext buildJsonObject { put("ok", false); put("error", "File not found: $normalizedPath") }
+
+                        if (!file.isFile) {
+                            return@withContext buildJsonObject { put("ok", false); put("error", "Not a file: $normalizedPath") }
+                        }
+
+                        val input = context.contentResolver.openInputStream(file.uri)
+                            ?: return@withContext buildJsonObject { put("ok", false); put("error", "Failed to open file: $normalizedPath") }
+
+                        val builder = StringBuilder()
+                        var truncated = false
+                        input.bufferedReader(Charsets.UTF_8).use { reader ->
+                            val buffer = CharArray(8192)
+                            while (true) {
+                                val read = reader.read(buffer)
+                                if (read <= 0) break
+                                val remaining = maxChars - builder.length
+                                if (remaining <= 0) {
+                                    truncated = true
+                                    break
+                                }
+                                if (read <= remaining) {
+                                    builder.append(buffer, 0, read)
+                                } else {
+                                    builder.append(buffer, 0, remaining)
+                                    truncated = true
+                                    break
+                                }
+                            }
+                        }
+
+                        buildJsonObject {
+                            put("ok", true)
+                            put("path", normalizedPath)
+                            put("bytes", file.length())
+                            put("last_modified", file.lastModified())
+                            put("truncated", truncated)
+                            put("content", builder.toString())
+                        }
+                    }
+                }.getOrElse { e ->
+                    buildJsonObject { put("ok", false); put("error", e.message ?: "Unknown error") }
+                }
+            },
+            systemPrompt = { _, _ -> workspaceToolSystemPrompt("workspace_read_file") }
+        )
+    }
+
+    private fun createWorkspaceWriteFileTool(
+        conversationId: Uuid,
+        settingsSnapshot: Settings,
+    ): Tool {
+        return Tool(
+            name = "workspace_write_file",
+            description = "Write a text file (UTF-8) to the current conversation workspace directory.",
+            parameters = {
+                InputSchema.Obj(
+                    properties = buildJsonObject {
+                        put("path", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Relative file path inside the conversation workspace directory.")
+                        })
+                        put("content", buildJsonObject {
+                            put("type", "string")
+                            put("description", "File content (UTF-8).")
+                        })
+                        put("overwrite", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Overwrite existing file (default: true).")
+                        })
+                        put("append", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Append to existing file (default: false).")
+                        })
+                        put("create_parents", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Create parent directories if needed (default: true).")
+                        })
+                        put("confirm", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Set true to confirm the operation.")
+                        })
+                        put("confirm_token", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Confirmation token returned by a previous requires_confirmation response.")
+                        })
+                    },
+                    required = listOf("path", "content"),
+                )
+            },
+            execute = { args ->
+                val obj = args.jsonObject
+                val normalizedPath = normalizeWorkspaceToolPath(parseWorkspaceToolString(obj, "path"), allowBlank = false)
+                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid path") }
+
+                val content = obj["content"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Missing content") }
+
+                val overwrite = parseWorkspaceToolBool(obj, "overwrite", defaultValue = true)
+                val append = parseWorkspaceToolBool(obj, "append", defaultValue = false)
+                val createParents = parseWorkspaceToolBool(obj, "create_parents", defaultValue = true)
+                val contentHash = sha256Hex(content)
+
+                val actionKey = "write:${normalizedPath}|o=${overwrite}|a=${append}|p=${createParents}|h=${contentHash}"
+                val maybeConfirm = requireWorkspaceToolConfirmationOrNull(
+                    conversationId = conversationId,
+                    settingsSnapshot = settingsSnapshot,
+                    toolName = "workspace_write_file",
+                    actionKey = actionKey,
+                    obj = obj,
+                    preview = buildJsonObject {
+                        put("path", normalizedPath)
+                        put("overwrite", overwrite)
+                        put("append", append)
+                        put("create_parents", createParents)
+                        put("bytes", content.toByteArray(Charsets.UTF_8).size)
+                        put("sha256", contentHash)
+                    },
+                )
+                if (maybeConfirm != null) return@Tool maybeConfirm
+
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val workDir = resolveConversationWorkspaceDir(settingsSnapshot, conversationId)
+
+                        val segments = splitRelPath(normalizedPath)
+                        val name = segments.lastOrNull()
+                            ?: return@withContext buildJsonObject { put("ok", false); put("error", "Invalid path") }
+                        val parentPath = segments.dropLast(1).joinToString("/")
+
+                        val parent = if (parentPath.isBlank()) {
+                            workDir
+                        } else {
+                            if (createParents) {
+                                resolveOrCreateDirByRelPath(workDir, parentPath)
+                            } else {
+                                resolveDocumentByRelPath(workDir, parentPath)
+                            }
+                        } ?: return@withContext buildJsonObject {
+                            put("ok", false)
+                            put("error", "Parent directory not found: $parentPath")
+                        }
+
+                        if (!parent.isDirectory) {
+                            return@withContext buildJsonObject { put("ok", false); put("error", "Not a directory: $parentPath") }
+                        }
+
+                        val existing = parent.findFile(name)
+                        if (existing != null) {
+                            if (existing.isDirectory) {
+                                if (!overwrite || append) {
+                                    return@withContext buildJsonObject { put("ok", false); put("error", "Path is a directory: $normalizedPath") }
+                                }
+                                if (!deleteDocumentRecursively(existing)) {
+                                    return@withContext buildJsonObject { put("ok", false); put("error", "Failed to delete existing directory: $normalizedPath") }
+                                }
+                            } else if (!existing.isFile) {
+                                return@withContext buildJsonObject { put("ok", false); put("error", "Invalid destination type: $normalizedPath") }
+                            }
+                        }
+
+                        val resolvedExisting = parent.findFile(name)
+                        if (resolvedExisting != null && !append && !overwrite) {
+                            return@withContext buildJsonObject { put("ok", false); put("error", "File exists: $normalizedPath") }
+                        }
+
+                        val target = resolvedExisting ?: parent.createFile(guessMimeType(name), name)
+                            ?: return@withContext buildJsonObject { put("ok", false); put("error", "Failed to create file: $normalizedPath") }
+
+                        if (!target.isFile) {
+                            return@withContext buildJsonObject { put("ok", false); put("error", "Not a file: $normalizedPath") }
+                        }
+
+                        val mode = if (append) "wa" else "wt"
+                        val out = context.contentResolver.openOutputStream(target.uri, mode)
+                            ?: return@withContext buildJsonObject { put("ok", false); put("error", "Failed to open file: $normalizedPath") }
+
+                        val bytes = content.toByteArray(Charsets.UTF_8)
+                        out.use { it.write(bytes) }
+
+                        buildJsonObject {
+                            put("ok", true)
+                            put("path", normalizedPath)
+                            put("bytes_written", bytes.size)
+                        }
+                    }
+                }.getOrElse { e ->
+                    buildJsonObject { put("ok", false); put("error", e.message ?: "Unknown error") }
+                }
+            },
+            systemPrompt = { _, _ -> workspaceToolSystemPrompt("workspace_write_file") }
+        )
+    }
+
+    private fun createWorkspaceMkdirTool(
+        conversationId: Uuid,
+        settingsSnapshot: Settings,
+    ): Tool {
+        return Tool(
+            name = "workspace_mkdir",
+            description = "Create a directory in the current conversation workspace directory.",
+            parameters = {
+                InputSchema.Obj(
+                    properties = buildJsonObject {
+                        put("path", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Relative directory path inside the conversation workspace directory.")
+                        })
+                        put("parents", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Create parent directories if needed (default: true).")
+                        })
+                        put("confirm", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Set true to confirm the operation.")
+                        })
+                        put("confirm_token", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Confirmation token returned by a previous requires_confirmation response.")
+                        })
+                    },
+                    required = listOf("path"),
+                )
+            },
+            execute = { args ->
+                val obj = args.jsonObject
+                val normalizedPath = normalizeWorkspaceToolPath(parseWorkspaceToolString(obj, "path"), allowBlank = false)
+                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid path") }
+
+                val parents = parseWorkspaceToolBool(obj, "parents", defaultValue = true)
+
+                val actionKey = "mkdir:${normalizedPath}|p=${parents}"
+                val maybeConfirm = requireWorkspaceToolConfirmationOrNull(
+                    conversationId = conversationId,
+                    settingsSnapshot = settingsSnapshot,
+                    toolName = "workspace_mkdir",
+                    actionKey = actionKey,
+                    obj = obj,
+                    preview = buildJsonObject {
+                        put("path", normalizedPath)
+                        put("parents", parents)
+                    },
+                )
+                if (maybeConfirm != null) return@Tool maybeConfirm
+
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val workDir = resolveConversationWorkspaceDir(settingsSnapshot, conversationId)
+
+                        val segments = splitRelPath(normalizedPath)
+                        val name = segments.lastOrNull()
+                            ?: return@withContext buildJsonObject { put("ok", false); put("error", "Invalid path") }
+                        val parentPath = segments.dropLast(1).joinToString("/")
+
+                        val parent = if (parentPath.isBlank()) {
+                            workDir
+                        } else {
+                            if (parents) {
+                                resolveOrCreateDirByRelPath(workDir, parentPath)
+                            } else {
+                                resolveDocumentByRelPath(workDir, parentPath)
+                            }
+                        } ?: return@withContext buildJsonObject {
+                            put("ok", false)
+                            put("error", "Parent directory not found: $parentPath")
+                        }
+
+                        if (!parent.isDirectory) {
+                            return@withContext buildJsonObject { put("ok", false); put("error", "Not a directory: $parentPath") }
+                        }
+
+                        val existing = parent.findFile(name)
+                        if (existing != null) {
+                            if (existing.isDirectory) {
+                                return@withContext buildJsonObject { put("ok", true); put("path", normalizedPath); put("created", false) }
+                            }
+                            return@withContext buildJsonObject { put("ok", false); put("error", "Path is a file: $normalizedPath") }
+                        }
+
+                        val created = parent.createDirectory(name)
+                            ?: return@withContext buildJsonObject { put("ok", false); put("error", "Failed to create directory: $normalizedPath") }
+
+                        buildJsonObject {
+                            put("ok", true)
+                            put("path", normalizedPath)
+                            put("created", created.isDirectory)
+                        }
+                    }
+                }.getOrElse { e ->
+                    buildJsonObject { put("ok", false); put("error", e.message ?: "Unknown error") }
+                }
+            },
+            systemPrompt = { _, _ -> workspaceToolSystemPrompt("workspace_mkdir") }
+        )
+    }
+
+    private fun createWorkspaceDeleteTool(
+        conversationId: Uuid,
+        settingsSnapshot: Settings,
+    ): Tool {
+        return Tool(
+            name = "workspace_delete",
+            description = "Delete a file/directory in the current conversation workspace directory.",
+            parameters = {
+                InputSchema.Obj(
+                    properties = buildJsonObject {
+                        put("path", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Relative path inside the conversation workspace directory. Use empty to delete the workspace directory root (dangerous).")
+                        })
+                        put("recursive", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Delete directories recursively (default: false).")
+                        })
+                        put("missing_ok", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Treat missing path as success (default: false).")
+                        })
+                        put("confirm", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Set true to confirm the operation.")
+                        })
+                        put("confirm_token", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Confirmation token returned by a previous requires_confirmation response.")
+                        })
+                    },
+                    required = listOf("path"),
+                )
+            },
+            execute = { args ->
+                val obj = args.jsonObject
+                val rawPath = obj["path"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Missing path") }
+                val normalizedPath = normalizeWorkspaceToolPath(rawPath, allowBlank = true)
+                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid path") }
+
+                val recursive = parseWorkspaceToolBool(obj, "recursive", defaultValue = false)
+                val missingOk = parseWorkspaceToolBool(obj, "missing_ok", defaultValue = false)
+
+                val actionKey = "delete:${normalizedPath}|r=${recursive}|m=${missingOk}"
+                val maybeConfirm = requireWorkspaceToolConfirmationOrNull(
+                    conversationId = conversationId,
+                    settingsSnapshot = settingsSnapshot,
+                    toolName = "workspace_delete",
+                    actionKey = actionKey,
+                    obj = obj,
+                    preview = buildJsonObject {
+                        put("path", normalizedPath.ifBlank { "/" })
+                        put("recursive", recursive)
+                        put("missing_ok", missingOk)
+                    },
+                )
+                if (maybeConfirm != null) return@Tool maybeConfirm
+
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val workDir = resolveConversationWorkspaceDir(settingsSnapshot, conversationId)
+                        val target = if (normalizedPath.isBlank()) {
+                            workDir
+                        } else {
+                            resolveDocumentByRelPath(workDir, normalizedPath)
+                        }
+
+                        if (target == null) {
+                            if (missingOk) {
+                                return@withContext buildJsonObject { put("ok", true); put("path", normalizedPath.ifBlank { "/" }); put("deleted", false) }
+                            }
+                            return@withContext buildJsonObject { put("ok", false); put("error", "Path not found: ${normalizedPath.ifBlank { "/" }}") }
+                        }
+
+                        if (target.isDirectory) {
+                            if (!recursive && target.listFiles().isNotEmpty()) {
+                                return@withContext buildJsonObject {
+                                    put("ok", false)
+                                    put("error", "Directory is not empty (set recursive=true): ${normalizedPath.ifBlank { "/" }}")
+                                }
+                            }
+                            val deleted = deleteDocumentRecursively(target)
+                            buildJsonObject { put("ok", deleted); put("path", normalizedPath.ifBlank { "/" }); put("deleted", deleted) }
+                        } else {
+                            val deleted = runCatching { target.delete() }.getOrDefault(false)
+                            buildJsonObject { put("ok", deleted); put("path", normalizedPath.ifBlank { "/" }); put("deleted", deleted) }
+                        }
+                    }
+                }.getOrElse { e ->
+                    buildJsonObject { put("ok", false); put("error", e.message ?: "Unknown error") }
+                }
+            },
+            systemPrompt = { _, _ -> workspaceToolSystemPrompt("workspace_delete") }
+        )
+    }
+
+    private fun createWorkspaceRenameTool(
+        conversationId: Uuid,
+        settingsSnapshot: Settings,
+    ): Tool {
+        return Tool(
+            name = "workspace_rename",
+            description = "Rename or move a file/directory within the current conversation workspace directory.",
+            parameters = {
+                InputSchema.Obj(
+                    properties = buildJsonObject {
+                        put("from", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Source relative path inside the conversation workspace directory.")
+                        })
+                        put("to", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Destination relative path inside the conversation workspace directory.")
+                        })
+                        put("overwrite", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Overwrite destination if exists (default: false).")
+                        })
+                        put("create_parents", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Create parent directories if needed (default: true).")
+                        })
+                        put("confirm", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Set true to confirm the operation.")
+                        })
+                        put("confirm_token", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Confirmation token returned by a previous requires_confirmation response.")
+                        })
+                    },
+                    required = listOf("from", "to"),
+                )
+            },
+            execute = { args ->
+                val obj = args.jsonObject
+                val fromPath = normalizeWorkspaceToolPath(parseWorkspaceToolString(obj, "from"), allowBlank = false)
+                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid from") }
+                val toPath = normalizeWorkspaceToolPath(parseWorkspaceToolString(obj, "to"), allowBlank = false)
+                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid to") }
+
+                val overwrite = parseWorkspaceToolBool(obj, "overwrite", defaultValue = false)
+                val createParents = parseWorkspaceToolBool(obj, "create_parents", defaultValue = true)
+
+                val actionKey = "rename:${fromPath}->${toPath}|o=${overwrite}|p=${createParents}"
+                val maybeConfirm = requireWorkspaceToolConfirmationOrNull(
+                    conversationId = conversationId,
+                    settingsSnapshot = settingsSnapshot,
+                    toolName = "workspace_rename",
+                    actionKey = actionKey,
+                    obj = obj,
+                    preview = buildJsonObject {
+                        put("from", fromPath)
+                        put("to", toPath)
+                        put("overwrite", overwrite)
+                        put("create_parents", createParents)
+                    },
+                )
+                if (maybeConfirm != null) return@Tool maybeConfirm
+
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val workDir = resolveConversationWorkspaceDir(settingsSnapshot, conversationId)
+
+                        val source = resolveDocumentByRelPath(workDir, fromPath)
+                            ?: return@withContext buildJsonObject { put("ok", false); put("error", "Source not found: $fromPath") }
+
+                        if (source.isDirectory && toPath.startsWith("$fromPath/")) {
+                            return@withContext buildJsonObject { put("ok", false); put("error", "Cannot move a directory into itself") }
+                        }
+
+                        val toSegments = splitRelPath(toPath)
+                        val toName = toSegments.lastOrNull()
+                            ?: return@withContext buildJsonObject { put("ok", false); put("error", "Invalid to") }
+                        val toParentPath = toSegments.dropLast(1).joinToString("/")
+
+                        val destParent = if (toParentPath.isBlank()) {
+                            workDir
+                        } else {
+                            if (createParents) {
+                                resolveOrCreateDirByRelPath(workDir, toParentPath)
+                            } else {
+                                resolveDocumentByRelPath(workDir, toParentPath)
+                            }
+                        } ?: return@withContext buildJsonObject { put("ok", false); put("error", "Destination parent not found: $toParentPath") }
+
+                        if (!destParent.isDirectory) {
+                            return@withContext buildJsonObject { put("ok", false); put("error", "Not a directory: $toParentPath") }
+                        }
+
+                        val existingDest = destParent.findFile(toName)
+                        if (existingDest != null) {
+                            if (!overwrite) {
+                                return@withContext buildJsonObject { put("ok", false); put("error", "Destination exists: $toPath") }
+                            }
+                            if (!deleteDocumentRecursively(existingDest)) {
+                                return@withContext buildJsonObject { put("ok", false); put("error", "Failed to delete destination: $toPath") }
+                            }
+                        }
+
+                        val fromParentPath = splitRelPath(fromPath).dropLast(1).joinToString("/")
+                        if (fromParentPath == toParentPath) {
+                            val renamedOk = runCatching { source.renameTo(toName) }.getOrDefault(false)
+                            if (renamedOk) {
+                                return@withContext buildJsonObject { put("ok", true); put("from", fromPath); put("to", toPath) }
+                            }
+                        }
+
+                        val createdDest = (
+                            if (source.isDirectory) {
+                                destParent.createDirectory(toName)
+                            } else if (source.isFile) {
+                                destParent.createFile(guessMimeType(toName), toName)
+                            } else {
+                                null
+                            }
+                        ) ?: return@withContext buildJsonObject { put("ok", false); put("error", "Failed to create destination: $toPath") }
+
+                        fun copyRec(src: DocumentFile, dst: DocumentFile): Boolean {
+                            if (src.isDirectory) {
+                                if (!dst.isDirectory) return false
+                                src.listFiles().forEach { child ->
+                                    val childName = child.name ?: return@forEach
+                                    val nextDst = when {
+                                        child.isDirectory -> dst.createDirectory(childName)
+                                        child.isFile -> dst.createFile(guessMimeType(childName), childName)
+                                        else -> null
+                                    } ?: return false
+                                    if (!copyRec(child, nextDst)) return false
+                                }
+                                return true
+                            }
+                            if (!src.isFile || !dst.isFile) return false
+                            return runCatching {
+                                context.contentResolver.openInputStream(src.uri)?.use { input ->
+                                    context.contentResolver.openOutputStream(dst.uri, "wt")?.use { output ->
+                                        input.copyTo(output)
+                                    } != null
+                                } ?: false
+                            }.getOrDefault(false)
+                        }
+
+                        val copied = copyRec(source, createdDest)
+                        if (!copied) {
+                            deleteDocumentRecursively(createdDest)
+                            return@withContext buildJsonObject { put("ok", false); put("error", "Failed to copy source to destination") }
+                        }
+
+                        val deleted = deleteDocumentRecursively(source)
+                        if (!deleted) {
+                            return@withContext buildJsonObject { put("ok", false); put("error", "Failed to delete source after copy") }
+                        }
+
+                        buildJsonObject { put("ok", true); put("from", fromPath); put("to", toPath) }
+                    }
+                }.getOrElse { e ->
+                    buildJsonObject { put("ok", false); put("error", e.message ?: "Unknown error") }
+                }
+            },
+            systemPrompt = { _, _ -> workspaceToolSystemPrompt("workspace_rename") }
         )
     }
 

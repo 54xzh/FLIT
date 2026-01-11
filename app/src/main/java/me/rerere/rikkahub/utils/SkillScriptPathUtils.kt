@@ -14,6 +14,10 @@ object SkillScriptPathUtils {
         return normalizeRelativePath(relativePathRaw)
     }
 
+    fun normalizeAndValidateWorkspaceFileRelPath(relativePathRaw: String): String? {
+        return normalizeRelativePath(relativePathRaw)
+    }
+
     fun sanitizeWorkDirBaseName(title: String): String {
         val cleaned = title
             .replace('\u0000', ' ')
@@ -51,4 +55,3 @@ object SkillScriptPathUtils {
         return parts.joinToString("/")
     }
 }
-

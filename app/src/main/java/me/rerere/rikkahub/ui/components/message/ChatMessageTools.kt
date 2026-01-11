@@ -139,6 +139,31 @@ fun ToolCallItem(
                                 ?: ""
                         )
                         "scrape_web" -> stringResource(R.string.chat_message_tool_scrape_web)
+                        "workspace_list" -> stringResource(
+                            R.string.chat_message_tool_workspace_list,
+                            arguments.jsonObject["path"]?.jsonPrimitiveOrNull?.contentOrNull?.ifBlank { "/" } ?: "/"
+                        )
+                        "workspace_read_file" -> stringResource(
+                            R.string.chat_message_tool_workspace_read_file,
+                            arguments.jsonObject["path"]?.jsonPrimitiveOrNull?.contentOrNull?.ifBlank { "/" } ?: "/"
+                        )
+                        "workspace_write_file" -> stringResource(
+                            R.string.chat_message_tool_workspace_write_file,
+                            arguments.jsonObject["path"]?.jsonPrimitiveOrNull?.contentOrNull?.ifBlank { "/" } ?: "/"
+                        )
+                        "workspace_mkdir" -> stringResource(
+                            R.string.chat_message_tool_workspace_mkdir,
+                            arguments.jsonObject["path"]?.jsonPrimitiveOrNull?.contentOrNull?.ifBlank { "/" } ?: "/"
+                        )
+                        "workspace_delete" -> stringResource(
+                            R.string.chat_message_tool_workspace_delete,
+                            arguments.jsonObject["path"]?.jsonPrimitiveOrNull?.contentOrNull?.ifBlank { "/" } ?: "/"
+                        )
+                        "workspace_rename" -> stringResource(
+                            R.string.chat_message_tool_workspace_rename,
+                            arguments.jsonObject["from"]?.jsonPrimitiveOrNull?.contentOrNull?.ifBlank { "/" } ?: "/",
+                            arguments.jsonObject["to"]?.jsonPrimitiveOrNull?.contentOrNull?.ifBlank { "/" } ?: "/"
+                        )
                         "read_skill_file" -> {
                             val name = skillNameOrId.orEmpty()
                             if (name.isBlank()) {

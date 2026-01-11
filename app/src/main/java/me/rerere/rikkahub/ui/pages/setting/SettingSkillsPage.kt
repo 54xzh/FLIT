@@ -118,6 +118,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
     var renameFolderName by remember { mutableStateOf("") }
 
     var showEnableScriptExecutionDialog by remember { mutableStateOf(false) }
+    var showWorkspaceFileToolsAllowAllDialog by remember { mutableStateOf(false) }
     var skillHasScriptsById by remember { mutableStateOf<Map<Uuid, Boolean>>(emptyMap()) }
 
     val importLauncher = rememberLauncherForActivityResult(
@@ -604,6 +605,36 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                                     }
                                 }
                             }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = stringResource(R.string.workspace_file_tools_allow_all_title),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.workspace_file_tools_allow_all_desc),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Switch(
+                                    checked = settings.workspaceFileToolsAllowAll,
+                                    onCheckedChange = { checked ->
+                                        if (checked && !settings.workspaceFileToolsAllowAll) {
+                                            haptics.perform(HapticPattern.Thud)
+                                            showWorkspaceFileToolsAllowAllDialog = true
+                                        } else {
+                                            haptics.perform(HapticPattern.Pop)
+                                            vm.updateSettings { old -> old.copy(workspaceFileToolsAllowAll = checked) }
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
@@ -898,6 +929,29 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                 },
                 dismissButton = {
                     TextButton(onClick = { showEnableScriptExecutionDialog = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                }
+            )
+        }
+
+        if (showWorkspaceFileToolsAllowAllDialog) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showWorkspaceFileToolsAllowAllDialog = false },
+                title = { Text(stringResource(R.string.workspace_file_tools_allow_all_risk_title)) },
+                text = { Text(stringResource(R.string.workspace_file_tools_allow_all_risk_message)) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            haptics.perform(HapticPattern.Thud)
+                            vm.updateSettings { old -> old.copy(workspaceFileToolsAllowAll = true) }
+                            showWorkspaceFileToolsAllowAllDialog = false
+                            toaster.show(message = context.getString(R.string.workspace_file_tools_allow_all_enabled_success))
+                        }
+                    ) { Text(stringResource(R.string.workspace_file_tools_allow_all_enable_action)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showWorkspaceFileToolsAllowAllDialog = false }) {
                         Text(stringResource(R.string.cancel))
                     }
                 }

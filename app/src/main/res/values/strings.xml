@@ -160,6 +160,8 @@
     <string name="assistant_page_local_tools_device_control_title">Device Control</string>
     <string name="assistant_page_local_tools_device_control_desc">Allow assistant to interact with device (Send Notifications, Read Notifications, Launch Apps, Set Alarms, Set Reminders).</string>
     <string name="assistant_page_local_tools_device_control_subtitle">Notifications, apps, alarms, reminders</string>
+    <string name="assistant_page_local_tools_workspace_files_title">Workspace Files</string>
+    <string name="assistant_page_local_tools_workspace_files_desc">Allow assistant to read/write files in the current conversation workspace. Requires workspace root permission.</string>
     <string name="assistant_page_manage_memory">Manage Memory (%d)</string>
     <string name="assistant_page_manage_memory_title">Manage Memory</string>
     <string name="assistant_page_max_tokens">Max Tokens</string>
@@ -327,6 +329,12 @@
     <string name="chat_message_tool_search_web">Search Web: %1$s</string>
     <string name="chat_message_tool_run_script">Run script %1$s</string>
     <string name="chat_message_tool_run_script_generic">Run script</string>
+    <string name="chat_message_tool_workspace_list">Workspace: List %1$s</string>
+    <string name="chat_message_tool_workspace_read_file">Workspace: Read %1$s</string>
+    <string name="chat_message_tool_workspace_write_file">Workspace: Write %1$s</string>
+    <string name="chat_message_tool_workspace_mkdir">Workspace: Mkdir %1$s</string>
+    <string name="chat_message_tool_workspace_delete">Workspace: Delete %1$s</string>
+    <string name="chat_message_tool_workspace_rename">Workspace: Rename %1$s → %2$s</string>
     <string name="chat_page_cancel">Cancel</string>
     <string name="chat_page_clear_context">Clear Context</string>
     <string name="chat_page_date_format_different_year">%1$d-%2$d-%3$d</string>
@@ -681,6 +689,12 @@
     <string name="workspace_root_choose">Choose workspace root</string>
     <string name="workspace_root_set_success">Workspace root set</string>
     <string name="workspace_root_cleared">Workspace root cleared</string>
+    <string name="workspace_file_tools_allow_all_title">Workspace file tools: Allow all</string>
+    <string name="workspace_file_tools_allow_all_desc">Skip confirmation for workspace file tools. Dangerous.</string>
+    <string name="workspace_file_tools_allow_all_risk_title">Enable allow-all mode?</string>
+    <string name="workspace_file_tools_allow_all_risk_message">When enabled, the assistant can execute workspace file operations without asking for confirmation (including delete/overwrite). Proceed with caution.</string>
+    <string name="workspace_file_tools_allow_all_enable_action">Enable</string>
+    <string name="workspace_file_tools_allow_all_enabled_success">Allow-all mode enabled</string>
     <string name="skill_scripts_risk_title">Enable script execution?</string>
     <string name="skill_scripts_risk_message">Scripts can read/write your workspace folder and run code on your device. Only enable for trusted Skill packages.</string>
     <string name="skill_scripts_enable_action">Enable</string>

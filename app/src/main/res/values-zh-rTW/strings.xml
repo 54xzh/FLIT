@@ -243,6 +243,12 @@
   <string name="chat_message_tool_search_web">搜尋網頁: %1$s</string>
   <string name="chat_message_tool_run_script">執行腳本 %1$s</string>
   <string name="chat_message_tool_run_script_generic">執行腳本</string>
+  <string name="chat_message_tool_workspace_list">工作區：列出 %1$s</string>
+  <string name="chat_message_tool_workspace_read_file">工作區：讀取 %1$s</string>
+  <string name="chat_message_tool_workspace_write_file">工作區：寫入 %1$s</string>
+  <string name="chat_message_tool_workspace_mkdir">工作區：建立資料夾 %1$s</string>
+  <string name="chat_message_tool_workspace_delete">工作區：刪除 %1$s</string>
+  <string name="chat_message_tool_workspace_rename">工作區：重新命名 %1$s → %2$s</string>
   <string name="chat_page_cancel">取消</string>
   <string name="chat_page_clear_context">清空上下文</string>
   <string name="chat_page_date_format_different_year">%1$d年%2$d月%3$d日</string>
@@ -549,6 +555,12 @@
   <string name="workspace_root_choose">選擇工作根目錄</string>
   <string name="workspace_root_set_success">已設定工作區根目錄</string>
   <string name="workspace_root_cleared">已清除工作區根目錄</string>
+  <string name="workspace_file_tools_allow_all_title">工作區檔案工具：全部允許</string>
+  <string name="workspace_file_tools_allow_all_desc">跳過工作區檔案工具的確認步驟（危險）。</string>
+  <string name="workspace_file_tools_allow_all_risk_title">啟用「全部允許」模式？</string>
+  <string name="workspace_file_tools_allow_all_risk_message">啟用後，助手可在不再詢問確認的情況下執行工作區檔案操作（包括刪除/覆蓋）。請謹慎開啟。</string>
+  <string name="workspace_file_tools_allow_all_enable_action">啟用</string>
+  <string name="workspace_file_tools_allow_all_enabled_success">已啟用「全部允許」模式</string>
   <string name="skill_scripts_risk_title">啟用腳本執行？</string>
   <string name="skill_scripts_risk_message">腳本可以讀寫你授權的工作區資料夾，並在裝置上執行程式碼。僅對可信的技能包啟用。</string>
   <string name="skill_scripts_enable_action">啟用</string>
@@ -1164,6 +1176,8 @@
   <string name="assistant_page_local_tools_device_control_title">設備控制</string>
   <string name="assistant_page_local_tools_device_control_desc">允許助手與設備交互（發送通知、讀取通知、啟動應用、設置鬧鐘、設置提醒）。</string>
   <string name="assistant_page_local_tools_device_control_subtitle">通知、應用、鬧鐘、提醒</string>
+  <string name="assistant_page_local_tools_workspace_files_title">工作區檔案</string>
+  <string name="assistant_page_local_tools_workspace_files_desc">允許助手讀寫目前對話的工作區檔案。需要先授予工作區根目錄權限。</string>
   <string name="assistant_page_memory_settings_title">記憶設置</string>
   <string name="assistant_page_temperature_level_value_format">%1$s（%2$s）</string>
   <string name="assistant_page_mcp_servers_desc">啟用外部工具服務器</string>

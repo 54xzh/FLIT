@@ -38,6 +38,22 @@ class SkillScriptPathUtilsTest {
     }
 
     @Test
+    fun `normalizeAndValidateWorkspaceFileRelPath normalizes separators`() {
+        assertEquals("folder/file.txt", SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("folder/file.txt"))
+        assertEquals("folder/file.txt", SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("folder\\file.txt"))
+        assertEquals("folder/file.txt", SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("./folder/file.txt"))
+    }
+
+    @Test
+    fun `normalizeAndValidateWorkspaceFileRelPath rejects unsafe`() {
+        assertNull(SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath(""))
+        assertNull(SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("/file.txt"))
+        assertNull(SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("../file.txt"))
+        assertNull(SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("folder/../file.txt"))
+        assertNull(SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("folder/./file.txt"))
+    }
+
+    @Test
     fun `sanitizeWorkDirBaseName produces safe folder name`() {
         assertEquals("Chat", SkillScriptPathUtils.sanitizeWorkDirBaseName("   "))
         assertEquals("Test____", SkillScriptPathUtils.sanitizeWorkDirBaseName("Test:<>|"))
@@ -51,4 +67,3 @@ class SkillScriptPathUtilsTest {
         assertEquals("New", SkillScriptPathUtils.pickUniqueName(existing, "New"))
     }
 }
-

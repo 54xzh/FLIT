@@ -32,6 +32,10 @@ sealed class LocalToolOption {
     @Serializable
     @SerialName("device_control")
     data object DeviceControl : LocalToolOption()
+
+    @Serializable
+    @SerialName("workspace_files")
+    data object WorkspaceFiles : LocalToolOption()
 }
 
 class LocalTools(private val context: Context) {

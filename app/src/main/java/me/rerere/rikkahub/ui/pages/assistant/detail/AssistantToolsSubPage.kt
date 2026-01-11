@@ -162,7 +162,26 @@ fun AssistantToolsSubPage(
                     )
                 }
             )
-            
+
+            // Workspace Files
+            SettingGroupItem(
+                title = stringResource(R.string.assistant_page_local_tools_workspace_files_title),
+                subtitle = stringResource(R.string.assistant_page_local_tools_workspace_files_desc),
+                trailing = {
+                    HapticSwitch(
+                        checked = assistant.localTools.contains(LocalToolOption.WorkspaceFiles),
+                        onCheckedChange = { enabled ->
+                            val newLocalTools = if (enabled) {
+                                assistant.localTools + LocalToolOption.WorkspaceFiles
+                            } else {
+                                assistant.localTools - LocalToolOption.WorkspaceFiles
+                            }
+                            onUpdate(assistant.copy(localTools = newLocalTools))
+                        }
+                    )
+                }
+            )
+             
             // Device Control
             SettingGroupItem(
                 title = stringResource(R.string.assistant_page_local_tools_device_control_title),

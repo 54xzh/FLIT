@@ -167,6 +167,7 @@ class SettingsStore(
         val SKILL_FOLDERS = stringPreferencesKey("skill_folders")
         val ENABLE_SKILL_SCRIPT_EXECUTION = booleanPreferencesKey("enable_skill_script_execution")
         val ENABLED_SKILL_SCRIPT_IDS = stringPreferencesKey("enabled_skill_script_ids")
+        val WORKSPACE_FILE_TOOLS_ALLOW_ALL = booleanPreferencesKey("workspace_file_tools_allow_all")
         val WORKSPACE_ROOT_TREE_URI = stringPreferencesKey("workspace_root_tree_uri")
         val CONVERSATION_WORK_DIRS = stringPreferencesKey("conversation_work_dirs")
 
@@ -403,6 +404,7 @@ class SettingsStore(
                 enabledSkillScriptIds = preferences[ENABLED_SKILL_SCRIPT_IDS]?.let {
                     runCatching { JsonInstant.decodeFromString<Set<Uuid>>(it) }.getOrNull()
                 } ?: emptySet(),
+                workspaceFileToolsAllowAll = preferences[WORKSPACE_FILE_TOOLS_ALLOW_ALL] == true,
                 workspaceRootTreeUri = preferences[WORKSPACE_ROOT_TREE_URI],
                 conversationWorkDirs = preferences[CONVERSATION_WORK_DIRS]?.let {
                     runCatching { JsonInstant.decodeFromString<Map<String, ConversationWorkDirBinding>>(it) }.getOrNull()
@@ -609,6 +611,7 @@ class SettingsStore(
             preferences[SKILLS] = JsonInstant.encodeToString(finalSettingsToSave.skills)
             preferences[ENABLE_SKILL_SCRIPT_EXECUTION] = finalSettingsToSave.enableSkillScriptExecution
             preferences[ENABLED_SKILL_SCRIPT_IDS] = JsonInstant.encodeToString(finalSettingsToSave.enabledSkillScriptIds)
+            preferences[WORKSPACE_FILE_TOOLS_ALLOW_ALL] = finalSettingsToSave.workspaceFileToolsAllowAll
             finalSettingsToSave.workspaceRootTreeUri?.let {
                 preferences[WORKSPACE_ROOT_TREE_URI] = it
             } ?: preferences.remove(WORKSPACE_ROOT_TREE_URI)
@@ -710,6 +713,7 @@ data class Settings(
     val enableSkillScriptExecution: Boolean = false,
     val enabledSkillScriptIds: Set<Uuid> = emptySet(),
     val workspaceRootTreeUri: String? = null,
+    val workspaceFileToolsAllowAll: Boolean = false,
     val conversationWorkDirs: Map<String, ConversationWorkDirBinding> = emptyMap(),
 ) {
     companion object {
