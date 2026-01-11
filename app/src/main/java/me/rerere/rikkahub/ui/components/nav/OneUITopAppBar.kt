@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
@@ -54,6 +55,7 @@ fun OneUITopAppBar(
     modifier: Modifier = Modifier,
     navigationIcon: @Composable () -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},
+    expandedTitleHorizontalPadding: Dp = 24.dp,
 ) {
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
@@ -165,7 +167,7 @@ fun OneUITopAppBar(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
+                        .padding(horizontal = expandedTitleHorizontalPadding)
                 )
             }
         }

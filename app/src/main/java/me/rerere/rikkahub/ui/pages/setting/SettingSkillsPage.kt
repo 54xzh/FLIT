@@ -17,6 +17,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -66,6 +67,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -116,6 +118,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
     var renameFolderName by remember { mutableStateOf("") }
 
     var showEnableScriptExecutionDialog by remember { mutableStateOf(false) }
+    var skillHasScriptsById by remember { mutableStateOf<Map<Uuid, Boolean>>(emptyMap()) }
 
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -296,7 +299,22 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
         }
     }
 
+    LaunchedEffect(settings.skills) {
+        val ids = settings.skills.map { it.id }
+        skillHasScriptsById = withContext(Dispatchers.IO) {
+            ids.associateWith { id ->
+                runCatching {
+                    val scriptsDir = File(context.filesDir, "skills/$id/scripts")
+                    scriptsDir.isDirectory && scriptsDir.walkTopDown().any { file ->
+                        file.isFile && file.extension.equals("py", ignoreCase = true)
+                    }
+                }.getOrDefault(false)
+            }
+        }
+    }
+
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             OneUITopAppBar(
                 title = if (isSelectionMode) {
@@ -305,6 +323,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                     stringResource(R.string.skills_page_title)
                 },
                 scrollBehavior = scrollBehavior,
+                expandedTitleHorizontalPadding = 32.dp,
                 navigationIcon = {
                     if (isSelectionMode) {
                         HapticIconButton(onClick = { exitSelectionMode() }) {
@@ -481,12 +500,11 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(horizontal = 16.dp)
-                    .padding(
-                        top = 16.dp,
-                        bottom = if (isSelectionMode) 16.dp else 96.dp,
-                    ),
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(
+                    top = paddingValues.calculateTopPadding() + 16.dp,
+                    bottom = paddingValues.calculateBottomPadding() + if (isSelectionMode) 16.dp else 96.dp,
+                ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 item(key = "skill_scripts_settings") {
@@ -692,15 +710,19 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                                                 onRequestDelete = { deletingSkill = skill },
                                                 scriptEnabled = settings.enabledSkillScriptIds.contains(skill.id),
                                                 scriptToggleEnabled = settings.enableSkillScriptExecution,
-                                                onToggleScriptEnabled = { enabled ->
-                                                    vm.updateSettings { old ->
-                                                        val updated = if (enabled) {
-                                                            old.enabledSkillScriptIds + skill.id
-                                                        } else {
-                                                            old.enabledSkillScriptIds - skill.id
+                                                onToggleScriptEnabled = if (skillHasScriptsById[skill.id] == true) {
+                                                    { enabled ->
+                                                        vm.updateSettings { old ->
+                                                            val updated = if (enabled) {
+                                                                old.enabledSkillScriptIds + skill.id
+                                                            } else {
+                                                                old.enabledSkillScriptIds - skill.id
+                                                            }
+                                                            old.copy(enabledSkillScriptIds = updated)
                                                         }
-                                                        old.copy(enabledSkillScriptIds = updated)
                                                     }
+                                                } else {
+                                                    null
                                                 },
                                             )
                                         }
@@ -789,15 +811,19 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                                             onRequestDelete = { deletingSkill = skill },
                                             scriptEnabled = settings.enabledSkillScriptIds.contains(skill.id),
                                             scriptToggleEnabled = settings.enableSkillScriptExecution,
-                                            onToggleScriptEnabled = { enabled ->
-                                                vm.updateSettings { old ->
-                                                    val updated = if (enabled) {
-                                                        old.enabledSkillScriptIds + skill.id
-                                                    } else {
-                                                        old.enabledSkillScriptIds - skill.id
+                                            onToggleScriptEnabled = if (skillHasScriptsById[skill.id] == true) {
+                                                { enabled ->
+                                                    vm.updateSettings { old ->
+                                                        val updated = if (enabled) {
+                                                            old.enabledSkillScriptIds + skill.id
+                                                        } else {
+                                                            old.enabledSkillScriptIds - skill.id
+                                                        }
+                                                        old.copy(enabledSkillScriptIds = updated)
                                                     }
-                                                    old.copy(enabledSkillScriptIds = updated)
                                                 }
+                                            } else {
+                                                null
                                             },
                                         )
                                     }
