@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
+import java.time.ZoneId
 
 class SkillScriptPathUtilsTest {
     @Test
@@ -65,5 +67,28 @@ class SkillScriptPathUtilsTest {
         val existing = setOf("Chat", "Chat (2)")
         assertEquals("Chat (3)", SkillScriptPathUtils.pickUniqueName(existing, "Chat"))
         assertEquals("New", SkillScriptPathUtils.pickUniqueName(existing, "New"))
+    }
+
+    @Test
+    fun `datePlaceholderWorkDirBaseName formats by zone`() {
+        val instant = Instant.parse("2026-01-11T01:02:03Z")
+        assertEquals(
+            "2026-01-11",
+            SkillScriptPathUtils.datePlaceholderWorkDirBaseName(instant, zoneId = ZoneId.of("UTC"))
+        )
+    }
+
+    @Test
+    fun `isDatePlaceholderWorkDirBaseName detects placeholder`() {
+        assertTrue(SkillScriptPathUtils.isDatePlaceholderWorkDirBaseName("2026-01-11"))
+        assertTrue(SkillScriptPathUtils.isDatePlaceholderWorkDirBaseName("2026-01-11 (2)"))
+    }
+
+    @Test
+    fun `isDatePlaceholderWorkDirBaseName rejects invalid`() {
+        assertTrue(!SkillScriptPathUtils.isDatePlaceholderWorkDirBaseName("Chat"))
+        assertTrue(!SkillScriptPathUtils.isDatePlaceholderWorkDirBaseName("2026-01-32"))
+        assertTrue(!SkillScriptPathUtils.isDatePlaceholderWorkDirBaseName("2026-01-11 (x)"))
+        assertTrue(!SkillScriptPathUtils.isDatePlaceholderWorkDirBaseName("2026-01-11 (2) extra"))
     }
 }

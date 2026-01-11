@@ -2634,7 +2634,11 @@ class ChatService(
                             }
 
                             val conversation = getConversationFlow(conversationId).value
-                            val base = SkillScriptPathUtils.sanitizeWorkDirBaseName(conversation.title)
+                            val base = if (conversation.title.isBlank()) {
+                                SkillScriptPathUtils.datePlaceholderWorkDirBaseName(conversation.createAt)
+                            } else {
+                                SkillScriptPathUtils.sanitizeWorkDirBaseName(conversation.title)
+                            }
                             val existingNames = runCatching {
                                 rootDoc.listFiles().mapNotNull { it.name }.toSet()
                             }.getOrDefault(emptySet())
@@ -2895,7 +2899,11 @@ class ChatService(
             }
 
             val conversation = getConversationFlow(conversationId).value
-            val base = SkillScriptPathUtils.sanitizeWorkDirBaseName(conversation.title)
+            val base = if (conversation.title.isBlank()) {
+                SkillScriptPathUtils.datePlaceholderWorkDirBaseName(conversation.createAt)
+            } else {
+                SkillScriptPathUtils.sanitizeWorkDirBaseName(conversation.title)
+            }
             val existingNames = runCatching {
                 rootDoc.listFiles().mapNotNull { it.name }.toSet()
             }.getOrDefault(emptySet())
@@ -4022,8 +4030,77 @@ class ChatService(
                     it.copy(title = titleText)
                 )
             }
+
+            runCatching {
+                tryRenameAutoWorkDirAfterTitleGenerated(
+                    settingsSnapshot = settings,
+                    conversationId = conversationId,
+                    title = titleText,
+                )
+            }.onFailure {
+                Log.w(TAG, "generateTitle: work dir rename skipped: ${it.message}", it)
+            }
         }.onFailure {
             Log.e(TAG, "generateTitle failed: ${it.message}", it)
+        }
+    }
+
+    private suspend fun tryRenameAutoWorkDirAfterTitleGenerated(
+        settingsSnapshot: Settings,
+        conversationId: Uuid,
+        title: String,
+    ) {
+        val workspaceRootUri = settingsSnapshot.workspaceRootTreeUri?.trim().orEmpty()
+        if (workspaceRootUri.isBlank()) return
+
+        val titleTrimmed = title.trim()
+        if (titleTrimmed.isBlank()) return
+
+        val key = conversationId.toString()
+        val binding = settingsSnapshot.conversationWorkDirs[key] ?: return
+        if (binding.mode != ConversationWorkDirMode.AUTO) return
+
+        val relPath = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim()) ?: return
+        if (relPath.contains('/')) return
+        if (!SkillScriptPathUtils.isDatePlaceholderWorkDirBaseName(relPath)) return
+
+        val targetBase = SkillScriptPathUtils.sanitizeWorkDirBaseName(titleTrimmed)
+        if (targetBase == relPath) return
+
+        val mutex = skillScriptMutexes.computeIfAbsent(conversationId) { Mutex() }
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                val rootDoc = runCatching {
+                    DocumentFile.fromTreeUri(context, Uri.parse(workspaceRootUri))
+                }.getOrNull()
+                if (rootDoc?.isDirectory != true) return@withContext
+
+                val currentDir = rootDoc.findFile(relPath)
+                if (currentDir?.isDirectory != true) return@withContext
+
+                val existingNames = runCatching {
+                    rootDoc.listFiles().mapNotNull { it.name }.toSet()
+                }.getOrDefault(emptySet())
+                val uniqueTarget = SkillScriptPathUtils.pickUniqueName(existingNames - relPath, targetBase)
+
+                val renamed = runCatching { currentDir.renameTo(uniqueTarget) }.getOrDefault(false)
+                if (!renamed) return@withContext
+
+                settingsStore.update { current ->
+                    val currentBinding = current.conversationWorkDirs[key] ?: return@update current
+                    if (currentBinding.mode != ConversationWorkDirMode.AUTO) return@update current
+
+                    val currentRelPath = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(currentBinding.relPath.trim())
+                        ?: return@update current
+                    if (currentRelPath != relPath) return@update current
+
+                    current.copy(
+                        conversationWorkDirs = current.conversationWorkDirs + (
+                            key to currentBinding.copy(relPath = uniqueTarget)
+                        )
+                    )
+                }
+            }
         }
     }
 

@@ -1,8 +1,15 @@
 package me.rerere.rikkahub.utils
 
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 object SkillScriptPathUtils {
+    private val WORKDIR_DATE_PLACEHOLDER_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE
+    private val WORKDIR_DATE_PLACEHOLDER_SUFFIX_REGEX = Regex("^ \\(\\d+\\)$")
+
     fun normalizeAndValidateScriptPath(relativePathRaw: String): String? {
         val normalized = normalizeRelativePath(relativePathRaw) ?: return null
         if (!normalized.lowercase(Locale.ROOT).endsWith(".py")) return null
@@ -30,6 +37,23 @@ object SkillScriptPathUtils {
         val trimmed = cleaned.trimEnd('.', ' ')
         val safe = trimmed.ifBlank { "Chat" }
         return safe.take(64)
+    }
+
+    fun datePlaceholderWorkDirBaseName(
+        createAt: Instant,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+    ): String {
+        return WORKDIR_DATE_PLACEHOLDER_FORMATTER.withZone(zoneId).format(createAt)
+    }
+
+    fun isDatePlaceholderWorkDirBaseName(name: String): Boolean {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return false
+        val datePart = trimmed.substringBefore(" (").trim()
+        val parsed = runCatching { LocalDate.parse(datePart) }.getOrNull() ?: return false
+        val suffix = trimmed.removePrefix(parsed.toString())
+        if (suffix.isEmpty()) return true
+        return WORKDIR_DATE_PLACEHOLDER_SUFFIX_REGEX.matches(suffix)
     }
 
     fun pickUniqueName(existing: Set<String>, base: String): String {

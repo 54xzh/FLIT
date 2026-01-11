@@ -290,6 +290,15 @@
   <string name="workdir_reset_success">已重置为自动</string>
   <string name="workdir_manual_empty">路径不能为空</string>
   <string name="workdir_manual_saved">已保存</string>
+  <string name="workdir_choose_directory">选择目录</string>
+  <string name="workdir_quick_setup_title">工作目录设定</string>
+  <string name="workdir_picker_title">选择工作目录</string>
+  <string name="workdir_picker_choose_current">选择此目录</string>
+  <string name="workdir_picker_new_folder_action">新建文件夹</string>
+  <string name="workdir_picker_new_folder_title">新建文件夹</string>
+  <string name="workdir_picker_new_folder_placeholder">文件夹名称</string>
+  <string name="workdir_picker_new_folder_create">创建</string>
+  <string name="workdir_picker_new_folder_failed">创建文件夹失败</string>
   <string name="chat_page_save">保存</string>
   <string name="chat_page_scroll_to_bottom">滚动到底部</string>
   <string name="chat_page_search_placeholder">搜索聊天记录</string>

@@ -160,6 +160,8 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.mcp.McpStatus
 import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.datastore.ConversationWorkDirBinding
+import me.rerere.rikkahub.data.datastore.ConversationWorkDirMode
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
@@ -175,6 +177,7 @@ import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.rikkahub.ui.components.workdir.WorkDirPickerBottomSheet
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.service.ChatService
@@ -345,6 +348,7 @@ fun ChatInput(
     onUpdateChatModel: (Model) -> Unit,
     onUpdateAssistant: (Assistant) -> Unit,
     onUpdateConversation: (Conversation) -> Unit,
+    onUpdateSettings: (Settings) -> Unit,
     onUpdateSearchService: (Int) -> Unit,
     onClearContext: () -> Unit,
     onCancelClick: () -> Unit,
@@ -758,6 +762,7 @@ fun ChatInput(
                             onClearContext = onClearContext,
                             onUpdateAssistant = onUpdateAssistant,
                             onUpdateConversation = onUpdateConversation,
+                            onUpdateSettings = onUpdateSettings,
                             onNavigateToLorebook = onNavigateToLorebook,
                             onRefreshContext = onRefreshContext,
                             onDismiss = { dismissExpand() }
@@ -1289,6 +1294,7 @@ private fun FilesPicker(
     onClearContext: () -> Unit,
     onUpdateAssistant: (Assistant) -> Unit,
     onUpdateConversation: (Conversation) -> Unit,
+    onUpdateSettings: (Settings) -> Unit,
     onNavigateToLorebook: (String) -> Unit,
     onRefreshContext: suspend () -> ChatService.ContextRefreshResult,
     onDismiss: () -> Unit
@@ -1297,6 +1303,39 @@ private fun FilesPicker(
     val amoledMode by rememberAmoledDarkMode()
     val provider = settings.getCurrentChatModel()?.findProvider(providers = settings.providers)
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
+    val toaster = LocalToaster.current
+    val context = LocalContext.current
+
+    val workspaceReady = !settings.workspaceRootTreeUri.isNullOrBlank()
+    val workDirKey = conversation.id.toString()
+    val currentWorkDirBinding = settings.conversationWorkDirs[workDirKey]
+    var showWorkDirPicker by remember(conversation.id) { mutableStateOf(false) }
+
+    if (showWorkDirPicker) {
+        WorkDirPickerBottomSheet(
+            workspaceRootTreeUri = settings.workspaceRootTreeUri,
+            initialRelPath = currentWorkDirBinding?.relPath?.trim().orEmpty(),
+            onDismissRequest = { showWorkDirPicker = false },
+            onConfirm = { relPath ->
+                onUpdateSettings(
+                    settings.copy(
+                        conversationWorkDirs = settings.conversationWorkDirs + (
+                            workDirKey to ConversationWorkDirBinding(
+                                mode = ConversationWorkDirMode.MANUAL,
+                                relPath = relPath,
+                            )
+                        )
+                    )
+                )
+                toaster.show(
+                    message = context.getString(R.string.workdir_manual_saved),
+                    type = ToastType.Success,
+                )
+                showWorkDirPicker = false
+                onDismiss()
+            },
+        )
+    }
 
     val mcpServers = settings.mcpServers
     val enabledMcpServersCount = remember(mcpServers, assistant.mcpServers) {
@@ -1361,6 +1400,69 @@ private fun FilesPicker(
                 FilePickButton(shape = topRightShape) {
                     state.addFiles(it)
                     onDismiss()
+                }
+            }
+        }
+
+        if (conversation.messageNodes.isEmpty()) {
+            val subtitle = if (workspaceReady) {
+                when (currentWorkDirBinding?.mode) {
+                    ConversationWorkDirMode.MANUAL -> context.getString(
+                        R.string.workdir_current_manual,
+                        currentWorkDirBinding.relPath
+                    )
+
+                    else -> context.getString(R.string.workdir_current_auto)
+                }
+            } else {
+                context.getString(R.string.workspace_root_required_hint)
+            }
+
+            CompositionLocalProvider(LocalAbsoluteTonalElevation provides if (amoledMode && isDarkMode) 0.dp else LocalAbsoluteTonalElevation.current) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+                    color = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    tonalElevation = if (amoledMode && isDarkMode) 0.dp else 6.dp,
+                    onClick = {
+                        if (!workspaceReady) {
+                            haptics.perform(HapticPattern.Error)
+                            toaster.show(
+                                message = context.getString(R.string.workspace_root_required_hint),
+                                type = ToastType.Error,
+                            )
+                            return@Surface
+                        }
+                        haptics.perform(HapticPattern.Pop)
+                        showWorkDirPicker = true
+                    },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.FolderOpen,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.workdir_quick_setup_title),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                 }
             }
         }

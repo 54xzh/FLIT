@@ -104,6 +104,8 @@ import me.rerere.ai.provider.Model
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.datastore.ConversationWorkDirBinding
+import me.rerere.rikkahub.data.datastore.ConversationWorkDirMode
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
@@ -111,11 +113,13 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.ui.components.crop.CropImageScreen
+import me.rerere.rikkahub.ui.components.ui.ToastType
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionCamera
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.rikkahub.ui.components.workdir.WorkDirPickerBottomSheet
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
@@ -144,6 +148,7 @@ fun MinimalChatInput(
     onUpdateChatModel: (Model) -> Unit,
     onUpdateAssistant: (Assistant) -> Unit,
     onUpdateConversation: (Conversation) -> Unit,
+    onUpdateSettings: (Settings) -> Unit,
     onUpdateSearchService: (Int) -> Unit,
     onClearContext: () -> Unit,
     onCancelClick: () -> Unit,
@@ -173,6 +178,35 @@ fun MinimalChatInput(
     
     var showPicker by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
+
+    val workDirKey = conversation.id.toString()
+    val currentWorkDirBinding = settings.conversationWorkDirs[workDirKey]
+    var showWorkDirPicker by remember(conversation.id) { mutableStateOf(false) }
+
+    if (showWorkDirPicker) {
+        WorkDirPickerBottomSheet(
+            workspaceRootTreeUri = settings.workspaceRootTreeUri,
+            initialRelPath = currentWorkDirBinding?.relPath?.trim().orEmpty(),
+            onDismissRequest = { showWorkDirPicker = false },
+            onConfirm = { relPath ->
+                onUpdateSettings(
+                    settings.copy(
+                        conversationWorkDirs = settings.conversationWorkDirs + (
+                            workDirKey to ConversationWorkDirBinding(
+                                mode = ConversationWorkDirMode.MANUAL,
+                                relPath = relPath,
+                            )
+                        )
+                    )
+                )
+                toaster.show(
+                    message = context.getString(R.string.workdir_manual_saved),
+                    type = ToastType.Success,
+                )
+                showWorkDirPicker = false
+            },
+        )
+    }
     
     // Collapse picker when keyboard opens
     val imeVisible = WindowInsets.isImeVisible
@@ -394,6 +428,10 @@ fun MinimalChatInput(
                 onUpdateSearchService = onUpdateSearchService,
                 onNavigateToLorebook = onNavigateToLorebook,
                 onRefreshContext = onRefreshContext,
+                onOpenWorkDirPicker = {
+                    showPicker = false
+                    showWorkDirPicker = true
+                },
                 onDismiss = { showPicker = false }
             )
         }
@@ -411,6 +449,7 @@ private fun MinimalPickerContent(
     onToggleSearch: (Boolean) -> Unit,
     onUpdateChatModel: (Model) -> Unit,
     onUpdateConversation: (Conversation) -> Unit,
+    onOpenWorkDirPicker: () -> Unit,
     onUpdateAssistant: (Assistant) -> Unit,
     onUpdateSearchService: (Int) -> Unit,
     onNavigateToLorebook: (String) -> Unit,
@@ -599,6 +638,46 @@ private fun MinimalPickerContent(
                 onClick = {
                     filePickerLauncher.launch("*/*")
                 }
+            )
+        }
+
+        if (conversation.messageNodes.isEmpty()) {
+            val workspaceReady = !settings.workspaceRootTreeUri.isNullOrBlank()
+            val workDirKey = conversation.id.toString()
+            val currentWorkDirBinding = settings.conversationWorkDirs[workDirKey]
+            val subtitle = if (workspaceReady) {
+                when (currentWorkDirBinding?.mode) {
+                    ConversationWorkDirMode.MANUAL -> context.getString(
+                        R.string.workdir_current_manual,
+                        currentWorkDirBinding.relPath
+                    )
+
+                    else -> context.getString(R.string.workdir_current_auto)
+                }
+            } else {
+                context.getString(R.string.workspace_root_required_hint)
+            }
+
+            MinimalPickerItem(
+                icon = {
+                    Icon(
+                        imageVector = Icons.Rounded.FolderOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                    )
+                },
+                title = stringResource(R.string.workdir_quick_setup_title),
+                subtitle = subtitle,
+                onClick = {
+                    if (!workspaceReady) {
+                        toaster.show(
+                            message = context.getString(R.string.workspace_root_required_hint),
+                            type = ToastType.Error,
+                        )
+                    } else {
+                        onOpenWorkDirPicker()
+                    }
+                },
             )
         }
         

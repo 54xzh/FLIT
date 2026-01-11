@@ -373,6 +373,15 @@
     <string name="workdir_reset_success">Reset to auto</string>
     <string name="workdir_manual_empty">Path cannot be empty</string>
     <string name="workdir_manual_saved">Saved</string>
+    <string name="workdir_choose_directory">Choose directory</string>
+    <string name="workdir_quick_setup_title">Set work directory</string>
+    <string name="workdir_picker_title">Choose work directory</string>
+    <string name="workdir_picker_choose_current">Choose this folder</string>
+    <string name="workdir_picker_new_folder_action">New folder</string>
+    <string name="workdir_picker_new_folder_title">Create folder</string>
+    <string name="workdir_picker_new_folder_placeholder">Folder name</string>
+    <string name="workdir_picker_new_folder_create">Create</string>
+    <string name="workdir_picker_new_folder_failed">Failed to create folder</string>
     <string name="chat_page_consolidate">Consolidate</string>
     <string name="chat_page_save">Save</string>
     <string name="chat_page_scroll_to_bottom">Scroll to Bottom</string>

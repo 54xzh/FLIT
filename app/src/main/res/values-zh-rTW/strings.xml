@@ -285,6 +285,15 @@
   <string name="workdir_reset_success">已重設為自動</string>
   <string name="workdir_manual_empty">路徑不能為空</string>
   <string name="workdir_manual_saved">已儲存</string>
+  <string name="workdir_choose_directory">選擇目錄</string>
+  <string name="workdir_quick_setup_title">工作目錄設定</string>
+  <string name="workdir_picker_title">選擇工作目錄</string>
+  <string name="workdir_picker_choose_current">選擇此目錄</string>
+  <string name="workdir_picker_new_folder_action">新增資料夾</string>
+  <string name="workdir_picker_new_folder_title">新增資料夾</string>
+  <string name="workdir_picker_new_folder_placeholder">資料夾名稱</string>
+  <string name="workdir_picker_new_folder_create">建立</string>
+  <string name="workdir_picker_new_folder_failed">新增資料夾失敗</string>
   <string name="chat_page_save">保存</string>
   <string name="chat_page_scroll_to_bottom">滾動到底部</string>
   <string name="chat_page_search_placeholder">搜尋對話記錄</string>

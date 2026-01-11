@@ -963,6 +963,9 @@ private fun ChatPageContent(
                             vm.updateConversation(updatedConversation)
                             vm.saveConversationAsync()
                         },
+                        onUpdateSettings = { updatedSettings ->
+                            vm.updateSettings(updatedSettings)
+                        },
                         onNavigateToLorebook = { lorebookId ->
                             navController.navigate(Screen.SettingLorebookDetail(lorebookId))
                         },
@@ -1094,6 +1097,9 @@ private fun ChatPageContent(
                         onUpdateConversation = { updatedConversation ->
                             vm.updateConversation(updatedConversation)
                             vm.saveConversationAsync()
+                        },
+                        onUpdateSettings = { updatedSettings ->
+                            vm.updateSettings(updatedSettings)
                         },
                         onNavigateToLorebook = { lorebookId ->
                             navController.navigate(Screen.SettingLorebookDetail(lorebookId))
