@@ -5,6 +5,14 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -51,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.documentfile.provider.DocumentFile
@@ -92,6 +101,7 @@ fun WorkDirPickerBottomSheet(
     var loading by remember(workspaceRootTreeUri) { mutableStateOf(true) }
     var errorMessage by remember(workspaceRootTreeUri) { mutableStateOf<String?>(null) }
     var folderNames by remember { mutableStateOf<List<String>>(emptyList()) }
+    var navigationDirection by remember { mutableStateOf(WorkDirNavigationDirection.Forward) }
 
     var creatingFolder by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
@@ -109,7 +119,9 @@ fun WorkDirPickerBottomSheet(
             )
         }
         haptics.perform(HapticPattern.Success)
+        navigationDirection = WorkDirNavigationDirection.Back
         segments = emptyList()
+        folderNames = emptyList()
         creatingFolder = false
         newFolderName = ""
         scope.launch {
@@ -141,8 +153,9 @@ fun WorkDirPickerBottomSheet(
         }?.takeIf { it.isDirectory }
         if (rootDoc == null) {
             errorMessage = context.getString(R.string.workspace_root_required_hint_v2)
+            folderNames = emptyList()
+            loading = false
         }
-        loading = false
     }
 
     LaunchedEffect(rootDoc, segments) {
@@ -208,6 +221,7 @@ fun WorkDirPickerBottomSheet(
                                 }
                             }
                             if (!createdName.isNullOrBlank()) {
+                                navigationDirection = WorkDirNavigationDirection.Forward
                                 segments = currentSegments + createdName
                             } else {
                                 errorMessage = context.getString(R.string.workdir_picker_new_folder_failed)
@@ -258,6 +272,7 @@ fun WorkDirPickerBottomSheet(
                     enabled = segments.isNotEmpty(),
                     onClick = {
                         haptics.perform(HapticPattern.Pop)
+                        navigationDirection = WorkDirNavigationDirection.Back
                         segments = segments.dropLast(1)
                     }
                 ) {
@@ -271,6 +286,7 @@ fun WorkDirPickerBottomSheet(
                 segments = segments,
                 onSelectDepth = { depth ->
                     haptics.perform(HapticPattern.Pop)
+                    navigationDirection = WorkDirNavigationDirection.Back
                     segments = segments.take(depth)
                 },
             )
@@ -289,58 +305,95 @@ fun WorkDirPickerBottomSheet(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 360.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                item(key = "choose_other_dir") {
-                    ListItem(
-                        colors = ListItemDefaults.colors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        ),
-                        leadingContent = {
-                            Icon(
-                                imageVector = Icons.Rounded.FolderOpen,
-                                contentDescription = null,
-                            )
-                        },
-                        headlineContent = {
-                            Text(text = stringResource(R.string.workdir_picker_choose_other_directory))
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(AppShapes.CardMedium)
-                            .clickable {
-                                haptics.perform(HapticPattern.Pop)
-                                workspaceRootLauncher.launch(null)
-                            },
-                    )
-                }
+            AnimatedContent(
+                targetState = folderNames,
+                transitionSpec = {
+                    val offset = { fullWidth: Int -> (fullWidth / 8).coerceAtLeast(48) }
+                    val slideSpec = spring<IntOffset>(dampingRatio = 1f, stiffness = 800f)
+                    val fadeSpec = spring<Float>(dampingRatio = 1f, stiffness = 900f)
 
-                items(folderNames, key = { it }) { name ->
-                    ListItem(
-                        colors = ListItemDefaults.colors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        ),
-                        leadingContent = {
-                            Icon(
-                                imageVector = Icons.Rounded.Folder,
-                                contentDescription = null,
-                            )
-                        },
-                        headlineContent = {
-                            Text(text = name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(AppShapes.CardMedium)
-                            .clickable {
-                                haptics.perform(HapticPattern.Pop)
-                                segments = segments + name
+                    val enter = when (navigationDirection) {
+                        WorkDirNavigationDirection.Forward -> {
+                            slideInHorizontally(animationSpec = slideSpec, initialOffsetX = { offset(it) }) +
+                                fadeIn(animationSpec = fadeSpec)
+                        }
+
+                        WorkDirNavigationDirection.Back -> {
+                            slideInHorizontally(animationSpec = slideSpec, initialOffsetX = { -offset(it) }) +
+                                fadeIn(animationSpec = fadeSpec)
+                        }
+                    }
+                    val exit = when (navigationDirection) {
+                        WorkDirNavigationDirection.Forward -> {
+                            slideOutHorizontally(animationSpec = slideSpec, targetOffsetX = { -offset(it) }) +
+                                fadeOut(animationSpec = fadeSpec)
+                        }
+
+                        WorkDirNavigationDirection.Back -> {
+                            slideOutHorizontally(animationSpec = slideSpec, targetOffsetX = { offset(it) }) +
+                                fadeOut(animationSpec = fadeSpec)
+                        }
+                    }
+                    enter togetherWith exit using SizeTransform(clip = true) { _, _ ->
+                        spring(dampingRatio = 1f, stiffness = 900f)
+                    }
+                },
+                label = "workdir_folder_list_transition",
+            ) { animatedFolders ->
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    item(key = "choose_other_dir") {
+                        ListItem(
+                            colors = ListItemDefaults.colors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                            ),
+                            leadingContent = {
+                                Icon(
+                                    imageVector = Icons.Rounded.FolderOpen,
+                                    contentDescription = null,
+                                )
                             },
-                    )
+                            headlineContent = {
+                                Text(text = stringResource(R.string.workdir_picker_choose_other_directory))
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(AppShapes.CardMedium)
+                                .clickable {
+                                    haptics.perform(HapticPattern.Pop)
+                                    workspaceRootLauncher.launch(null)
+                                },
+                        )
+                    }
+
+                    items(animatedFolders, key = { it }) { name ->
+                        ListItem(
+                            colors = ListItemDefaults.colors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                            ),
+                            leadingContent = {
+                                Icon(
+                                    imageVector = Icons.Rounded.Folder,
+                                    contentDescription = null,
+                                )
+                            },
+                            headlineContent = {
+                                Text(text = name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(AppShapes.CardMedium)
+                                .clickable {
+                                    haptics.perform(HapticPattern.Pop)
+                                    navigationDirection = WorkDirNavigationDirection.Forward
+                                    segments = segments + name
+                                },
+                        )
+                    }
                 }
             }
 
@@ -437,4 +490,9 @@ private fun resolveDir(root: DocumentFile, segments: List<String>): DocumentFile
         current = next
     }
     return current
+}
+
+private enum class WorkDirNavigationDirection {
+    Forward,
+    Back,
 }
