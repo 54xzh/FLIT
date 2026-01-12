@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -243,12 +244,26 @@ fun WorkDirPickerBottomSheet(
         )
     }
 
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
         shape = AppShapes.BottomSheet,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        dragHandle = null,
+        dragHandle = {
+            IconButton(
+                onClick = {
+                    haptics.perform(HapticPattern.Pop)
+                    scope.launch {
+                        sheetState.hide()
+                        onDismissRequest()
+                    }
+                },
+            ) {
+                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null)
+            }
+        },
     ) {
         Column(
             modifier = Modifier

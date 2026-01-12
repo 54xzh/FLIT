@@ -1649,41 +1649,43 @@ private fun FilesPicker(
                 )
             }
 
-            val clearInteractionSource = remember { MutableInteractionSource() }
-            val isClearPressed by clearInteractionSource.collectIsPressedAsState()
-            val clearScale by animateFloatAsState(
-                targetValue = if (isClearPressed) 0.98f else 1f,
-                animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
-                label = "clear_context_scale",
-            )
-            ListItem(
-                modifier = Modifier
-                    .graphicsLayer {
-                        scaleX = clearScale
-                        scaleY = clearScale
-                    }
-                    .clip(RoundedCornerShape(24.dp))
-                    .clickable(
-                        interactionSource = clearInteractionSource,
-                        indication = LocalIndication.current,
-                    ) {
-                        haptics.perform(HapticPattern.Thud)
-                        onClearContext()
-                        onDismiss()
+            if (conversation.messageNodes.isNotEmpty()) {
+                val clearInteractionSource = remember { MutableInteractionSource() }
+                val isClearPressed by clearInteractionSource.collectIsPressedAsState()
+                val clearScale by animateFloatAsState(
+                    targetValue = if (isClearPressed) 0.98f else 1f,
+                    animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                    label = "clear_context_scale",
+                )
+                ListItem(
+                    modifier = Modifier
+                        .graphicsLayer {
+                            scaleX = clearScale
+                            scaleY = clearScale
+                        }
+                        .clip(RoundedCornerShape(24.dp))
+                        .clickable(
+                            interactionSource = clearInteractionSource,
+                            indication = LocalIndication.current,
+                        ) {
+                            haptics.perform(HapticPattern.Thud)
+                            onClearContext()
+                            onDismiss()
+                        },
+                    colors = ListItemDefaults.colors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    ),
+                    leadingContent = {
+                        Icon(
+                            imageVector = Icons.Rounded.ClearAll,
+                            contentDescription = stringResource(R.string.chat_page_clear_context),
+                        )
                     },
-                colors = ListItemDefaults.colors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                ),
-                leadingContent = {
-                    Icon(
-                        imageVector = Icons.Rounded.ClearAll,
-                        contentDescription = stringResource(R.string.chat_page_clear_context),
-                    )
-                },
-                headlineContent = {
-                    Text(stringResource(R.string.chat_page_clear_context))
-                },
-            )
+                    headlineContent = {
+                        Text(stringResource(R.string.chat_page_clear_context))
+                    },
+                )
+            }
 
             if (mcpServers.isNotEmpty()) {
                 val mcpInteractionSource = remember { MutableInteractionSource() }
