@@ -266,12 +266,22 @@ fun WorkDirPickerBottomSheet(
             }
 
             WorkDirBreadcrumb(
+                rootLabel = rootDoc?.name?.trim().takeIf { !it.isNullOrBlank() }
+                    ?: stringResource(R.string.workspace_root_title),
                 segments = segments,
                 onSelectDepth = { depth ->
                     haptics.perform(HapticPattern.Pop)
                     segments = segments.take(depth)
                 },
             )
+
+            if (rootDoc != null && segments.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.workdir_picker_root_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             if (!errorMessage.isNullOrBlank()) {
                 Text(
@@ -360,11 +370,11 @@ fun WorkDirPickerBottomSheet(
                 }
 
                 Button(
-                    enabled = rootDoc != null && segments.isNotEmpty(),
+                    enabled = rootDoc != null,
                     onClick = {
                         val relPath = segments.joinToString("/")
                         val validated = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(relPath)
-                        if (validated == null || validated.isBlank()) {
+                        if (validated == null) {
                             haptics.perform(HapticPattern.Error)
                             return@Button
                         }
@@ -383,6 +393,7 @@ fun WorkDirPickerBottomSheet(
 
 @Composable
 private fun WorkDirBreadcrumb(
+    rootLabel: String,
     segments: List<String>,
     onSelectDepth: (Int) -> Unit,
 ) {
@@ -392,7 +403,7 @@ private fun WorkDirBreadcrumb(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = stringResource(R.string.workspace_root_title),
+            text = rootLabel,
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.clickable { onSelectDepth(0) },

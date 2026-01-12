@@ -92,6 +92,7 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
+import me.rerere.rikkahub.data.datastore.getConversationWorkspaceRootTreeUri
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
 import me.rerere.rikkahub.data.datastore.getEffectiveWorkspaceRootTreeUri
@@ -2612,7 +2613,6 @@ class ChatService(
 
                         fun resolveOrCreateDirByRelPath(relPath: String): DocumentFile? {
                             val segments = relPath.split('/').filter { it.isNotBlank() }
-                            if (segments.isEmpty()) return null
                             var current: DocumentFile = rootDoc
                             segments.forEach { seg ->
                                 val existing = current.findFile(seg)
@@ -2659,13 +2659,20 @@ class ChatService(
                             return created.name ?: unique
                         }
 
-                        val workDirRelPath = when (val binding = settingsSnapshot.conversationWorkDirs[conversationId.toString()]) {
-                            null -> ensureAutoWorkDirRelPath()
+                        val key = conversationId.toString()
+                        val hasConversationRootOverride = settingsSnapshot.getConversationWorkspaceRootTreeUri(conversationId) != null
+                        val workDirRelPath = when (val binding = settingsSnapshot.conversationWorkDirs[key]) {
+                            null -> if (hasConversationRootOverride) "" else ensureAutoWorkDirRelPath()
                             else -> when (binding.mode) {
                                 ConversationWorkDirMode.MANUAL -> SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
                                 ConversationWorkDirMode.AUTO -> {
-                                    val v = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
-                                    v ?: ensureAutoWorkDirRelPath()
+                                    if (hasConversationRootOverride) {
+                                        ""
+                                    } else {
+                                        val v = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
+                                            ?.takeIf { it.isNotBlank() }
+                                        v ?: ensureAutoWorkDirRelPath()
+                                    }
                                 }
                             }
                         } ?: return@withContext buildJsonObject {
@@ -2893,6 +2900,8 @@ class ChatService(
             error("Workspace root is not accessible")
         }
 
+        val hasConversationRootOverride = effectiveSettings.getConversationWorkspaceRootTreeUri(conversationId) != null
+
         suspend fun ensureAutoWorkDirRelPath(): String? {
             val key = conversationId.toString()
             val existingBinding = effectiveSettings.conversationWorkDirs[key]
@@ -2927,13 +2936,19 @@ class ChatService(
             return created.name ?: unique
         }
 
-        val workDirRelPath = when (val binding = effectiveSettings.conversationWorkDirs[conversationId.toString()]) {
-            null -> ensureAutoWorkDirRelPath()
+        val key = conversationId.toString()
+        val workDirRelPath = when (val binding = effectiveSettings.conversationWorkDirs[key]) {
+            null -> if (hasConversationRootOverride) "" else ensureAutoWorkDirRelPath()
             else -> when (binding.mode) {
                 ConversationWorkDirMode.MANUAL -> SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
                 ConversationWorkDirMode.AUTO -> {
-                    val v = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
-                    v ?: ensureAutoWorkDirRelPath()
+                    if (hasConversationRootOverride) {
+                        ""
+                    } else {
+                        val v = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
+                            ?.takeIf { it.isNotBlank() }
+                        v ?: ensureAutoWorkDirRelPath()
+                    }
                 }
             }
         } ?: error("Failed to resolve workspace work directory")

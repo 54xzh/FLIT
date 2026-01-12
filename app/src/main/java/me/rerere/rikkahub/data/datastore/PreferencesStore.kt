@@ -51,6 +51,7 @@ import me.rerere.rikkahub.data.model.ToolResultHistoryMode
 import me.rerere.rikkahub.data.model.ensureSeatInstanceNumbers
 import me.rerere.rikkahub.ui.theme.PresetThemes
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.rikkahub.utils.SkillScriptPathUtils
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import me.rerere.rikkahub.utils.toMutableStateFlow
 import me.rerere.search.SearchCommonOptions
@@ -1087,9 +1088,15 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
             key to value
         }
         .toMap()
-    val cleanedConversationWorkDirs = conversationWorkDirs.filterValues { binding ->
-        binding.relPath.isNotBlank()
-    }
+    val cleanedConversationWorkDirs = conversationWorkDirs
+        .mapNotNull { (conversationId, binding) ->
+            val key = conversationId.trim()
+            if (key.isBlank()) return@mapNotNull null
+            val validatedRelPath = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
+                ?: return@mapNotNull null
+            key to binding.copy(relPath = validatedRelPath)
+        }
+        .toMap()
 
     // 2. Remove orphaned tag references from assistants
     val validTagIds = assistantTags.map { it.id }.toSet()

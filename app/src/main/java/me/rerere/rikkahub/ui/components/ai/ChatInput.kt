@@ -167,6 +167,7 @@ import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
 import me.rerere.rikkahub.data.datastore.getEffectiveWorkspaceRootTreeUri
+import me.rerere.rikkahub.data.datastore.hasConversationWorkspaceRoot
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.GroupChatTemplate
@@ -1577,14 +1578,25 @@ private fun FilesPicker(
             Spacer(modifier = Modifier.height(8.dp))
 
             if (conversation.messageNodes.isEmpty()) {
+                val hasConversationRootOverride = settings.hasConversationWorkspaceRoot(conversation.id)
                 val subtitle = if (workspaceReady) {
                     when (currentWorkDirBinding?.mode) {
-                        ConversationWorkDirMode.MANUAL -> context.getString(
-                            R.string.workdir_current_manual,
-                            currentWorkDirBinding.relPath
-                        )
+                        ConversationWorkDirMode.MANUAL -> {
+                            val relPath = currentWorkDirBinding.relPath.trim()
+                            if (relPath.isBlank()) {
+                                context.getString(R.string.workdir_current_root)
+                            } else {
+                                context.getString(R.string.workdir_current_manual, relPath)
+                            }
+                        }
 
-                        else -> context.getString(R.string.workdir_current_auto)
+                        else -> {
+                            if (hasConversationRootOverride) {
+                                context.getString(R.string.workdir_current_root)
+                            } else {
+                                context.getString(R.string.workdir_current_auto)
+                            }
+                        }
                     }
                 } else {
                     context.getString(R.string.workspace_root_required_hint_v2)

@@ -399,12 +399,22 @@ fun ChatDrawerContent(
                     Text(
                         text = if (workspaceReady) {
                             when (currentBinding?.mode) {
-                                ConversationWorkDirMode.MANUAL -> stringResource(
-                                    R.string.workdir_current_manual,
-                                    currentBinding.relPath
-                                )
+                                ConversationWorkDirMode.MANUAL -> {
+                                    val relPath = currentBinding.relPath.trim()
+                                    if (relPath.isBlank()) {
+                                        stringResource(R.string.workdir_current_root)
+                                    } else {
+                                        stringResource(R.string.workdir_current_manual, relPath)
+                                    }
+                                }
 
-                                else -> stringResource(R.string.workdir_current_auto)
+                                else -> {
+                                    if (hasConversationRootOverride) {
+                                        stringResource(R.string.workdir_current_root)
+                                    } else {
+                                        stringResource(R.string.workdir_current_auto)
+                                    }
+                                }
                             }
                         } else {
                             stringResource(R.string.workspace_root_required_hint_v2)

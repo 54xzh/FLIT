@@ -18,7 +18,9 @@ object SkillScriptPathUtils {
     }
 
     fun normalizeAndValidateWorkDirRelPath(relativePathRaw: String): String? {
-        return normalizeRelativePath(relativePathRaw)
+        val trimmed = relativePathRaw.replace('\\', '/').trim()
+        if (trimmed.isBlank()) return ""
+        return normalizeRelativePath(trimmed)
     }
 
     fun normalizeAndValidateWorkspaceFileRelPath(relativePathRaw: String): String? {
