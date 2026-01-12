@@ -423,57 +423,50 @@ fun ChatDrawerContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            },
-            confirmButton = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(
-                            onClick = {
-                                haptics.perform(HapticPattern.Pop)
-                                vm.updateSettings(
-                                    settings.copy(
-                                        conversationWorkDirs = settings.conversationWorkDirs - conversation.id.toString(),
-                                    )
-                                )
-                                managingWorkDirConversation = null
-                                toaster.show(message = context.getString(R.string.workdir_reset_success))
-                            }
-                        ) {
-                            Text(stringResource(R.string.workdir_reset_to_auto))
-                        }
-                        TextButton(
-                            onClick = {
-                                haptics.perform(HapticPattern.Pop)
-                                showWorkDirPicker = true
-                            }
-                        ) {
-                            Text(stringResource(R.string.workdir_choose_directory))
-                        }
-                    }
-                    if (hasConversationRootOverride) {
-                        TextButton(
-                            enabled = !settings.workspaceRootTreeUri.isNullOrBlank(),
-                            onClick = {
+             },
+             confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val canRestoreDefaultRoot = !settings.workspaceRootTreeUri.isNullOrBlank()
+                    TextButton(
+                        enabled = if (hasConversationRootOverride) canRestoreDefaultRoot else true,
+                        onClick = {
+                            val key = conversation.id.toString()
+                            if (hasConversationRootOverride) {
                                 haptics.perform(HapticPattern.Thud)
-                                val key = conversation.id.toString()
                                 vm.updateSettings(
                                     settings.copy(
                                         conversationWorkspaceRoots = settings.conversationWorkspaceRoots - key,
                                         conversationWorkDirs = settings.conversationWorkDirs - key,
                                     )
                                 )
-                                managingWorkDirConversation = null
                                 toaster.show(message = context.getString(R.string.workspace_root_reset_to_default_success))
+                            } else {
+                                haptics.perform(HapticPattern.Pop)
+                                vm.updateSettings(
+                                    settings.copy(
+                                        conversationWorkDirs = settings.conversationWorkDirs - key,
+                                    )
+                                )
+                                toaster.show(message = context.getString(R.string.workdir_reset_success))
                             }
-                        ) {
-                            Text(stringResource(R.string.workspace_root_reset_to_default))
+                            managingWorkDirConversation = null
                         }
+                    ) {
+                        Text(stringResource(R.string.workdir_reset_to_auto))
+                    }
+                    TextButton(
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            showWorkDirPicker = true
+                        }
+                    ) {
+                        Text(stringResource(R.string.workdir_choose_directory))
                     }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { managingWorkDirConversation = null }) {
-                    Text(stringResource(R.string.cancel))
+             },
+             dismissButton = {
+                 TextButton(onClick = { managingWorkDirConversation = null }) {
+                     Text(stringResource(R.string.cancel))
                 }
             },
         )

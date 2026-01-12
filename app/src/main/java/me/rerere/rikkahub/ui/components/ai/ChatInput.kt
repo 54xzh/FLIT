@@ -400,12 +400,15 @@ fun ChatInput(
     // 避免在弹窗输入（例如 WorkDirPicker 的“新建文件夹”）时把菜单意外收起。
     val imeVisible = WindowInsets.isImeVisible
     val focusManager = LocalFocusManager.current
+    var previousImeVisible by remember { mutableStateOf(imeVisible) }
     LaunchedEffect(imeVisible, isFocused) {
         if (imeVisible && isFocused) {
             expand = ExpandState.Collapsed
-        } else if (!imeVisible && state.textContent.text.isEmpty()) {
+        }
+        if (!imeVisible && previousImeVisible && isFocused && state.textContent.text.isEmpty()) {
             focusManager.clearFocus()
         }
+        previousImeVisible = imeVisible
     }
 
     val groupChatTemplateForMentions = remember(

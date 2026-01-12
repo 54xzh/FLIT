@@ -275,14 +275,6 @@ fun WorkDirPickerBottomSheet(
                 },
             )
 
-            if (rootDoc != null && segments.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.workdir_picker_root_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
             if (!errorMessage.isNullOrBlank()) {
                 Text(
                     text = errorMessage.orEmpty(),
