@@ -180,6 +180,7 @@ fun ToolCallItem(
                                 stringResource(R.string.chat_message_tool_run_script, name)
                             }
                         }
+                        "eval_python" -> stringResource(R.string.chat_message_tool_run_python_generic)
                         else -> stringResource(
                             R.string.chat_message_tool_call_generic,
                             toolName

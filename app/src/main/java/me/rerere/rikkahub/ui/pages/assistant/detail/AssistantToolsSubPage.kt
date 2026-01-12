@@ -163,6 +163,25 @@ fun AssistantToolsSubPage(
                 }
             )
 
+            // Python Engine
+            SettingGroupItem(
+                title = stringResource(R.string.assistant_page_local_tools_python_engine_title),
+                subtitle = stringResource(R.string.assistant_page_local_tools_python_engine_desc),
+                trailing = {
+                    HapticSwitch(
+                        checked = assistant.localTools.contains(LocalToolOption.PythonEngine),
+                        onCheckedChange = { enabled ->
+                            val newLocalTools = if (enabled) {
+                                assistant.localTools + LocalToolOption.PythonEngine
+                            } else {
+                                assistant.localTools - LocalToolOption.PythonEngine
+                            }
+                            onUpdate(assistant.copy(localTools = newLocalTools))
+                        }
+                    )
+                }
+            )
+
             // Workspace Files
             SettingGroupItem(
                 title = stringResource(R.string.assistant_page_local_tools_workspace_files_title),

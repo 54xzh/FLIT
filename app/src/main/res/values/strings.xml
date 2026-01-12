@@ -157,6 +157,8 @@
     <string name="assistant_page_invalid_json">Invalid JSON: %s</string>
     <string name="assistant_page_local_tools_javascript_engine_desc">Use QuickJS engine to execute JavaScript code for calculations and scripting</string>
     <string name="assistant_page_local_tools_javascript_engine_title">JavaScript Engine</string>
+    <string name="assistant_page_local_tools_python_engine_title">Python Engine</string>
+    <string name="assistant_page_local_tools_python_engine_desc">Execute Python code locally (Chaquopy) in the current conversation workspace. Requires workspace root permission.</string>
     <string name="assistant_page_local_tools_device_control_title">Device Control</string>
     <string name="assistant_page_local_tools_device_control_desc">Allow assistant to interact with device (Send Notifications, Read Notifications, Launch Apps, Set Alarms, Set Reminders).</string>
     <string name="assistant_page_local_tools_device_control_subtitle">Notifications, apps, alarms, reminders</string>
@@ -329,6 +331,7 @@
     <string name="chat_message_tool_search_web">Search Web: %1$s</string>
     <string name="chat_message_tool_run_script">Run script %1$s</string>
     <string name="chat_message_tool_run_script_generic">Run script</string>
+    <string name="chat_message_tool_run_python_generic">Run Python</string>
     <string name="chat_message_tool_workspace_list">Workspace: List %1$s</string>
     <string name="chat_message_tool_workspace_read_file">Workspace: Read %1$s</string>
     <string name="chat_message_tool_workspace_write_file">Workspace: Write %1$s</string>

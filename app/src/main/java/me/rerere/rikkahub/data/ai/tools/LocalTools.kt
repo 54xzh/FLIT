@@ -30,6 +30,10 @@ sealed class LocalToolOption {
     data object JavascriptEngine : LocalToolOption()
 
     @Serializable
+    @SerialName("python_engine")
+    data object PythonEngine : LocalToolOption()
+
+    @Serializable
     @SerialName("device_control")
     data object DeviceControl : LocalToolOption()
 

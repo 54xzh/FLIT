@@ -109,6 +109,8 @@
   <string name="assistant_page_invalid_json">无效的 JSON: %s</string>
   <string name="assistant_page_local_tools_javascript_engine_desc">使用 QuickJS 引擎执行 JavaScript 代码，进行计算和脚本处理</string>
   <string name="assistant_page_local_tools_javascript_engine_title">JavaScript 引擎</string>
+  <string name="assistant_page_local_tools_python_engine_title">Python 引擎</string>
+  <string name="assistant_page_local_tools_python_engine_desc">在本地执行 Python 代码（Chaquopy），运行于当前会话工作目录。需要先授予工作区根目录权限。</string>
   <string name="assistant_page_manage_memory">管理记忆 (%d条)</string>
   <string name="assistant_page_manage_memory_title">管理记忆</string>
   <string name="assistant_page_max_tokens">最大Token数</string>
@@ -248,6 +250,7 @@
   <string name="chat_message_tool_search_web">搜索网页: %1$s</string>
   <string name="chat_message_tool_run_script">执行脚本 %1$s</string>
   <string name="chat_message_tool_run_script_generic">执行脚本</string>
+  <string name="chat_message_tool_run_python_generic">运行 Python</string>
   <string name="chat_message_tool_workspace_list">工作区：列出 %1$s</string>
   <string name="chat_message_tool_workspace_read_file">工作区：读取 %1$s</string>
   <string name="chat_message_tool_workspace_write_file">工作区：写入 %1$s</string>

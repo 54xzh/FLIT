@@ -1276,6 +1276,9 @@ class ChatService(
                     if (assistant.localTools.contains(LocalToolOption.WorkspaceFiles)) {
                         addAll(createWorkspaceFileTools(conversationId = conversation.id, settingsSnapshot = settings))
                     }
+                    if (assistant.localTools.contains(LocalToolOption.PythonEngine)) {
+                        add(createWorkspacePythonTool(conversationId = conversation.id, settingsSnapshot = settings))
+                    }
 
                     val enabledSkills = settings.skills.filter { skill -> skill.id in assistant.enabledSkillIds }
                     if (enabledSkills.isNotEmpty()) {
@@ -1566,6 +1569,9 @@ class ChatService(
 
                 if (seatAssistant.localTools.contains(LocalToolOption.WorkspaceFiles)) {
                     addAll(createWorkspaceFileTools(conversationId = conversation.id, settingsSnapshot = settings))
+                }
+                if (seatAssistant.localTools.contains(LocalToolOption.PythonEngine)) {
+                    add(createWorkspacePythonTool(conversationId = conversation.id, settingsSnapshot = settings))
                 }
 
                 val enabledSkills = settings.skills.filter { skill -> skill.id in seatAssistant.enabledSkillIds }
@@ -2764,6 +2770,248 @@ class ChatService(
                     }
                 }
             }
+        )
+    }
+
+    private fun createWorkspacePythonTool(
+        conversationId: Uuid,
+        settingsSnapshot: Settings,
+    ): Tool {
+        return Tool(
+            name = "eval_python",
+            description = "Execute Python code with Chaquopy in the current conversation workspace directory. Requires user-authorized workspace folder.",
+            parameters = {
+                InputSchema.Obj(
+                    properties = buildJsonObject {
+                        put("code", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Python code to execute. Prefer providing `def run(input: dict): ...` and returning a JSON-serializable result.")
+                        })
+                        put("input", buildJsonObject {
+                            put("type", "object")
+                            put("description", "Input object passed to the script's run(input: dict) function (default: {}). For CLI-style scripts, use `argv` instead.")
+                        })
+                        put("argv", buildJsonObject {
+                            put("type", "array")
+                            put("items", buildJsonObject { put("type", "string") })
+                            put("description", "Optional argv list for CLI-style scripts (when the script has no run(input)). Example: [\"--help\"]")
+                        })
+                        put("timeout_ms", buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Execution timeout in milliseconds (default: 60000, max: 300000)")
+                        })
+                        put("max_stdout_chars", buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Maximum stdout characters to return (default: 20000, max: 200000)")
+                        })
+                        put("max_stderr_chars", buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Maximum stderr characters to return (default: 20000, max: 200000)")
+                        })
+                        put("confirm", buildJsonObject {
+                            put("type", "boolean")
+                            put("description", "Set true to confirm the operation.")
+                        })
+                        put("confirm_token", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Confirmation token returned by a previous requires_confirmation response.")
+                        })
+                    },
+                    required = listOf("code"),
+                )
+            },
+            systemPrompt = { _, _ ->
+                buildString {
+                    appendLine(workspaceToolSystemPrompt("eval_python"))
+                    appendLine()
+                    appendLine("### execution")
+                    appendLine("- The Python code runs locally via Chaquopy.")
+                    appendLine("- The working directory is the current conversation workspace directory.")
+                    appendLine("- Prefer a `run(input: dict)` entrypoint and return JSON-serializable data.")
+                    appendLine("- Use print() for logs; stdout/stderr will be returned.")
+                    appendLine("- Avoid network access and avoid reading/writing files unless explicitly requested by the user.")
+                }
+            },
+            execute = { args ->
+                val obj = args.jsonObject
+
+                val rawCode = obj["code"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?.replace("\r", "")
+                    ?: return@Tool buildJsonObject {
+                        put("ok", false)
+                        put("error", "Missing code")
+                    }
+                val code = rawCode.trimEnd()
+                if (code.isBlank()) {
+                    return@Tool buildJsonObject {
+                        put("ok", false)
+                        put("error", "Code is empty")
+                    }
+                }
+                if (code.length > 200_000) {
+                    return@Tool buildJsonObject {
+                        put("ok", false)
+                        put("error", "Code is too large")
+                    }
+                }
+
+                val inputObject = (obj["input"] as? JsonObject) ?: buildJsonObject { }
+                val argv = (obj["argv"] as? JsonArray)
+                    ?.mapNotNull { it.jsonPrimitiveOrNull?.contentOrNull?.trim() }
+                    ?.filter { it.isNotBlank() }
+                    ?.takeIf { it.isNotEmpty() }
+
+                val timeoutMs = obj["timeout_ms"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?.toLongOrNull()
+                    ?.coerceIn(1_000, 300_000)
+                    ?: 60_000L
+                val maxStdoutChars = obj["max_stdout_chars"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?.toIntOrNull()
+                    ?.coerceIn(1, 200_000)
+                    ?: 20_000
+                val maxStderrChars = obj["max_stderr_chars"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?.toIntOrNull()
+                    ?.coerceIn(1, 200_000)
+                    ?: 20_000
+
+                val mergedInputObject = if (argv == null) {
+                    inputObject
+                } else {
+                    JsonObject(inputObject.toMutableMap().apply {
+                        put("argv", buildJsonArray { argv.forEach { add(JsonPrimitive(it)) } })
+                    })
+                }
+
+                val inputJson = mergedInputObject.toString()
+                if (inputJson.length > 200_000) {
+                    return@Tool buildJsonObject {
+                        put("ok", false)
+                        put("error", "Input is too large")
+                    }
+                }
+
+                val actionKey = buildString {
+                    append("python:")
+                    append(sha256Hex(code).take(16))
+                    append("|input=")
+                    append(sha256Hex(inputJson).take(16))
+                    append("|timeout=")
+                    append(timeoutMs)
+                }
+                val maybeConfirm = requireWorkspaceToolConfirmationOrNull(
+                    conversationId = conversationId,
+                    settingsSnapshot = settingsSnapshot,
+                    toolName = "eval_python",
+                    actionKey = actionKey,
+                    obj = obj,
+                    preview = buildJsonObject {
+                        put("timeout_ms", timeoutMs)
+                        put("max_stdout_chars", maxStdoutChars)
+                        put("max_stderr_chars", maxStderrChars)
+                        put("code_preview", code.take(800))
+                    },
+                )
+                if (maybeConfirm != null) return@Tool maybeConfirm
+
+                val mutex = skillScriptMutexes.computeIfAbsent(conversationId) { Mutex() }
+                mutex.withLock {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            val externalWorkDir = runCatching {
+                                resolveConversationWorkspaceDir(settingsSnapshot = settingsSnapshot, conversationId = conversationId)
+                            }.getOrElse {
+                                return@withContext buildJsonObject {
+                                    put("ok", false)
+                                    put("error", it.message ?: "Workspace is not accessible")
+                                }
+                            }
+
+                            val internalWorkDir = File(context.filesDir, "skill_workspaces/$conversationId")
+                            val limits = WorkspaceSyncLimits()
+
+                            val syncIn = runCatching {
+                                WorkspaceSync.syncExternalToInternal(
+                                    context = context,
+                                    externalDir = externalWorkDir,
+                                    internalDir = internalWorkDir,
+                                    limits = limits,
+                                )
+                            }.getOrElse {
+                                return@withContext buildJsonObject {
+                                    put("ok", false)
+                                    put("error", "Failed to sync workspace in: ${it.message}")
+                                }
+                            }
+
+                            val scriptFile = File(internalWorkDir, "__assistant_eval__.py")
+                            val scriptWritten = runCatching {
+                                scriptFile.writeText(code, Charsets.UTF_8)
+                                true
+                            }.getOrDefault(false)
+                            if (!scriptWritten) {
+                                return@withContext buildJsonObject {
+                                    put("ok", false)
+                                    put("error", "Failed to write script")
+                                }
+                            }
+
+                            val scriptResult = runCatching {
+                                skillScriptRunner.run(
+                                    scriptFile = scriptFile,
+                                    inputJson = inputJson,
+                                    workDir = internalWorkDir,
+                                    timeoutMs = timeoutMs,
+                                    maxStdoutChars = maxStdoutChars,
+                                    maxStderrChars = maxStderrChars,
+                                )
+                            }.getOrElse { e ->
+                                buildJsonObject {
+                                    put("ok", false)
+                                    put("error", "Python execution failed: ${e.message}")
+                                }
+                            }.also {
+                                runCatching { scriptFile.delete() }
+                            }
+
+                            val syncOut = runCatching {
+                                WorkspaceSync.syncInternalToExternal(
+                                    context = context,
+                                    internalDir = internalWorkDir,
+                                    externalDir = externalWorkDir,
+                                    limits = limits,
+                                )
+                            }.getOrElse {
+                                return@withContext buildJsonObject {
+                                    put("ok", false)
+                                    put("error", "Failed to sync workspace out: ${it.message}")
+                                }
+                            }
+
+                            val baseResult: MutableMap<String, JsonElement> =
+                                (scriptResult as? JsonObject)?.toMutableMap()
+                                    ?: mutableMapOf<String, JsonElement>(
+                                        "ok" to JsonPrimitive(false),
+                                        "error" to JsonPrimitive("Invalid script output"),
+                                    )
+                            baseResult["engine"] = JsonPrimitive("chaquopy")
+                            baseResult["sync"] = buildJsonObject {
+                                put("in_files", syncIn.filesCopied)
+                                put("in_bytes", syncIn.bytesCopied)
+                                put("in_skipped", syncIn.skippedFiles)
+                                put("out_files", syncOut.filesCopied)
+                                put("out_bytes", syncOut.bytesCopied)
+                                put("out_skipped", syncOut.skippedFiles)
+                            }
+                            JsonObject(baseResult)
+                        }
+                    }.getOrElse { e ->
+                        buildJsonObject {
+                            put("ok", false)
+                            put("error", e.message ?: "Unknown error")
+                        }
+                    }
+                }
+            },
         )
     }
 

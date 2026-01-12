@@ -648,6 +648,7 @@ private fun ExportedToolCall(
                     "search_web" -> Icons.Rounded.Public
                     "scrape_web" -> Icons.Rounded.Public
                     "run_skill_script" -> Icons.Rounded.Terminal
+                    "eval_python" -> Icons.Rounded.Terminal
                     else -> Icons.Rounded.Build
                 },
                 contentDescription = null,
@@ -681,6 +682,7 @@ private fun ExportedToolCall(
                                 stringResource(R.string.chat_message_tool_run_script, name)
                             }
                         }
+                        "eval_python" -> stringResource(R.string.chat_message_tool_run_python_generic)
                         else -> stringResource(R.string.chat_message_tool_call_generic, toolCall.toolName)
                     },
                     style = MaterialTheme.typography.titleSmall,
@@ -710,6 +712,7 @@ private fun ExportedToolResult(toolResult: UIMessagePart.ToolResult) {
                     "search_web" -> Icons.Rounded.Public
                     "scrape_web" -> Icons.Rounded.Public
                     "run_skill_script" -> Icons.Rounded.Terminal
+                    "eval_python" -> Icons.Rounded.Terminal
                     else -> Icons.Rounded.Build
                 },
                 contentDescription = null,
@@ -740,6 +743,7 @@ private fun ExportedToolResult(toolResult: UIMessagePart.ToolResult) {
                                 stringResource(R.string.chat_message_tool_run_script, name)
                             }
                         }
+                        "eval_python" -> stringResource(R.string.chat_message_tool_run_python_generic)
                         else -> stringResource(R.string.chat_message_tool_call_generic, toolResult.toolName)
                     },
                     style = MaterialTheme.typography.titleSmall,
