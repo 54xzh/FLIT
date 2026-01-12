@@ -6,11 +6,13 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.foundation.layout.height
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
@@ -35,7 +37,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -98,10 +100,10 @@ fun WorkDirPickerBottomSheet(
 
     var rootDoc by remember(workspaceRootTreeUri) { mutableStateOf<DocumentFile?>(null) }
     var segments by remember { mutableStateOf(initialSegments) }
-    var loading by remember(workspaceRootTreeUri) { mutableStateOf(true) }
+
     var errorMessage by remember(workspaceRootTreeUri) { mutableStateOf<String?>(null) }
     var folderNames by remember { mutableStateOf<List<String>>(emptyList()) }
-    var navigationDirection by remember { mutableStateOf(WorkDirNavigationDirection.Forward) }
+    var navigationDirection by remember { mutableStateOf(WorkDirNavigationDirection.None) }
 
     var creatingFolder by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
@@ -142,25 +144,26 @@ fun WorkDirPickerBottomSheet(
         }
     }
 
-    LaunchedEffect(workspaceRootTreeUri) {
-        loading = true
-        errorMessage = null
-        rootDoc = withContext(Dispatchers.IO) {
-            val uriString = workspaceRootTreeUri?.trim().orEmpty()
-            if (uriString.isBlank()) return@withContext null
-            val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return@withContext null
-            DocumentFile.fromTreeUri(context, uri)
-        }?.takeIf { it.isDirectory }
-        if (rootDoc == null) {
+    LaunchedEffect(workspaceRootTreeUri, segments) {
+        val root = if (rootDoc != null && rootDoc?.uri?.toString() == workspaceRootTreeUri) {
+            rootDoc
+        } else {
+            withContext(Dispatchers.IO) {
+                val uriString = workspaceRootTreeUri?.trim().orEmpty()
+                if (uriString.isBlank()) return@withContext null
+                val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return@withContext null
+                DocumentFile.fromTreeUri(context, uri)
+            }?.takeIf { it.isDirectory }
+        }
+        rootDoc = root
+
+        if (root == null) {
             errorMessage = context.getString(R.string.workspace_root_required_hint_v2)
             folderNames = emptyList()
-            loading = false
+            return@LaunchedEffect
         }
-    }
 
-    LaunchedEffect(rootDoc, segments) {
-        val root = rootDoc ?: return@LaunchedEffect
-        loading = true
+
         val (resolvedSegments, dirs) = withContext(Dispatchers.IO) {
             val resolved = resolveDir(root = root, segments = segments)
             if (resolved == null) {
@@ -177,9 +180,9 @@ fun WorkDirPickerBottomSheet(
         }
         if (resolvedSegments.isEmpty() && segments.isNotEmpty()) {
             segments = emptyList()
+        } else {
+            folderNames = dirs
         }
-        folderNames = dirs
-        loading = false
     }
 
     if (creatingFolder) {
@@ -299,18 +302,14 @@ fun WorkDirPickerBottomSheet(
                 )
             }
 
-            if (loading) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
             AnimatedContent(
                 targetState = folderNames,
                 transitionSpec = {
-                    val offset = { fullWidth: Int -> (fullWidth / 8).coerceAtLeast(48) }
-                    val slideSpec = spring<IntOffset>(dampingRatio = 1f, stiffness = 800f)
-                    val fadeSpec = spring<Float>(dampingRatio = 1f, stiffness = 900f)
+                    val offset = { fullWidth: Int -> (fullWidth * 0.15f).toInt() }
+                    val slideSpec = spring<IntOffset>(dampingRatio = 0.8f, stiffness = 350f)
+                    val fadeSpec = spring<Float>(dampingRatio = 1f, stiffness = 400f)
 
                     val enter = when (navigationDirection) {
                         WorkDirNavigationDirection.Forward -> {
@@ -321,6 +320,10 @@ fun WorkDirPickerBottomSheet(
                         WorkDirNavigationDirection.Back -> {
                             slideInHorizontally(animationSpec = slideSpec, initialOffsetX = { -offset(it) }) +
                                 fadeIn(animationSpec = fadeSpec)
+                        }
+
+                        WorkDirNavigationDirection.None -> {
+                             fadeIn(animationSpec = spring(stiffness = 2000f))
                         }
                     }
                     val exit = when (navigationDirection) {
@@ -333,6 +336,10 @@ fun WorkDirPickerBottomSheet(
                             slideOutHorizontally(animationSpec = slideSpec, targetOffsetX = { offset(it) }) +
                                 fadeOut(animationSpec = fadeSpec)
                         }
+
+                        WorkDirNavigationDirection.None -> {
+                            fadeOut(animationSpec = spring(stiffness = 2000f))
+                        }
                     }
                     enter togetherWith exit using SizeTransform(clip = true) { _, _ ->
                         spring(dampingRatio = 1f, stiffness = 900f)
@@ -343,7 +350,7 @@ fun WorkDirPickerBottomSheet(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 360.dp),
+                        .height(360.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     item(key = "choose_other_dir") {
@@ -443,7 +450,9 @@ private fun WorkDirBreadcrumb(
     onSelectDepth: (Int) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 26.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -495,4 +504,5 @@ private fun resolveDir(root: DocumentFile, segments: List<String>): DocumentFile
 private enum class WorkDirNavigationDirection {
     Forward,
     Back,
+    None,
 }
