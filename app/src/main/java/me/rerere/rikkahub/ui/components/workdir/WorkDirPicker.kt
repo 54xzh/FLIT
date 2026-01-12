@@ -64,10 +64,12 @@ import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.SkillScriptPathUtils
 import org.koin.compose.koinInject
+import kotlin.uuid.Uuid
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkDirPickerBottomSheet(
+    conversationId: Uuid,
     workspaceRootTreeUri: String?,
     initialRelPath: String? = null,
     onDismissRequest: () -> Unit,
@@ -111,10 +113,11 @@ fun WorkDirPickerBottomSheet(
         creatingFolder = false
         newFolderName = ""
         scope.launch {
+            val key = conversationId.toString()
             settingsStore.update { old ->
                 old.copy(
-                    workspaceRootTreeUri = uri.toString(),
-                    conversationWorkDirs = emptyMap(),
+                    conversationWorkspaceRoots = old.conversationWorkspaceRoots + (key to uri.toString()),
+                    conversationWorkDirs = old.conversationWorkDirs - key,
                 )
             }
         }
@@ -137,7 +140,7 @@ fun WorkDirPickerBottomSheet(
             DocumentFile.fromTreeUri(context, uri)
         }?.takeIf { it.isDirectory }
         if (rootDoc == null) {
-            errorMessage = context.getString(R.string.workspace_root_required_hint)
+            errorMessage = context.getString(R.string.workspace_root_required_hint_v2)
         }
         loading = false
     }

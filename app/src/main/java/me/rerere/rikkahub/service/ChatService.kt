@@ -94,6 +94,7 @@ import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
+import me.rerere.rikkahub.data.datastore.getEffectiveWorkspaceRootTreeUri
 import me.rerere.rikkahub.data.model.ChatTarget
 import me.rerere.rikkahub.data.model.AssistantSearchMode
 import me.rerere.rikkahub.data.model.Avatar
@@ -2578,7 +2579,7 @@ class ChatService(
                             }
                         }
 
-                        val workspaceRootUri = settingsSnapshot.workspaceRootTreeUri?.trim().orEmpty()
+                        val workspaceRootUri = settingsSnapshot.getEffectiveWorkspaceRootTreeUri(conversationId).orEmpty()
                         if (workspaceRootUri.isBlank()) {
                             return@withContext buildJsonObject {
                                 put("ok", false)
@@ -2880,7 +2881,7 @@ class ChatService(
         val currentSettings = settingsStore.settingsFlow.value
         val effectiveSettings = if (currentSettings.init) settingsSnapshot else currentSettings
 
-        val workspaceRootUri = effectiveSettings.workspaceRootTreeUri?.trim().orEmpty()
+        val workspaceRootUri = effectiveSettings.getEffectiveWorkspaceRootTreeUri(conversationId).orEmpty()
         if (workspaceRootUri.isBlank()) {
             error("Workspace root is not set")
         }
@@ -3022,7 +3023,7 @@ class ChatService(
               - the same parameters
             
             ### setup
-            - If you see an error like "Workspace root is not set", ask the user to set it in Settings -> Skills.
+            - If you see an error like "Workspace root is not set", ask the user to set the default root in Settings -> Skills, or authorize a root folder for this conversation in Work directory settings.
         """.trimIndent()
     }
 
@@ -4055,7 +4056,7 @@ class ChatService(
         conversationId: Uuid,
         title: String,
     ) {
-        val workspaceRootUri = settingsSnapshot.workspaceRootTreeUri?.trim().orEmpty()
+        val workspaceRootUri = settingsSnapshot.getEffectiveWorkspaceRootTreeUri(conversationId).orEmpty()
         if (workspaceRootUri.isBlank()) return
 
         val titleTrimmed = title.trim()

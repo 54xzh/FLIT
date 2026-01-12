@@ -169,6 +169,7 @@ class SettingsStore(
         val ENABLED_SKILL_SCRIPT_IDS = stringPreferencesKey("enabled_skill_script_ids")
         val WORKSPACE_FILE_TOOLS_ALLOW_ALL = booleanPreferencesKey("workspace_file_tools_allow_all")
         val WORKSPACE_ROOT_TREE_URI = stringPreferencesKey("workspace_root_tree_uri")
+        val CONVERSATION_WORKSPACE_ROOTS = stringPreferencesKey("conversation_workspace_roots")
         val CONVERSATION_WORK_DIRS = stringPreferencesKey("conversation_work_dirs")
 
         // Android Integration
@@ -406,6 +407,9 @@ class SettingsStore(
                 } ?: emptySet(),
                 workspaceFileToolsAllowAll = preferences[WORKSPACE_FILE_TOOLS_ALLOW_ALL] == true,
                 workspaceRootTreeUri = preferences[WORKSPACE_ROOT_TREE_URI],
+                conversationWorkspaceRoots = preferences[CONVERSATION_WORKSPACE_ROOTS]?.let { raw ->
+                    runCatching { JsonInstant.decodeFromString<Map<String, String>>(raw) }.getOrNull()
+                } ?: emptyMap(),
                 conversationWorkDirs = preferences[CONVERSATION_WORK_DIRS]?.let {
                     runCatching { JsonInstant.decodeFromString<Map<String, ConversationWorkDirBinding>>(it) }.getOrNull()
                 } ?: emptyMap(),
@@ -615,6 +619,8 @@ class SettingsStore(
             finalSettingsToSave.workspaceRootTreeUri?.let {
                 preferences[WORKSPACE_ROOT_TREE_URI] = it
             } ?: preferences.remove(WORKSPACE_ROOT_TREE_URI)
+            preferences[CONVERSATION_WORKSPACE_ROOTS] =
+                JsonInstant.encodeToString(finalSettingsToSave.conversationWorkspaceRoots)
             preferences[CONVERSATION_WORK_DIRS] = JsonInstant.encodeToString(finalSettingsToSave.conversationWorkDirs)
         }
     }
@@ -713,6 +719,7 @@ data class Settings(
     val enableSkillScriptExecution: Boolean = false,
     val enabledSkillScriptIds: Set<Uuid> = emptySet(),
     val workspaceRootTreeUri: String? = null,
+    val conversationWorkspaceRoots: Map<String, String> = emptyMap(),
     val workspaceFileToolsAllowAll: Boolean = false,
     val conversationWorkDirs: Map<String, ConversationWorkDirBinding> = emptyMap(),
 ) {
@@ -869,6 +876,20 @@ fun Settings.getCurrentAssistant(): Assistant {
 
 fun Settings.getAssistantById(id: Uuid): Assistant? {
     return this.assistants.find { it.id == id }
+}
+
+fun Settings.getConversationWorkspaceRootTreeUri(conversationId: Uuid): String? {
+    val key = conversationId.toString()
+    return conversationWorkspaceRoots[key]?.trim()?.takeIf { it.isNotBlank() }
+}
+
+fun Settings.getEffectiveWorkspaceRootTreeUri(conversationId: Uuid): String? {
+    return getConversationWorkspaceRootTreeUri(conversationId)
+        ?: workspaceRootTreeUri?.trim()?.takeIf { it.isNotBlank() }
+}
+
+fun Settings.hasConversationWorkspaceRoot(conversationId: Uuid): Boolean {
+    return getConversationWorkspaceRootTreeUri(conversationId) != null
 }
 
 /**
@@ -1058,6 +1079,14 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
     }
     val validSkillIds = cleanedSkills.map { it.id }.toSet()
     val cleanedEnabledSkillScriptIds = enabledSkillScriptIds.filter { it in validSkillIds }.toSet()
+    val cleanedConversationWorkspaceRoots = conversationWorkspaceRoots
+        .mapNotNull { (conversationId, uriString) ->
+            val key = conversationId.trim()
+            val value = uriString.trim()
+            if (key.isBlank() || value.isBlank()) return@mapNotNull null
+            key to value
+        }
+        .toMap()
     val cleanedConversationWorkDirs = conversationWorkDirs.filterValues { binding ->
         binding.relPath.isNotBlank()
     }
@@ -1152,6 +1181,7 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
         skills = cleanedSkills,
         enabledSkillScriptIds = cleanedEnabledSkillScriptIds,
         workspaceRootTreeUri = workspaceRootTreeUri?.trim().takeIf { !it.isNullOrBlank() },
+        conversationWorkspaceRoots = cleanedConversationWorkspaceRoots,
         conversationWorkDirs = cleanedConversationWorkDirs,
         groupChatTemplates = cleanedGroupChats,
         favoriteModels = cleanedFavorites,

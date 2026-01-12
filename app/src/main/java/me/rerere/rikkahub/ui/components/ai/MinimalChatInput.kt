@@ -109,6 +109,7 @@ import me.rerere.rikkahub.data.datastore.ConversationWorkDirMode
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
+import me.rerere.rikkahub.data.datastore.getEffectiveWorkspaceRootTreeUri
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.service.ChatService
@@ -181,11 +182,13 @@ fun MinimalChatInput(
 
     val workDirKey = conversation.id.toString()
     val currentWorkDirBinding = settings.conversationWorkDirs[workDirKey]
+    val effectiveWorkspaceRootTreeUri = settings.getEffectiveWorkspaceRootTreeUri(conversation.id)
     var showWorkDirPicker by remember(conversation.id) { mutableStateOf(false) }
 
     if (showWorkDirPicker) {
         WorkDirPickerBottomSheet(
-            workspaceRootTreeUri = settings.workspaceRootTreeUri,
+            conversationId = conversation.id,
+            workspaceRootTreeUri = effectiveWorkspaceRootTreeUri,
             initialRelPath = currentWorkDirBinding?.relPath?.trim().orEmpty(),
             onDismissRequest = { showWorkDirPicker = false },
             onConfirm = { relPath ->
@@ -642,7 +645,7 @@ private fun MinimalPickerContent(
         }
 
         if (conversation.messageNodes.isEmpty()) {
-            val workspaceReady = !settings.workspaceRootTreeUri.isNullOrBlank()
+            val workspaceReady = !settings.getEffectiveWorkspaceRootTreeUri(conversation.id).isNullOrBlank()
             val workDirKey = conversation.id.toString()
             val currentWorkDirBinding = settings.conversationWorkDirs[workDirKey]
             val subtitle = if (workspaceReady) {
@@ -655,7 +658,7 @@ private fun MinimalPickerContent(
                     else -> context.getString(R.string.workdir_current_auto)
                 }
             } else {
-                context.getString(R.string.workspace_root_required_hint)
+                context.getString(R.string.workspace_root_required_hint_v2)
             }
 
             MinimalPickerItem(
@@ -669,14 +672,7 @@ private fun MinimalPickerContent(
                 title = stringResource(R.string.workdir_quick_setup_title),
                 subtitle = subtitle,
                 onClick = {
-                    if (!workspaceReady) {
-                        toaster.show(
-                            message = context.getString(R.string.workspace_root_required_hint),
-                            type = ToastType.Error,
-                        )
-                    } else {
-                        onOpenWorkDirPicker()
-                    }
+                    onOpenWorkDirPicker()
                 },
             )
         }

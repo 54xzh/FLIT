@@ -178,9 +178,11 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
             )
         }
         vm.updateSettings { old ->
+            val preservedKeys = old.conversationWorkspaceRoots.keys
+            val preservedConversationWorkDirs = old.conversationWorkDirs.filterKeys { it in preservedKeys }
             old.copy(
                 workspaceRootTreeUri = uri.toString(),
-                conversationWorkDirs = emptyMap(),
+                conversationWorkDirs = preservedConversationWorkDirs,
             )
         }
         haptics.perform(HapticPattern.Success)
@@ -583,19 +585,25 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                                     TextButton(
                                         onClick = {
                                             haptics.perform(HapticPattern.Thud)
-                                            val uri = runCatching { Uri.parse(settings.workspaceRootTreeUri) }.getOrNull()
-                                            if (uri != null) {
-                                                runCatching {
-                                                    context.contentResolver.releasePersistableUriPermission(
-                                                        uri,
-                                                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                                                    )
+                                            val rootUriString = settings.workspaceRootTreeUri?.trim().orEmpty()
+                                            val usedByConversationRoots = settings.conversationWorkspaceRoots.values.any { it.trim() == rootUriString }
+                                            if (rootUriString.isNotBlank() && !usedByConversationRoots) {
+                                                val uri = runCatching { Uri.parse(rootUriString) }.getOrNull()
+                                                if (uri != null) {
+                                                    runCatching {
+                                                        context.contentResolver.releasePersistableUriPermission(
+                                                            uri,
+                                                            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                                        )
+                                                    }
                                                 }
                                             }
                                             vm.updateSettings { old ->
+                                                val preservedKeys = old.conversationWorkspaceRoots.keys
+                                                val preservedConversationWorkDirs = old.conversationWorkDirs.filterKeys { it in preservedKeys }
                                                 old.copy(
                                                     workspaceRootTreeUri = null,
-                                                    conversationWorkDirs = emptyMap(),
+                                                    conversationWorkDirs = preservedConversationWorkDirs,
                                                 )
                                             }
                                             toaster.show(message = context.getString(R.string.workspace_root_cleared))

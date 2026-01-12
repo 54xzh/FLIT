@@ -278,6 +278,9 @@
   <string name="workdir_manage_title">工作目錄管理</string>
   <string name="workdir_current_auto">模式：自動（按對話標題）</string>
   <string name="workdir_current_manual">模式：手動（%1$s）</string>
+  <string name="workspace_root_required_hint_v2">需要先授權工作區根目錄，可在 設定 → 技能 中設定預設根目錄，或在此對話選擇其他根目錄。</string>
+  <string name="workspace_root_reset_to_default">恢復預設根目錄</string>
+  <string name="workspace_root_reset_to_default_success">已恢復預設根目錄</string>
   <string name="workspace_root_required_hint">需要先設定工作區根目錄，請在 設定 → 技能 中授權。</string>
   <string name="workdir_manual_label">手動路徑（相對）</string>
   <string name="workdir_manual_placeholder">範例：ProjectA/task-1</string>
@@ -288,7 +291,7 @@
   <string name="workdir_choose_directory">選擇目錄</string>
   <string name="workdir_quick_setup_title">工作目錄設定</string>
   <string name="workdir_picker_title">選擇工作目錄</string>
-  <string name="workdir_picker_choose_other_directory">選擇其他目錄</string>
+  <string name="workdir_picker_choose_other_directory">選擇其他根目錄</string>
   <string name="workdir_picker_choose_current">選擇此目錄</string>
   <string name="workdir_picker_new_folder_action">新增資料夾</string>
   <string name="workdir_picker_new_folder_title">新增資料夾</string>

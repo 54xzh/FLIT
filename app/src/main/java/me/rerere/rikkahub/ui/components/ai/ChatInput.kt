@@ -166,6 +166,7 @@ import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
+import me.rerere.rikkahub.data.datastore.getEffectiveWorkspaceRootTreeUri
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.GroupChatTemplate
@@ -1309,14 +1310,16 @@ private fun FilesPicker(
     val toaster = LocalToaster.current
     val context = LocalContext.current
 
-    val workspaceReady = !settings.workspaceRootTreeUri.isNullOrBlank()
+    val effectiveWorkspaceRootTreeUri = settings.getEffectiveWorkspaceRootTreeUri(conversation.id)
+    val workspaceReady = !effectiveWorkspaceRootTreeUri.isNullOrBlank()
     val workDirKey = conversation.id.toString()
     val currentWorkDirBinding = settings.conversationWorkDirs[workDirKey]
     var showWorkDirPicker by remember(conversation.id) { mutableStateOf(false) }
 
     if (showWorkDirPicker) {
         WorkDirPickerBottomSheet(
-            workspaceRootTreeUri = settings.workspaceRootTreeUri,
+            conversationId = conversation.id,
+            workspaceRootTreeUri = effectiveWorkspaceRootTreeUri,
             initialRelPath = currentWorkDirBinding?.relPath?.trim().orEmpty(),
             onDismissRequest = { showWorkDirPicker = false },
             onConfirm = { relPath ->
@@ -1584,7 +1587,7 @@ private fun FilesPicker(
                         else -> context.getString(R.string.workdir_current_auto)
                     }
                 } else {
-                    context.getString(R.string.workspace_root_required_hint)
+                    context.getString(R.string.workspace_root_required_hint_v2)
                 }
 
                 val workDirInteractionSource = remember { MutableInteractionSource() }
@@ -1605,14 +1608,6 @@ private fun FilesPicker(
                             interactionSource = workDirInteractionSource,
                             indication = LocalIndication.current,
                         ) {
-                            if (!workspaceReady) {
-                                haptics.perform(HapticPattern.Error)
-                                toaster.show(
-                                    message = context.getString(R.string.workspace_root_required_hint),
-                                    type = ToastType.Error,
-                                )
-                                return@clickable
-                            }
                             haptics.perform(HapticPattern.Pop)
                             showWorkDirPicker = true
                         },

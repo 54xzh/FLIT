@@ -366,6 +366,9 @@
     <string name="workdir_manage_title">Work directory</string>
     <string name="workdir_current_auto">Mode: Auto (by conversation title)</string>
     <string name="workdir_current_manual">Mode: Manual (%1$s)</string>
+    <string name="workspace_root_required_hint_v2">Workspace root folder is required. Set the default root in Settings → Skills, or authorize another root folder for this conversation.</string>
+    <string name="workspace_root_reset_to_default">Restore default root</string>
+    <string name="workspace_root_reset_to_default_success">Restored default root</string>
     <string name="workspace_root_required_hint">Workspace root folder is required. Please set it in Settings → Skills.</string>
     <string name="workdir_manual_label">Manual path (relative)</string>
     <string name="workdir_manual_placeholder">Example: ProjectA/task-1</string>
@@ -376,7 +379,7 @@
     <string name="workdir_choose_directory">Choose directory</string>
     <string name="workdir_quick_setup_title">Set work directory</string>
     <string name="workdir_picker_title">Choose work directory</string>
-    <string name="workdir_picker_choose_other_directory">Choose another directory</string>
+    <string name="workdir_picker_choose_other_directory">Choose another root folder</string>
     <string name="workdir_picker_choose_current">Choose this folder</string>
     <string name="workdir_picker_new_folder_action">New folder</string>
     <string name="workdir_picker_new_folder_title">Create folder</string>

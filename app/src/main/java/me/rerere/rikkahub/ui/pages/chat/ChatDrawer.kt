@@ -61,7 +61,9 @@ import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.ConversationWorkDirBinding
 import me.rerere.rikkahub.data.datastore.ConversationWorkDirMode
+import me.rerere.rikkahub.data.datastore.getEffectiveWorkspaceRootTreeUri
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
+import me.rerere.rikkahub.data.datastore.hasConversationWorkspaceRoot
 import me.rerere.rikkahub.data.model.ChatTarget
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.id
@@ -350,13 +352,16 @@ fun ChatDrawerContent(
     // 昵称编辑对话框
     managingWorkDirConversation?.let { conversation ->
         val haptics = rememberPremiumHaptics()
-        val workspaceReady = !settings.workspaceRootTreeUri.isNullOrBlank()
+        val effectiveWorkspaceRootTreeUri = settings.getEffectiveWorkspaceRootTreeUri(conversation.id)
+        val workspaceReady = !effectiveWorkspaceRootTreeUri.isNullOrBlank()
+        val hasConversationRootOverride = settings.hasConversationWorkspaceRoot(conversation.id)
         val currentBinding = settings.conversationWorkDirs[conversation.id.toString()]
         var showWorkDirPicker by remember(conversation.id) { mutableStateOf(false) }
 
         if (showWorkDirPicker) {
             WorkDirPickerBottomSheet(
-                workspaceRootTreeUri = settings.workspaceRootTreeUri,
+                conversationId = conversation.id,
+                workspaceRootTreeUri = effectiveWorkspaceRootTreeUri,
                 initialRelPath = currentBinding?.relPath?.trim().orEmpty(),
                 onDismissRequest = { showWorkDirPicker = false },
                 onConfirm = { relPath ->
@@ -402,7 +407,7 @@ fun ChatDrawerContent(
                                 else -> stringResource(R.string.workdir_current_auto)
                             }
                         } else {
-                            stringResource(R.string.workspace_root_required_hint)
+                            stringResource(R.string.workspace_root_required_hint_v2)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -410,30 +415,49 @@ fun ChatDrawerContent(
                 }
             },
             confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(
-                        enabled = workspaceReady,
-                        onClick = {
-                            haptics.perform(HapticPattern.Pop)
-                            vm.updateSettings(
-                                settings.copy(
-                                    conversationWorkDirs = settings.conversationWorkDirs - conversation.id.toString(),
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            onClick = {
+                                haptics.perform(HapticPattern.Pop)
+                                vm.updateSettings(
+                                    settings.copy(
+                                        conversationWorkDirs = settings.conversationWorkDirs - conversation.id.toString(),
+                                    )
                                 )
-                            )
-                            managingWorkDirConversation = null
-                            toaster.show(message = context.getString(R.string.workdir_reset_success))
+                                managingWorkDirConversation = null
+                                toaster.show(message = context.getString(R.string.workdir_reset_success))
+                            }
+                        ) {
+                            Text(stringResource(R.string.workdir_reset_to_auto))
                         }
-                    ) {
-                        Text(stringResource(R.string.workdir_reset_to_auto))
+                        TextButton(
+                            onClick = {
+                                haptics.perform(HapticPattern.Pop)
+                                showWorkDirPicker = true
+                            }
+                        ) {
+                            Text(stringResource(R.string.workdir_choose_directory))
+                        }
                     }
-                    TextButton(
-                        enabled = workspaceReady,
-                        onClick = {
-                            haptics.perform(HapticPattern.Pop)
-                            showWorkDirPicker = true
+                    if (hasConversationRootOverride) {
+                        TextButton(
+                            enabled = !settings.workspaceRootTreeUri.isNullOrBlank(),
+                            onClick = {
+                                haptics.perform(HapticPattern.Thud)
+                                val key = conversation.id.toString()
+                                vm.updateSettings(
+                                    settings.copy(
+                                        conversationWorkspaceRoots = settings.conversationWorkspaceRoots - key,
+                                        conversationWorkDirs = settings.conversationWorkDirs - key,
+                                    )
+                                )
+                                managingWorkDirConversation = null
+                                toaster.show(message = context.getString(R.string.workspace_root_reset_to_default_success))
+                            }
+                        ) {
+                            Text(stringResource(R.string.workspace_root_reset_to_default))
                         }
-                    ) {
-                        Text(stringResource(R.string.workdir_choose_directory))
                     }
                 }
             },
