@@ -2877,7 +2877,10 @@ class ChatService(
         settingsSnapshot: Settings,
         conversationId: Uuid,
     ): DocumentFile = withContext(Dispatchers.IO) {
-        val workspaceRootUri = settingsSnapshot.workspaceRootTreeUri?.trim().orEmpty()
+        val currentSettings = settingsStore.settingsFlow.value
+        val effectiveSettings = if (currentSettings.init) settingsSnapshot else currentSettings
+
+        val workspaceRootUri = effectiveSettings.workspaceRootTreeUri?.trim().orEmpty()
         if (workspaceRootUri.isBlank()) {
             error("Workspace root is not set")
         }
@@ -2891,7 +2894,7 @@ class ChatService(
 
         suspend fun ensureAutoWorkDirRelPath(): String? {
             val key = conversationId.toString()
-            val existingBinding = settingsSnapshot.conversationWorkDirs[key]
+            val existingBinding = effectiveSettings.conversationWorkDirs[key]
             val existingRelPath = existingBinding?.relPath?.trim().orEmpty()
             val validatedExisting = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(existingRelPath)
             if (existingBinding?.mode == ConversationWorkDirMode.AUTO && !validatedExisting.isNullOrBlank()) {
@@ -2923,7 +2926,7 @@ class ChatService(
             return created.name ?: unique
         }
 
-        val workDirRelPath = when (val binding = settingsSnapshot.conversationWorkDirs[conversationId.toString()]) {
+        val workDirRelPath = when (val binding = effectiveSettings.conversationWorkDirs[conversationId.toString()]) {
             null -> ensureAutoWorkDirRelPath()
             else -> when (binding.mode) {
                 ConversationWorkDirMode.MANUAL -> SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
@@ -2985,7 +2988,9 @@ class ChatService(
         obj: JsonObject,
         preview: JsonObject,
     ): JsonObject? {
-        if (settingsSnapshot.workspaceFileToolsAllowAll) return null
+        val currentSettings = settingsStore.settingsFlow.value
+        val effectiveSettings = if (currentSettings.init) settingsSnapshot else currentSettings
+        if (effectiveSettings.workspaceFileToolsAllowAll) return null
         val confirmed = parseWorkspaceToolBool(obj, "confirm", defaultValue = false)
         val token = parseWorkspaceToolString(obj, "confirm_token")
         if (confirmed && consumeWorkspaceFileToolConfirmation(conversationId, toolName, actionKey, token)) {

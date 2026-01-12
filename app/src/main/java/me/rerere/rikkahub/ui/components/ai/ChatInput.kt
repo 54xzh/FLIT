@@ -391,19 +391,20 @@ fun ChatInput(
         }
     }
 
-    // Collapse when ime is visible
-    val imeVisile = WindowInsets.isImeVisible
+    // Focus state for the text field
+    var isFocused by remember { mutableStateOf(false) }
+
+    // 仅当主输入框获得焦点且 IME 弹出时才收起菜单。
+    // 避免在弹窗输入（例如 WorkDirPicker 的“新建文件夹”）时把菜单意外收起。
+    val imeVisible = WindowInsets.isImeVisible
     val focusManager = LocalFocusManager.current
-    LaunchedEffect(imeVisile) {
-        if (imeVisile) {
+    LaunchedEffect(imeVisible, isFocused) {
+        if (imeVisible && isFocused) {
             expand = ExpandState.Collapsed
-        } else if (state.textContent.text.isEmpty()) {
+        } else if (!imeVisible && state.textContent.text.isEmpty()) {
             focusManager.clearFocus()
         }
     }
-
-    // Focus state for the text field
-    var isFocused by remember { mutableStateOf(false) }
 
     val groupChatTemplateForMentions = remember(
         uiMode,
@@ -516,6 +517,8 @@ fun ChatInput(
                                 interactionSource = plusInteractionSource,
                                 indication = LocalIndication.current
                             ) {
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
                                 expandToggle(ExpandState.Files)
                             }
                     ) {
@@ -1403,69 +1406,6 @@ private fun FilesPicker(
                 }
             }
         }
-
-        if (conversation.messageNodes.isEmpty()) {
-            val subtitle = if (workspaceReady) {
-                when (currentWorkDirBinding?.mode) {
-                    ConversationWorkDirMode.MANUAL -> context.getString(
-                        R.string.workdir_current_manual,
-                        currentWorkDirBinding.relPath
-                    )
-
-                    else -> context.getString(R.string.workdir_current_auto)
-                }
-            } else {
-                context.getString(R.string.workspace_root_required_hint)
-            }
-
-            CompositionLocalProvider(LocalAbsoluteTonalElevation provides if (amoledMode && isDarkMode) 0.dp else LocalAbsoluteTonalElevation.current) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
-                    color = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh,
-                    tonalElevation = if (amoledMode && isDarkMode) 0.dp else 6.dp,
-                    onClick = {
-                        if (!workspaceReady) {
-                            haptics.perform(HapticPattern.Error)
-                            toaster.show(
-                                message = context.getString(R.string.workspace_root_required_hint),
-                                type = ToastType.Error,
-                            )
-                            return@Surface
-                        }
-                        haptics.perform(HapticPattern.Pop)
-                        showWorkDirPicker = true
-                    },
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.FolderOpen,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(R.string.workdir_quick_setup_title),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                text = subtitle,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-            }
-        }
         
         // Modes and Lorebooks row - hidden when keyboard is visible
         if (!isKeyboardVisible) {
@@ -1632,6 +1572,72 @@ private fun FilesPicker(
 
         if (uiMode == ChatInputUiMode.Normal && !isKeyboardVisible) {
             Spacer(modifier = Modifier.height(8.dp))
+
+            if (conversation.messageNodes.isEmpty()) {
+                val subtitle = if (workspaceReady) {
+                    when (currentWorkDirBinding?.mode) {
+                        ConversationWorkDirMode.MANUAL -> context.getString(
+                            R.string.workdir_current_manual,
+                            currentWorkDirBinding.relPath
+                        )
+
+                        else -> context.getString(R.string.workdir_current_auto)
+                    }
+                } else {
+                    context.getString(R.string.workspace_root_required_hint)
+                }
+
+                val workDirInteractionSource = remember { MutableInteractionSource() }
+                val isWorkDirPressed by workDirInteractionSource.collectIsPressedAsState()
+                val workDirScale by animateFloatAsState(
+                    targetValue = if (isWorkDirPressed) 0.98f else 1f,
+                    animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                    label = "workdir_quick_setup_scale",
+                )
+                ListItem(
+                    modifier = Modifier
+                        .graphicsLayer {
+                            scaleX = workDirScale
+                            scaleY = workDirScale
+                        }
+                        .clip(RoundedCornerShape(24.dp))
+                        .clickable(
+                            interactionSource = workDirInteractionSource,
+                            indication = LocalIndication.current,
+                        ) {
+                            if (!workspaceReady) {
+                                haptics.perform(HapticPattern.Error)
+                                toaster.show(
+                                    message = context.getString(R.string.workspace_root_required_hint),
+                                    type = ToastType.Error,
+                                )
+                                return@clickable
+                            }
+                            haptics.perform(HapticPattern.Pop)
+                            showWorkDirPicker = true
+                        },
+                    colors = ListItemDefaults.colors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    ),
+                    leadingContent = {
+                        Icon(
+                            imageVector = Icons.Rounded.FolderOpen,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    },
+                    headlineContent = {
+                        Text(stringResource(R.string.workdir_quick_setup_title))
+                    },
+                    supportingContent = {
+                        Text(
+                            text = subtitle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                )
+            }
 
             val clearInteractionSource = remember { MutableInteractionSource() }
             val isClearPressed by clearInteractionSource.collectIsPressedAsState()

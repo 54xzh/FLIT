@@ -1,7 +1,10 @@
 // WorkDir 目录选择器：基于已授权的 Workspace Root（SAF TreeUri）浏览并选择子目录，输出相对路径（relPath）。
 package me.rerere.rikkahub.ui.components.workdir
 
+import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -40,7 +44,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,10 +58,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.SkillScriptPathUtils
+import org.koin.compose.koinInject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +76,7 @@ fun WorkDirPickerBottomSheet(
     val context = LocalContext.current
     val haptics = rememberPremiumHaptics()
     val scope = rememberCoroutineScope()
+    val settingsStore = koinInject<SettingsStore>()
 
     val initialSegments = remember(initialRelPath) {
         SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(initialRelPath?.trim().orEmpty())
@@ -82,6 +93,39 @@ fun WorkDirPickerBottomSheet(
 
     var creatingFolder by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
+    val newFolderFocusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+
+    val workspaceRootLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        }
+        haptics.perform(HapticPattern.Success)
+        segments = emptyList()
+        creatingFolder = false
+        newFolderName = ""
+        scope.launch {
+            settingsStore.update { old ->
+                old.copy(
+                    workspaceRootTreeUri = uri.toString(),
+                    conversationWorkDirs = emptyMap(),
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(creatingFolder) {
+        if (creatingFolder) {
+            focusManager.clearFocus(force = true)
+            newFolderFocusRequester.requestFocus()
+        }
+    }
 
     LaunchedEffect(workspaceRootTreeUri) {
         loading = true
@@ -132,7 +176,9 @@ fun WorkDirPickerBottomSheet(
                     onValueChange = { newFolderName = it },
                     singleLine = true,
                     placeholder = { Text(stringResource(R.string.workdir_picker_new_folder_placeholder)) },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(newFolderFocusRequester),
                 )
             },
             confirmButton = {
@@ -244,8 +290,35 @@ fun WorkDirPickerBottomSheet(
                     .heightIn(max = 360.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                item(key = "choose_other_dir") {
+                    ListItem(
+                        colors = ListItemDefaults.colors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        ),
+                        leadingContent = {
+                            Icon(
+                                imageVector = Icons.Rounded.FolderOpen,
+                                contentDescription = null,
+                            )
+                        },
+                        headlineContent = {
+                            Text(text = stringResource(R.string.workdir_picker_choose_other_directory))
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(AppShapes.CardMedium)
+                            .clickable {
+                                haptics.perform(HapticPattern.Pop)
+                                workspaceRootLauncher.launch(null)
+                            },
+                    )
+                }
+
                 items(folderNames, key = { it }) { name ->
                     ListItem(
+                        colors = ListItemDefaults.colors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        ),
                         leadingContent = {
                             Icon(
                                 imageVector = Icons.Rounded.Folder,
@@ -257,6 +330,7 @@ fun WorkDirPickerBottomSheet(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clip(AppShapes.CardMedium)
                             .clickable {
                                 haptics.perform(HapticPattern.Pop)
                                 segments = segments + name

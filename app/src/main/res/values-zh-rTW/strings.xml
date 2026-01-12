@@ -288,6 +288,7 @@
   <string name="workdir_choose_directory">選擇目錄</string>
   <string name="workdir_quick_setup_title">工作目錄設定</string>
   <string name="workdir_picker_title">選擇工作目錄</string>
+  <string name="workdir_picker_choose_other_directory">選擇其他目錄</string>
   <string name="workdir_picker_choose_current">選擇此目錄</string>
   <string name="workdir_picker_new_folder_action">新增資料夾</string>
   <string name="workdir_picker_new_folder_title">新增資料夾</string>

@@ -376,6 +376,7 @@
     <string name="workdir_choose_directory">Choose directory</string>
     <string name="workdir_quick_setup_title">Set work directory</string>
     <string name="workdir_picker_title">Choose work directory</string>
+    <string name="workdir_picker_choose_other_directory">Choose another directory</string>
     <string name="workdir_picker_choose_current">Choose this folder</string>
     <string name="workdir_picker_new_folder_action">New folder</string>
     <string name="workdir_picker_new_folder_title">Create folder</string>

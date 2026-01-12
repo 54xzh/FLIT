@@ -293,6 +293,7 @@
   <string name="workdir_choose_directory">选择目录</string>
   <string name="workdir_quick_setup_title">工作目录设定</string>
   <string name="workdir_picker_title">选择工作目录</string>
+  <string name="workdir_picker_choose_other_directory">选择其他目录</string>
   <string name="workdir_picker_choose_current">选择此目录</string>
   <string name="workdir_picker_new_folder_action">新建文件夹</string>
   <string name="workdir_picker_new_folder_title">新建文件夹</string>
