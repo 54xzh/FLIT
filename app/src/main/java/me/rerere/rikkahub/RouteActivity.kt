@@ -86,6 +86,7 @@ import me.rerere.rikkahub.ui.pages.setting.SettingModesPage
 import me.rerere.rikkahub.ui.pages.setting.SettingLorebooksPage
 import me.rerere.rikkahub.ui.pages.setting.SettingLorebookDetailPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSkillsPage
+import me.rerere.rikkahub.ui.pages.setting.SettingScriptsWorkspacePage
 import me.rerere.rikkahub.ui.pages.share.handler.ShareHandlerPage
 import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
@@ -525,6 +526,10 @@ class RouteActivity : ComponentActivity() {
                         SettingSkillsPage()
                     }
 
+                    composable<Screen.SettingScriptsWorkspace> {
+                        SettingScriptsWorkspacePage()
+                    }
+
                     composable<Screen.SettingRpOptimizations> {
                         SettingRpOptimizationsPage()
                     }
@@ -645,6 +650,9 @@ sealed interface Screen {
 
     @Serializable
     data object SettingSkills : Screen
+
+    @Serializable
+    data object SettingScriptsWorkspace : Screen
 
     @Serializable
     data object SettingRpOptimizations : Screen

@@ -700,6 +700,9 @@
     <string name="skills_no_description">No description</string>
     <string name="skills_scripts_workspace_title">Scripts &amp; workspace</string>
     <string name="skills_scripts_workspace_desc">Skill scripts, workspace root, and Python dependencies</string>
+    <string name="skills_scripts_workspace_section_scripts">Scripts</string>
+    <string name="skills_scripts_workspace_section_workspace">Workspace</string>
+    <string name="skills_scripts_workspace_installed_deps_title">Installed dependencies</string>
     <string name="skill_scripts_title">Skill scripts</string>
     <string name="skill_scripts_description">Execute scripts/*.py inside Skill packages (Python)</string>
     <string name="workspace_root_title">Workspace root</string>
@@ -708,6 +711,8 @@
     <string name="workspace_root_choose">Choose workspace root</string>
     <string name="workspace_root_set_success">Workspace root set</string>
     <string name="workspace_root_cleared">Workspace root cleared</string>
+    <string name="workspace_root_reset_title">Reset</string>
+    <string name="workspace_root_reset_desc">Reset workspace root</string>
     <string name="workspace_file_tools_allow_all_title">Workspace file tools: Allow all</string>
     <string name="workspace_file_tools_allow_all_desc">Skip confirmation for workspace file tools. Dangerous.</string>
     <string name="workspace_file_tools_allow_all_risk_title">Enable allow-all mode?</string>

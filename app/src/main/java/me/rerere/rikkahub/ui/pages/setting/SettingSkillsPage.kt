@@ -1,10 +1,6 @@
 package me.rerere.rikkahub.ui.pages.setting
 
-import android.content.Intent
-import android.net.Uri
-import android.text.format.DateUtils
-import android.text.format.Formatter
-import androidx.activity.compose.BackHandler
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -32,7 +28,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CreateNewFolder
@@ -51,7 +46,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ModalBottomSheet
@@ -82,6 +76,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.model.Skill
 import me.rerere.rikkahub.data.model.SkillFolder
 import me.rerere.rikkahub.ui.components.nav.BackButton
@@ -89,13 +84,11 @@ import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
 import me.rerere.rikkahub.ui.components.ui.ItemPosition
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.PhysicsSwipeToDelete
+import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
-import me.rerere.rikkahub.data.model.PythonWheel
-import me.rerere.rikkahub.data.repository.PythonWheelInstaller
-import me.rerere.rikkahub.data.repository.PythonWheelRepository
 import me.rerere.rikkahub.utils.SkillZipImport
 import org.koin.androidx.compose.koinViewModel
 import java.io.File
@@ -107,6 +100,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val navController = LocalNavController.current
     val toaster = LocalToaster.current
     val haptics = rememberPremiumHaptics()
 
@@ -120,24 +114,13 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
 
     var showMoveSheet by remember { mutableStateOf(false) }
     var showBatchDeleteDialog by remember { mutableStateOf(false) }
-    var showScriptsAndWorkspacePage by remember { mutableStateOf(false) }
 
     var creatingFolder by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
     var renamingFolder by remember { mutableStateOf<SkillFolder?>(null) }
     var renameFolderName by remember { mutableStateOf("") }
 
-    var showEnableScriptExecutionDialog by remember { mutableStateOf(false) }
-    var showWorkspaceFileToolsAllowAllDialog by remember { mutableStateOf(false) }
     var skillHasScriptsById by remember { mutableStateOf<Map<Uuid, Boolean>>(emptyMap()) }
-
-    val wheelRepository = remember { PythonWheelRepository(context) }
-    val wheelInstaller = remember { PythonWheelInstaller(context, wheelRepository) }
-    var pythonWheels by remember { mutableStateOf<List<PythonWheel>>(emptyList()) }
-    var deletingPythonWheel by remember { mutableStateOf<PythonWheel?>(null) }
-    var showWheelImportRiskDialog by remember { mutableStateOf(false) }
-    var showWheelImportResultDialog by remember { mutableStateOf(false) }
-    var wheelImportReport by remember { mutableStateOf<PythonWheelInstaller.BatchResult?>(null) }
 
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -183,48 +166,6 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                 }
             }
         }
-    }
-
-    val wheelImportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenMultipleDocuments()
-    ) { uris ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        scope.launch {
-            val report = wheelInstaller.importFromUris(uris)
-            wheelImportReport = report
-            showWheelImportResultDialog = true
-            pythonWheels = wheelRepository.listWheels().sortedByDescending { it.installedAt }
-
-            val message = context.getString(
-                R.string.python_wheels_import_summary,
-                report.success.size,
-                report.duplicated.size,
-                report.failed.size,
-            )
-            toaster.show(message = message)
-        }
-    }
-
-    val workspaceRootLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        runCatching {
-            context.contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            )
-        }
-        vm.updateSettings { old ->
-            val preservedKeys = old.conversationWorkspaceRoots.keys
-            val preservedConversationWorkDirs = old.conversationWorkDirs.filterKeys { it in preservedKeys }
-            old.copy(
-                workspaceRootTreeUri = uri.toString(),
-                conversationWorkDirs = preservedConversationWorkDirs,
-            )
-        }
-        haptics.perform(HapticPattern.Success)
-        toaster.show(message = context.getString(R.string.workspace_root_set_success))
     }
 
     fun requestImport() {
@@ -354,22 +295,11 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
         }
     }
 
-    BackHandler(enabled = showScriptsAndWorkspacePage) {
-        haptics.perform(HapticPattern.Pop)
-        showScriptsAndWorkspacePage = false
-    }
-
-    LaunchedEffect(showScriptsAndWorkspacePage) {
-        if (!showScriptsAndWorkspacePage) return@LaunchedEffect
-        pythonWheels = wheelRepository.listWheels().sortedByDescending { it.installedAt }
-    }
-
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             OneUITopAppBar(
                 title = when {
-                    showScriptsAndWorkspacePage -> stringResource(R.string.skills_scripts_workspace_title)
                     isSelectionMode -> stringResource(
                         R.string.skills_selected_count,
                         selectedSkillIds.size + selectedFolderIds.size
@@ -380,14 +310,6 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                 expandedTitleHorizontalPadding = 32.dp,
                 navigationIcon = {
                     when {
-                        showScriptsAndWorkspacePage -> {
-                            HapticIconButton(onClick = { showScriptsAndWorkspacePage = false }) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                    contentDescription = stringResource(R.string.back),
-                                )
-                            }
-                        }
                         isSelectionMode -> {
                             HapticIconButton(onClick = { exitSelectionMode() }) {
                                 Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.cancel))
@@ -397,9 +319,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                     }
                 },
                 actions = {
-                    if (showScriptsAndWorkspacePage) {
-                        // no actions
-                    } else if (isSelectionMode) {
+                    if (isSelectionMode) {
                         val allSkillIds = settings.skills.map { it.id }.toSet()
                         val emptyFolderIds = settings.skillFolders
                             .filter { folder -> settings.skills.none { it.folderId == folder.id } }
@@ -452,7 +372,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
             )
         },
         floatingActionButton = {
-            if (!isSelectionMode && !showScriptsAndWorkspacePage) {
+            if (!isSelectionMode) {
                 FloatingActionButton(
                     onClick = { requestImport() },
                     shape = AppShapes.CardLarge,
@@ -462,7 +382,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
             }
         },
         bottomBar = {
-            if (isSelectionMode && !showScriptsAndWorkspacePage) {
+            if (isSelectionMode) {
                 val selectedCount = selectedSkillIds.size + selectedFolderIds.size
                 val hasSkillSelection = selectedSkillIds.isNotEmpty()
                 val hasAnySelection = selectedCount > 0
@@ -517,7 +437,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
             }
         }
     ) { paddingValues ->
-        if (!showScriptsAndWorkspacePage && settings.skills.isEmpty() && settings.skillFolders.isEmpty()) {
+        if (settings.skills.isEmpty() && settings.skillFolders.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -548,7 +468,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                     TextButton(
                         onClick = {
                             haptics.perform(HapticPattern.Pop)
-                            showScriptsAndWorkspacePage = true
+                            navController.navigate(Screen.SettingScriptsWorkspace)
                         }
                     ) {
                         Text(stringResource(R.string.skills_scripts_workspace_title))
@@ -568,281 +488,16 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                     .padding(horizontal = 16.dp),
                 contentPadding = PaddingValues(
                     top = paddingValues.calculateTopPadding() + 16.dp,
-                    bottom = paddingValues.calculateBottomPadding() + when {
-                        showScriptsAndWorkspacePage -> 16.dp
-                        isSelectionMode -> 16.dp
-                        else -> 96.dp
-                    },
+                    bottom = paddingValues.calculateBottomPadding() + if (isSelectionMode) 16.dp else 96.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (showScriptsAndWorkspacePage) {
-                    item(key = "scripts_workspace_settings") {
-                    Card(
-                        shape = AppShapes.CardLarge,
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = stringResource(R.string.skill_scripts_title),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.skill_scripts_description),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                Switch(
-                                    checked = settings.enableSkillScriptExecution,
-                                    onCheckedChange = { checked ->
-                                        haptics.perform(HapticPattern.Pop)
-                                        if (checked && !settings.enableSkillScriptExecution) {
-                                            showEnableScriptExecutionDialog = true
-                                        } else {
-                                            vm.updateSettings { old -> old.copy(enableSkillScriptExecution = checked) }
-                                        }
-                                    },
-                                )
-                            }
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = stringResource(R.string.python_wheels_title),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.python_wheels_description),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                TextButton(
-                                    onClick = {
-                                        haptics.perform(HapticPattern.Pop)
-                                        showWheelImportRiskDialog = true
-                                    }
-                                ) {
-                                    Text(stringResource(R.string.python_wheels_import_action))
-                                }
-                            }
-
-                            if (pythonWheels.isEmpty()) {
-                                Text(
-                                    text = stringResource(R.string.python_wheels_empty),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            } else {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    pythonWheels.forEach { wheel ->
-                                        ListItem(
-                                            headlineContent = {
-                                                Text(
-                                                    text = listOfNotNull(
-                                                        wheel.packageName?.takeIf { it.isNotBlank() },
-                                                        wheel.packageVersion?.takeIf { it.isNotBlank() },
-                                                    ).joinToString(" ").ifBlank { wheel.displayName },
-                                                    maxLines = 1,
-                                                )
-                                            },
-                                            supportingContent = {
-                                                val now = System.currentTimeMillis()
-                                                val size = wheel.fileSizeBytes?.takeIf { it > 0 }?.let { bytes ->
-                                                    runCatching { Formatter.formatShortFileSize(context, bytes) }.getOrNull()
-                                                }
-                                                val relativeTime = runCatching {
-                                                    DateUtils.getRelativeTimeSpanString(
-                                                        wheel.installedAt,
-                                                        now,
-                                                        DateUtils.MINUTE_IN_MILLIS,
-                                                    ).toString()
-                                                }.getOrNull()
-                                                val sysPathHint = wheel.sysPaths.size
-                                                    .takeIf { it > 0 }
-                                                    ?.let { count -> "sys.path +$count" }
-
-                                                val hasPackageInfo = wheel.packageName?.isNotBlank() == true ||
-                                                    wheel.packageVersion?.isNotBlank() == true
-                                                val metaParts = buildList {
-                                                    if (hasPackageInfo) add(wheel.displayName)
-                                                    size?.let(::add)
-                                                    sysPathHint?.let(::add)
-                                                    relativeTime?.let(::add)
-                                                }
-
-                                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                    if (metaParts.isNotEmpty()) {
-                                                        Text(
-                                                            text = metaParts.joinToString(" · "),
-                                                            style = MaterialTheme.typography.bodySmall,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                            maxLines = 2,
-                                                        )
-                                                    }
-                                                    if (wheel.hasNativeCode) {
-                                                        Text(
-                                                            text = stringResource(R.string.python_wheels_native_code_warning),
-                                                            style = MaterialTheme.typography.bodySmall,
-                                                            color = MaterialTheme.colorScheme.error,
-                                                            maxLines = 1,
-                                                        )
-                                                    }
-                                                }
-                                            },
-                                            trailingContent = {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                ) {
-                                                    Switch(
-                                                        checked = wheel.enabled,
-                                                        onCheckedChange = { checked ->
-                                                            haptics.perform(HapticPattern.Pop)
-                                                            scope.launch {
-                                                                wheelRepository.setWheelEnabled(wheel.id, checked)
-                                                                pythonWheels = wheelRepository.listWheels().sortedByDescending { it.installedAt }
-                                                            }
-                                                        },
-                                                    )
-                                                    HapticIconButton(
-                                                        onClick = {
-                                                            haptics.perform(HapticPattern.Thud)
-                                                            deletingPythonWheel = wheel
-                                                        }
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Rounded.Delete,
-                                                            contentDescription = stringResource(R.string.delete),
-                                                        )
-                                                    }
-                                                }
-                                            },
-                                        )
-                                    }
-                                }
-                            }
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = stringResource(R.string.workspace_root_title),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    Text(
-                                        text = if (settings.workspaceRootTreeUri.isNullOrBlank()) {
-                                            stringResource(R.string.workspace_root_not_set)
-                                        } else {
-                                            stringResource(R.string.workspace_root_set)
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                TextButton(
-                                    onClick = {
-                                        haptics.perform(HapticPattern.Pop)
-                                        workspaceRootLauncher.launch(null)
-                                    }
-                                ) {
-                                    Text(stringResource(R.string.workspace_root_choose))
-                                }
-                                if (!settings.workspaceRootTreeUri.isNullOrBlank()) {
-                                    TextButton(
-                                        onClick = {
-                                            haptics.perform(HapticPattern.Thud)
-                                            val rootUriString = settings.workspaceRootTreeUri?.trim().orEmpty()
-                                            val usedByConversationRoots = settings.conversationWorkspaceRoots.values.any { it.trim() == rootUriString }
-                                            if (rootUriString.isNotBlank() && !usedByConversationRoots) {
-                                                val uri = runCatching { Uri.parse(rootUriString) }.getOrNull()
-                                                if (uri != null) {
-                                                    runCatching {
-                                                        context.contentResolver.releasePersistableUriPermission(
-                                                            uri,
-                                                            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                            vm.updateSettings { old ->
-                                                val preservedKeys = old.conversationWorkspaceRoots.keys
-                                                val preservedConversationWorkDirs = old.conversationWorkDirs.filterKeys { it in preservedKeys }
-                                                old.copy(
-                                                    workspaceRootTreeUri = null,
-                                                    conversationWorkDirs = preservedConversationWorkDirs,
-                                                )
-                                            }
-                                            toaster.show(message = context.getString(R.string.workspace_root_cleared))
-                                        }
-                                    ) {
-                                        Text(stringResource(R.string.clear))
-                                    }
-                                }
-                            }
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = stringResource(R.string.workspace_file_tools_allow_all_title),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.workspace_file_tools_allow_all_desc),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                Switch(
-                                    checked = settings.workspaceFileToolsAllowAll,
-                                    onCheckedChange = { checked ->
-                                        if (checked && !settings.workspaceFileToolsAllowAll) {
-                                            haptics.perform(HapticPattern.Thud)
-                                            showWorkspaceFileToolsAllowAllDialog = true
-                                        } else {
-                                            haptics.perform(HapticPattern.Pop)
-                                            vm.updateSettings { old -> old.copy(workspaceFileToolsAllowAll = checked) }
-                                        }
-                                    },
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    }
-                } else {
-                    if (!isSelectionMode) {
+                if (!isSelectionMode) {
                         item(key = "scripts_workspace_entry") {
                             Card(
                                 onClick = {
                                     haptics.perform(HapticPattern.Pop)
-                                    showScriptsAndWorkspacePage = true
+                                    navController.navigate(Screen.SettingScriptsWorkspace)
                                 },
                                 shape = AppShapes.CardLarge,
                                 colors = CardDefaults.cardColors(
@@ -1152,146 +807,6 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
             )
         }
 
-        if (showEnableScriptExecutionDialog) {
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { showEnableScriptExecutionDialog = false },
-                title = { Text(stringResource(R.string.skill_scripts_risk_title)) },
-                text = { Text(stringResource(R.string.skill_scripts_risk_message)) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            haptics.perform(HapticPattern.Thud)
-                            vm.updateSettings { old -> old.copy(enableSkillScriptExecution = true) }
-                            showEnableScriptExecutionDialog = false
-                            toaster.show(message = context.getString(R.string.skill_scripts_enabled_success))
-                        }
-                    ) { Text(stringResource(R.string.skill_scripts_enable_action)) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showEnableScriptExecutionDialog = false }) {
-                        Text(stringResource(R.string.cancel))
-                    }
-                }
-            )
-        }
-
-        deletingPythonWheel?.let { wheel ->
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { deletingPythonWheel = null },
-                title = { Text(stringResource(R.string.python_wheels_delete_title)) },
-                text = {
-                    val label = wheel.packageName?.takeIf { it.isNotBlank() } ?: wheel.displayName
-                    Text(stringResource(R.string.python_wheels_delete_desc, label))
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            haptics.perform(HapticPattern.Thud)
-                            val target = wheel
-                            deletingPythonWheel = null
-                            scope.launch {
-                                val ok = wheelRepository.deleteWheel(target.id)
-                                pythonWheels = wheelRepository.listWheels().sortedByDescending { it.installedAt }
-                                toaster.show(
-                                    message = context.getString(
-                                        if (ok) R.string.python_wheels_deleted_success else R.string.python_wheels_deleted_failed
-                                    )
-                                )
-                            }
-                        }
-                    ) { Text(stringResource(R.string.delete)) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { deletingPythonWheel = null }) {
-                        Text(stringResource(R.string.cancel))
-                    }
-                }
-            )
-        }
-
-        if (showWheelImportRiskDialog) {
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { showWheelImportRiskDialog = false },
-                title = { Text(stringResource(R.string.python_wheels_risk_title)) },
-                text = { Text(stringResource(R.string.python_wheels_risk_message)) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            haptics.perform(HapticPattern.Thud)
-                            showWheelImportRiskDialog = false
-                            wheelImportLauncher.launch(
-                                arrayOf(
-                                    "application/zip",
-                                    "application/x-zip-compressed",
-                                    "application/octet-stream",
-                                )
-                            )
-                        }
-                    ) { Text(stringResource(R.string.python_wheels_import_action)) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showWheelImportRiskDialog = false }) {
-                        Text(stringResource(R.string.cancel))
-                    }
-                }
-            )
-        }
-
-        if (showWheelImportResultDialog) {
-            val report = wheelImportReport
-            val summary = context.getString(
-                R.string.python_wheels_import_summary,
-                report?.success?.size ?: 0,
-                report?.duplicated?.size ?: 0,
-                report?.failed?.size ?: 0,
-            )
-            val failedDetails = report?.failed
-                ?.take(5)
-                ?.joinToString(separator = "\n") { item ->
-                    val name = item.displayName?.takeIf { it.isNotBlank() } ?: context.getString(R.string.unknown)
-                    "$name: ${item.reason}"
-                }
-                .orEmpty()
-
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { showWheelImportResultDialog = false },
-                title = { Text(stringResource(R.string.python_wheels_import_result_title)) },
-                text = {
-                    Text(
-                        if (failedDetails.isBlank()) summary else "$summary\n\n$failedDetails"
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = { showWheelImportResultDialog = false }) {
-                        Text(stringResource(R.string.done))
-                    }
-                }
-            )
-        }
-
-        if (showWorkspaceFileToolsAllowAllDialog) {
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { showWorkspaceFileToolsAllowAllDialog = false },
-                title = { Text(stringResource(R.string.workspace_file_tools_allow_all_risk_title)) },
-                text = { Text(stringResource(R.string.workspace_file_tools_allow_all_risk_message)) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            haptics.perform(HapticPattern.Thud)
-                            vm.updateSettings { old -> old.copy(workspaceFileToolsAllowAll = true) }
-                            showWorkspaceFileToolsAllowAllDialog = false
-                            toaster.show(message = context.getString(R.string.workspace_file_tools_allow_all_enabled_success))
-                        }
-                    ) { Text(stringResource(R.string.workspace_file_tools_allow_all_enable_action)) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showWorkspaceFileToolsAllowAllDialog = false }) {
-                        Text(stringResource(R.string.cancel))
-                    }
-                }
-            )
-        }
-
         if (creatingFolder) {
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = {
@@ -1452,7 +967,6 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
             }
         }
     }
-}
 }
 
 @Composable

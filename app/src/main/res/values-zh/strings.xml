@@ -613,6 +613,9 @@
   <string name="skills_no_description">无描述</string>
   <string name="skills_scripts_workspace_title">脚本与工作区</string>
   <string name="skills_scripts_workspace_desc">管理技能脚本、工作区根目录与 Python 依赖</string>
+  <string name="skills_scripts_workspace_section_scripts">脚本</string>
+  <string name="skills_scripts_workspace_section_workspace">工作区</string>
+  <string name="skills_scripts_workspace_installed_deps_title">已安装依赖</string>
   <string name="skill_scripts_title">技能脚本</string>
   <string name="skill_scripts_description">执行技能包内 scripts/*.py（Python）</string>
   <string name="workspace_root_title">工作区根目录</string>
@@ -621,6 +624,8 @@
   <string name="workspace_root_choose">选择工作根目录</string>
   <string name="workspace_root_set_success">已设置工作区根目录</string>
   <string name="workspace_root_cleared">已清除工作区根目录</string>
+  <string name="workspace_root_reset_title">重置</string>
+  <string name="workspace_root_reset_desc">重置工作区根目录</string>
   <string name="workspace_file_tools_allow_all_title">工作区文件工具：全部允许</string>
   <string name="workspace_file_tools_allow_all_desc">跳过工作区文件工具的确认步骤（危险）。</string>
   <string name="workspace_file_tools_allow_all_risk_title">启用“全部允许”模式？</string>
