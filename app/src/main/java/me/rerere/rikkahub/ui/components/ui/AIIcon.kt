@@ -368,13 +368,39 @@ fun AutoAIIconWithUrl(
     
     // Priority 0: User-selected custom icon (highest priority)
     if (!customIconUri.isNullOrBlank()) {
+        // Generate URL for LobeHub icons (theme-adaptive)
+        val iconUrl = remember(customIconUri, darkMode) {
+            when {
+                customIconUri.startsWith("lobehub:") -> {
+                    // New format: lobehub:slug
+                    val slug = customIconUri.removePrefix("lobehub:")
+                    val theme = if (darkMode) "dark" else "light"
+                    "https://registry.npmmirror.com/@lobehub/icons-static-png/latest/files/$theme/$slug.png"
+                }
+                customIconUri.contains("@lobehub/icons-static-png") ||
+                (customIconUri.contains("lobehub") && customIconUri.contains("/icons/")) -> {
+                    // Legacy format: full LobeHub URL - extract slug and make theme-adaptive
+                    val slugMatch = Regex("""/(?:dark|light)/([^/]+)\.png""").find(customIconUri)
+                    val slug = slugMatch?.groupValues?.get(1)
+                    if (slug != null) {
+                        val theme = if (darkMode) "dark" else "light"
+                        "https://registry.npmmirror.com/@lobehub/icons-static-png/latest/files/$theme/$slug.png"
+                    } else {
+                        customIconUri
+                    }
+                }
+                else -> customIconUri
+            }
+        }
+        
+        // Use AsyncImage directly for consistent behavior with ClickableIconPicker
         Surface(
             modifier = modifier,
             shape = rememberAvatarShape(loading),
             color = Color.Transparent,
         ) {
             AsyncImage(
-                model = android.net.Uri.parse(customIconUri),
+                model = iconUrl,
                 contentDescription = name,
                 modifier = Modifier.padding(padding),
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit
@@ -506,7 +532,17 @@ private fun hasGoodLocalIcon(name: String): Boolean {
            lowerName.contains("gemma") ||
            lowerName.contains("grok") ||
            lowerName.contains("openai") ||
-           lowerName.contains("google")
+           lowerName.contains("google") ||
+           // Chinese providers with local icons
+           lowerName.contains("zhipu") ||
+           lowerName.contains("glm") ||
+           lowerName.contains("moonshot") ||
+           lowerName.contains("kimi") ||
+           lowerName.contains("minimax") ||
+           lowerName.contains("nvidia") ||
+           lowerName.contains("cerebras") ||
+           lowerName.contains("openrouter") ||
+           lowerName.contains("antigravity")
 }
 
 /**
@@ -654,8 +690,8 @@ private fun computeAIIconByName(name: String): String? {
     
     // OpenRouter model ID parsing: extract provider and model from "provider/model" format
     val hasSlash = lowerName.contains("/")
-    val providerPart = if (hasSlash) lowerName.substringBefore("/") else null
-    val modelPart = if (hasSlash) lowerName.substringAfter("/") else null
+    val providerPart = if (hasSlash) lowerName.substringBefore("/").trim() else null
+    val modelPart = if (hasSlash) lowerName.substringAfter("/").trim() else null
     
     // First, try to match against model name (this is more specific and should take priority)
     // For OpenRouter: "anthropic/claude-3" should show Claude icon, not Anthropic
@@ -673,7 +709,10 @@ private fun computeAIIconByName(name: String): String? {
     }
     
     // Finally, try to match the full name
-    val fullNameIcon = matchModelPattern(lowerName) ?: matchProviderPattern(lowerName)
+    // Try model patterns first, then provider patterns, then legacy icon patterns
+    val fullNameIcon = matchModelPattern(lowerName) 
+        ?: matchProviderPattern(lowerName)
+        ?: matchIconPattern(lowerName)  // Legacy patterns for zhipu, moonshot, kimi, etc.
     fullNameIcon?.let { ICON_CACHE[name] = it }
     
     return fullNameIcon
@@ -682,6 +721,9 @@ private fun computeAIIconByName(name: String): String? {
 // Match against provider/company patterns - used for OpenRouter provider prefixes
 private fun matchProviderPattern(providerName: String): String? {
     return when {
+        // Custom providers
+        providerName.contains("antigravity") -> "antigravity.png"
+        
         // Companies with their own icons
         providerName == "openai" -> "openai.svg"
         providerName == "google" -> "google-color.svg"
@@ -767,7 +809,13 @@ private fun matchModelPattern(modelName: String): String? {
         PATTERN_SEARCH_FIRECRAWL.containsMatchIn(modelName) -> "firecrawl.svg"
         PATTERN_SEARCH_JINA.containsMatchIn(modelName) -> "jina.svg"
         PATTERN_PERPLEXITY.containsMatchIn(modelName) -> "perplexity-color.svg"
+        // Chinese model patterns
         PATTERN_ZHIPU.containsMatchIn(modelName) -> "zhipu-color.svg"
+        PATTERN_KIMI.containsMatchIn(modelName) -> "kimi-color.svg"
+        PATTERN_MOONSHOT.containsMatchIn(modelName) -> "moonshot.svg"
+        PATTERN_MINIMAX.containsMatchIn(modelName) -> "minimax-color.svg"
+        PATTERN_DOUBAO.containsMatchIn(modelName) -> "doubao-color.svg"
+        PATTERN_HUNYUAN.containsMatchIn(modelName) -> "hunyuan-color.svg"
         else -> null
     }
 }

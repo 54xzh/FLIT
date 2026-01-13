@@ -123,8 +123,35 @@ fun ClickableIconPicker(
         ) {
             if (hasCustomIcon) {
                 // Show custom icon
+                val darkMode = LocalDarkMode.current
+                val iconModel = remember(currentIconUri, darkMode) {
+                    when {
+                        currentIconUri?.startsWith("lobehub:") == true -> {
+                            // New format: lobehub:slug
+                            val slug = currentIconUri.removePrefix("lobehub:")
+                            val theme = if (darkMode) "dark" else "light"
+                            "https://registry.npmmirror.com/@lobehub/icons-static-png/latest/files/$theme/$slug.png"
+                        }
+                        currentIconUri?.contains("@lobehub/icons-static-png") == true ||
+                        (currentIconUri?.contains("lobehub") == true && currentIconUri.contains("/icons/")) -> {
+                            // Legacy format: full LobeHub URL - extract slug and make theme-adaptive
+                            val slugMatch = Regex("""/(?:dark|light)/([^/]+)\.png""").find(currentIconUri)
+                            val slug = slugMatch?.groupValues?.get(1)
+                            if (slug != null) {
+                                val theme = if (darkMode) "dark" else "light"
+                                "https://registry.npmmirror.com/@lobehub/icons-static-png/latest/files/$theme/$slug.png"
+                            } else {
+                                currentIconUri
+                            }
+                        }
+                        else -> {
+                            // Regular file URI
+                            Uri.parse(currentIconUri)
+                        }
+                    }
+                }
                 AsyncImage(
-                    model = Uri.parse(currentIconUri),
+                    model = iconModel,
                     contentDescription = "Custom icon",
                     modifier = Modifier.size(iconSize),
                     contentScale = ContentScale.Fit
@@ -221,10 +248,10 @@ fun ClickableIconPicker(
     if (showLobeHubSearch) {
         LobeHubIconSearchDialog(
             onDismiss = { showLobeHubSearch = false },
-            onIconSelected = { url ->
+            onSlugSelected = { slug ->
                 showLobeHubSearch = false
-                // Save the LobeHub URL directly (it's a web URL, no need to copy locally)
-                onIconSelected(Uri.parse(url))
+                // Save as slug reference for theme-adaptive loading
+                onIconSelected(Uri.parse("lobehub:$slug"))
             }
         )
     }
@@ -233,7 +260,7 @@ fun ClickableIconPicker(
 @Composable
 private fun LobeHubIconSearchDialog(
     onDismiss: () -> Unit,
-    onIconSelected: (String) -> Unit
+    onSlugSelected: (String) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
     val darkMode = LocalDarkMode.current
@@ -297,7 +324,7 @@ private fun LobeHubIconSearchDialog(
                         LobeHubIconItem(
                             url = option.url,
                             slug = option.slug,
-                            onSelect = { onIconSelected(option.url) }
+                            onSelect = { onSlugSelected(option.slug) }
                         )
                     }
                 }
