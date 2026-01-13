@@ -59,12 +59,39 @@ def _patch_pathlib_write_text_newline():
     return patched
 
 
+def _coerce_sys_paths(value):
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes, bytearray)):
+        return [value]
+
+    try:
+        return list(value)
+    except TypeError:
+        pass
+
+    size = getattr(value, "size", None)
+    get = getattr(value, "get", None)
+    if callable(size) and callable(get):
+        try:
+            return [get(i) for i in range(size())]
+        except Exception:
+            return []
+
+    try:
+        n = len(value)
+        return [value[i] for i in range(n)]
+    except Exception:
+        return []
+
+
 def run_script(
     script_path: str,
     input_json,
     work_dir: str,
     max_stdout_chars: int = 20000,
     max_stderr_chars: int = 20000,
+    extra_sys_paths=None,
 ) -> str:
     """
     Executes a Python script file and calls its `run(input: dict)` function.
@@ -109,10 +136,29 @@ def run_script(
 
                 script_dir = os.path.dirname(os.path.abspath(script_path))
                 skill_root_dir = os.path.dirname(script_dir) if script_dir else ""
-                if script_dir and script_dir not in sys.path:
-                    sys.path.insert(0, script_dir)
-                if skill_root_dir and skill_root_dir not in sys.path:
-                    sys.path.insert(0, skill_root_dir)
+
+                prefix_paths = []
+                if skill_root_dir:
+                    prefix_paths.append(skill_root_dir)
+                if script_dir:
+                    prefix_paths.append(script_dir)
+
+                for p in _coerce_sys_paths(extra_sys_paths):
+                    if p is None:
+                        continue
+                    p = str(p)
+                    if p and os.path.isdir(p):
+                        prefix_paths.append(p)
+
+                if prefix_paths:
+                    seen = set()
+                    ordered_prefix = []
+                    for p in prefix_paths:
+                        if p not in seen:
+                            seen.add(p)
+                            ordered_prefix.append(p)
+
+                    sys.path[:] = ordered_prefix + [p for p in prev_sys_path if p not in seen]
 
                 patched_pathlib = _patch_pathlib_write_text_newline()
 

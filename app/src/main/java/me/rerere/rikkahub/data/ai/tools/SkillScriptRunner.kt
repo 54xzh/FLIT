@@ -9,6 +9,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import me.rerere.rikkahub.data.repository.PythonWheelRepository
 import me.rerere.rikkahub.utils.JsonInstant
 import java.io.File
 
@@ -45,6 +46,12 @@ class SkillScriptRunner(private val context: Context) {
                 }
             }
 
+        val extraSysPaths = try {
+            PythonWheelRepository(context).getEnabledSysPaths()
+        } catch (_: Exception) {
+            emptyList()
+        }
+
         val jsonResult = withTimeoutOrNull(timeoutMs) {
             val runner = py.getModule("skill_runner")
             runner.callAttr(
@@ -54,6 +61,7 @@ class SkillScriptRunner(private val context: Context) {
                 workDir.absolutePath,
                 maxStdoutChars,
                 maxStderrChars,
+                extraSysPaths,
             ).toString()
         } ?: return@withContext buildJsonObject {
             put("ok", false)

@@ -1506,6 +1506,20 @@
     <string name="minimal_input_lorebooks_desc">Add context from your lorebooks</string>
     <string name="minimal_input_summarize">Summarize</string>
     <string name="minimal_input_summarize_desc">Summarize the conversation</string>
+    <string name="python_wheels_title">Python dependencies (.whl)</string>
+    <string name="python_wheels_description">Offline wheels for script dependencies</string>
+    <string name="python_wheels_import_action">Import .whl</string>
+    <string name="python_wheels_empty">No wheels imported</string>
+    <string name="python_wheels_native_code_warning">Contains native extensions; may be incompatible</string>
+    <string name="python_wheels_risk_title">Wheel import risk</string>
+    <string name="python_wheels_risk_message">Wheel (.whl) files may contain executable code. Only import from trusted sources.</string>
+    <string name="python_wheels_import_summary">Imported: %1$d, Duplicates: %2$d, Failed: %3$d</string>
+    <string name="python_wheels_import_result_title">Import result</string>
+    <string name="python_wheels_delete_title">Delete wheel</string>
+    <string name="python_wheels_delete_desc">Delete %1$s?</string>
+    <string name="python_wheels_deleted_success">Deleted</string>
+    <string name="python_wheels_deleted_failed">Delete failed</string>
+
 </resources>
 
 

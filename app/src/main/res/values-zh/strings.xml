@@ -1501,5 +1501,19 @@
     <string name="minimal_input_lorebooks_desc">从世界书添加上下文</string>
     <string name="minimal_input_summarize">总结</string>
     <string name="minimal_input_summarize_desc">总结对话</string>
+    <string name="python_wheels_title">Python 依赖（.whl）</string>
+    <string name="python_wheels_description">离线补齐 Skill 脚本依赖</string>
+    <string name="python_wheels_import_action">导入 .whl</string>
+    <string name="python_wheels_empty">暂无已导入依赖</string>
+    <string name="python_wheels_native_code_warning">包含原生扩展，可能与当前设备不兼容</string>
+    <string name="python_wheels_risk_title">导入 Wheel 风险提示</string>
+    <string name="python_wheels_risk_message">Wheel（.whl）可能包含可执行代码。请仅导入可信来源。</string>
+    <string name="python_wheels_import_summary">导入成功：%1$d，重复：%2$d，失败：%3$d</string>
+    <string name="python_wheels_import_result_title">导入结果</string>
+    <string name="python_wheels_delete_title">删除依赖</string>
+    <string name="python_wheels_delete_desc">确定删除 %1$s？</string>
+    <string name="python_wheels_deleted_success">已删除</string>
+    <string name="python_wheels_deleted_failed">删除失败</string>
+
 </resources>
 

@@ -1497,4 +1497,18 @@
   <string name="minimal_input_lorebooks_desc">從世界書加入上下文</string>
   <string name="minimal_input_summarize">總結</string>
   <string name="minimal_input_summarize_desc">總結對話</string>
+    <string name="python_wheels_title">Python 相依性（.whl）</string>
+    <string name="python_wheels_description">離線補齊 Skill 腳本相依性</string>
+    <string name="python_wheels_import_action">匯入 .whl</string>
+    <string name="python_wheels_empty">尚未匯入任何相依性</string>
+    <string name="python_wheels_native_code_warning">包含原生擴充，可能與目前裝置不相容</string>
+    <string name="python_wheels_risk_title">匯入 Wheel 風險提示</string>
+    <string name="python_wheels_risk_message">Wheel（.whl）可能包含可執行程式碼。請僅匯入可信來源。</string>
+    <string name="python_wheels_import_summary">匯入成功：%1$d，重複：%2$d，失敗：%3$d</string>
+    <string name="python_wheels_import_result_title">匯入結果</string>
+    <string name="python_wheels_delete_title">刪除相依性</string>
+    <string name="python_wheels_delete_desc">確定刪除 %1$s？</string>
+    <string name="python_wheels_deleted_success">已刪除</string>
+    <string name="python_wheels_deleted_failed">刪除失敗</string>
+
 </resources>

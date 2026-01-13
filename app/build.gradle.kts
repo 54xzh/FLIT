@@ -156,6 +156,12 @@ android {
     }
 }
 
+chaquopy {
+    defaultConfig {
+        version = "3.10"
+    }
+}
+
 tasks.register("buildAll") {
     dependsOn("assembleRelease", "bundleRelease")
     description = "Build both APK and AAB"
