@@ -698,6 +698,8 @@
     <string name="skills_delete_desc">This will remove “%1$s” from device storage.</string>
     <string name="skills_unnamed">Unnamed skill</string>
     <string name="skills_no_description">No description</string>
+    <string name="skills_scripts_workspace_title">Scripts &amp; workspace</string>
+    <string name="skills_scripts_workspace_desc">Skill scripts, workspace root, and Python dependencies</string>
     <string name="skill_scripts_title">Skill scripts</string>
     <string name="skill_scripts_description">Execute scripts/*.py inside Skill packages (Python)</string>
     <string name="workspace_root_title">Workspace root</string>

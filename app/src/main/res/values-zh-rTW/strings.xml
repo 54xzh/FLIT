@@ -564,6 +564,8 @@
   <string name="skills_delete_desc">將從裝置中移除「%1$s」。</string>
   <string name="skills_unnamed">未命名技能</string>
   <string name="skills_no_description">無描述</string>
+  <string name="skills_scripts_workspace_title">腳本與工作區</string>
+  <string name="skills_scripts_workspace_desc">管理技能腳本、工作區根目錄與 Python 依賴</string>
   <string name="skill_scripts_title">技能腳本</string>
   <string name="skill_scripts_description">執行技能包內 scripts/*.py（Python）</string>
   <string name="workspace_root_title">工作區根目錄</string>

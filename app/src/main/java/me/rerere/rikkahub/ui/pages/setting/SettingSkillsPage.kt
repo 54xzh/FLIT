@@ -2,6 +2,9 @@ package me.rerere.rikkahub.ui.pages.setting
 
 import android.content.Intent
 import android.net.Uri
+import android.text.format.DateUtils
+import android.text.format.Formatter
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -29,6 +32,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Delete
@@ -115,6 +120,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
 
     var showMoveSheet by remember { mutableStateOf(false) }
     var showBatchDeleteDialog by remember { mutableStateOf(false) }
+    var showScriptsAndWorkspacePage by remember { mutableStateOf(false) }
 
     var creatingFolder by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
@@ -348,7 +354,13 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
         }
     }
 
-    LaunchedEffect(Unit) {
+    BackHandler(enabled = showScriptsAndWorkspacePage) {
+        haptics.perform(HapticPattern.Pop)
+        showScriptsAndWorkspacePage = false
+    }
+
+    LaunchedEffect(showScriptsAndWorkspacePage) {
+        if (!showScriptsAndWorkspacePage) return@LaunchedEffect
         pythonWheels = wheelRepository.listWheels().sortedByDescending { it.installedAt }
     }
 
@@ -356,24 +368,38 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             OneUITopAppBar(
-                title = if (isSelectionMode) {
-                    stringResource(R.string.skills_selected_count, selectedSkillIds.size + selectedFolderIds.size)
-                } else {
-                    stringResource(R.string.skills_page_title)
+                title = when {
+                    showScriptsAndWorkspacePage -> stringResource(R.string.skills_scripts_workspace_title)
+                    isSelectionMode -> stringResource(
+                        R.string.skills_selected_count,
+                        selectedSkillIds.size + selectedFolderIds.size
+                    )
+                    else -> stringResource(R.string.skills_page_title)
                 },
                 scrollBehavior = scrollBehavior,
                 expandedTitleHorizontalPadding = 32.dp,
                 navigationIcon = {
-                    if (isSelectionMode) {
-                        HapticIconButton(onClick = { exitSelectionMode() }) {
-                            Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.cancel))
+                    when {
+                        showScriptsAndWorkspacePage -> {
+                            HapticIconButton(onClick = { showScriptsAndWorkspacePage = false }) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = stringResource(R.string.back),
+                                )
+                            }
                         }
-                    } else {
-                        BackButton()
+                        isSelectionMode -> {
+                            HapticIconButton(onClick = { exitSelectionMode() }) {
+                                Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.cancel))
+                            }
+                        }
+                        else -> BackButton()
                     }
                 },
                 actions = {
-                    if (isSelectionMode) {
+                    if (showScriptsAndWorkspacePage) {
+                        // no actions
+                    } else if (isSelectionMode) {
                         val allSkillIds = settings.skills.map { it.id }.toSet()
                         val emptyFolderIds = settings.skillFolders
                             .filter { folder -> settings.skills.none { it.folderId == folder.id } }
@@ -426,7 +452,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
             )
         },
         floatingActionButton = {
-            if (!isSelectionMode) {
+            if (!isSelectionMode && !showScriptsAndWorkspacePage) {
                 FloatingActionButton(
                     onClick = { requestImport() },
                     shape = AppShapes.CardLarge,
@@ -436,7 +462,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
             }
         },
         bottomBar = {
-            if (isSelectionMode) {
+            if (isSelectionMode && !showScriptsAndWorkspacePage) {
                 val selectedCount = selectedSkillIds.size + selectedFolderIds.size
                 val hasSkillSelection = selectedSkillIds.isNotEmpty()
                 val hasAnySelection = selectedCount > 0
@@ -491,7 +517,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
             }
         }
     ) { paddingValues ->
-        if (settings.skills.isEmpty() && settings.skillFolders.isEmpty()) {
+        if (!showScriptsAndWorkspacePage && settings.skills.isEmpty() && settings.skillFolders.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -522,10 +548,10 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                     TextButton(
                         onClick = {
                             haptics.perform(HapticPattern.Pop)
-                            workspaceRootLauncher.launch(null)
+                            showScriptsAndWorkspacePage = true
                         }
                     ) {
-                        Text(stringResource(R.string.workspace_root_choose))
+                        Text(stringResource(R.string.skills_scripts_workspace_title))
                     }
                     Spacer(Modifier.width(1.dp))
                 }
@@ -542,11 +568,16 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                     .padding(horizontal = 16.dp),
                 contentPadding = PaddingValues(
                     top = paddingValues.calculateTopPadding() + 16.dp,
-                    bottom = paddingValues.calculateBottomPadding() + if (isSelectionMode) 16.dp else 96.dp,
+                    bottom = paddingValues.calculateBottomPadding() + when {
+                        showScriptsAndWorkspacePage -> 16.dp
+                        isSelectionMode -> 16.dp
+                        else -> 96.dp
+                    },
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                item(key = "skill_scripts_settings") {
+                if (showScriptsAndWorkspacePage) {
+                    item(key = "scripts_workspace_settings") {
                     Card(
                         shape = AppShapes.CardLarge,
                         colors = CardDefaults.cardColors(
@@ -635,14 +666,48 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                                                 )
                                             },
                                             supportingContent = {
-                                                Text(
-                                                    text = if (wheel.hasNativeCode) {
-                                                        stringResource(R.string.python_wheels_native_code_warning)
-                                                    } else {
-                                                        wheel.displayName
-                                                    },
-                                                    maxLines = 2,
-                                                )
+                                                val now = System.currentTimeMillis()
+                                                val size = wheel.fileSizeBytes?.takeIf { it > 0 }?.let { bytes ->
+                                                    runCatching { Formatter.formatShortFileSize(context, bytes) }.getOrNull()
+                                                }
+                                                val relativeTime = runCatching {
+                                                    DateUtils.getRelativeTimeSpanString(
+                                                        wheel.installedAt,
+                                                        now,
+                                                        DateUtils.MINUTE_IN_MILLIS,
+                                                    ).toString()
+                                                }.getOrNull()
+                                                val sysPathHint = wheel.sysPaths.size
+                                                    .takeIf { it > 0 }
+                                                    ?.let { count -> "sys.path +$count" }
+
+                                                val hasPackageInfo = wheel.packageName?.isNotBlank() == true ||
+                                                    wheel.packageVersion?.isNotBlank() == true
+                                                val metaParts = buildList {
+                                                    if (hasPackageInfo) add(wheel.displayName)
+                                                    size?.let(::add)
+                                                    sysPathHint?.let(::add)
+                                                    relativeTime?.let(::add)
+                                                }
+
+                                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                    if (metaParts.isNotEmpty()) {
+                                                        Text(
+                                                            text = metaParts.joinToString(" · "),
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            maxLines = 2,
+                                                        )
+                                                    }
+                                                    if (wheel.hasNativeCode) {
+                                                        Text(
+                                                            text = stringResource(R.string.python_wheels_native_code_warning),
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.error,
+                                                            maxLines = 1,
+                                                        )
+                                                    }
+                                                }
                                             },
                                             trailingContent = {
                                                 Row(
@@ -770,9 +835,52 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                         }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
-                }
+                    }
+                } else {
+                    if (!isSelectionMode) {
+                        item(key = "scripts_workspace_entry") {
+                            Card(
+                                onClick = {
+                                    haptics.perform(HapticPattern.Pop)
+                                    showScriptsAndWorkspacePage = true
+                                },
+                                shape = AppShapes.CardLarge,
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = stringResource(R.string.skills_scripts_workspace_title),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                        Text(
+                                            text = stringResource(R.string.skills_scripts_workspace_desc),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
+                    }
 
-                settings.skillFolders.forEachIndexed { folderIndex, folder ->
+                    settings.skillFolders.forEachIndexed { folderIndex, folder ->
                     val skillsInFolder = settings.skills.filter { it.folderId == folder.id }
 
                     item(key = "folder_group_${folder.id}") {
@@ -1344,6 +1452,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
             }
         }
     }
+}
 }
 
 @Composable
