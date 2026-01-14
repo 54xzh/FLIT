@@ -77,7 +77,9 @@ object SkillScriptPathUtils {
         if (s.startsWith("/")) return null
         val parts = s.split('/').filter { it.isNotBlank() }
         if (parts.isEmpty()) return null
-        if (parts.any { it == "." || it == ".." }) return null
-        return parts.joinToString("/")
+        if (parts.any { it == ".." }) return null
+        val normalized = parts.filterNot { it == "." }
+        if (normalized.isEmpty()) return null
+        return normalized.joinToString("/")
     }
 }

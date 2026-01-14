@@ -13,6 +13,7 @@ class SkillScriptPathUtilsTest {
         assertEquals("scripts/save_result.py", SkillScriptPathUtils.normalizeAndValidateScriptPath("scripts/save_result.py"))
         assertEquals("scripts/save_result.py", SkillScriptPathUtils.normalizeAndValidateScriptPath("scripts\\save_result.py"))
         assertEquals("scripts/save_result.py", SkillScriptPathUtils.normalizeAndValidateScriptPath("./scripts/save_result.py"))
+        assertEquals("scripts/save_result.py", SkillScriptPathUtils.normalizeAndValidateScriptPath("scripts/./save_result.py"))
     }
 
     @Test
@@ -22,7 +23,6 @@ class SkillScriptPathUtilsTest {
         assertNull(SkillScriptPathUtils.normalizeAndValidateScriptPath("/scripts/save_result.py"))
         assertNull(SkillScriptPathUtils.normalizeAndValidateScriptPath("scripts/save_result.txt"))
         assertNull(SkillScriptPathUtils.normalizeAndValidateScriptPath("scripts/../save_result.py"))
-        assertNull(SkillScriptPathUtils.normalizeAndValidateScriptPath("scripts/./save_result.py"))
     }
 
     @Test
@@ -32,8 +32,12 @@ class SkillScriptPathUtilsTest {
     }
 
     @Test
+    fun `normalizeAndValidateWorkDirRelPath allows empty root`() {
+        assertEquals("", SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(""))
+    }
+
+    @Test
     fun `normalizeAndValidateWorkDirRelPath rejects unsafe`() {
-        assertNull(SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(""))
         assertNull(SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath("/ProjectA"))
         assertNull(SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath("../ProjectA"))
         assertNull(SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath("ProjectA/../task"))
@@ -44,6 +48,7 @@ class SkillScriptPathUtilsTest {
         assertEquals("folder/file.txt", SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("folder/file.txt"))
         assertEquals("folder/file.txt", SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("folder\\file.txt"))
         assertEquals("folder/file.txt", SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("./folder/file.txt"))
+        assertEquals("folder/file.txt", SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("folder/./file.txt"))
     }
 
     @Test
@@ -52,7 +57,6 @@ class SkillScriptPathUtilsTest {
         assertNull(SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("/file.txt"))
         assertNull(SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("../file.txt"))
         assertNull(SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("folder/../file.txt"))
-        assertNull(SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath("folder/./file.txt"))
     }
 
     @Test

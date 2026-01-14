@@ -3219,29 +3219,92 @@ class ChatService(
         )
     }
 
-    private fun parseWorkspaceToolBool(obj: JsonObject, key: String, defaultValue: Boolean = false): Boolean {
-        return obj[key]?.jsonPrimitiveOrNull?.contentOrNull
-            ?.trim()
-            ?.toBooleanStrictOrNull()
-            ?: defaultValue
+    private fun parseWorkspaceToolBool(
+        obj: JsonObject,
+        key: String,
+        defaultValue: Boolean = false,
+        vararg altKeys: String,
+    ): Boolean {
+        val keys = arrayOf(key, *altKeys)
+        for (k in keys) {
+            val parsed = obj[k]?.jsonPrimitiveOrNull?.contentOrNull
+                ?.trim()
+                ?.toBooleanStrictOrNull()
+            if (parsed != null) return parsed
+        }
+        return defaultValue
     }
 
-    private fun parseWorkspaceToolInt(obj: JsonObject, key: String, defaultValue: Int, min: Int, max: Int): Int {
-        return obj[key]?.jsonPrimitiveOrNull?.contentOrNull
-            ?.trim()
-            ?.toIntOrNull()
-            ?.coerceIn(min, max)
-            ?: defaultValue
+    private fun parseWorkspaceToolInt(
+        obj: JsonObject,
+        key: String,
+        defaultValue: Int,
+        min: Int,
+        max: Int,
+        vararg altKeys: String,
+    ): Int {
+        val keys = arrayOf(key, *altKeys)
+        for (k in keys) {
+            val parsed = obj[k]?.jsonPrimitiveOrNull?.contentOrNull
+                ?.trim()
+                ?.toIntOrNull()
+            if (parsed != null) return parsed.coerceIn(min, max)
+        }
+        return defaultValue
     }
 
-    private fun parseWorkspaceToolString(obj: JsonObject, key: String): String? {
-        return obj[key]?.jsonPrimitiveOrNull?.contentOrNull?.trim()?.takeIf { it.isNotBlank() }
+    private fun parseWorkspaceToolString(
+        obj: JsonObject,
+        key: String,
+        vararg altKeys: String,
+    ): String? {
+        val keys = arrayOf(key, *altKeys)
+        for (k in keys) {
+            val value = obj[k]?.jsonPrimitiveOrNull?.contentOrNull
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+            if (value != null) return value
+        }
+        return null
     }
 
     private fun normalizeWorkspaceToolPath(rawPath: String?, allowBlank: Boolean): String? {
         val trimmed = rawPath?.trim().orEmpty()
         if (trimmed.isBlank()) return if (allowBlank) "" else null
         return SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath(trimmed)
+    }
+
+    private fun normalizeWorkspaceListToolPath(rawPath: String?): String? {
+        val trimmed = rawPath?.trim().orEmpty()
+        if (trimmed.isBlank() || trimmed == "." || trimmed == "/") return ""
+        var normalized = trimmed
+        while (normalized.startsWith("/")) normalized = normalized.removePrefix("/")
+        if (normalized.isBlank()) return ""
+        return normalizeWorkspaceToolPath(normalized, allowBlank = true)
+    }
+
+    private fun workspaceToolInvalidPathError(
+        toolName: String,
+        rawPath: String?,
+        field: String? = null,
+    ): JsonObject {
+        val safeInput = rawPath
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.take(256)
+        val hint = when (toolName) {
+            "workspace_list" -> "Use a relative path like \"folder\" or omit `path` / use \"\" for the workspace root. Do not use \"..\"."
+            "workspace_delete" -> "Use a relative path like \"folder/file.txt\". The workspace root can only be targeted with an empty string \"\" (dangerous). Do not use \"..\"."
+            else -> "Use a relative path like \"folder/file.txt\". Do not start with \"/\" and do not use \"..\"."
+        }
+        return buildJsonObject {
+            put("ok", false)
+            put("error", field?.let { "Invalid $it" } ?: "Invalid path")
+            put("error_code", "invalid_path")
+            if (field != null) put("error_field", field)
+            if (safeInput != null) put("input_path", safeInput)
+            put("hint", hint)
+        }
     }
 
     private fun requireWorkspaceToolConfirmationOrNull(
@@ -3256,7 +3319,7 @@ class ChatService(
         val effectiveSettings = if (currentSettings.init) settingsSnapshot else currentSettings
         if (effectiveSettings.workspaceFileToolsAllowAll) return null
         val confirmed = parseWorkspaceToolBool(obj, "confirm", defaultValue = false)
-        val token = parseWorkspaceToolString(obj, "confirm_token")
+        val token = parseWorkspaceToolString(obj, "confirm_token", "confirmToken")
         if (confirmed && consumeWorkspaceFileToolConfirmation(conversationId, toolName, actionKey, token)) {
             return null
         }
@@ -3271,23 +3334,70 @@ class ChatService(
     }
 
     private fun workspaceToolSystemPrompt(toolName: String): String {
-        return """
-            ## tool: $toolName
-            
-            ### scope
-            - Operates only within the current conversation workspace directory under the user-authorized workspace root.
-            - All paths are relative to the conversation workspace directory.
-            
-            ### confirmation (default)
-            - If the tool returns `requires_confirmation=true`, you MUST ask the user for confirmation.
-            - On user confirmation, call the same tool again with:
-              - `confirm=true`
-              - `confirm_token` from the previous tool result
-              - the same parameters
-            
-            ### setup
-            - If you see an error like "Workspace root is not set", ask the user to set the default root in Settings -> Skills, or authorize a root folder for this conversation in Work directory settings.
-        """.trimIndent()
+        val examples = when (toolName) {
+            "workspace_list" -> """
+                ### examples
+                - List workspace root: {"path":"","recursive":false}
+                - List a folder: {"path":"docs","recursive":true}
+            """.trimIndent()
+
+            "workspace_read_file" -> """
+                ### examples
+                - Read a file: {"path":"README.md"}
+            """.trimIndent()
+
+            "workspace_write_file" -> """
+                ### examples
+                - Write a file: {"path":"notes.txt","content":"hello"}
+            """.trimIndent()
+
+            "workspace_mkdir" -> """
+                ### examples
+                - Create a folder: {"path":"output","parents":true}
+            """.trimIndent()
+
+            "workspace_delete" -> """
+                ### examples
+                - Delete a file: {"path":"output/old.txt","recursive":false}
+            """.trimIndent()
+
+            "workspace_rename" -> """
+                ### examples
+                - Rename/move: {"from":"a.txt","to":"archive/a.txt","create_parents":true}
+            """.trimIndent()
+
+            else -> ""
+        }
+
+        return buildString {
+            appendLine("## tool: $toolName")
+            appendLine()
+            appendLine("### scope")
+            appendLine("- Operates only within the current conversation workspace directory under the user-authorized workspace root.")
+            appendLine("- All paths are relative to the conversation workspace directory.")
+            appendLine()
+            appendLine("### path rules")
+            appendLine("- Use relative paths with `/` separators (example: `folder/file.txt`).")
+            appendLine("- Do NOT use absolute paths (no leading `/`) and do NOT use `..`.")
+            appendLine("- Root directory is represented by an empty string \"\" when allowed by the tool (e.g. `workspace_list`).")
+            appendLine()
+            appendLine("### parameter naming")
+            appendLine("- Use the exact parameter keys from the schema (usually snake_case, e.g. `max_entries`, `max_chars`, `confirm_token`).")
+            appendLine()
+            appendLine("### confirmation (default)")
+            appendLine("- If the tool returns `requires_confirmation=true`, you MUST ask the user for confirmation.")
+            appendLine("- On user confirmation, call the same tool again with:")
+            appendLine("  - `confirm=true`")
+            appendLine("  - `confirm_token` from the previous tool result")
+            appendLine("  - the same parameters")
+            appendLine()
+            appendLine("### setup")
+            appendLine("- If you see an error like \"Workspace root is not set\", ask the user to set the default root in Settings -> Skills, or authorize a root folder for this conversation in Work directory settings.")
+            if (examples.isNotBlank()) {
+                appendLine()
+                appendLine(examples)
+            }
+        }.trimEnd()
     }
 
     private fun createWorkspaceListTool(
@@ -3302,7 +3412,7 @@ class ChatService(
                     properties = buildJsonObject {
                         put("path", buildJsonObject {
                             put("type", "string")
-                            put("description", "Relative path inside the conversation workspace directory (default: root).")
+                            put("description", "Relative path inside the conversation workspace directory. Omit or use empty string for root.")
                         })
                         put("recursive", buildJsonObject {
                             put("type", "boolean")
@@ -3325,11 +3435,12 @@ class ChatService(
             },
             execute = { args ->
                 val obj = args.jsonObject
-                val normalizedPath = normalizeWorkspaceToolPath(parseWorkspaceToolString(obj, "path"), allowBlank = true)
-                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid path") }
+                val rawPath = parseWorkspaceToolString(obj, "path", "dir", "directory")
+                val normalizedPath = normalizeWorkspaceListToolPath(rawPath)
+                    ?: return@Tool workspaceToolInvalidPathError(toolName = "workspace_list", rawPath = rawPath)
 
-                val recursive = parseWorkspaceToolBool(obj, "recursive", defaultValue = false)
-                val maxEntries = parseWorkspaceToolInt(obj, "max_entries", defaultValue = 2000, min = 1, max = 10_000)
+                val recursive = parseWorkspaceToolBool(obj, "recursive", false, "recurse")
+                val maxEntries = parseWorkspaceToolInt(obj, "max_entries", 2000, 1, 10_000, "maxEntries")
 
                 val actionKey = "list:${normalizedPath}|r=${recursive}|m=${maxEntries}"
                 val maybeConfirm = requireWorkspaceToolConfirmationOrNull(
@@ -3442,10 +3553,11 @@ class ChatService(
             },
             execute = { args ->
                 val obj = args.jsonObject
-                val normalizedPath = normalizeWorkspaceToolPath(parseWorkspaceToolString(obj, "path"), allowBlank = false)
-                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid path") }
+                val rawPath = parseWorkspaceToolString(obj, "path", "file")
+                val normalizedPath = normalizeWorkspaceToolPath(rawPath, allowBlank = false)
+                    ?: return@Tool workspaceToolInvalidPathError(toolName = "workspace_read_file", rawPath = rawPath)
 
-                val maxChars = parseWorkspaceToolInt(obj, "max_chars", defaultValue = 200_000, min = 1, max = 2_000_000)
+                val maxChars = parseWorkspaceToolInt(obj, "max_chars", 200_000, 1, 2_000_000, "maxChars")
 
                 val actionKey = "read:${normalizedPath}|m=${maxChars}"
                 val maybeConfirm = requireWorkspaceToolConfirmationOrNull(
@@ -3557,15 +3669,16 @@ class ChatService(
             },
             execute = { args ->
                 val obj = args.jsonObject
-                val normalizedPath = normalizeWorkspaceToolPath(parseWorkspaceToolString(obj, "path"), allowBlank = false)
-                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid path") }
+                val rawPath = parseWorkspaceToolString(obj, "path", "file")
+                val normalizedPath = normalizeWorkspaceToolPath(rawPath, allowBlank = false)
+                    ?: return@Tool workspaceToolInvalidPathError(toolName = "workspace_write_file", rawPath = rawPath)
 
                 val content = obj["content"]?.jsonPrimitiveOrNull?.contentOrNull
                     ?: return@Tool buildJsonObject { put("ok", false); put("error", "Missing content") }
 
                 val overwrite = parseWorkspaceToolBool(obj, "overwrite", defaultValue = true)
                 val append = parseWorkspaceToolBool(obj, "append", defaultValue = false)
-                val createParents = parseWorkspaceToolBool(obj, "create_parents", defaultValue = true)
+                val createParents = parseWorkspaceToolBool(obj, "create_parents", true, "createParents")
                 val contentHash = sha256Hex(content)
 
                 val actionKey = "write:${normalizedPath}|o=${overwrite}|a=${append}|p=${createParents}|h=${contentHash}"
@@ -3691,10 +3804,11 @@ class ChatService(
             },
             execute = { args ->
                 val obj = args.jsonObject
-                val normalizedPath = normalizeWorkspaceToolPath(parseWorkspaceToolString(obj, "path"), allowBlank = false)
-                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid path") }
+                val rawPath = parseWorkspaceToolString(obj, "path", "dir", "directory")
+                val normalizedPath = normalizeWorkspaceToolPath(rawPath, allowBlank = false)
+                    ?: return@Tool workspaceToolInvalidPathError(toolName = "workspace_mkdir", rawPath = rawPath)
 
-                val parents = parseWorkspaceToolBool(obj, "parents", defaultValue = true)
+                val parents = parseWorkspaceToolBool(obj, "parents", true, "create_parents", "createParents")
 
                 val actionKey = "mkdir:${normalizedPath}|p=${parents}"
                 val maybeConfirm = requireWorkspaceToolConfirmationOrNull(
@@ -3800,10 +3914,10 @@ class ChatService(
                 val rawPath = obj["path"]?.jsonPrimitiveOrNull?.contentOrNull
                     ?: return@Tool buildJsonObject { put("ok", false); put("error", "Missing path") }
                 val normalizedPath = normalizeWorkspaceToolPath(rawPath, allowBlank = true)
-                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid path") }
+                    ?: return@Tool workspaceToolInvalidPathError(toolName = "workspace_delete", rawPath = rawPath)
 
-                val recursive = parseWorkspaceToolBool(obj, "recursive", defaultValue = false)
-                val missingOk = parseWorkspaceToolBool(obj, "missing_ok", defaultValue = false)
+                val recursive = parseWorkspaceToolBool(obj, "recursive", false, "recurse")
+                val missingOk = parseWorkspaceToolBool(obj, "missing_ok", false, "missingOk")
 
                 val actionKey = "delete:${normalizedPath}|r=${recursive}|m=${missingOk}"
                 val maybeConfirm = requireWorkspaceToolConfirmationOrNull(
@@ -3898,13 +4012,15 @@ class ChatService(
             },
             execute = { args ->
                 val obj = args.jsonObject
-                val fromPath = normalizeWorkspaceToolPath(parseWorkspaceToolString(obj, "from"), allowBlank = false)
-                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid from") }
-                val toPath = normalizeWorkspaceToolPath(parseWorkspaceToolString(obj, "to"), allowBlank = false)
-                    ?: return@Tool buildJsonObject { put("ok", false); put("error", "Invalid to") }
+                val rawFrom = parseWorkspaceToolString(obj, "from", "source", "src")
+                val fromPath = normalizeWorkspaceToolPath(rawFrom, allowBlank = false)
+                    ?: return@Tool workspaceToolInvalidPathError(toolName = "workspace_rename", rawPath = rawFrom, field = "from")
+                val rawTo = parseWorkspaceToolString(obj, "to", "dest", "dst", "destination")
+                val toPath = normalizeWorkspaceToolPath(rawTo, allowBlank = false)
+                    ?: return@Tool workspaceToolInvalidPathError(toolName = "workspace_rename", rawPath = rawTo, field = "to")
 
                 val overwrite = parseWorkspaceToolBool(obj, "overwrite", defaultValue = false)
-                val createParents = parseWorkspaceToolBool(obj, "create_parents", defaultValue = true)
+                val createParents = parseWorkspaceToolBool(obj, "create_parents", true, "createParents")
 
                 val actionKey = "rename:${fromPath}->${toPath}|o=${overwrite}|p=${createParents}"
                 val maybeConfirm = requireWorkspaceToolConfirmationOrNull(
