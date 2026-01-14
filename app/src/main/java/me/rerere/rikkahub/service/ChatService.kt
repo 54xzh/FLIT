@@ -2450,6 +2450,8 @@ class ChatService(
                 buildString {
                     appendLine("You can execute trusted local Skill scripts via the tool `run_skill_script`.")
                     appendLine("Rules:")
+                    appendLine("- `skill_name` MUST be one of the allowed skills listed below (or pass `skill_id`).")
+                    appendLine("- `skill_name` is a Skill package name, NOT a workspace path. Do NOT use placeholders like \".\" or \"/\".")
                     appendLine("- Only run scripts from the allowed skills list below.")
                     appendLine("- The script path must be under `scripts/` and end with `.py`.")
                     appendLine("- Scripts run with the working directory set to the current conversation's workspace folder.")
@@ -2466,8 +2468,19 @@ class ChatService(
             },
             execute = { args ->
                 val obj = args.jsonObject
-                val skillNameRaw = obj["skill_name"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
-                val skillIdRaw = obj["skill_id"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
+                val skillNameRaw = parseWorkspaceToolString(obj, "skill_name", "skillName", "skill")
+                val skillIdRaw = parseWorkspaceToolString(obj, "skill_id", "skillId")
+
+                fun skillToolAllowedListJson(): JsonArray {
+                    return buildJsonArray {
+                        allowedSkills.forEach { skill ->
+                            add(buildJsonObject {
+                                put("id", skill.id.toString())
+                                put("name", skill.name)
+                            })
+                        }
+                    }
+                }
 
                 val resolvedSkill = when {
                     !skillIdRaw.isNullOrBlank() -> {
@@ -2475,6 +2488,9 @@ class ChatService(
                             return@Tool buildJsonObject {
                                 put("ok", false)
                                 put("error", "Skill not allowed: $skillIdRaw")
+                                put("error_code", "skill_not_allowed")
+                                put("hint", "Set `skill_name` to a permitted skill name or pass a permitted `skill_id` from the allowed list.")
+                                put("allowed_skills", skillToolAllowedListJson())
                             }
                         }
                         allowedSkillsById[skillIdRaw]
@@ -2487,6 +2503,9 @@ class ChatService(
                                 return@Tool buildJsonObject {
                                     put("ok", false)
                                     put("error", "Skill not allowed: $skillNameRaw")
+                                    put("error_code", "skill_not_allowed")
+                                    put("hint", "Set `skill_name` to one of the allowed skill names below (it is NOT a path), or pass `skill_id` instead.")
+                                    put("allowed_skills", skillToolAllowedListJson())
                                 }
                             }
 
@@ -2494,6 +2513,8 @@ class ChatService(
                                 return@Tool buildJsonObject {
                                     put("ok", false)
                                     put("error", "Ambiguous skill_name: $skillNameRaw")
+                                    put("error_code", "ambiguous_skill_name")
+                                    put("hint", "Pass `skill_id` to disambiguate.")
                                     put("candidates", buildJsonArray {
                                         candidates.forEach { skill ->
                                             add(buildJsonObject {
@@ -2516,6 +2537,9 @@ class ChatService(
                     return@Tool buildJsonObject {
                         put("ok", false)
                         put("error", "Missing skill_name")
+                        put("error_code", "missing_skill_name")
+                        put("hint", "Set `skill_name` to one of the allowed skill names below, or pass `skill_id` instead.")
+                        put("allowed_skills", skillToolAllowedListJson())
                     }
                 }
 
