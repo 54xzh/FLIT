@@ -1,5 +1,8 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import android.content.Intent
+import android.os.Build
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +25,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -44,7 +49,11 @@ import com.composables.icons.lucide.Square
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.service.WebServerService
 import me.rerere.rikkahub.ui.components.nav.BackButton
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionNotification
+import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.utils.plus
 import me.rerere.rikkahub.web.WebServerManager
@@ -58,6 +67,7 @@ fun SettingWebPage() {
     val serverState by webServerManager.state.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var portText by remember(settings.webServerPort) {
         mutableStateOf(settings.webServerPort.toString())
     }
@@ -66,6 +76,33 @@ fun SettingWebPage() {
     }
     var passwordVisible by remember {
         mutableStateOf(false)
+    }
+
+    val permissionState = rememberPermissionState(
+        permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setOf(
+            PermissionNotification
+        ) else emptySet(),
+    )
+    PermissionManager(permissionState = permissionState)
+
+    var pendingStart by remember { mutableStateOf(false) }
+
+    fun startWebServer() {
+        val intent = Intent(context, WebServerService::class.java).apply {
+            action = WebServerService.ACTION_START
+            putExtra(WebServerService.EXTRA_PORT, settings.webServerPort)
+        }
+        context.startForegroundService(intent)
+        scope.launch {
+            settingsStore.update { it.copy(webServerEnabled = true) }
+        }
+    }
+
+    LaunchedEffect(permissionState.allPermissionsGranted) {
+        if (pendingStart && permissionState.allPermissionsGranted) {
+            pendingStart = false
+            startWebServer()
+        }
     }
 
     Scaffold(
@@ -80,14 +117,21 @@ fun SettingWebPage() {
             ExtendedFloatingActionButton(
                 onClick = {
                     if (serverState.isLoading) return@ExtendedFloatingActionButton
-                    val checked = !serverState.isRunning
-                    if (checked) {
-                        webServerManager.start(port = settings.webServerPort)
+                    if (!serverState.isRunning) {
+                        if (permissionState.allPermissionsGranted) {
+                            startWebServer()
+                        } else {
+                            pendingStart = true
+                            permissionState.requestPermissions()
+                        }
                     } else {
-                        webServerManager.stop()
-                    }
-                    scope.launch {
-                        settingsStore.update { it.copy(webServerEnabled = checked) }
+                        val intent = Intent(context, WebServerService::class.java).apply {
+                            action = WebServerService.ACTION_STOP
+                        }
+                        context.startService(intent)
+                        scope.launch {
+                            settingsStore.update { it.copy(webServerEnabled = false) }
+                        }
                     }
                 },
                 icon = {

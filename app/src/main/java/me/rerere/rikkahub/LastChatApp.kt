@@ -1,9 +1,13 @@
 package me.rerere.rikkahub
 
 import android.app.Application
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -20,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.common.android.appTempFolder
 import me.rerere.rikkahub.di.appModule
@@ -33,6 +38,7 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
@@ -44,6 +50,7 @@ import androidx.work.WorkManager
 import me.rerere.rikkahub.service.MemoryConsolidationWorker
 import me.rerere.rikkahub.service.SpontaneousWorker
 import me.rerere.rikkahub.service.AutoBackupScheduler
+import me.rerere.rikkahub.service.WebServerService
 import me.rerere.rikkahub.service.scheduledtask.ScheduledTaskRescheduleWorker
 import okhttp3.OkHttpClient
 import okio.Path.Companion.toOkioPath
@@ -55,6 +62,7 @@ private const val TAG = "LastChatApp"
 
 const val CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID = "chat_completed"
 const val CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID = "chat_live_update"
+const val WEB_SERVER_NOTIFICATION_CHANNEL_ID = "web_server"
 
 class LastChatApp : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: PlatformContext): ImageLoader {
@@ -90,6 +98,7 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
             modules(appModule, viewModelModule, dataSourceModule, repositoryModule)
         }
         this.createNotificationChannel()
+        startWebServerIfEnabled()
 
         // Foreground-only auto backup scheduler
         get<AutoBackupScheduler>()
@@ -193,6 +202,32 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
         }
     }
 
+    private fun startWebServerIfEnabled() {
+        get<AppScope>().launch {
+            runCatching {
+                delay(500)
+                val settings = get<SettingsStore>().settingsFlowRaw.first()
+                if (!settings.webServerEnabled) return@launch
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(
+                        this@LastChatApp,
+                        android.Manifest.permission.POST_NOTIFICATIONS
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    Log.w(TAG, "startWebServerIfEnabled: notification permission not granted, skipping")
+                    return@launch
+                }
+                val intent = Intent(this@LastChatApp, WebServerService::class.java).apply {
+                    action = WebServerService.ACTION_START
+                    putExtra(WebServerService.EXTRA_PORT, settings.webServerPort)
+                }
+                startForegroundService(intent)
+            }.onFailure {
+                Log.e(TAG, "startWebServerIfEnabled failed", it)
+            }
+        }
+    }
+
     private fun createNotificationChannel() {
         val notificationManager = NotificationManagerCompat.from(this)
         val chatCompletedChannel = NotificationChannelCompat
@@ -211,13 +246,24 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
             .setName(getString(R.string.notification_channel_chat_live_update))
             .setVibrationEnabled(false)
             .build()
+        val webServerChannel = NotificationChannelCompat
+            .Builder(
+                WEB_SERVER_NOTIFICATION_CHANNEL_ID,
+                NotificationManagerCompat.IMPORTANCE_LOW
+            )
+            .setName("Web Server")
+            .setVibrationEnabled(false)
+            .setShowBadge(false)
+            .build()
         notificationManager.createNotificationChannel(chatCompletedChannel)
         notificationManager.createNotificationChannel(chatLiveUpdateChannel)
+        notificationManager.createNotificationChannel(webServerChannel)
     }
 
     override fun onTerminate() {
         super.onTerminate()
         get<AppScope>().cancel()
+        stopService(Intent(this, WebServerService::class.java))
     }
 }
 

@@ -17,6 +17,8 @@
   <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <uses-permission android:name="android.permission.VIBRATE" />
+  <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+  <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
@@ -101,6 +103,11 @@
         android:name=".service.KeepAliveService"
         android:exported="false"
         android:foregroundServiceType="dataSync" />
+
+    <service
+      android:name=".service.WebServerService"
+      android:exported="false"
+      android:foregroundServiceType="dataSync" />
 
     <provider
       android:name="androidx.core.content.FileProvider"
