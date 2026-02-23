@@ -501,6 +501,7 @@ sealed class UIMessagePart {
     abstract val metadata: JsonObject?
 
     @Serializable
+    @SerialName("text")
     data class Text(
         val text: String,
         override var metadata: JsonObject? = null
@@ -509,6 +510,7 @@ sealed class UIMessagePart {
     }
 
     @Serializable
+    @SerialName("image")
     data class Image(
         val url: String,
         override var metadata: JsonObject? = null
@@ -517,6 +519,7 @@ sealed class UIMessagePart {
     }
 
     @Serializable
+    @SerialName("video")
     data class Video(
         val url: String,
         override var metadata: JsonObject? = null
@@ -525,6 +528,7 @@ sealed class UIMessagePart {
     }
 
     @Serializable
+    @SerialName("audio")
     data class Audio(
         val url: String,
         override var metadata: JsonObject? = null
@@ -533,6 +537,7 @@ sealed class UIMessagePart {
     }
 
     @Serializable
+    @SerialName("document")
     data class Document(
         val url: String,
         val fileName: String,
@@ -543,6 +548,7 @@ sealed class UIMessagePart {
     }
 
     @Serializable
+    @SerialName("reasoning")
     data class Reasoning(
         val reasoning: String,
         val createdAt: Instant = Clock.System.now(),
@@ -564,12 +570,14 @@ sealed class UIMessagePart {
 
     @Deprecated("Deprecated")
     @Serializable
+    @SerialName("search")
     data object Search : UIMessagePart() {
         override val priority: Int = 0
         override var metadata: JsonObject? = null
     }
 
     @Serializable
+    @SerialName("tool_call")
     data class ToolCall(
         val toolCallId: String,
         val toolName: String,
@@ -599,6 +607,7 @@ sealed class UIMessagePart {
     }
 
     @Serializable
+    @SerialName("tool_result")
     data class ToolResult(
         val toolCallId: String,
         val toolName: String,

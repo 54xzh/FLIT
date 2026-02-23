@@ -57,4 +57,24 @@ class ModelRegistryTest {
         assert(ModelRegistry.MODEL_ABILITIES.getData(modelId).contains(ModelAbility.TOOL))
         assert(ModelRegistry.MODEL_ABILITIES.getData(modelId).contains(ModelAbility.REASONING))
     }
+
+    @Test
+    fun testGlm5AndMinimaxM25() {
+        assertEquals(
+            listOf(Modality.TEXT),
+            ModelRegistry.MODEL_INPUT_MODALITIES.getData("glm-5")
+        )
+        assertEquals(
+            listOf(Modality.TEXT),
+            ModelRegistry.MODEL_INPUT_MODALITIES.getData("minimax-m2.5")
+        )
+        assertEquals(
+            listOf(ModelAbility.TOOL, ModelAbility.REASONING),
+            ModelRegistry.MODEL_ABILITIES.getData("glm-5")
+        )
+        assertEquals(
+            listOf(ModelAbility.TOOL, ModelAbility.REASONING),
+            ModelRegistry.MODEL_ABILITIES.getData("minimax-m2.5")
+        )
+    }
 }

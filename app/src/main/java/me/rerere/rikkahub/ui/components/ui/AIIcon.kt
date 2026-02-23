@@ -25,6 +25,7 @@ import coil3.svg.css
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.hooks.rememberAvatarShape
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
+import me.rerere.rikkahub.utils.computeAIIconByName
 import me.rerere.rikkahub.utils.toCssHex
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting

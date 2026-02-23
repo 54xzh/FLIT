@@ -740,6 +740,69 @@ class SettingsStore(
             update(current.copy(recentlyUsedAssistants = updatedList))
         }
     }
+
+    suspend fun updateAssistantModel(assistantId: Uuid, modelId: Uuid) {
+        update { settings ->
+            settings.copy(
+                assistants = settings.assistants.map { assistant ->
+                    if (assistant.id == assistantId) {
+                        assistant.copy(chatModelId = modelId)
+                    } else {
+                        assistant
+                    }
+                }
+            )
+        }
+    }
+
+    suspend fun updateAssistantThinkingBudget(assistantId: Uuid, thinkingBudget: Int?) {
+        update { settings ->
+            settings.copy(
+                assistants = settings.assistants.map { assistant ->
+                    if (assistant.id == assistantId) {
+                        assistant.copy(thinkingBudget = thinkingBudget)
+                    } else {
+                        assistant
+                    }
+                }
+            )
+        }
+    }
+
+    suspend fun updateAssistantMcpServers(assistantId: Uuid, mcpServers: Set<Uuid>) {
+        update { settings ->
+            settings.copy(
+                assistants = settings.assistants.map { assistant ->
+                    if (assistant.id == assistantId) {
+                        assistant.copy(mcpServers = mcpServers)
+                    } else {
+                        assistant
+                    }
+                }
+            )
+        }
+    }
+
+    suspend fun updateAssistantInjections(
+        assistantId: Uuid,
+        modeInjectionIds: Set<Uuid>,
+        lorebookIds: Set<Uuid>
+    ) {
+        update { settings ->
+            settings.copy(
+                assistants = settings.assistants.map { assistant ->
+                    if (assistant.id == assistantId) {
+                        assistant.copy(
+                            modeInjectionIds = modeInjectionIds,
+                            lorebookIds = lorebookIds
+                        )
+                    } else {
+                        assistant
+                    }
+                }
+            )
+        }
+    }
 }
 
 @Serializable
