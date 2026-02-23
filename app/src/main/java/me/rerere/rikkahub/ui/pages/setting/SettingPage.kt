@@ -244,6 +244,13 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                     )
 
                     SettingGroupItem(
+                        title = stringResource(R.string.setting_page_web_server),
+                        subtitle = stringResource(R.string.setting_page_web_server_desc),
+                        icon = { Icon(Icons.Rounded.DesktopWindows, null, modifier = Modifier.size(20.dp)) },
+                        onClick = { navController.navigate(Screen.SettingWeb) }
+                    )
+
+                    SettingGroupItem(
                         title = stringResource(R.string.setting_page_skills),
                         subtitle = stringResource(R.string.setting_page_skills_desc),
                         icon = { Icon(Icons.Rounded.Extension, null, modifier = Modifier.size(20.dp)) },

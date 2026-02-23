@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.merge
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.service.ChatService
@@ -25,14 +24,9 @@ import me.rerere.rikkahub.web.dto.ConversationDto
 import me.rerere.rikkahub.web.dto.ConversationListInvalidateEvent
 import me.rerere.rikkahub.web.dto.ConversationNodeUpdateEvent
 import me.rerere.rikkahub.web.dto.ConversationSnapshotEvent
-import me.rerere.rikkahub.web.dto.EditMessageRequest
-import me.rerere.rikkahub.web.dto.ErrorEvent
-import me.rerere.rikkahub.web.dto.ForkConversationRequest
-import me.rerere.rikkahub.web.dto.ForkConversationResponse
 import me.rerere.rikkahub.web.dto.MoveConversationRequest
 import me.rerere.rikkahub.web.dto.PagedResult
 import me.rerere.rikkahub.web.dto.RegenerateRequest
-import me.rerere.rikkahub.web.dto.SelectMessageNodeRequest
 import me.rerere.rikkahub.web.dto.SendMessageRequest
 import me.rerere.rikkahub.web.dto.ToolApprovalRequest
 import me.rerere.rikkahub.web.dto.UpdateConversationTitleRequest
@@ -208,52 +202,7 @@ fun Route.conversationRoutes(
             call.respond(HttpStatusCode.Accepted, mapOf("status" to "accepted"))
         }
 
-        // POST /api/conversations/{id}/messages/{messageId}/edit - Edit a message as a new branch version
-        post("/{id}/messages/{messageId}/edit") {
-            val uuid = call.parameters["id"].toUuid("conversation id")
-            val messageId = call.parameters["messageId"].toUuid("message id")
-            val request = call.receive<EditMessageRequest>()
-
-            chatService.initializeConversation(uuid)
-            chatService.editMessage(uuid, messageId, request.parts)
-
-            call.respond(HttpStatusCode.Accepted, mapOf("status" to "accepted"))
-        }
-
-        // POST /api/conversations/{id}/fork - Create a forked conversation up to message
-        post("/{id}/fork") {
-            val uuid = call.parameters["id"].toUuid("conversation id")
-            val request = call.receive<ForkConversationRequest>()
-            val messageId = request.messageId.toUuid("message id")
-
-            chatService.initializeConversation(uuid)
-            val fork = chatService.forkConversationAtMessage(uuid, messageId)
-
-            call.respond(HttpStatusCode.Created, ForkConversationResponse(conversationId = fork.id.toString()))
-        }
-
-        // DELETE /api/conversations/{id}/messages/{messageId} - Delete a message
-        delete("/{id}/messages/{messageId}") {
-            val uuid = call.parameters["id"].toUuid("conversation id")
-            val messageId = call.parameters["messageId"].toUuid("message id")
-
-            chatService.initializeConversation(uuid)
-            chatService.deleteMessage(uuid, messageId)
-
-            call.respond(HttpStatusCode.OK, mapOf("status" to "deleted"))
-        }
-
-        // POST /api/conversations/{id}/nodes/{nodeId}/select - Switch branch selection for a message node
-        post("/{id}/nodes/{nodeId}/select") {
-            val uuid = call.parameters["id"].toUuid("conversation id")
-            val nodeId = call.parameters["nodeId"].toUuid("node id")
-            val request = call.receive<SelectMessageNodeRequest>()
-
-            chatService.initializeConversation(uuid)
-            chatService.selectMessageNode(uuid, nodeId, request.selectIndex)
-
-            call.respond(HttpStatusCode.Accepted, mapOf("status" to "accepted"))
-        }
+        // These branch-editing routes are intentionally omitted in this backport.
 
         // POST /api/conversations/{id}/regenerate - Regenerate message
         post("/{id}/regenerate") {
@@ -273,7 +222,7 @@ fun Route.conversationRoutes(
         // POST /api/conversations/{id}/stop - Stop generation
         post("/{id}/stop") {
             val uuid = call.parameters["id"].toUuid("conversation id")
-            chatService.stopGeneration(uuid)
+            chatService.cancelGenerationByUser(uuid)
             call.respond(HttpStatusCode.OK, mapOf("status" to "stopped"))
         }
 
@@ -281,7 +230,7 @@ fun Route.conversationRoutes(
         post("/{id}/tool-approval") {
             val uuid = call.parameters["id"].toUuid("conversation id")
             val request = call.receive<ToolApprovalRequest>()
-            chatService.handleToolApproval(uuid, request.toolCallId, request.approved, request.reason)
+            chatService.respondToolApproval(uuid, request.toolCallId, request.approved)
             call.respond(HttpStatusCode.Accepted, mapOf("status" to "accepted"))
         }
 
@@ -301,8 +250,6 @@ fun Route.conversationRoutes(
                 var sequence = 0L
                 var previousDto: ConversationDto? = null
 
-                val knownErrorIds = chatService.errors.value.map { it.id }.toMutableSet()
-
                 val conversationEvents = combine(
                     chatService.getConversationFlow(uuid),
                     chatService
@@ -313,20 +260,7 @@ fun Route.conversationRoutes(
                     ConversationStreamPayload.Conversation(conversation.toDto(isGenerating))
                 }
 
-                val errorEvents = chatService.errors.map { errors ->
-                    errors
-                        .asSequence()
-                        .filter { it.conversationId == uuid && knownErrorIds.add(it.id) }
-                        .map { chatError ->
-                            chatError.error.message?.takeIf { it.isNotBlank() }
-                                ?: chatError.error.toString()
-                        }
-                        .toList()
-                }.map { events ->
-                    ConversationStreamPayload.BatchErrors(events)
-                }
-
-                merge(conversationEvents, errorEvents).collect { payload ->
+                conversationEvents.collect { payload ->
                     when (payload) {
                         is ConversationStreamPayload.Conversation -> {
                             sequence += 1
@@ -356,15 +290,6 @@ fun Route.conversationRoutes(
                             }
                             previousDto = currentDto
                         }
-
-                        is ConversationStreamPayload.BatchErrors -> {
-                            payload.messages.forEach { message ->
-                                val json = JsonInstant.encodeToString(
-                                    ErrorEvent(message = message)
-                                )
-                                send(data = json, event = "error")
-                            }
-                        }
                     }
                 }
             } finally {
@@ -376,5 +301,4 @@ fun Route.conversationRoutes(
 
 private sealed interface ConversationStreamPayload {
     data class Conversation(val value: ConversationDto) : ConversationStreamPayload
-    data class BatchErrors(val messages: List<String>) : ConversationStreamPayload
 }

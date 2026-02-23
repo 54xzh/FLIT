@@ -1797,5 +1797,19 @@
     <string name="python_wheels_dependency_optional_show">点按展开</string>
     <string name="python_wheels_dependency_optional_hide">点按收起</string>
 
+    <string name="setting_page_web_server">Web服务器</string>
+    <string name="setting_page_web_server_desc">允许通过浏览器在局域网访问 LastChat</string>
+    <string name="setting_page_web_server_port">端口</string>
+    <string name="setting_page_web_server_port_desc">Web服务器监听端口（1024-65535）</string>
+    <string name="setting_page_web_server_jwt_enable">启用身份验证</string>
+    <string name="setting_page_web_server_jwt_enable_desc">访问网页界面时需要密码验证</string>
+    <string name="setting_page_web_server_password">访问密码</string>
+    <string name="setting_page_web_server_password_desc">网页界面访问所需的密码</string>
+    <string name="setting_page_web_server_lan_address">局域网地址</string>
+    <string name="setting_page_web_server_mdns_address">mDNS地址</string>
+    <string name="setting_page_web_server_error">错误</string>
+    <string name="setting_page_web_server_start">启动</string>
+    <string name="setting_page_web_server_stop">停止</string>
+    <string name="notification_channel_web_server">Web服务器</string>
 </resources>
 

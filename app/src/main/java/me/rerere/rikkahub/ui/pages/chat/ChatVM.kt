@@ -40,6 +40,7 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
 import me.rerere.rikkahub.data.datastore.getConversationReadPosition
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.AssistantAffectScope
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.replaceRegexes
@@ -386,8 +387,42 @@ class ChatVM(
         if (parts.isEmptyInputMessage()) return
         analytics.logEvent("ai_edit_message", null)
 
+        val assistant = settings.value.assistants.find { it.id == settings.value.assistantId }
+        val processedParts = if (assistant != null) {
+            parts.map { part ->
+                when (part) {
+                    is UIMessagePart.Text -> {
+                        part.copy(
+                            text = part.text.replaceRegexes(
+                                assistant = assistant,
+                                scope = AssistantAffectScope.USER,
+                                visual = false
+                            )
+                        )
+                    }
+
+                    else -> part
+                }
+            }
+        } else {
+            parts
+        }
+
+        val newConversation = conversation.value.copy(
+            messageNodes = conversation.value.messageNodes.map { node ->
+                if (!node.messages.any { it.id == messageId }) {
+                    return@map node // 如果这个node没有这个消息，则不修改
+                }
+                node.copy(
+                    messages = node.messages + UIMessage(
+                        role = node.role,
+                        parts = processedParts,
+                    ), selectIndex = node.messages.size
+                )
+            },
+        )
         viewModelScope.launch {
-            chatService.editMessage(_conversationId, messageId, parts)
+            chatService.saveConversation(_conversationId, newConversation)
         }
     }
 
@@ -528,7 +563,7 @@ class ChatVM(
             conversation.copy(messageNodes = updatedNodes)
         }
         viewModelScope.launch {
-            chatService.deleteMessage(_conversationId, message)
+            chatService.saveConversation(_conversationId, newConversation)
         }
     }
 

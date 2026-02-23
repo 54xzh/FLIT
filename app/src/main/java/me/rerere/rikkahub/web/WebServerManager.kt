@@ -2,8 +2,19 @@ package me.rerere.rikkahub.web
 
 import android.content.Context
 import android.util.Log
+import io.ktor.http.HttpHeaders
+import io.ktor.server.application.install
+import io.ktor.server.cio.CIO
 import io.ktor.server.cio.CIOApplicationEngine
 import io.ktor.server.engine.EmbeddedServer
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.http.content.singlePageApplication
+import io.ktor.server.http.content.staticResources
+import io.ktor.server.plugins.compression.Compression
+import io.ktor.server.plugins.cors.routing.CORS
+import io.ktor.server.plugins.defaultheaders.DefaultHeaders
+import io.ktor.server.routing.routing
+import io.ktor.server.sse.SSE
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -13,10 +24,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.datastore.SettingsStore
-import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.service.ChatService
-import me.rerere.rikkahub.web.startWebServer
 import java.net.ServerSocket
 
 private const val TAG = "WebServerManager"
@@ -37,7 +46,6 @@ class WebServerManager(
     private val chatService: ChatService,
     private val conversationRepo: ConversationRepository,
     private val settingsStore: SettingsStore,
-    private val filesManager: FilesManager
 ) {
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     private val nsdRegistrar = NsdServiceRegistrar(context)
@@ -68,8 +76,25 @@ class WebServerManager(
                     )
                     return@launch
                 }
-                server = startWebServer(port = port) {
-                    configureWebApi(context, chatService, conversationRepo, settingsStore, filesManager)
+                server = embeddedServer(CIO, port = port, host = "0.0.0.0") {
+                    install(Compression)
+                    install(CORS) {
+                        allowHeader(HttpHeaders.ContentType)
+                        allowHeader(HttpHeaders.Authorization)
+                        allowNonSimpleContentTypes = true
+                        anyHost()
+                        anyMethod()
+                    }
+                    install(SSE)
+                    install(DefaultHeaders)
+                    routing {
+                        staticResources("/", "static") {
+                            default("index.html")
+                            enableAutoHeadResponse()
+                            singlePageApplication()
+                        }
+                    }
+                    configureWebApi(context, chatService, conversationRepo, settingsStore)
                 }.start(wait = false)
 
                 _state.value = WebServerState(

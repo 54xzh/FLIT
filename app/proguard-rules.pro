@@ -26,4 +26,7 @@
 # keep jlatexmath
 -keep class org.scilab.forge.jlatexmath.** {*;}
 
+# Ktor debug detector references java.management classes not present on Android.
+-dontwarn java.lang.management.**
+
 -dontobfuscate

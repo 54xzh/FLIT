@@ -200,6 +200,12 @@ class SettingsStore(
         val TTS_PROVIDERS = stringPreferencesKey("tts_providers")
         val SELECTED_TTS_PROVIDER = stringPreferencesKey("selected_tts_provider")
 
+        // Web Server
+        val WEB_SERVER_ENABLED = booleanPreferencesKey("web_server_enabled")
+        val WEB_SERVER_PORT = intPreferencesKey("web_server_port")
+        val WEB_SERVER_JWT_ENABLED = booleanPreferencesKey("web_server_jwt_enabled")
+        val WEB_SERVER_ACCESS_PASSWORD = stringPreferencesKey("web_server_access_password")
+
         // Background Worker
         val CONSOLIDATION_WORKER_INTERVAL = intPreferencesKey("consolidation_worker_interval")
         val CONSOLIDATION_REQUIRES_DEVICE_IDLE = booleanPreferencesKey("consolidation_requires_device_idle")
@@ -443,6 +449,10 @@ class SettingsStore(
                 } ?: emptyList(),
                 selectedTTSProviderId = preferences[SELECTED_TTS_PROVIDER]?.let { Uuid.parse(it) }
                     ?: DEFAULT_SYSTEM_TTS_ID,
+                webServerEnabled = preferences[WEB_SERVER_ENABLED] == true,
+                webServerPort = preferences[WEB_SERVER_PORT] ?: 8080,
+                webServerJwtEnabled = preferences[WEB_SERVER_JWT_ENABLED] == true,
+                webServerAccessPassword = preferences[WEB_SERVER_ACCESS_PASSWORD] ?: "",
                 consolidationWorkerIntervalMinutes = preferences[CONSOLIDATION_WORKER_INTERVAL] ?: 15,
                 consolidationRequiresDeviceIdle = preferences[CONSOLIDATION_REQUIRES_DEVICE_IDLE] ?: false,
                 modes = preferences[MODES]?.let {
@@ -680,6 +690,10 @@ class SettingsStore(
             finalSettingsToSave.selectedTTSProviderId?.let {
                 preferences[SELECTED_TTS_PROVIDER] = it.toString()
             } ?: preferences.remove(SELECTED_TTS_PROVIDER)
+            preferences[WEB_SERVER_ENABLED] = finalSettingsToSave.webServerEnabled
+            preferences[WEB_SERVER_PORT] = finalSettingsToSave.webServerPort
+            preferences[WEB_SERVER_JWT_ENABLED] = finalSettingsToSave.webServerJwtEnabled
+            preferences[WEB_SERVER_ACCESS_PASSWORD] = finalSettingsToSave.webServerAccessPassword
 
             preferences[CONSOLIDATION_WORKER_INTERVAL] = finalSettingsToSave.consolidationWorkerIntervalMinutes
             preferences[CONSOLIDATION_REQUIRES_DEVICE_IDLE] = finalSettingsToSave.consolidationRequiresDeviceIdle
@@ -785,7 +799,6 @@ class SettingsStore(
 
     suspend fun updateAssistantInjections(
         assistantId: Uuid,
-        modeInjectionIds: Set<Uuid>,
         lorebookIds: Set<Uuid>
     ) {
         update { settings ->
@@ -793,8 +806,7 @@ class SettingsStore(
                 assistants = settings.assistants.map { assistant ->
                     if (assistant.id == assistantId) {
                         assistant.copy(
-                            modeInjectionIds = modeInjectionIds,
-                            lorebookIds = lorebookIds
+                            enabledLorebookIds = lorebookIds
                         )
                     } else {
                         assistant
@@ -850,6 +862,10 @@ data class Settings(
     val objectStorageConfig: ObjectStorageConfig = ObjectStorageConfig(),
     val ttsProviders: List<TTSProviderSetting> = DEFAULT_TTS_PROVIDERS,
     val selectedTTSProviderId: Uuid = DEFAULT_SYSTEM_TTS_ID,
+    val webServerEnabled: Boolean = false,
+    val webServerPort: Int = 8080,
+    val webServerJwtEnabled: Boolean = false,
+    val webServerAccessPassword: String = "",
     val consolidationWorkerIntervalMinutes: Int = 15,
     val consolidationRequiresDeviceIdle: Boolean = false,
 

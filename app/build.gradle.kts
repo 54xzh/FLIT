@@ -308,6 +308,9 @@ dependencies {
 
     // jmDNS (mDNS/Bonjour for .local hostname)
     implementation(libs.jmdns)
+    implementation(libs.ktor.server.compression)
+    implementation(libs.ktor.server.cors)
+    implementation(libs.ktor.server.default.headers)
 
     // modules
     implementation(project(":ai"))

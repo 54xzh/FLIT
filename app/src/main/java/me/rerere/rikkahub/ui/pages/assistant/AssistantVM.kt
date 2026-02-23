@@ -1,6 +1,5 @@
 package me.rerere.rikkahub.ui.pages.assistant
 
-import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -154,17 +153,6 @@ class AssistantVM(
                     settings
                 }
             }
-        }
-    }
-
-    private fun cleanupAssistantFiles(assistant: Assistant) {
-        val uris = buildList {
-            (assistant.avatar as? Avatar.Image)?.let { add(it.url.toUri()) }
-            assistant.background?.let { add(it.toUri()) }
-        }
-
-        if (uris.isNotEmpty()) {
-            filesManager.deleteChatFiles(uris)
         }
     }
 
