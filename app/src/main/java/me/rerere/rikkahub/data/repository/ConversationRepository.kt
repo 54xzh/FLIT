@@ -774,12 +774,25 @@ class ConversationRepository(
     private fun migrateLegacyNodesJson(json: String): String {
         // Fast path: most conversations are already in the new format.
         // Avoid parsing + rebuilding huge JSON blobs on every load.
-        if (!json.contains("me.rerere.ai.ui.UIMessagePart.Thinking")) return json
+        if (!json.contains("me.rerere.ai.ui.UIMessagePart.")) return json
+
+        val legacyTypeMapping = mapOf(
+            "me.rerere.ai.ui.UIMessagePart.Text" to "text",
+            "me.rerere.ai.ui.UIMessagePart.Image" to "image",
+            "me.rerere.ai.ui.UIMessagePart.Video" to "video",
+            "me.rerere.ai.ui.UIMessagePart.Audio" to "audio",
+            "me.rerere.ai.ui.UIMessagePart.Document" to "document",
+            "me.rerere.ai.ui.UIMessagePart.Reasoning" to "reasoning",
+            "me.rerere.ai.ui.UIMessagePart.Search" to "search",
+            "me.rerere.ai.ui.UIMessagePart.ToolCall" to "tool_call",
+            "me.rerere.ai.ui.UIMessagePart.ToolResult" to "tool_result",
+        )
 
         try {
             val element = JsonInstant.parseToJsonElement(json)
             if (element !is JsonArray) return json
 
+            var changed = false
             val newArray = buildJsonArray {
                 element.jsonArray.forEach { node ->
                     if (node !is JsonObject) {
@@ -804,21 +817,43 @@ class ConversationRepository(
                                                                 add(part)
                                                                 return@forEach
                                                             }
-                                                            val type = part["type"]?.jsonPrimitive?.content
-                                                            if (type == "me.rerere.ai.ui.UIMessagePart.Thinking") {
-                                                                add(buildJsonObject {
-                                                                    put("type", "me.rerere.ai.ui.UIMessagePart.Reasoning")
-                                                                    part.entries.forEach { (partKey, partValue) ->
-                                                                        when (partKey) {
-                                                                            "type" -> { /* skip, already added */ }
-                                                                            "thinking" -> put("reasoning", partValue)
-                                                                            else -> put(partKey, partValue)
+                                                            val type = runCatching {
+                                                                part["type"]?.jsonPrimitive?.content
+                                                            }.getOrNull()
+                                                            val mappedType = when (type) {
+                                                                "me.rerere.ai.ui.UIMessagePart.Thinking" -> "reasoning"
+                                                                else -> type?.let { legacyTypeMapping[it] }
+                                                            }
+                                                            val shouldRenameThinkingField =
+                                                                type == "me.rerere.ai.ui.UIMessagePart.Thinking"
+
+                                                            if (mappedType == null && !shouldRenameThinkingField) {
+                                                                add(part)
+                                                                return@forEach
+                                                            }
+
+                                                            changed = true
+                                                            add(buildJsonObject {
+                                                                part.entries.forEach { (partKey, partValue) ->
+                                                                    when {
+                                                                        partKey == "type" -> {
+                                                                            if (mappedType != null) {
+                                                                                put("type", mappedType)
+                                                                            } else {
+                                                                                put("type", partValue)
+                                                                            }
+                                                                        }
+
+                                                                        shouldRenameThinkingField && partKey == "thinking" -> {
+                                                                            put("reasoning", partValue)
+                                                                        }
+
+                                                                        else -> {
+                                                                            put(partKey, partValue)
                                                                         }
                                                                     }
-                                                                })
-                                                            } else {
-                                                                add(part)
-                                                            }
+                                                                }
+                                                            })
                                                         }
                                                     })
                                                 } else {
@@ -835,7 +870,7 @@ class ConversationRepository(
                     })
                 }
             }
-            return newArray.toString()
+            return if (changed) newArray.toString() else json
         } catch (e: Exception) {
             e.printStackTrace()
             return json
