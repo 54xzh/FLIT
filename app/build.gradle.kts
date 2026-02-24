@@ -171,6 +171,26 @@ tasks.register("buildAll") {
     description = "Build both APK and AAB"
 }
 
+tasks.register("verifyWebUiStatic") {
+    description = "Verify embedded Web UI static files are available before Android build."
+    doLast {
+        val indexFile = rootProject.file("web/src/main/resources/static/index.html")
+        if (!indexFile.exists()) {
+            throw GradleException(
+                "未找到 Web UI 静态文件: ${indexFile.absolutePath}\n" +
+                    "请先执行以下命令后再构建 APK:\n" +
+                    "1) cd web-ui\n" +
+                    "2) npm install\n" +
+                    "3) npm run build"
+            )
+        }
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("verifyWebUiStatic")
+}
+
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
