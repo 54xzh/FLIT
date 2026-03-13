@@ -843,7 +843,7 @@
   <string name="workspace_root_reset_title">重置</string>
   <string name="workspace_root_reset_desc">重置工作区根目录</string>
   <string name="workspace_remember_last_for_new_chats_title">记住上次工作区</string>
-  <string name="workspace_remember_last_for_new_chats_desc">开启后，新建会话会自动套用你上次手动设置的工作区。</string>
+  <string name="workspace_remember_last_for_new_chats_desc">开启后，新建会话会自动使用上次手动设置的工作区。</string>
   <string name="workspace_file_tools_allow_all_title">工作区文件工具：全部允许</string>
   <string name="workspace_file_tools_allow_all_desc">跳过工作区文件工具的审批卡片（危险）。</string>
   <string name="workspace_file_tools_allow_all_risk_title">启用“全部允许”模式？</string>
