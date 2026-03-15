@@ -152,6 +152,8 @@ fun ChatMessage(
     node: MessageNode,
     previousRole: MessageRole?,
     isLast: Boolean,
+    showAssistantHeader: Boolean = true,
+    showInlineTokenUsage: Boolean = true,
     hiddenToolCallIds: Set<String> = emptySet(),
     leadingProcessParts: List<UIMessagePart> = emptyList(),
     conversationId: Uuid? = null,
@@ -215,7 +217,12 @@ fun ChatMessage(
         horizontalAlignment = if (message.role == MessageRole.USER) Alignment.End else Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        if (!message.parts.isEmptyUIMessage()) {
+        val shouldShowMessageHeader = !message.parts.isEmptyUIMessage() && when (message.role) {
+            MessageRole.ASSISTANT -> showAssistantHeader
+            MessageRole.USER -> true
+            else -> false
+        }
+        if (shouldShowMessageHeader) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth(),
@@ -265,7 +272,7 @@ fun ChatMessage(
                 },
                 usage = message.usage,
                 generationDurationMs = message.generationDurationMs,
-                showTokenUsage = settings.showTokenUsage,
+                showTokenUsage = settings.showTokenUsage && showInlineTokenUsage,
             )
         }
 

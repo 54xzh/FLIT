@@ -1,6 +1,10 @@
 package me.rerere.rikkahub.ui.components.message
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -15,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -47,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -105,6 +111,11 @@ private val ProcessStepSubtitleTextStyle
         fontSize = 11.sp,
         lineHeight = 14.sp,
     )
+private enum class ReasoningBodyState {
+    Collapsed,
+    Preview,
+    Expanded,
+}
 
 @Composable
 internal fun ChatProcessTimeline(
@@ -181,49 +192,55 @@ internal fun ChatProcessTimeline(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(
-                modifier = Modifier
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                    }
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                    ) {
-                        expanded = !expanded
-                        haptics.perform(HapticPattern.Pop)
-                    }
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(
-                    imageVector = if (expanded) {
-                        Icons.Rounded.KeyboardArrowUp
-                    } else {
-                        Icons.Rounded.KeyboardArrowDown
-                    },
-                    contentDescription = if (expanded) {
-                        stringResource(R.string.a11y_collapse)
-                    } else {
-                        stringResource(R.string.a11y_expand)
-                    },
-                    tint = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    text = if (expanded) {
-                        stringResource(R.string.a11y_collapse)
-                    } else {
-                        stringResource(R.string.a11y_expand)
-                    },
-                    style = ProcessHeaderTextStyle,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
+            if (visibleParts.size > 1) {
+                Row(
+                    modifier = Modifier
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                        }
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                        ) {
+                            expanded = !expanded
+                            haptics.perform(HapticPattern.Pop)
+                        }
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = if (expanded) {
+                            Icons.Rounded.KeyboardArrowUp
+                        } else {
+                            Icons.Rounded.KeyboardArrowDown
+                        },
+                        contentDescription = if (expanded) {
+                            stringResource(R.string.a11y_collapse)
+                        } else {
+                            stringResource(R.string.a11y_expand)
+                        },
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = if (expanded) {
+                            stringResource(R.string.a11y_collapse)
+                        } else {
+                            stringResource(R.string.a11y_expand)
+                        },
+                        style = ProcessHeaderTextStyle,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                }
             }
 
-            AnimatedVisibility(visible = expanded) {
+            AnimatedVisibility(
+                visible = visibleParts.size == 1 || expanded,
+                enter = processVerticalEnter(),
+                exit = processVerticalExit(),
+            ) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -352,7 +369,15 @@ private fun CompactReasoningTimelineItem(
     val settings = LocalSettings.current
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     val loading = reasoning.finishedAt == null
-    var expanded by remember { mutableStateOf(false) }
+    var bodyState by remember(reasoning.createdAt) {
+        mutableStateOf(
+            if (loading) {
+                ReasoningBodyState.Preview
+            } else {
+                ReasoningBodyState.Collapsed
+            }
+        )
+    }
     var duration by remember(reasoning.finishedAt, reasoning.createdAt) {
         mutableStateOf(
             reasoning.finishedAt?.let { it - reasoning.createdAt } ?: (Clock.System.now() - reasoning.createdAt)
@@ -386,14 +411,28 @@ private fun CompactReasoningTimelineItem(
             stringResource(R.string.notification_live_update_inference)
         },
         subtitle = geminiTitle,
-        trailingIcon = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+        trailingIcon = if (bodyState == ReasoningBodyState.Expanded) {
+            Icons.Rounded.KeyboardArrowUp
+        } else {
+            Icons.Rounded.KeyboardArrowDown
+        },
         onClick = {
-            expanded = !expanded
+            bodyState = when (bodyState) {
+                ReasoningBodyState.Collapsed,
+                ReasoningBodyState.Preview,
+                    -> ReasoningBodyState.Expanded
+
+                ReasoningBodyState.Expanded -> ReasoningBodyState.Collapsed
+            }
             haptics.perform(HapticPattern.Pop)
         },
     )
 
-    AnimatedVisibility(visible = expanded) {
+    AnimatedVisibility(
+        visible = bodyState != ReasoningBodyState.Collapsed,
+        enter = processVerticalEnter(),
+        exit = processVerticalExit(),
+    ) {
         SelectionContainer {
             MarkdownBlock(
                 content = reasoning.reasoning.replaceRegexes(
@@ -404,6 +443,15 @@ private fun CompactReasoningTimelineItem(
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .then(
+                        if (bodyState == ReasoningBodyState.Preview) {
+                            Modifier
+                                .heightIn(max = 88.dp)
+                                .clipToBounds()
+                        } else {
+                            Modifier
+                        }
+                    )
                     .padding(start = 4.dp, end = 8.dp),
             )
         }
@@ -554,7 +602,11 @@ private fun CompactApprovalTimelineItem(
         },
     )
 
-    AnimatedVisibility(visible = expanded && approval.state == ToolApprovalState.Pending) {
+    AnimatedVisibility(
+        visible = expanded && approval.state == ToolApprovalState.Pending,
+        enter = processVerticalEnter(),
+        exit = processVerticalExit(),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -821,3 +873,17 @@ private fun processTimelineToolIcon(toolName: String): ImageVector {
 private fun formatDurationSeconds(duration: Duration): String {
     return String.format(Locale.US, "%.1f", duration.toDouble(DurationUnit.SECONDS))
 }
+
+private fun processVerticalEnter() = fadeIn(
+    animationSpec = spring(dampingRatio = 0.8f, stiffness = 320f)
+) + expandVertically(
+    animationSpec = spring(dampingRatio = 0.8f, stiffness = 320f),
+    expandFrom = Alignment.Top,
+)
+
+private fun processVerticalExit() = fadeOut(
+    animationSpec = spring(dampingRatio = 0.9f, stiffness = 360f)
+) + shrinkVertically(
+    animationSpec = spring(dampingRatio = 0.9f, stiffness = 360f),
+    shrinkTowards = Alignment.Top,
+)

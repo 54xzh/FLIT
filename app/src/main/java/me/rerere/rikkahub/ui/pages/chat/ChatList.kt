@@ -95,6 +95,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.ai.core.MessageRole
+import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
@@ -128,19 +129,18 @@ private const val TAG = "ChatList"
 private const val LoadingIndicatorKey = "LoadingIndicator"
 private const val ScrollBottomKey = "ScrollBottomKey"
 
-private data class MessageSpeakerIdentity(
+private data class AssistantDisplayIdentity(
     val seatId: Uuid?,
     val assistantId: Uuid?,
     val modelId: Uuid?,
+    val displayName: String?,
+    val usesAssistantAvatar: Boolean,
 )
 
-private fun UIMessage.speakerIdentity(): MessageSpeakerIdentity {
-    return MessageSpeakerIdentity(
-        seatId = speakerSeatId,
-        assistantId = speakerAssistantId,
-        modelId = modelId,
-    )
-}
+private data class VisibleMessageNeighbors(
+    val previousVisibleIndexByIndex: IntArray,
+    val nextVisibleIndexByIndex: IntArray,
+)
 
 @Composable
 fun ChatList(
@@ -274,6 +274,74 @@ private fun SharedTransitionScope.ChatListNormal(
     val processDisplayPlan = remember(conversation.messageNodes) {
         planChatProcessDisplay(conversation.messageNodes)
     }
+    val visibleMessageNeighbors = remember(conversation.messageNodes, processDisplayPlan.hiddenNodeIndexes) {
+        val previousVisibleIndexByIndex = IntArray(conversation.messageNodes.size) { -1 }
+        val nextVisibleIndexByIndex = IntArray(conversation.messageNodes.size) { -1 }
+        var lastVisibleIndex = -1
+        conversation.messageNodes.indices.forEach { index ->
+            previousVisibleIndexByIndex[index] = lastVisibleIndex
+            if (index !in processDisplayPlan.hiddenNodeIndexes) {
+                lastVisibleIndex = index
+            }
+        }
+        var nextVisibleIndex = -1
+        conversation.messageNodes.indices.reversed().forEach { index ->
+            nextVisibleIndexByIndex[index] = nextVisibleIndex
+            if (index !in processDisplayPlan.hiddenNodeIndexes) {
+                nextVisibleIndex = index
+            }
+        }
+        VisibleMessageNeighbors(
+            previousVisibleIndexByIndex = previousVisibleIndexByIndex,
+            nextVisibleIndexByIndex = nextVisibleIndexByIndex,
+        )
+    }
+
+    fun resolveAssistantForMessage(message: UIMessage): Assistant? {
+        return message.speakerSeatId
+            ?.let { seatId ->
+                groupChatTemplateForConversation?.seats?.firstOrNull { it.id == seatId }
+            }
+            ?.let { seat ->
+                assistantsById[seat.assistantId]?.let { resolved ->
+                    val displayName = seatDisplayNames[seat.id]
+                    if (displayName.isNullOrBlank() || displayName == resolved.name) {
+                        resolved
+                    } else {
+                        resolved.copy(name = displayName)
+                    }
+                }
+            }
+            ?: message.speakerAssistantId
+                ?.let { speakerId -> settings.getAssistantById(speakerId) }
+            ?: settings.getAssistantById(conversation.assistantId)
+    }
+
+    fun buildAssistantDisplayIdentity(
+        message: UIMessage,
+        model: Model?,
+        assistant: Assistant?,
+    ): AssistantDisplayIdentity? {
+        if (message.role != MessageRole.ASSISTANT) return null
+        val assistantIdentity = assistant?.takeIf {
+            groupChatTemplateForConversation != null || it.useAssistantAvatar || model == null
+        }
+        return AssistantDisplayIdentity(
+            seatId = message.speakerSeatId,
+            assistantId = assistantIdentity?.id ?: message.speakerAssistantId,
+            modelId = if (assistantIdentity == null) {
+                model?.id ?: message.modelId
+            } else {
+                null
+            },
+            displayName = when {
+                assistantIdentity != null -> assistantIdentity.name
+                model != null -> model.displayName
+                else -> defaultAssistantName
+            },
+            usesAssistantAvatar = assistantIdentity != null,
+        )
+    }
 
     val currentConversationState = rememberUpdatedState(conversation)
     val onCitationClick = remember {
@@ -402,11 +470,13 @@ private fun SharedTransitionScope.ChatListNormal(
                     val isSelected by remember(node.id) {
                         derivedStateOf { selectedItems.contains(node.id) }
                     }
-                    val previousMessage = conversation.messageNodes.getOrNull(index - 1)?.currentMessage
-                    val speakerChanged = previousMessage?.role == MessageRole.ASSISTANT &&
-                        message.role == MessageRole.ASSISTANT &&
-                        previousMessage.speakerIdentity() != message.speakerIdentity()
-                    val previousRole = if (speakerChanged) null else previousMessage?.role
+                    val previousVisibleMessage = visibleMessageNeighbors.previousVisibleIndexByIndex[index]
+                        .takeIf { it >= 0 }
+                        ?.let { conversation.messageNodes[it].currentMessage }
+                    val nextVisibleMessage = visibleMessageNeighbors.nextVisibleIndexByIndex[index]
+                        .takeIf { it >= 0 }
+                        ?.let { conversation.messageNodes[it].currentMessage }
+                    val previousMessage = previousVisibleMessage
                     val isLast = index == conversation.messageNodes.lastIndex
                     val canContinue = isLast &&
                         message.role == MessageRole.ASSISTANT &&
@@ -421,23 +491,28 @@ private fun SharedTransitionScope.ChatListNormal(
                         ?.filter { it.isNotBlank() }
                         ?.toSet()
                         .orEmpty()
-                    val assistantForMessage = message.speakerSeatId
-                        ?.let { seatId ->
-                            groupChatTemplateForConversation?.seats?.firstOrNull { it.id == seatId }
-                        }
-                        ?.let { seat ->
-                            assistantsById[seat.assistantId]?.let { resolved ->
-                                val displayName = seatDisplayNames[seat.id]
-                                if (displayName.isNullOrBlank() || displayName == resolved.name) {
-                                    resolved
-                                } else {
-                                    resolved.copy(name = displayName)
-                                }
-                            }
-                        }
-                        ?: message.speakerAssistantId
-                            ?.let { speakerId -> settings.getAssistantById(speakerId) }
-                        ?: settings.getAssistantById(conversation.assistantId)
+                    val modelForMessage = message.modelId?.let { settings.findModelById(it) }
+                    val assistantForMessage = resolveAssistantForMessage(message)
+                    val currentAssistantDisplayIdentity = buildAssistantDisplayIdentity(
+                        message = message,
+                        model = modelForMessage,
+                        assistant = assistantForMessage,
+                    )
+                    val previousAssistantDisplayIdentity = previousVisibleMessage?.let { visibleMessage ->
+                        buildAssistantDisplayIdentity(
+                            message = visibleMessage,
+                            model = visibleMessage.modelId?.let { settings.findModelById(it) },
+                            assistant = resolveAssistantForMessage(visibleMessage),
+                        )
+                    }
+                    val speakerChanged = previousMessage?.role == MessageRole.ASSISTANT &&
+                        message.role == MessageRole.ASSISTANT &&
+                        previousAssistantDisplayIdentity != currentAssistantDisplayIdentity
+                    val previousRole = if (speakerChanged) null else previousMessage?.role
+                    val showAssistantHeader = message.role != MessageRole.ASSISTANT ||
+                        previousAssistantDisplayIdentity != currentAssistantDisplayIdentity
+                    val showInlineTokenUsage = message.role != MessageRole.ASSISTANT ||
+                        nextVisibleMessage?.role != MessageRole.ASSISTANT
 
                     if (standaloneProcessParts.isNotEmpty()) {
                         ChatProcessTimeline(
@@ -445,7 +520,7 @@ private fun SharedTransitionScope.ChatListNormal(
                             conversationId = conversation.id,
                             hiddenToolCallIds = emptySet(),
                             loading = loading && isLast,
-                            model = message.modelId?.let { settings.findModelById(it) },
+                            model = modelForMessage,
                             assistant = assistantForMessage,
                         )
                     }
@@ -466,11 +541,13 @@ private fun SharedTransitionScope.ChatListNormal(
                                 node = node,
                                 previousRole = previousRole,
                                 isLast = isLast,
+                                showAssistantHeader = showAssistantHeader,
+                                showInlineTokenUsage = showInlineTokenUsage,
                                 hiddenToolCallIds = hiddenToolCallIds,
                                 leadingProcessParts = prefixedProcessParts,
                                 conversationId = conversation.id,
                                 onCitationClick = onCitationClick,
-                                model = message.modelId?.let { settings.findModelById(it) },
+                                model = modelForMessage,
                                 assistant = assistantForMessage,
                                 forceUseAssistantAvatar = groupChatTemplateForConversation != null,
                                 onAssistantAvatarLongPress = onAssistantAvatarLongPress,
