@@ -8,6 +8,7 @@ import me.rerere.rikkahub.data.model.MessageNode
 internal data class ChatProcessDisplayPlan(
     val prefixedProcessPartsByIndex: Map<Int, List<UIMessagePart>> = emptyMap(),
     val standaloneProcessPartsByIndex: Map<Int, List<UIMessagePart>> = emptyMap(),
+    val standaloneAssistantOwnerIndexByIndex: Map<Int, Int> = emptyMap(),
     val hiddenNodeIndexes: Set<Int> = emptySet(),
 )
 
@@ -54,6 +55,7 @@ private fun UIMessage.hasSameSpeakerIdentity(other: UIMessage): Boolean {
 internal fun planChatProcessDisplay(nodes: List<MessageNode>): ChatProcessDisplayPlan {
     val prefixedProcessPartsByIndex = mutableMapOf<Int, List<UIMessagePart>>()
     val standaloneProcessPartsByIndex = mutableMapOf<Int, List<UIMessagePart>>()
+    val standaloneAssistantOwnerIndexByIndex = mutableMapOf<Int, Int>()
     val hiddenNodeIndexes = linkedSetOf<Int>()
 
     val pendingNodeIndexes = mutableListOf<Int>()
@@ -67,7 +69,13 @@ internal fun planChatProcessDisplay(nodes: List<MessageNode>): ChatProcessDispla
     fun flushStandalone() {
         if (pendingNodeIndexes.isEmpty() || pendingProcessParts.isEmpty()) return
         val anchorIndex = pendingNodeIndexes.last()
+        val assistantOwnerIndex = pendingNodeIndexes
+            .asReversed()
+            .firstOrNull { nodes[it].currentMessage.role == MessageRole.ASSISTANT }
         standaloneProcessPartsByIndex[anchorIndex] = pendingProcessParts.toList()
+        if (assistantOwnerIndex != null) {
+            standaloneAssistantOwnerIndexByIndex[anchorIndex] = assistantOwnerIndex
+        }
         hiddenNodeIndexes += pendingNodeIndexes
         clearPending()
     }
@@ -106,6 +114,7 @@ internal fun planChatProcessDisplay(nodes: List<MessageNode>): ChatProcessDispla
     return ChatProcessDisplayPlan(
         prefixedProcessPartsByIndex = prefixedProcessPartsByIndex,
         standaloneProcessPartsByIndex = standaloneProcessPartsByIndex,
+        standaloneAssistantOwnerIndexByIndex = standaloneAssistantOwnerIndexByIndex,
         hiddenNodeIndexes = hiddenNodeIndexes,
     )
 }

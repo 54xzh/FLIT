@@ -73,7 +73,42 @@ class ChatProcessDisplayPlannerTest {
 
         assertEquals(setOf(1), plan.hiddenNodeIndexes)
         assertEquals(2, plan.standaloneProcessPartsByIndex[1]?.size)
+        assertEquals(1, plan.standaloneAssistantOwnerIndexByIndex[1])
         assertTrue(plan.prefixedProcessPartsByIndex.isEmpty())
+    }
+
+    @Test
+    fun `standalone process block keeps assistant owner when anchored on tool result`() {
+        val nodes = listOf(
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(UIMessagePart.Text("搜一下")),
+            ).toMessageNode(),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Reasoning("先思考"),
+                    UIMessagePart.ToolCall("call_1", "search_web", """{"query":"LastChat"}"""),
+                ),
+            ).toMessageNode(),
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(
+                    UIMessagePart.ToolResult(
+                        toolCallId = "call_1",
+                        toolName = "search_web",
+                        content = JsonPrimitive("ok"),
+                        arguments = JsonPrimitive("""{"query":"LastChat"}"""),
+                    )
+                ),
+            ).toMessageNode(),
+        )
+
+        val plan = planChatProcessDisplay(nodes)
+
+        assertEquals(setOf(1, 2), plan.hiddenNodeIndexes)
+        assertEquals(3, plan.standaloneProcessPartsByIndex[2]?.size)
+        assertEquals(1, plan.standaloneAssistantOwnerIndexByIndex[2])
     }
 
     @Test

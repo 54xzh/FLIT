@@ -108,6 +108,7 @@ import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.ui.components.message.ChatMessage
+import me.rerere.rikkahub.ui.components.message.ChatMessageAssistantAvatar
 import me.rerere.rikkahub.ui.components.message.ChatProcessTimeline
 import me.rerere.rikkahub.ui.components.message.planChatProcessDisplay
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
@@ -463,6 +464,9 @@ private fun SharedTransitionScope.ChatListNormal(
                     val standaloneProcessParts = processDisplayPlan
                         .standaloneProcessPartsByIndex[index]
                         .orEmpty()
+                    val standaloneAssistantOwnerMessage = processDisplayPlan
+                        .standaloneAssistantOwnerIndexByIndex[index]
+                        ?.let { ownerIndex -> conversation.messageNodes.getOrNull(ownerIndex)?.currentMessage }
                     val prefixedProcessParts = processDisplayPlan
                         .prefixedProcessPartsByIndex[index]
                         .orEmpty()
@@ -493,11 +497,23 @@ private fun SharedTransitionScope.ChatListNormal(
                         .orEmpty()
                     val modelForMessage = message.modelId?.let { settings.findModelById(it) }
                     val assistantForMessage = resolveAssistantForMessage(message)
+                    val standaloneModelForMessage = standaloneAssistantOwnerMessage
+                        ?.modelId
+                        ?.let { settings.findModelById(it) }
+                    val standaloneAssistantForMessage = standaloneAssistantOwnerMessage
+                        ?.let(::resolveAssistantForMessage)
                     val currentAssistantDisplayIdentity = buildAssistantDisplayIdentity(
                         message = message,
                         model = modelForMessage,
                         assistant = assistantForMessage,
                     )
+                    val standaloneAssistantDisplayIdentity = standaloneAssistantOwnerMessage?.let { ownerMessage ->
+                        buildAssistantDisplayIdentity(
+                            message = ownerMessage,
+                            model = standaloneModelForMessage,
+                            assistant = standaloneAssistantForMessage,
+                        )
+                    }
                     val previousAssistantDisplayIdentity = previousVisibleMessage?.let { visibleMessage ->
                         buildAssistantDisplayIdentity(
                             message = visibleMessage,
@@ -509,19 +525,43 @@ private fun SharedTransitionScope.ChatListNormal(
                         message.role == MessageRole.ASSISTANT &&
                         previousAssistantDisplayIdentity != currentAssistantDisplayIdentity
                     val previousRole = if (speakerChanged) null else previousMessage?.role
+                    val standaloneSpeakerChanged = previousVisibleMessage?.role == MessageRole.ASSISTANT &&
+                        standaloneAssistantOwnerMessage?.role == MessageRole.ASSISTANT &&
+                        previousAssistantDisplayIdentity != standaloneAssistantDisplayIdentity
+                    val standalonePreviousRole = if (standaloneSpeakerChanged) null else previousVisibleMessage?.role
                     val showAssistantHeader = message.role != MessageRole.ASSISTANT ||
                         previousAssistantDisplayIdentity != currentAssistantDisplayIdentity
+                    val showStandaloneAssistantHeader = standaloneAssistantOwnerMessage?.role == MessageRole.ASSISTANT &&
+                        previousAssistantDisplayIdentity != standaloneAssistantDisplayIdentity
                     val showInlineTokenUsage = message.role != MessageRole.ASSISTANT ||
                         nextVisibleMessage?.role != MessageRole.ASSISTANT
 
                     if (standaloneProcessParts.isNotEmpty()) {
+                        standaloneAssistantOwnerMessage?.takeIf { showStandaloneAssistantHeader }?.let { ownerMessage ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                            ) {
+                                ChatMessageAssistantAvatar(
+                                    message = ownerMessage,
+                                    previousRole = standalonePreviousRole,
+                                    model = standaloneModelForMessage,
+                                    assistant = standaloneAssistantForMessage,
+                                    forceUseAssistantAvatar = groupChatTemplateForConversation != null,
+                                    onAvatarLongPress = onAssistantAvatarLongPress,
+                                    loading = loading && isLast,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
                         ChatProcessTimeline(
                             processParts = standaloneProcessParts,
                             conversationId = conversation.id,
                             hiddenToolCallIds = emptySet(),
                             loading = loading && isLast,
-                            model = modelForMessage,
-                            assistant = assistantForMessage,
+                            model = standaloneModelForMessage ?: modelForMessage,
+                            assistant = standaloneAssistantForMessage ?: assistantForMessage,
                         )
                     }
 
