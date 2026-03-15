@@ -88,7 +88,7 @@ import org.koin.compose.koinInject
 import kotlin.uuid.Uuid
 
 @Composable
-private fun toolApprovalDisplayName(toolName: String): String {
+internal fun toolApprovalDisplayName(toolName: String): String {
     return when (toolName) {
         "workspace_list" -> stringResource(R.string.tool_approval_workspace_list)
         "workspace_read_file" -> stringResource(R.string.tool_approval_workspace_read_file)
@@ -475,7 +475,7 @@ fun ToolApprovalItem(
 }
 
 @Composable
-private fun ToolApprovalButton(
+internal fun ToolApprovalButton(
     text: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     containerColor: androidx.compose.ui.graphics.Color,
@@ -528,7 +528,7 @@ private fun ToolApprovalButton(
 }
 
 @Composable
-private fun ToolApprovalArgumentsSheet(
+internal fun ToolApprovalArgumentsSheet(
     approvalLabel: String,
     argumentsJson: String,
     onDismissRequest: () -> Unit = {},
@@ -596,7 +596,7 @@ private fun ToolApprovalArgumentsSheet(
 }
 
 @Composable
-private fun ToolCallPreviewSheet(
+internal fun ToolCallPreviewSheet(
     toolName: String,
     arguments: JsonElement,
     content: JsonElement,

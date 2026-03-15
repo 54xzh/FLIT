@@ -1,0 +1,111 @@
+package me.rerere.rikkahub.ui.components.message
+
+import me.rerere.ai.core.MessageRole
+import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.model.MessageNode
+
+internal data class ChatProcessDisplayPlan(
+    val prefixedProcessPartsByIndex: Map<Int, List<UIMessagePart>> = emptyMap(),
+    val standaloneProcessPartsByIndex: Map<Int, List<UIMessagePart>> = emptyMap(),
+    val hiddenNodeIndexes: Set<Int> = emptySet(),
+)
+
+internal fun UIMessagePart.isProcessDisplayPart(): Boolean {
+    return when (this) {
+        is UIMessagePart.Reasoning,
+        is UIMessagePart.Thinking,
+        is UIMessagePart.ToolCall,
+        is UIMessagePart.ToolApproval,
+        is UIMessagePart.ToolResult,
+            -> true
+
+        else -> false
+    }
+}
+
+internal fun UIMessage.processDisplayParts(): List<UIMessagePart> {
+    return parts.filter { it.isProcessDisplayPart() }
+}
+
+internal fun UIMessage.hasRenderableNonProcessParts(): Boolean {
+    return parts.any { part ->
+        when (part) {
+            is UIMessagePart.Text -> part.text.isNotBlank()
+            is UIMessagePart.Image -> part.url.isNotBlank()
+            is UIMessagePart.Video -> part.url.isNotBlank()
+            is UIMessagePart.Audio -> part.url.isNotBlank()
+            is UIMessagePart.Document -> part.url.isNotBlank()
+            else -> false
+        }
+    }
+}
+
+internal fun UIMessage.isProcessOnlyDisplayMessage(): Boolean {
+    return processDisplayParts().isNotEmpty() && !hasRenderableNonProcessParts()
+}
+
+private fun UIMessage.hasSameSpeakerIdentity(other: UIMessage): Boolean {
+    return speakerSeatId == other.speakerSeatId &&
+        speakerAssistantId == other.speakerAssistantId &&
+        modelId == other.modelId
+}
+
+internal fun planChatProcessDisplay(nodes: List<MessageNode>): ChatProcessDisplayPlan {
+    val prefixedProcessPartsByIndex = mutableMapOf<Int, List<UIMessagePart>>()
+    val standaloneProcessPartsByIndex = mutableMapOf<Int, List<UIMessagePart>>()
+    val hiddenNodeIndexes = linkedSetOf<Int>()
+
+    val pendingNodeIndexes = mutableListOf<Int>()
+    val pendingProcessParts = mutableListOf<UIMessagePart>()
+
+    fun clearPending() {
+        pendingNodeIndexes.clear()
+        pendingProcessParts.clear()
+    }
+
+    fun flushStandalone() {
+        if (pendingNodeIndexes.isEmpty() || pendingProcessParts.isEmpty()) return
+        val anchorIndex = pendingNodeIndexes.last()
+        standaloneProcessPartsByIndex[anchorIndex] = pendingProcessParts.toList()
+        hiddenNodeIndexes += pendingNodeIndexes
+        clearPending()
+    }
+
+    nodes.forEachIndexed { index, node ->
+        val message = node.currentMessage
+        if (message.isProcessOnlyDisplayMessage()) {
+            pendingNodeIndexes += index
+            pendingProcessParts += message.processDisplayParts()
+            return@forEachIndexed
+        }
+
+        if (pendingProcessParts.isEmpty()) return@forEachIndexed
+
+        val pendingAssistantOwner = pendingNodeIndexes
+            .asReversed()
+            .asSequence()
+            .map { nodes[it].currentMessage }
+            .firstOrNull { it.role == MessageRole.ASSISTANT }
+        val canAttachToCurrentMessage =
+            message.role == MessageRole.ASSISTANT &&
+                message.hasRenderableNonProcessParts() &&
+                (pendingAssistantOwner == null || pendingAssistantOwner.hasSameSpeakerIdentity(message))
+
+        if (canAttachToCurrentMessage) {
+            prefixedProcessPartsByIndex[index] = pendingProcessParts.toList()
+            hiddenNodeIndexes += pendingNodeIndexes
+            clearPending()
+        } else {
+            flushStandalone()
+        }
+    }
+
+    flushStandalone()
+
+    return ChatProcessDisplayPlan(
+        prefixedProcessPartsByIndex = prefixedProcessPartsByIndex,
+        standaloneProcessPartsByIndex = standaloneProcessPartsByIndex,
+        hiddenNodeIndexes = hiddenNodeIndexes,
+    )
+}

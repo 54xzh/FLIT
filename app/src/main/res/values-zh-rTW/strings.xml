@@ -1342,6 +1342,7 @@
   <string name="chat_list_tooltip_select_all">全選</string>
   <string name="code_block_snippet_format">%1$s 片段</string>
   <string name="chat_message_reasoning">推理</string>
+  <string name="chat_process_reasoning_duration">思考了 %1$s 秒</string>
   <string name="share_sheet_title">分享你的 LLM 配置</string>
   <string name="toast_failed_to_download_update">下載更新失敗</string>
   <string name="toast_failed_to_export_image">導出圖片失敗：%1$s</string>

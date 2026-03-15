@@ -107,6 +107,8 @@ import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.ui.components.message.ChatMessage
+import me.rerere.rikkahub.ui.components.message.ChatProcessTimeline
+import me.rerere.rikkahub.ui.components.message.planChatProcessDisplay
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.Tooltip
 import me.rerere.rikkahub.ui.hooks.ImeLazyListAutoScroller
@@ -269,6 +271,9 @@ private fun SharedTransitionScope.ChatListNormal(
         conversation.contextSummaryPendingBoundaryIndex
             .takeIf { it in conversation.messageNodes.indices }
     }
+    val processDisplayPlan = remember(conversation.messageNodes) {
+        planChatProcessDisplay(conversation.messageNodes)
+    }
 
     val currentConversationState = rememberUpdatedState(conversation)
     val onCitationClick = remember {
@@ -387,114 +392,136 @@ private fun SharedTransitionScope.ChatListNormal(
             ) { index, node ->
                 Column {
                     val message = node.currentMessage
+                    val standaloneProcessParts = processDisplayPlan
+                        .standaloneProcessPartsByIndex[index]
+                        .orEmpty()
+                    val prefixedProcessParts = processDisplayPlan
+                        .prefixedProcessPartsByIndex[index]
+                        .orEmpty()
+                    val hideMessageCard = index in processDisplayPlan.hiddenNodeIndexes
                     val isSelected by remember(node.id) {
                         derivedStateOf { selectedItems.contains(node.id) }
                     }
-                    ListSelectableItem(
-                        isSelected = isSelected,
-                        onSelectChange = { checked ->
-                            if (checked) {
-                                selectedItems.add(node.id)
-                            } else {
-                                selectedItems.remove(node.id)
-                            }
-                        },
-                        enabled = selecting,
-                    ) {
-                        val previousMessage = conversation.messageNodes.getOrNull(index - 1)?.currentMessage
-                        val speakerChanged = previousMessage?.role == MessageRole.ASSISTANT &&
-                            message.role == MessageRole.ASSISTANT &&
-                            previousMessage.speakerIdentity() != message.speakerIdentity()
-                        val previousRole = if (speakerChanged) null else previousMessage?.role
-                        val isLast = index == conversation.messageNodes.lastIndex
-                        val canContinue = isLast &&
-                            message.role == MessageRole.ASSISTANT &&
-                            groupChatTemplateForConversation == null
-                        val hiddenToolCallIds = conversation.messageNodes
-                            .getOrNull(index + 1)
-                            ?.currentMessage
-                            ?.parts
-                            ?.filterIsInstance<UIMessagePart.ToolResult>()
-                            ?.asSequence()
-                            ?.map { it.toolCallId }
-                            ?.filter { it.isNotBlank() }
-                            ?.toSet()
-                            .orEmpty()
-                        val assistantForMessage = message.speakerSeatId
-                            ?.let { seatId ->
-                                groupChatTemplateForConversation?.seats?.firstOrNull { it.id == seatId }
-                            }
-                            ?.let { seat ->
-                                assistantsById[seat.assistantId]?.let { resolved ->
-                                    val displayName = seatDisplayNames[seat.id]
-                                    if (displayName.isNullOrBlank() || displayName == resolved.name) {
-                                        resolved
-                                    } else {
-                                        resolved.copy(name = displayName)
-                                    }
+                    val previousMessage = conversation.messageNodes.getOrNull(index - 1)?.currentMessage
+                    val speakerChanged = previousMessage?.role == MessageRole.ASSISTANT &&
+                        message.role == MessageRole.ASSISTANT &&
+                        previousMessage.speakerIdentity() != message.speakerIdentity()
+                    val previousRole = if (speakerChanged) null else previousMessage?.role
+                    val isLast = index == conversation.messageNodes.lastIndex
+                    val canContinue = isLast &&
+                        message.role == MessageRole.ASSISTANT &&
+                        groupChatTemplateForConversation == null
+                    val hiddenToolCallIds = conversation.messageNodes
+                        .getOrNull(index + 1)
+                        ?.currentMessage
+                        ?.parts
+                        ?.filterIsInstance<UIMessagePart.ToolResult>()
+                        ?.asSequence()
+                        ?.map { it.toolCallId }
+                        ?.filter { it.isNotBlank() }
+                        ?.toSet()
+                        .orEmpty()
+                    val assistantForMessage = message.speakerSeatId
+                        ?.let { seatId ->
+                            groupChatTemplateForConversation?.seats?.firstOrNull { it.id == seatId }
+                        }
+                        ?.let { seat ->
+                            assistantsById[seat.assistantId]?.let { resolved ->
+                                val displayName = seatDisplayNames[seat.id]
+                                if (displayName.isNullOrBlank() || displayName == resolved.name) {
+                                    resolved
+                                } else {
+                                    resolved.copy(name = displayName)
                                 }
                             }
-                            ?: message.speakerAssistantId
-                                ?.let { speakerId -> settings.getAssistantById(speakerId) }
-                            ?: settings.getAssistantById(conversation.assistantId)
-                        ChatMessage(
-                            node = node,
-                            previousRole = previousRole,
-                            isLast = isLast,
-                            hiddenToolCallIds = hiddenToolCallIds,
+                        }
+                        ?: message.speakerAssistantId
+                            ?.let { speakerId -> settings.getAssistantById(speakerId) }
+                        ?: settings.getAssistantById(conversation.assistantId)
+
+                    if (standaloneProcessParts.isNotEmpty()) {
+                        ChatProcessTimeline(
+                            processParts = standaloneProcessParts,
                             conversationId = conversation.id,
-                            onCitationClick = onCitationClick,
+                            hiddenToolCallIds = emptySet(),
+                            loading = loading && isLast,
                             model = message.modelId?.let { settings.findModelById(it) },
                             assistant = assistantForMessage,
-                            forceUseAssistantAvatar = groupChatTemplateForConversation != null,
-                            onAssistantAvatarLongPress = onAssistantAvatarLongPress,
-                            loading = loading && isLast,
-                            isRecentlyRestored = node.id in recentlyRestoredNodeIds,
-                            onRegenerate = {
-                                onRegenerate(message)
-                            },
-                            onContinue = {
-                                onContinue(message)
-                            },
-                            canContinue = canContinue,
-                            onEdit = {
-                                onEdit(message)
-                            },
-                            onFork = {
-                                onForkMessage(message)
-                            },
-                            onDelete = {
-                                onDelete(message)
-                            },
-                            onShare = {
-                                selecting = true  // 使用 CoroutineScope 延迟状态更新
-                                selectedItems.clear()
-                                selectedItems.addAll(conversation.messageNodes.map { it.id }
-                                    .subList(0, conversation.messageNodes.indexOf(node) + 1))
-                            },
-                            onUpdate = {
-                                onUpdateMessage(it)
-                            },
-                            onEditLorebookEntry = { entry ->
-                                navController.navigate(Screen.SettingLorebookDetail(entry.lorebookId, entry.entryId))
-                            },
-                            onModeClick = { mode ->
-                                // Navigate to Modes page and scroll to the specific mode
-                                navController.navigate(Screen.SettingModes(scrollToModeId = mode.modeId))
-                            },
-                            onMemoryClick = { memory ->
-                                // Navigate to AssistantDetail memory page
-                                // memoryType: 0 = CORE, 1 = EPISODIC
-                                navController.navigate(
-                                    Screen.AssistantDetail(
-                                        id = conversation.assistantId.toString(),
-                                        startRoute = "memory",
-                                        initialMemoryTab = memory.memoryType,
-                                        scrollToMemoryId = memory.memoryId
-                                    )
-                                )
-                            },
                         )
+                    }
+
+                    if (!hideMessageCard) {
+                        ListSelectableItem(
+                            isSelected = isSelected,
+                            onSelectChange = { checked ->
+                                if (checked) {
+                                    selectedItems.add(node.id)
+                                } else {
+                                    selectedItems.remove(node.id)
+                                }
+                            },
+                            enabled = selecting,
+                        ) {
+                            ChatMessage(
+                                node = node,
+                                previousRole = previousRole,
+                                isLast = isLast,
+                                hiddenToolCallIds = hiddenToolCallIds,
+                                leadingProcessParts = prefixedProcessParts,
+                                conversationId = conversation.id,
+                                onCitationClick = onCitationClick,
+                                model = message.modelId?.let { settings.findModelById(it) },
+                                assistant = assistantForMessage,
+                                forceUseAssistantAvatar = groupChatTemplateForConversation != null,
+                                onAssistantAvatarLongPress = onAssistantAvatarLongPress,
+                                loading = loading && isLast,
+                                isRecentlyRestored = node.id in recentlyRestoredNodeIds,
+                                onRegenerate = {
+                                    onRegenerate(message)
+                                },
+                                onContinue = {
+                                    onContinue(message)
+                                },
+                                canContinue = canContinue,
+                                onEdit = {
+                                    onEdit(message)
+                                },
+                                onFork = {
+                                    onForkMessage(message)
+                                },
+                                onDelete = {
+                                    onDelete(message)
+                                },
+                                onShare = {
+                                    selecting = true  // 使用 CoroutineScope 延迟状态更新
+                                    selectedItems.clear()
+                                    selectedItems.addAll(conversation.messageNodes.map { it.id }
+                                        .subList(0, conversation.messageNodes.indexOf(node) + 1))
+                                },
+                                onUpdate = {
+                                    onUpdateMessage(it)
+                                },
+                                onEditLorebookEntry = { entry ->
+                                    navController.navigate(Screen.SettingLorebookDetail(entry.lorebookId, entry.entryId))
+                                },
+                                onModeClick = { mode ->
+                                    // Navigate to Modes page and scroll to the specific mode
+                                    navController.navigate(Screen.SettingModes(scrollToModeId = mode.modeId))
+                                },
+                                onMemoryClick = { memory ->
+                                    // Navigate to AssistantDetail memory page
+                                    // memoryType: 0 = CORE, 1 = EPISODIC
+                                    navController.navigate(
+                                        Screen.AssistantDetail(
+                                            id = conversation.assistantId.toString(),
+                                            startRoute = "memory",
+                                            initialMemoryTab = memory.memoryType,
+                                            scrollToMemoryId = memory.memoryId
+                                        )
+                                    )
+                                },
+                            )
+                        }
                     }
                     if (index == conversation.truncateIndex - 1) {
                         ContextDivider(

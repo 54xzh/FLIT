@@ -40,7 +40,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -78,7 +77,6 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Videocam
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -104,7 +102,6 @@ import me.rerere.rikkahub.ui.components.ui.Favicon
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.theme.extendColors
-import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.base64Encode
 import me.rerere.rikkahub.utils.formatNumber
 import me.rerere.rikkahub.utils.openUrl
@@ -112,8 +109,6 @@ import me.rerere.rikkahub.utils.urlDecode
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
-
-private val EmptyJson = JsonObject(emptyMap())
 
 private fun hasGlyphInConfiguredFont(context: android.content.Context, config: FontConfig, sample: String): Boolean? {
     val typeface = runCatching {
@@ -158,6 +153,7 @@ fun ChatMessage(
     previousRole: MessageRole?,
     isLast: Boolean,
     hiddenToolCallIds: Set<String> = emptySet(),
+    leadingProcessParts: List<UIMessagePart> = emptyList(),
     conversationId: Uuid? = null,
     onCitationClick: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -253,6 +249,7 @@ fun ChatMessage(
                 annotations = message.annotations,
                 isLast = isLast,
                 hiddenToolCallIds = hiddenToolCallIds,
+                leadingProcessParts = leadingProcessParts,
                 conversationId = conversationId,
                 onCitationClick = onCitationClick,
                 loading = loading,
@@ -373,6 +370,7 @@ private fun MessagePartsBlock(
     annotations: List<UIMessageAnnotation>,
     isLast: Boolean,
     hiddenToolCallIds: Set<String>,
+    leadingProcessParts: List<UIMessagePart>,
     conversationId: Uuid?,
     onCitationClick: (String) -> Unit,
     loading: Boolean,
@@ -402,14 +400,17 @@ private fun MessagePartsBlock(
             }
     }
 
-    // Reasoning
-    parts.filterIsInstance<UIMessagePart.Reasoning>().fastForEach { reasoning ->
-        ChatMessageReasoning(
-            reasoning = reasoning,
-            model = model,
-            assistant = assistant
-        )
+    val processParts = remember(leadingProcessParts, parts) {
+        leadingProcessParts + parts.filter { it.isProcessDisplayPart() }
     }
+    ChatProcessTimeline(
+        processParts = processParts,
+        conversationId = conversationId,
+        hiddenToolCallIds = hiddenToolCallIds,
+        loading = loading,
+        model = model,
+        assistant = assistant,
+    )
 
     // Text
     parts.filterIsInstance<UIMessagePart.Text>().fastForEachIndexed { index, part ->
@@ -484,60 +485,6 @@ private fun MessagePartsBlock(
                 } else null
             }
             TokenStatisticsRowInline(usage = tokenUsage, tokensPerSecond = tokensPerSecond)
-        }
-    }
-
-    // Tool Calls
-    val toolApprovalsById = parts.filterIsInstance<UIMessagePart.ToolApproval>()
-        .associateBy { it.toolCallId }
-    val inlineResultToolCallIds = parts
-        .filterIsInstance<UIMessagePart.ToolResult>()
-        .asSequence()
-        .map { it.toolCallId }
-        .filter { it.isNotBlank() }
-        .toSet()
-    val hiddenResolvedToolCallIds = hiddenToolCallIds + inlineResultToolCallIds
-    parts.filterIsInstance<UIMessagePart.ToolCall>().fastForEachIndexed { index, toolCall ->
-        val approval = toolApprovalsById[toolCall.toolCallId]
-        val shouldHideToolCallCard = toolCall.toolCallId.isNotBlank() &&
-            toolCall.toolCallId in hiddenResolvedToolCallIds
-        if (shouldHideToolCallCard && approval == null) {
-            return@fastForEachIndexed
-        }
-        val parsedArguments = runCatching { JsonInstant.parseToJsonElement(toolCall.arguments) }
-            .getOrElse { EmptyJson }
-        key(toolCall.toolCallId.ifBlank { index.toString() }) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                if (!shouldHideToolCallCard) {
-                    ToolCallItem(
-                        toolName = toolCall.toolName,
-                        arguments = parsedArguments,
-                        content = null,
-                        loading = loading,
-                    )
-                }
-                approval?.let { resolvedApproval ->
-                    ToolApprovalItem(
-                        conversationId = conversationId,
-                        toolCallId = resolvedApproval.toolCallId,
-                        toolName = resolvedApproval.toolName,
-                        arguments = parsedArguments,
-                        state = resolvedApproval.state,
-                        loading = loading,
-                    )
-                }
-            }
-        }
-    }
-    parts.filterIsInstance<UIMessagePart.ToolResult>().fastForEachIndexed { index, toolCall ->
-        key(index) {
-            ToolCallItem(
-                toolName = toolCall.toolName,
-                arguments = toolCall.arguments,
-                content = toolCall.content,
-            )
         }
     }
 

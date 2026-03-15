@@ -1449,6 +1449,7 @@
     <string name="chat_list_tooltip_select_all">Select all</string>
     <string name="code_block_snippet_format">%1$s Snippet</string>
     <string name="chat_message_reasoning">Reasoning</string>
+    <string name="chat_process_reasoning_duration">Thought for %1$s s</string>
     <string name="share_sheet_title">Share your LLM configuration</string>
     <string name="toast_failed_to_download_update">Failed to download update</string>
     <string name="toast_failed_to_export_image">Failed to export image: %1$s</string>
