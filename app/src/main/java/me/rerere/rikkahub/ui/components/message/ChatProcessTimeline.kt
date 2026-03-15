@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Bookmark
@@ -49,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -369,6 +372,7 @@ private fun CompactReasoningTimelineItem(
     val settings = LocalSettings.current
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     val loading = reasoning.finishedAt == null
+    val scrollState = rememberScrollState()
     var bodyState by remember(reasoning.createdAt) {
         mutableStateOf(
             if (loading) {
@@ -390,6 +394,13 @@ private fun CompactReasoningTimelineItem(
                 duration = (reasoning.finishedAt ?: Clock.System.now()) - reasoning.createdAt
                 delay(50)
             }
+        }
+    }
+
+    LaunchedEffect(reasoning.reasoning, loading, bodyState) {
+        if (loading && bodyState == ReasoningBodyState.Preview) {
+            withFrameNanos { }
+            scrollState.animateScrollTo(scrollState.maxValue)
         }
     }
 
@@ -448,6 +459,7 @@ private fun CompactReasoningTimelineItem(
                             Modifier
                                 .heightIn(max = 88.dp)
                                 .clipToBounds()
+                                .verticalScroll(scrollState)
                         } else {
                             Modifier
                         }
