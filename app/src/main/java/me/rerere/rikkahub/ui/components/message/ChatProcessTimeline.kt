@@ -1,11 +1,6 @@
 package me.rerere.rikkahub.ui.components.message
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -436,11 +431,7 @@ private fun CompactReasoningTimelineItem(
         },
     )
 
-    AnimatedVisibility(
-        visible = bodyState != ReasoningBodyState.Collapsed,
-        enter = processVerticalEnter(),
-        exit = processVerticalExit(),
-    ) {
+    if (bodyState != ReasoningBodyState.Collapsed) {
         SelectionContainer {
             MarkdownBlock(
                 content = reasoning.reasoning.replaceRegexes(
@@ -611,11 +602,7 @@ private fun CompactApprovalTimelineItem(
         },
     )
 
-    AnimatedVisibility(
-        visible = expanded && approval.state == ToolApprovalState.Pending,
-        enter = processVerticalEnter(),
-        exit = processVerticalExit(),
-    ) {
+    if (expanded && approval.state == ToolApprovalState.Pending) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -882,17 +869,3 @@ private fun processTimelineToolIcon(toolName: String): ImageVector {
 private fun formatDurationSeconds(duration: Duration): String {
     return String.format(Locale.US, "%.1f", duration.toDouble(DurationUnit.SECONDS))
 }
-
-private fun processVerticalEnter() = fadeIn(
-    animationSpec = spring(dampingRatio = 0.8f, stiffness = 320f)
-) + expandVertically(
-    animationSpec = spring(dampingRatio = 0.8f, stiffness = 320f),
-    expandFrom = Alignment.Top,
-)
-
-private fun processVerticalExit() = fadeOut(
-    animationSpec = spring(dampingRatio = 0.9f, stiffness = 360f)
-) + shrinkVertically(
-    animationSpec = spring(dampingRatio = 0.9f, stiffness = 360f),
-    shrinkTowards = Alignment.Top,
-)
