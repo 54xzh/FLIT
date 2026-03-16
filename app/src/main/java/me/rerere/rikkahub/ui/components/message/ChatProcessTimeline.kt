@@ -1,11 +1,11 @@
 package me.rerere.rikkahub.ui.components.message
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -180,10 +180,7 @@ internal fun ChatProcessTimeline(
 
     Card(
         modifier = modifier
-            .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = spring(dampingRatio = 0.7f, stiffness = 300f)
-            ),
+            .fillMaxWidth(),
         shape = AppShapes.CardLarge,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.36f),
@@ -192,7 +189,11 @@ internal fun ChatProcessTimeline(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier
+                .animateContentSize(
+                    animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f)
+                )
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (visibleParts.size > 1) {
@@ -239,11 +240,7 @@ internal fun ChatProcessTimeline(
                 }
             }
 
-            AnimatedVisibility(
-                visible = visibleParts.size == 1 || expanded,
-                enter = processVerticalEnter(),
-                exit = processVerticalExit(),
-            ) {
+            if (visibleParts.size == 1 || expanded) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
