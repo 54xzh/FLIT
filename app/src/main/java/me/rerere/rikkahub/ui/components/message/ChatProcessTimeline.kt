@@ -1,5 +1,10 @@
 package me.rerere.rikkahub.ui.components.message
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -13,6 +18,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -194,6 +200,7 @@ internal fun ChatProcessTimeline(
             if (visibleParts.size > 1) {
                 Row(
                     modifier = Modifier
+                        .fillMaxWidth()
                         .graphicsLayer {
                             scaleX = scale
                             scaleY = scale
@@ -266,90 +273,103 @@ private fun ProcessTimelineStep(
     model: Model?,
     assistant: Assistant?,
 ) {
-    Row(
+    Box(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Top,
     ) {
-        Column(
-            modifier = Modifier.width(18.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top,
         ) {
-            Icon(
-                imageVector = processTimelineIcon(part),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            Spacer(modifier = Modifier.width(18.dp))
+
+            Column(
                 modifier = Modifier
-                    .padding(top = 2.dp)
-                    .size(14.dp),
-            )
-            if (!isLast) {
-                Spacer(modifier = Modifier.height(3.dp))
-                Box(
-                    modifier = Modifier
-                        .width(2.dp)
-                        .height(20.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f),
-                            shape = MaterialTheme.shapes.extraSmall,
+                    .weight(1f)
+                    .padding(top = 1.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                when (part) {
+                    is UIMessagePart.Reasoning -> CompactReasoningTimelineItem(
+                        reasoning = part,
+                        model = model,
+                        assistant = assistant,
+                    )
+
+                    is UIMessagePart.Thinking -> CompactReasoningTimelineItem(
+                        reasoning = UIMessagePart.Reasoning(
+                            reasoning = part.thinking,
+                            createdAt = part.createdAt,
+                            finishedAt = part.finishedAt,
+                            metadata = part.metadata,
+                        ),
+                        model = model,
+                        assistant = assistant,
+                    )
+
+                    is UIMessagePart.ToolCall -> {
+                        val parsedArguments = toolCallArgumentsById[part.toolCallId] ?: runCatching {
+                            JsonInstant.parseToJsonElement(part.arguments)
+                        }.getOrElse { ProcessEmptyJson }
+                        CompactToolTimelineItem(
+                            toolName = part.toolName,
+                            arguments = parsedArguments,
+                            content = null,
+                            loading = loading,
                         )
-                )
+                    }
+
+                    is UIMessagePart.ToolResult -> {
+                        CompactToolTimelineItem(
+                            toolName = part.toolName,
+                            arguments = part.arguments,
+                            content = part.content,
+                            loading = false,
+                        )
+                    }
+
+                    is UIMessagePart.ToolApproval -> CompactApprovalTimelineItem(
+                        conversationId = conversationId,
+                        approval = part,
+                        arguments = toolCallArgumentsById[part.toolCallId] ?: ProcessEmptyJson,
+                        loading = loading && part.state == ToolApprovalState.Approved,
+                    )
+
+                    else -> Unit
+                }
             }
         }
 
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(top = 1.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+        Box(
+            modifier = Modifier.matchParentSize(),
         ) {
-            when (part) {
-                is UIMessagePart.Reasoning -> CompactReasoningTimelineItem(
-                    reasoning = part,
-                    model = model,
-                    assistant = assistant,
+            Column(
+                modifier = Modifier
+                    .width(18.dp)
+                    .fillMaxHeight()
+                    .align(Alignment.TopStart),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    imageVector = processTimelineIcon(part),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .size(14.dp),
                 )
-
-                is UIMessagePart.Thinking -> CompactReasoningTimelineItem(
-                    reasoning = UIMessagePart.Reasoning(
-                        reasoning = part.thinking,
-                        createdAt = part.createdAt,
-                        finishedAt = part.finishedAt,
-                        metadata = part.metadata,
-                    ),
-                    model = model,
-                    assistant = assistant,
-                )
-
-                is UIMessagePart.ToolCall -> {
-                    val parsedArguments = toolCallArgumentsById[part.toolCallId] ?: runCatching {
-                        JsonInstant.parseToJsonElement(part.arguments)
-                    }.getOrElse { ProcessEmptyJson }
-                    CompactToolTimelineItem(
-                        toolName = part.toolName,
-                        arguments = parsedArguments,
-                        content = null,
-                        loading = loading,
+                if (!isLast) {
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Box(
+                        modifier = Modifier
+                            .width(2.dp)
+                            .weight(1f)
+                            .background(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f),
+                                shape = MaterialTheme.shapes.extraSmall,
+                            )
                     )
                 }
-
-                is UIMessagePart.ToolResult -> {
-                    CompactToolTimelineItem(
-                        toolName = part.toolName,
-                        arguments = part.arguments,
-                        content = part.content,
-                        loading = false,
-                    )
-                }
-
-                is UIMessagePart.ToolApproval -> CompactApprovalTimelineItem(
-                    conversationId = conversationId,
-                    approval = part,
-                    arguments = toolCallArgumentsById[part.toolCallId] ?: ProcessEmptyJson,
-                    loading = loading && part.state == ToolApprovalState.Approved,
-                )
-
-                else -> Unit
             }
         }
     }
@@ -431,29 +451,51 @@ private fun CompactReasoningTimelineItem(
         },
     )
 
-    if (bodyState != ReasoningBodyState.Collapsed) {
+    AnimatedVisibility(
+        visible = bodyState != ReasoningBodyState.Collapsed,
+        enter = fadeIn(
+            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+        ) + expandVertically(
+            expandFrom = Alignment.Top,
+            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+        ),
+        exit = fadeOut(
+            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+        ) + shrinkVertically(
+            shrinkTowards = Alignment.Top,
+            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+        ),
+    ) {
         SelectionContainer {
-            MarkdownBlock(
-                content = reasoning.reasoning.replaceRegexes(
-                    assistant = assistant,
-                    scope = AssistantAffectScope.ASSISTANT,
-                    visual = true,
-                ),
-                style = MaterialTheme.typography.bodySmall,
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(
-                        if (bodyState == ReasoningBodyState.Preview) {
-                            Modifier
-                                .heightIn(max = 88.dp)
-                                .clipToBounds()
-                                .verticalScroll(scrollState)
-                        } else {
-                            Modifier
-                        }
+                    .animateContentSize(
+                        animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f)
                     )
-                    .padding(start = 4.dp, end = 8.dp),
-            )
+            ) {
+                MarkdownBlock(
+                    content = reasoning.reasoning.replaceRegexes(
+                        assistant = assistant,
+                        scope = AssistantAffectScope.ASSISTANT,
+                        visual = true,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (bodyState == ReasoningBodyState.Preview) {
+                                Modifier
+                                    .heightIn(max = 88.dp)
+                                    .clipToBounds()
+                                    .verticalScroll(scrollState)
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .padding(start = 4.dp, end = 8.dp),
+                )
+            }
         }
     }
 }
