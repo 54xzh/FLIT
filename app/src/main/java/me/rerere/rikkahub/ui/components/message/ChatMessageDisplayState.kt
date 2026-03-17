@@ -8,6 +8,8 @@ internal data class ChatMessageDisplayState(
     val renderBlocks: List<MessageRenderBlock>,
     val copyBlocks: List<String>,
     val copyText: String,
+    val selectionCopyBlocks: List<String>,
+    val selectionCopyText: String,
     val previewText: String,
     val ttsText: String,
 )
@@ -29,6 +31,11 @@ internal fun buildChatMessageDisplayState(
         .filter { it.isNotBlank() }
         .joinToString(separator = "\n\n")
         .trim()
+    val selectionCopyBlocks = buildSelectionCopyBlocks(renderBlocks)
+    val selectionCopyText = selectionCopyBlocks
+        .filter { it.isNotBlank() }
+        .joinToString(separator = "\n\n")
+        .trim()
     val previewText = displayParts
         .filterIsInstance<UIMessagePart.Text>()
         .joinToString(separator = "\n\n") { it.text }
@@ -39,6 +46,8 @@ internal fun buildChatMessageDisplayState(
         renderBlocks = renderBlocks,
         copyBlocks = copyBlocks,
         copyText = copyText,
+        selectionCopyBlocks = selectionCopyBlocks,
+        selectionCopyText = selectionCopyText,
         previewText = previewText,
         ttsText = previewText,
     )
@@ -102,6 +111,15 @@ private fun buildMessageCopyBlocks(blocks: List<MessageRenderBlock>): List<Strin
             is MessageRenderBlock.AudioGroup,
             is MessageRenderBlock.DocumentGroup,
                 -> emptyList()
+        }
+    }
+}
+
+private fun buildSelectionCopyBlocks(blocks: List<MessageRenderBlock>): List<String> {
+    return blocks.mapNotNull { block ->
+        when (block) {
+            is MessageRenderBlock.TextBlock -> block.part.text.takeIf { it.isNotBlank() }
+            else -> null
         }
     }
 }

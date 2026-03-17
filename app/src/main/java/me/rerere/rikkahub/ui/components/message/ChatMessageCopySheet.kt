@@ -30,13 +30,11 @@ import androidx.compose.ui.util.fastForEach
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
-import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.utils.writeClipboardText
 
 @Composable
 fun ChatMessageCopySheet(
-    message: UIMessage,
     copyBlocks: List<String>,
     copyText: String,
     onDismissRequest: () -> Unit
@@ -74,8 +72,11 @@ fun ChatMessageCopySheet(
                 )
 
                 TextButton(
+                    enabled = copyText.isNotBlank(),
                     onClick = {
-                        context.writeClipboardText(copyText.ifBlank { message.toText() })
+                        if (copyText.isNotBlank()) {
+                            context.writeClipboardText(copyText)
+                        }
                         onDismissRequest()
                     }
                 ) {

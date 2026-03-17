@@ -366,9 +366,8 @@ fun ChatMessage(
 
     if (showSelectCopySheet) {
         ChatMessageCopySheet(
-            message = message,
-            copyBlocks = displayState.copyBlocks,
-            copyText = displayState.copyText,
+            copyBlocks = displayState.selectionCopyBlocks,
+            copyText = displayState.selectionCopyText,
             onDismissRequest = {
                 showSelectCopySheet = false
             }

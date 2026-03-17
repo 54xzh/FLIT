@@ -39,6 +39,8 @@ class ChatMessageDisplayStateTest {
         assertTrue(state.copyText.contains("先思考"))
         assertTrue(state.copyText.contains("这是最终答案"))
         assertFalse(state.copyText.contains("search_web"))
+        assertEquals(listOf("这是最终答案"), state.selectionCopyBlocks)
+        assertEquals("这是最终答案", state.selectionCopyText)
     }
 
     @Test
@@ -87,6 +89,7 @@ class ChatMessageDisplayStateTest {
         )
 
         assertTrue(state.copyText.contains("第一段推理\n\n第一段正文\n\n第二段推理\n\n第二段正文"))
+        assertEquals("第一段正文\n\n第二段正文", state.selectionCopyText)
         val textBlocks = state.renderBlocks.filterIsInstance<MessageRenderBlock.TextBlock>()
         assertEquals("第一段正文", textBlocks[0].part.text)
         assertEquals("第二段正文", textBlocks[1].part.text)
