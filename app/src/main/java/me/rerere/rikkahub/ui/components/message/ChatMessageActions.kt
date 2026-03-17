@@ -67,12 +67,14 @@ import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalTTSState
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
-import me.rerere.rikkahub.utils.copyMessageToClipboard
 import me.rerere.rikkahub.utils.toLocalString
+import me.rerere.rikkahub.utils.writeClipboardText
 
 @Composable
 fun ColumnScope.ChatMessageActionButtons(
     message: UIMessage,
+    copyText: String,
+    ttsText: String,
     node: MessageNode,
     onUpdate: (MessageNode) -> Unit,
     onRegenerate: () -> Unit,
@@ -150,7 +152,9 @@ fun ColumnScope.ChatMessageActionButtons(
         Icon(
             Icons.Rounded.ContentCopy, stringResource(R.string.copy), modifier = Modifier
                 .clip(CircleShape)
-                .clickable { context.copyMessageToClipboard(message) }
+                .clickable {
+                    context.writeClipboardText(copyText.ifBlank { message.toText() })
+                }
                 .padding(8.dp)
                 .size(16.dp)
         )
@@ -199,7 +203,7 @@ fun ColumnScope.ChatMessageActionButtons(
                         indication = LocalIndication.current,
                         onClick = {
                             if (!isSpeaking) {
-                                tts.speak(message.toContentText())
+                                tts.speak(ttsText.ifBlank { message.toContentText() })
                             } else {
                                 tts.stop()
                             }

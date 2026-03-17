@@ -175,4 +175,30 @@ class ChatProcessDisplayPlannerTest {
         assertEquals(1, plan.standaloneProcessPartsByIndex[1]?.size)
         assertTrue(plan.prefixedProcessPartsByIndex.isEmpty())
     }
+
+    @Test
+    fun `merges consecutive assistant messages from same speaker into later message`() {
+        val assistantId = Uuid.random()
+        val nodes = listOf(
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(UIMessagePart.Text("开始")),
+            ).toMessageNode(),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(UIMessagePart.Text("第一段")),
+                speakerAssistantId = assistantId,
+            ).toMessageNode(),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(UIMessagePart.Text("第二段")),
+                speakerAssistantId = assistantId,
+            ).toMessageNode(),
+        )
+
+        val plan = planChatProcessDisplay(nodes)
+
+        assertEquals(setOf(1), plan.hiddenNodeIndexes)
+        assertEquals(listOf(listOf(UIMessagePart.Text("第一段"))), plan.prefixedDisplaySegmentsByIndex[2])
+    }
 }

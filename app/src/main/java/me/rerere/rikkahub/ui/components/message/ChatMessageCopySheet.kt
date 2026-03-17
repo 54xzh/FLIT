@@ -31,13 +31,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import me.rerere.ai.ui.UIMessage
-import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.R
-import me.rerere.rikkahub.utils.copyMessageToClipboard
+import me.rerere.rikkahub.utils.writeClipboardText
 
 @Composable
 fun ChatMessageCopySheet(
     message: UIMessage,
+    copyBlocks: List<String>,
+    copyText: String,
     onDismissRequest: () -> Unit
 ) {
     val context = LocalContext.current
@@ -74,7 +75,7 @@ fun ChatMessageCopySheet(
 
                 TextButton(
                     onClick = {
-                        context.copyMessageToClipboard(message)
+                        context.writeClipboardText(copyText.ifBlank { message.toText() })
                         onDismissRequest()
                     }
                 ) {
@@ -89,10 +90,9 @@ fun ChatMessageCopySheet(
             }
 
             // Content
-            val textParts =
-                message.parts.filterIsInstance<UIMessagePart.Text>().filter { it.text.isNotBlank() }
+            val visibleBlocks = copyBlocks.filter { it.isNotBlank() }
 
-            if (textParts.isEmpty()) {
+            if (visibleBlocks.isEmpty()) {
                 // No text content available
                 Column(
                     modifier = Modifier
@@ -116,10 +116,11 @@ fun ChatMessageCopySheet(
                             .fillMaxWidth()
                             .verticalScroll(rememberScrollState())
                     ) {
-                        textParts.fastForEach { textPart ->
+                        visibleBlocks.fastForEach { block ->
                             Text(
-                                text = textPart.text,
+                                text = block,
                                 style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(bottom = 12.dp),
                             )
                         }
                     }

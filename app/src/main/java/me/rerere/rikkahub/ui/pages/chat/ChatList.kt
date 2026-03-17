@@ -467,8 +467,8 @@ private fun SharedTransitionScope.ChatListNormal(
                     val standaloneAssistantOwnerMessage = processDisplayPlan
                         .standaloneAssistantOwnerIndexByIndex[index]
                         ?.let { ownerIndex -> conversation.messageNodes.getOrNull(ownerIndex)?.currentMessage }
-                    val prefixedProcessParts = processDisplayPlan
-                        .prefixedProcessPartsByIndex[index]
+                    val prefixedDisplaySegments = processDisplayPlan
+                        .prefixedDisplaySegmentsByIndex[index]
                         .orEmpty()
                     val hideMessageCard = index in processDisplayPlan.hiddenNodeIndexes
                     val isSelected by remember(node.id) {
@@ -584,7 +584,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                 showAssistantHeader = showAssistantHeader,
                                 showInlineTokenUsage = showInlineTokenUsage,
                                 hiddenToolCallIds = hiddenToolCallIds,
-                                leadingProcessParts = prefixedProcessParts,
+                                leadingProcessParts = prefixedDisplaySegments,
                                 conversationId = conversation.id,
                                 onCitationClick = onCitationClick,
                                 model = modelForMessage,

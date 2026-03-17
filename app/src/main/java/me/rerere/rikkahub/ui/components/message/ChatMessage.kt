@@ -155,7 +155,7 @@ fun ChatMessage(
     showAssistantHeader: Boolean = true,
     showInlineTokenUsage: Boolean = true,
     hiddenToolCallIds: Set<String> = emptySet(),
-    leadingProcessParts: List<UIMessagePart> = emptyList(),
+    leadingProcessParts: List<List<UIMessagePart>> = emptyList(),
     conversationId: Uuid? = null,
     onCitationClick: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -177,7 +177,14 @@ fun ChatMessage(
     onModeClick: ((me.rerere.ai.ui.UsedMode) -> Unit)? = null,
     onMemoryClick: ((me.rerere.ai.ui.UsedMemory) -> Unit)? = null,
 ) {
-    val message = node.messages[node.selectIndex]
+    val rawMessage = node.messages[node.selectIndex]
+    val displayState = remember(rawMessage, leadingProcessParts) {
+        buildChatMessageDisplayState(
+            message = rawMessage,
+            leadingDisplaySegments = leadingProcessParts,
+        )
+    }
+    val message = displayState.message
     val settings = LocalSettings.current.displaySetting
     val textStyle = LocalTextStyle.current.copy(
         fontSize = LocalTextStyle.current.fontSize * settings.fontSizeRatio,
@@ -256,7 +263,8 @@ fun ChatMessage(
                 annotations = message.annotations,
                 isLast = isLast,
                 hiddenToolCallIds = hiddenToolCallIds,
-                leadingProcessParts = leadingProcessParts,
+                leadingProcessParts = emptyList(),
+                renderBlocksOverride = displayState.renderBlocks,
                 conversationId = conversationId,
                 onCitationClick = onCitationClick,
                 loading = loading,
@@ -312,6 +320,8 @@ fun ChatMessage(
         ) {
             ChatMessageActionButtons(
                 message = message,
+                copyText = displayState.copyText,
+                ttsText = displayState.ttsText,
                 onRegenerate = onRegenerate,
                 onContinue = onContinue,
                 canContinue = canContinue,
@@ -338,10 +348,7 @@ fun ChatMessage(
                 showSelectCopySheet = true
             },
             onWebViewPreview = {
-                val textContent = message.parts
-                    .filterIsInstance<UIMessagePart.Text>()
-                    .joinToString("\n\n") { it.text }
-                    .trim()
+                val textContent = displayState.previewText
                 if (textContent.isNotBlank()) {
                     val htmlContent = buildMarkdownPreviewHtml(
                         context = context,
@@ -360,6 +367,8 @@ fun ChatMessage(
     if (showSelectCopySheet) {
         ChatMessageCopySheet(
             message = message,
+            copyBlocks = displayState.copyBlocks,
+            copyText = displayState.copyText,
             onDismissRequest = {
                 showSelectCopySheet = false
             }
@@ -378,6 +387,7 @@ private fun MessagePartsBlock(
     isLast: Boolean,
     hiddenToolCallIds: Set<String>,
     leadingProcessParts: List<UIMessagePart>,
+    renderBlocksOverride: List<MessageRenderBlock>? = null,
     conversationId: Uuid?,
     onCitationClick: (String) -> Unit,
     loading: Boolean,
@@ -406,7 +416,7 @@ private fun MessagePartsBlock(
             }
     }
 
-    val renderBlocks = remember(leadingProcessParts, parts) {
+    val renderBlocks = renderBlocksOverride ?: remember(leadingProcessParts, parts) {
         buildMessageRenderBlocks(
             leadingProcessParts = leadingProcessParts,
             parts = parts,
