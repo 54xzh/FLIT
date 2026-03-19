@@ -30,8 +30,6 @@ import androidx.compose.ui.unit.dp
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.components.ui.FormItem
 import me.rerere.rikkahub.ui.components.ui.OutlinedNumberInput
-import me.rerere.rikkahub.ui.hooks.HapticPattern
-import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.tts.provider.TTSProviderSetting
 
 @Composable
@@ -62,6 +60,7 @@ fun TTSProviderConfigure(
         // Provider-specific fields
         when (setting) {
             is TTSProviderSetting.OpenAI -> OpenAITTSConfiguration(setting, onValueChange)
+            is TTSProviderSetting.MiMo -> MiMoTTSConfiguration(setting, onValueChange)
             is TTSProviderSetting.Gemini -> GeminiTTSConfiguration(setting, onValueChange)
             is TTSProviderSetting.MiniMax -> MiniMaxTTSConfiguration(setting, onValueChange)
             is TTSProviderSetting.ElevenLabs -> ElevenLabsTTSConfiguration(setting, onValueChange)
@@ -70,6 +69,107 @@ fun TTSProviderConfigure(
     }
 }
 
+
+@Composable
+private fun MiMoTTSConfiguration(
+    setting: TTSProviderSetting.MiMo,
+    onValueChange: (TTSProviderSetting) -> Unit
+) {
+    var apiKeyVisible by remember { mutableStateOf(false) }
+    FormItem(
+        label = { Text(stringResource(R.string.setting_tts_page_api_key)) },
+        description = { Text(stringResource(R.string.setting_tts_page_api_key_description)) }
+    ) {
+        OutlinedTextField(
+            value = setting.apiKey,
+            onValueChange = { newApiKey ->
+                onValueChange(setting.copy(apiKey = newApiKey))
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { if (!it.isFocused) apiKeyVisible = false },
+            placeholder = { Text(stringResource(R.string.setting_tts_page_api_key_placeholder_mimo)) },
+            visualTransformation = if (apiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { apiKeyVisible = !apiKeyVisible }) {
+                    Icon(
+                        imageVector = if (apiKeyVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                        contentDescription = if (apiKeyVisible) "Hide" else "Show"
+                    )
+                }
+            }
+        )
+    }
+
+    FormItem(
+        label = { Text(stringResource(R.string.setting_tts_page_base_url)) },
+        description = { Text(stringResource(R.string.setting_tts_page_base_url_description)) }
+    ) {
+        OutlinedTextField(
+            value = setting.baseUrl,
+            onValueChange = { newBaseUrl ->
+                onValueChange(setting.copy(baseUrl = newBaseUrl))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text(stringResource(R.string.setting_tts_page_base_url_placeholder)) }
+        )
+    }
+
+    FormItem(
+        label = { Text(stringResource(R.string.setting_tts_page_model)) },
+        description = { Text(stringResource(R.string.setting_tts_page_model_description)) }
+    ) {
+        OutlinedTextField(
+            value = setting.model,
+            onValueChange = { newModel ->
+                onValueChange(setting.copy(model = newModel))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text(stringResource(R.string.setting_tts_page_model_placeholder_mimo)) }
+        )
+    }
+
+    var voiceExpanded by remember { mutableStateOf(false) }
+    val voices = listOf("mimo_default", "default_zh", "default_eh", "default_en")
+
+    FormItem(
+        label = { Text(stringResource(R.string.setting_tts_page_voice)) },
+        description = { Text(stringResource(R.string.setting_tts_page_voice_description)) }
+    ) {
+        ExposedDropdownMenuBox(
+            expanded = voiceExpanded,
+            onExpandedChange = { voiceExpanded = !voiceExpanded }
+        ) {
+            OutlinedTextField(
+                value = setting.voice,
+                onValueChange = { newVoice ->
+                    onValueChange(setting.copy(voice = newVoice))
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
+                placeholder = { Text(stringResource(R.string.setting_tts_page_voice_placeholder_mimo)) },
+                trailingIcon = {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = voiceExpanded)
+                }
+            )
+            ExposedDropdownMenu(
+                expanded = voiceExpanded,
+                onDismissRequest = { voiceExpanded = false }
+            ) {
+                voices.forEach { voice ->
+                    DropdownMenuItem(
+                        text = { Text(voice) },
+                        onClick = {
+                            voiceExpanded = false
+                            onValueChange(setting.copy(voice = voice))
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun OpenAITTSConfiguration(
@@ -559,4 +659,3 @@ private fun ElevenLabsTTSConfiguration(
         }
     }
 }
-

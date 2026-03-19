@@ -214,6 +214,22 @@
     <string name="python_wheels_online_fetch_wheels_empty">未找到可用的 .whl</string>
     <string name="python_wheels_online_fetch_incompatible_hint">可能不适配当前设备或 Python 版本</string>
     <string name="python_wheels_online_fetch_install_incompatible_note">该 .whl 可能不适配当前设备或 Python 版本。</string>
+    <string name="setting_tts_page_api_key_placeholder_mimo">MIMO_API_KEY</string>
+    <string name="setting_tts_page_default_system_name">系统TTS</string>
+    <string name="setting_tts_page_default_mimo_name">MiMo TTS</string>
+    <string name="setting_tts_page_model_placeholder_mimo">mimo-v2-tts</string>
+    <string name="setting_tts_page_preset_elevenlabs_desc">专业级语音克隆</string>
+    <string name="setting_tts_page_preset_gemini_desc">Google 的自然语音 TTS</string>
+    <string name="setting_tts_page_preset_mimo_desc">小米 MiMo 语音合成，内置多个预设音色</string>
+    <string name="setting_tts_page_preset_minimax_desc">支持情绪表达的中文 TTS</string>
+    <string name="setting_tts_page_preset_openai_desc">高质量、带情绪的语音</string>
+    <string name="setting_tts_page_preset_system_desc">使用设备内置的 TTS 引擎</string>
+    <string name="setting_tts_page_provider_elevenlabs">ElevenLabs</string>
+    <string name="setting_tts_page_provider_gemini">Gemini</string>
+    <string name="setting_tts_page_provider_mimo">MiMo</string>
+    <string name="setting_tts_page_provider_minimax">MiniMax</string>
+    <string name="setting_tts_page_provider_openai">OpenAI</string>
+    <string name="setting_tts_page_voice_placeholder_mimo">mimo_default</string>
 
     <string name="python_wheels_dependency_check_action">依赖检查</string>
     <string name="python_wheels_dependency_check_title">依赖检查</string>

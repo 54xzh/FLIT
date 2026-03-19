@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -58,8 +59,12 @@ class AudioPlayer(context: Context) {
         } else response.audioData
 
         val dataSourceFactory = DataSource.Factory { ByteArrayDataSource(bytes) }
+        val mediaItem = MediaItem.Builder()
+            .setUri(Uri.EMPTY)
+            .setMimeType(response.format.toMimeType())
+            .build()
         val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-            .createMediaSource(MediaItem.fromUri(Uri.EMPTY))
+            .createMediaSource(mediaItem)
 
         player.setMediaSource(mediaSource)
         player.prepare()
@@ -192,3 +197,13 @@ class AudioPlayer(context: Context) {
     )
 }
 
+private fun AudioFormat.toMimeType(): String {
+    return when (this) {
+        AudioFormat.MP3 -> MimeTypes.AUDIO_MPEG
+        AudioFormat.WAV -> MimeTypes.AUDIO_WAV
+        AudioFormat.OGG -> MimeTypes.AUDIO_OGG
+        AudioFormat.AAC -> MimeTypes.AUDIO_AAC
+        AudioFormat.OPUS -> MimeTypes.AUDIO_OPUS
+        AudioFormat.PCM -> MimeTypes.AUDIO_WAV
+    }
+}

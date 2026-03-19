@@ -793,18 +793,42 @@ private fun AddTTSProviderButton(onAdd: (TTSProviderSetting) -> Unit) {
             val isLocal: Boolean = false
         )
         
-        val allTtsPresets = remember {
-            listOf(
-                TTSPreset(TTSProviderSetting.SystemTTS::class, "System TTS", "Uses device's built-in TTS engine", isLocal = true),
-                TTSPreset(TTSProviderSetting.OpenAI::class, "OpenAI", "High-quality voices with emotion"),
-                TTSPreset(TTSProviderSetting.Gemini::class, "Gemini", "Google's TTS with natural voices"),
-                TTSPreset(TTSProviderSetting.ElevenLabs::class, "ElevenLabs", "Professional voice cloning"),
-                TTSPreset(TTSProviderSetting.MiniMax::class, "MiniMax", "Chinese TTS with emotions"),
-            )
-        }
+        val allTtsPresets = listOf(
+            TTSPreset(
+                TTSProviderSetting.SystemTTS::class,
+                stringResource(R.string.setting_tts_page_default_system_name),
+                stringResource(R.string.setting_tts_page_preset_system_desc),
+                isLocal = true
+            ),
+            TTSPreset(
+                TTSProviderSetting.OpenAI::class,
+                stringResource(R.string.setting_tts_page_provider_openai),
+                stringResource(R.string.setting_tts_page_preset_openai_desc)
+            ),
+            TTSPreset(
+                TTSProviderSetting.MiMo::class,
+                stringResource(R.string.setting_tts_page_provider_mimo),
+                stringResource(R.string.setting_tts_page_preset_mimo_desc)
+            ),
+            TTSPreset(
+                TTSProviderSetting.Gemini::class,
+                stringResource(R.string.setting_tts_page_provider_gemini),
+                stringResource(R.string.setting_tts_page_preset_gemini_desc)
+            ),
+            TTSPreset(
+                TTSProviderSetting.ElevenLabs::class,
+                stringResource(R.string.setting_tts_page_provider_elevenlabs),
+                stringResource(R.string.setting_tts_page_preset_elevenlabs_desc)
+            ),
+            TTSPreset(
+                TTSProviderSetting.MiniMax::class,
+                stringResource(R.string.setting_tts_page_provider_minimax),
+                stringResource(R.string.setting_tts_page_preset_minimax_desc)
+            ),
+        )
         
         // Filter presets based on search
-        val filteredPresets = remember(searchQuery) {
+        val filteredPresets = remember(searchQuery, allTtsPresets) {
             if (searchQuery.isBlank()) {
                 allTtsPresets
             } else {
@@ -899,6 +923,7 @@ private fun AddTTSProviderButton(onAdd: (TTSProviderSetting) -> Unit) {
                                 val newProvider = when (preset.type) {
                                     TTSProviderSetting.SystemTTS::class -> TTSProviderSetting.SystemTTS()
                                     TTSProviderSetting.OpenAI::class -> TTSProviderSetting.OpenAI()
+                                    TTSProviderSetting.MiMo::class -> TTSProviderSetting.MiMo()
                                     TTSProviderSetting.Gemini::class -> TTSProviderSetting.Gemini()
                                     TTSProviderSetting.ElevenLabs::class -> TTSProviderSetting.ElevenLabs()
                                     TTSProviderSetting.MiniMax::class -> TTSProviderSetting.MiniMax()
@@ -940,6 +965,7 @@ private fun AddTTSProviderButton(onAdd: (TTSProviderSetting) -> Unit) {
                                     else -> {
                                         val providerName = when (preset.type) {
                                             TTSProviderSetting.OpenAI::class -> "OpenAI"
+                                            TTSProviderSetting.MiMo::class -> "MiMo"
                                             TTSProviderSetting.Gemini::class -> "Google"
                                             TTSProviderSetting.ElevenLabs::class -> "ElevenLabs"
                                             TTSProviderSetting.MiniMax::class -> "MiniMax"
@@ -1059,6 +1085,7 @@ private fun TTSProviderItemContent(
                 // Use provider type name for icon lookup (OpenAI, Gemini, MiniMax, ElevenLabs)
                 val providerTypeName = when (provider) {
                     is TTSProviderSetting.OpenAI -> "OpenAI"
+                    is TTSProviderSetting.MiMo -> "MiMo"
                     is TTSProviderSetting.Gemini -> "Google"
                     is TTSProviderSetting.MiniMax -> "MiniMax"
                     is TTSProviderSetting.ElevenLabs -> "ElevenLabs"
@@ -1135,4 +1162,3 @@ private fun TTSProviderItemContent(
         dragHandle()
     }
 }
-

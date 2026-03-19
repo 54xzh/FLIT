@@ -919,11 +919,13 @@
   <string name="setting_tts_page_api_key">API金鑰</string>
   <string name="setting_tts_page_api_key_description">您的提供商API金鑰</string>
   <string name="setting_tts_page_api_key_placeholder_gemini">AIza...</string>
+  <string name="setting_tts_page_api_key_placeholder_mimo">MIMO_API_KEY</string>
   <string name="setting_tts_page_api_key_placeholder_openai">sk-...</string>
   <string name="setting_tts_page_base_url">基礎URL</string>
   <string name="setting_tts_page_base_url_description">API基礎URL端點</string>
   <string name="setting_tts_page_base_url_placeholder">https://api.openai.com/v1</string>
   <string name="setting_tts_page_default_gemini_name">Gemini TTS</string>
+  <string name="setting_tts_page_default_mimo_name">MiMo TTS</string>
   <string name="setting_tts_page_default_name">系統TTS</string>
   <string name="setting_tts_page_default_openai_name">OpenAI TTS</string>
   <string name="setting_tts_page_default_system_name">系統TTS</string>
@@ -938,6 +940,7 @@
   <string name="setting_tts_page_model">模型</string>
   <string name="setting_tts_page_model_description">要使用的TTS模型</string>
   <string name="setting_tts_page_model_placeholder_gemini">gemini-2.5-flash-preview-tts</string>
+  <string name="setting_tts_page_model_placeholder_mimo">mimo-v2-tts</string>
   <string name="setting_tts_page_model_placeholder_openai">gpt-4o-mini-tts</string>
   <string name="setting_tts_page_more_options_content_description">更多選項</string>
   <string name="setting_tts_page_name">名稱</string>
@@ -945,7 +948,16 @@
   <string name="setting_tts_page_name_placeholder">輸入提供商名稱</string>
   <string name="setting_tts_page_pitch">音調</string>
   <string name="setting_tts_page_pitch_description">控制語音音調高低 (0.1 - 2.0，1.0為正常音調)</string>
+  <string name="setting_tts_page_preset_elevenlabs_desc">專業級語音克隆</string>
+  <string name="setting_tts_page_preset_gemini_desc">Google 的自然語音 TTS</string>
+  <string name="setting_tts_page_preset_mimo_desc">小米 MiMo 語音合成，內建多個預設音色</string>
+  <string name="setting_tts_page_preset_minimax_desc">支援情緒表達的中文 TTS</string>
+  <string name="setting_tts_page_preset_openai_desc">高品質、帶情緒的語音</string>
+  <string name="setting_tts_page_preset_system_desc">使用裝置內建的 TTS 引擎</string>
   <string name="setting_tts_page_provider_gemini">Gemini</string>
+  <string name="setting_tts_page_provider_elevenlabs">ElevenLabs</string>
+  <string name="setting_tts_page_provider_mimo">MiMo</string>
+  <string name="setting_tts_page_provider_minimax">MiniMax</string>
   <string name="setting_tts_page_provider_openai">OpenAI</string>
   <string name="setting_tts_page_provider_system">系統TTS</string>
   <string name="setting_tts_page_provider_type">提供商類型</string>
@@ -965,6 +977,7 @@
   <string name="setting_tts_page_voice_name">語音名稱</string>
   <string name="setting_tts_page_voice_name_description">語音的名稱</string>
   <string name="setting_tts_page_voice_name_placeholder">Kore</string>
+  <string name="setting_tts_page_voice_placeholder_mimo">mimo_default</string>
   <string name="settings">設定</string>
   <string name="share">分享</string>
   <string name="share_handler_page_title">選擇一個助手處理分享</string>

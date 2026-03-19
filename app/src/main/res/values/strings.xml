@@ -1140,11 +1140,13 @@
     <string name="setting_tts_page_api_key">API Key</string>
     <string name="setting_tts_page_api_key_description">Your provider API Key</string>
     <string name="setting_tts_page_api_key_placeholder_gemini">AIza...</string>
+    <string name="setting_tts_page_api_key_placeholder_mimo">MIMO_API_KEY</string>
     <string name="setting_tts_page_api_key_placeholder_openai">sk-...</string>
     <string name="setting_tts_page_base_url">Base URL</string>
     <string name="setting_tts_page_base_url_description">API Base URL Endpoint</string>
     <string name="setting_tts_page_base_url_placeholder">https://api.openai.com/v1</string>
     <string name="setting_tts_page_default_gemini_name">Gemini TTS</string>
+    <string name="setting_tts_page_default_mimo_name">MiMo TTS</string>
     <string name="setting_tts_page_default_name">System TTS</string>
     <string name="setting_tts_page_default_openai_name">OpenAI TTS</string>
     <string name="setting_tts_page_default_system_name">System TTS</string>
@@ -1159,6 +1161,7 @@
     <string name="setting_tts_page_model">Model</string>
     <string name="setting_tts_page_model_description">TTS Model to use</string>
     <string name="setting_tts_page_model_placeholder_gemini">gemini-2.5-flash-preview-tts</string>
+    <string name="setting_tts_page_model_placeholder_mimo">mimo-v2-tts</string>
     <string name="setting_tts_page_model_placeholder_openai">gpt-4o-mini-tts</string>
     <string name="setting_tts_page_more_options_content_description">More Options</string>
     <string name="setting_tts_page_name">Name</string>
@@ -1166,7 +1169,16 @@
     <string name="setting_tts_page_name_placeholder">Enter provider name</string>
     <string name="setting_tts_page_pitch">Pitch</string>
     <string name="setting_tts_page_pitch_description">Speech Pitch (0.1 - 2.0, 1.0 is normal)</string>
+    <string name="setting_tts_page_preset_elevenlabs_desc">Professional voice cloning</string>
+    <string name="setting_tts_page_preset_gemini_desc">Google\'s TTS with natural voices</string>
+    <string name="setting_tts_page_preset_mimo_desc">Xiaomi MiMo speech synthesis with built-in voices</string>
+    <string name="setting_tts_page_preset_minimax_desc">Chinese TTS with emotions</string>
+    <string name="setting_tts_page_preset_openai_desc">High-quality voices with emotion</string>
+    <string name="setting_tts_page_preset_system_desc">Uses device\'s built-in TTS engine</string>
     <string name="setting_tts_page_provider_gemini">Gemini</string>
+    <string name="setting_tts_page_provider_elevenlabs">ElevenLabs</string>
+    <string name="setting_tts_page_provider_mimo">MiMo</string>
+    <string name="setting_tts_page_provider_minimax">MiniMax</string>
     <string name="setting_tts_page_provider_openai">OpenAI</string>
     <string name="setting_tts_page_provider_system">System TTS</string>
     <string name="setting_tts_page_provider_type">Provider Type</string>
@@ -1186,6 +1198,7 @@
     <string name="setting_tts_page_voice_name">Voice Name</string>
     <string name="setting_tts_page_voice_name_description">Name of the voice</string>
     <string name="setting_tts_page_voice_name_placeholder">Kore</string>
+    <string name="setting_tts_page_voice_placeholder_mimo">mimo_default</string>
     <string name="settings">Settings</string>
     <string name="share">Share</string>
     <string name="share_handler_page_title">Share to LastChat</string>

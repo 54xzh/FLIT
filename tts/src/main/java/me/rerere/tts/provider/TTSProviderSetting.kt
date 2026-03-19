@@ -36,6 +36,27 @@ sealed class TTSProviderSetting {
     }
 
     @Serializable
+    @SerialName("mimo")
+    data class MiMo(
+        override var id: Uuid = Uuid.random(),
+        override var name: String = "MiMo TTS",
+        val apiKey: String = "",
+        val baseUrl: String = "https://api.xiaomimimo.com/v1",
+        val model: String = "mimo-v2-tts",
+        val voice: String = "mimo_default"
+    ) : TTSProviderSetting() {
+        override fun copyProvider(
+            id: Uuid,
+            name: String,
+        ): TTSProviderSetting {
+            return this.copy(
+                id = id,
+                name = name,
+            )
+        }
+    }
+
+    @Serializable
     @SerialName("gemini")
     data class Gemini(
         override var id: Uuid = Uuid.random(),
@@ -122,6 +143,7 @@ sealed class TTSProviderSetting {
         val Types by lazy {
             listOf(
                 OpenAI::class,
+                MiMo::class,
                 Gemini::class,
                 SystemTTS::class,
                 MiniMax::class,
