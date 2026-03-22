@@ -61,6 +61,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -110,8 +111,10 @@ import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.ui.components.message.ChatMessage
 import me.rerere.rikkahub.ui.components.message.ChatMessageAssistantAvatar
 import me.rerere.rikkahub.ui.components.message.ChatProcessTimeline
+import me.rerere.rikkahub.ui.components.message.ReasoningBodyState
 import me.rerere.rikkahub.ui.components.message.planChatProcessDisplay
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
+import me.rerere.rikkahub.ui.components.ui.ListSelectableItemContentPadding
 import me.rerere.rikkahub.ui.components.ui.Tooltip
 import me.rerere.rikkahub.ui.hooks.ImeLazyListAutoScroller
 import me.rerere.rikkahub.utils.plus
@@ -274,6 +277,9 @@ private fun SharedTransitionScope.ChatListNormal(
     }
     val processDisplayPlan = remember(conversation.messageNodes) {
         planChatProcessDisplay(conversation.messageNodes)
+    }
+    val reasoningBodyStates = remember(conversation.id) {
+        mutableStateMapOf<String, ReasoningBodyState>()
     }
     val visibleMessageNeighbors = remember(conversation.messageNodes, processDisplayPlan.hiddenNodeIndexes) {
         val previousVisibleIndexByIndex = IntArray(conversation.messageNodes.size) { -1 }
@@ -537,32 +543,41 @@ private fun SharedTransitionScope.ChatListNormal(
                         nextVisibleMessage?.role != MessageRole.ASSISTANT
 
                     if (standaloneProcessParts.isNotEmpty()) {
-                        standaloneAssistantOwnerMessage?.takeIf { showStandaloneAssistantHeader }?.let { ownerMessage ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                            ) {
-                                ChatMessageAssistantAvatar(
-                                    message = ownerMessage,
-                                    previousRole = standalonePreviousRole,
-                                    model = standaloneModelForMessage,
-                                    assistant = standaloneAssistantForMessage,
-                                    forceUseAssistantAvatar = groupChatTemplateForConversation != null,
-                                    onAvatarLongPress = onAssistantAvatarLongPress,
-                                    loading = loading && isLast,
-                                    modifier = Modifier.weight(1f)
-                                )
+                        Column(
+                            modifier = Modifier.padding(
+                                horizontal = ListSelectableItemContentPadding,
+                                vertical = ListSelectableItemContentPadding,
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            standaloneAssistantOwnerMessage?.takeIf { showStandaloneAssistantHeader }?.let { ownerMessage ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                                ) {
+                                    ChatMessageAssistantAvatar(
+                                        message = ownerMessage,
+                                        previousRole = standalonePreviousRole,
+                                        model = standaloneModelForMessage,
+                                        assistant = standaloneAssistantForMessage,
+                                        forceUseAssistantAvatar = groupChatTemplateForConversation != null,
+                                        onAvatarLongPress = onAssistantAvatarLongPress,
+                                        loading = loading && isLast,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
                             }
+                            ChatProcessTimeline(
+                                processParts = standaloneProcessParts,
+                                conversationId = conversation.id,
+                                hiddenToolCallIds = emptySet(),
+                                loading = loading && isLast,
+                                model = standaloneModelForMessage ?: modelForMessage,
+                                assistant = standaloneAssistantForMessage ?: assistantForMessage,
+                                reasoningBodyStates = reasoningBodyStates,
+                            )
                         }
-                        ChatProcessTimeline(
-                            processParts = standaloneProcessParts,
-                            conversationId = conversation.id,
-                            hiddenToolCallIds = emptySet(),
-                            loading = loading && isLast,
-                            model = standaloneModelForMessage ?: modelForMessage,
-                            assistant = standaloneAssistantForMessage ?: assistantForMessage,
-                        )
                     }
 
                     if (!hideMessageCard) {
@@ -585,6 +600,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                 showInlineTokenUsage = showInlineTokenUsage,
                                 hiddenToolCallIds = hiddenToolCallIds,
                                 leadingProcessParts = prefixedDisplaySegments,
+                                reasoningBodyStates = reasoningBodyStates,
                                 conversationId = conversation.id,
                                 onCitationClick = onCitationClick,
                                 model = modelForMessage,

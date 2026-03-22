@@ -49,10 +49,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -76,6 +78,7 @@ import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.getEffectiveDisplaySetting
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantAffectScope
 import me.rerere.rikkahub.data.model.replaceRegexes
@@ -115,10 +118,18 @@ private val ProcessStepSubtitleTextStyle
         fontSize = 11.sp,
         lineHeight = 14.sp,
     )
-private enum class ReasoningBodyState {
+enum class ReasoningBodyState {
     Collapsed,
     Preview,
     Expanded,
+}
+
+internal fun processReasoningStateKey(part: UIMessagePart): String? {
+    return when (part) {
+        is UIMessagePart.Reasoning -> "reasoning:${part.createdAt}"
+        is UIMessagePart.Thinking -> "thinking:${part.createdAt}"
+        else -> null
+    }
 }
 
 @Composable
@@ -129,9 +140,13 @@ internal fun ChatProcessTimeline(
     loading: Boolean,
     model: Model?,
     assistant: Assistant?,
+    reasoningBodyStates: SnapshotStateMap<String, ReasoningBodyState>? = null,
     modifier: Modifier = Modifier,
 ) {
     if (processParts.isEmpty()) return
+
+    val localReasoningBodyStates = remember { mutableStateMapOf<String, ReasoningBodyState>() }
+    val resolvedReasoningBodyStates = reasoningBodyStates ?: localReasoningBodyStates
 
     val toolApprovalsById = remember(processParts) {
         processParts.filterIsInstance<UIMessagePart.ToolApproval>()
@@ -252,6 +267,7 @@ internal fun ChatProcessTimeline(
                             isLast = index == visibleParts.lastIndex,
                             conversationId = conversationId,
                             toolCallArgumentsById = toolCallArgumentsById,
+                            reasoningBodyStates = resolvedReasoningBodyStates,
                             loading = loading,
                             model = model,
                             assistant = assistant,
@@ -269,6 +285,7 @@ private fun ProcessTimelineStep(
     isLast: Boolean,
     conversationId: Uuid?,
     toolCallArgumentsById: Map<String, JsonElement>,
+    reasoningBodyStates: SnapshotStateMap<String, ReasoningBodyState>,
     loading: Boolean,
     model: Model?,
     assistant: Assistant?,
@@ -292,6 +309,8 @@ private fun ProcessTimelineStep(
                 when (part) {
                     is UIMessagePart.Reasoning -> CompactReasoningTimelineItem(
                         reasoning = part,
+                        stateKey = processReasoningStateKey(part) ?: "reasoning:${part.createdAt}",
+                        reasoningBodyStates = reasoningBodyStates,
                         model = model,
                         assistant = assistant,
                     )
@@ -303,6 +322,8 @@ private fun ProcessTimelineStep(
                             finishedAt = part.finishedAt,
                             metadata = part.metadata,
                         ),
+                        stateKey = processReasoningStateKey(part) ?: "thinking:${part.createdAt}",
+                        reasoningBodyStates = reasoningBodyStates,
                         model = model,
                         assistant = assistant,
                     )
@@ -378,26 +399,50 @@ private fun ProcessTimelineStep(
 @Composable
 private fun CompactReasoningTimelineItem(
     reasoning: UIMessagePart.Reasoning,
+    stateKey: String,
+    reasoningBodyStates: SnapshotStateMap<String, ReasoningBodyState>,
     model: Model?,
     assistant: Assistant?,
 ) {
     val settings = LocalSettings.current
+    val effectiveDisplay = settings.getEffectiveDisplaySetting(assistant)
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     val loading = reasoning.finishedAt == null
     val scrollState = rememberScrollState()
-    var bodyState by remember(reasoning.createdAt) {
-        mutableStateOf(
-            if (loading) {
-                ReasoningBodyState.Preview
-            } else {
-                ReasoningBodyState.Collapsed
-            }
-        )
+    val defaultBodyState = if (loading) {
+        ReasoningBodyState.Preview
+    } else {
+        ReasoningBodyState.Collapsed
     }
+    val bodyState = reasoningBodyStates[stateKey] ?: defaultBodyState
     var duration by remember(reasoning.finishedAt, reasoning.createdAt) {
         mutableStateOf(
             reasoning.finishedAt?.let { it - reasoning.createdAt } ?: (Clock.System.now() - reasoning.createdAt)
         )
+    }
+
+    LaunchedEffect(stateKey, loading) {
+        if (reasoningBodyStates[stateKey] == null) {
+            reasoningBodyStates[stateKey] = defaultBodyState
+        }
+    }
+
+    LaunchedEffect(stateKey, loading, effectiveDisplay.autoCloseThinking) {
+        val currentState = reasoningBodyStates[stateKey] ?: defaultBodyState
+        if (loading) {
+            if (currentState == ReasoningBodyState.Collapsed) {
+                reasoningBodyStates[stateKey] = ReasoningBodyState.Preview
+            }
+        } else {
+            val targetState = if (effectiveDisplay.autoCloseThinking) {
+                ReasoningBodyState.Collapsed
+            } else {
+                ReasoningBodyState.Expanded
+            }
+            if (currentState != targetState) {
+                reasoningBodyStates[stateKey] = targetState
+            }
+        }
     }
 
     LaunchedEffect(loading) {
@@ -440,7 +485,7 @@ private fun CompactReasoningTimelineItem(
             Icons.Rounded.KeyboardArrowDown
         },
         onClick = {
-            bodyState = when (bodyState) {
+            reasoningBodyStates[stateKey] = when (bodyState) {
                 ReasoningBodyState.Collapsed,
                 ReasoningBodyState.Preview,
                     -> ReasoningBodyState.Expanded

@@ -29,6 +29,8 @@ import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
 
+internal val ListSelectableItemContentPadding = 8.dp
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ListSelectableItem(
@@ -87,7 +89,10 @@ fun ListSelectableItem(
     ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = 8.dp, vertical = 8.dp) // Added padding for better touch target/visuals
+                .padding(
+                    horizontal = ListSelectableItemContentPadding,
+                    vertical = ListSelectableItemContentPadding,
+                )
                 .fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically // Center vertically

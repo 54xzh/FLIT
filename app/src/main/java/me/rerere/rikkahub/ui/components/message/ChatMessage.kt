@@ -45,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -156,6 +157,7 @@ fun ChatMessage(
     showInlineTokenUsage: Boolean = true,
     hiddenToolCallIds: Set<String> = emptySet(),
     leadingProcessParts: List<List<UIMessagePart>> = emptyList(),
+    reasoningBodyStates: SnapshotStateMap<String, ReasoningBodyState>? = null,
     conversationId: Uuid? = null,
     onCitationClick: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -264,6 +266,7 @@ fun ChatMessage(
                 isLast = isLast,
                 hiddenToolCallIds = hiddenToolCallIds,
                 leadingProcessParts = emptyList(),
+                reasoningBodyStates = reasoningBodyStates,
                 renderBlocksOverride = displayState.renderBlocks,
                 conversationId = conversationId,
                 onCitationClick = onCitationClick,
@@ -386,6 +389,7 @@ private fun MessagePartsBlock(
     isLast: Boolean,
     hiddenToolCallIds: Set<String>,
     leadingProcessParts: List<UIMessagePart>,
+    reasoningBodyStates: SnapshotStateMap<String, ReasoningBodyState>? = null,
     renderBlocksOverride: List<MessageRenderBlock>? = null,
     conversationId: Uuid?,
     onCitationClick: (String) -> Unit,
@@ -431,6 +435,7 @@ private fun MessagePartsBlock(
                     loading = loading,
                     model = model,
                     assistant = assistant,
+                    reasoningBodyStates = reasoningBodyStates,
                 )
             }
 
