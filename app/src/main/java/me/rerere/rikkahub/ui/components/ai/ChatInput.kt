@@ -119,6 +119,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import me.rerere.ai.provider.supportsBuiltInSearch
 import androidx.compose.ui.util.fastForEach
 import androidx.compose.ui.window.DialogProperties
@@ -1415,6 +1417,10 @@ private fun FilesPicker(
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     val toaster = LocalToaster.current
     val context = LocalContext.current
+    val currentChatModel = settings.getCurrentChatModel()
+    val showGeminiAttachmentMenu = remember(currentChatModel?.modelId) {
+        isGeminiAttachmentMenuEnabled(currentChatModel)
+    }
 
     val effectiveWorkspaceRootTreeUri = settings.getEffectiveWorkspaceRootTreeUri(conversation.id)
     val workspaceReady = !effectiveWorkspaceRootTreeUri.isNullOrBlank()
@@ -1514,10 +1520,22 @@ private fun FilesPicker(
                 }
             }
             Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                FilePickButton(shape = topRightShape) {
-                    state.addFiles(it)
-                    onDismiss()
-                }
+                FilePickButton(
+                    shape = topRightShape,
+                    showGeminiAttachmentMenu = showGeminiAttachmentMenu,
+                    onAddVideos = {
+                        state.addVideos(it)
+                        onDismiss()
+                    },
+                    onAddAudios = {
+                        state.addAudios(it)
+                        onDismiss()
+                    },
+                    onAddFiles = {
+                        state.addFiles(it)
+                        onDismiss()
+                    }
+                )
             }
         }
         
@@ -2236,71 +2254,103 @@ fun VideoPickButton(
 @Composable
 fun FilePickButton(
     shape: Shape = me.rerere.rikkahub.ui.theme.AppShapes.CardLarge,
+    showGeminiAttachmentMenu: Boolean = false,
+    onAddVideos: (List<Uri>) -> Unit = {},
+    onAddAudios: (List<Uri>) -> Unit = {},
     onAddFiles: (List<UIMessagePart.Document>) -> Unit = {}
 ) {
     val context = LocalContext.current
     val toaster = LocalToaster.current
+    val settings = LocalSettings.current
+    val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
+    val scope = rememberCoroutineScope()
+    var showAttachmentMenu by remember { mutableStateOf(false) }
+
+    val videoPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetMultipleContents()
+    ) { selectedUris ->
+        if (selectedUris.isNotEmpty()) {
+            scope.launch {
+                val localUris = withContext(Dispatchers.IO) {
+                    context.createChatFilesByContents(selectedUris)
+                }
+                onAddVideos(localUris)
+            }
+        }
+    }
+
+    val audioPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetMultipleContents()
+    ) { selectedUris ->
+        if (selectedUris.isNotEmpty()) {
+            scope.launch {
+                val localUris = withContext(Dispatchers.IO) {
+                    context.createChatFilesByContents(selectedUris)
+                }
+                onAddAudios(localUris)
+            }
+        }
+    }
+
     val pickMedia =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
             if (uris.isNotEmpty()) {
-                // Allow all file types
-                val allowedMimeTypes = setOf("*/*")
-
-                val documents = uris.mapNotNull { uri ->
-                    val fileName = context.getFileNameFromUri(uri) ?: "file"
-                    val mime = context.getFileMimeType(uri) ?: "text/plain"
-
-                    // Filter by MIME type or file extension
-                    val isAllowed = allowedMimeTypes.contains(mime) ||
-                        mime.startsWith("text/") ||
-                        mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-                        mime == "application/pdf" ||
-                        fileName.endsWith(".txt", ignoreCase = true) ||
-                        fileName.endsWith(".md", ignoreCase = true) ||
-                        fileName.endsWith(".csv", ignoreCase = true) ||
-                        fileName.endsWith(".json", ignoreCase = true) ||
-                        fileName.endsWith(".js", ignoreCase = true) ||
-                        fileName.endsWith(".html", ignoreCase = true) ||
-                        fileName.endsWith(".css", ignoreCase = true) ||
-                        fileName.endsWith(".xml", ignoreCase = true) ||
-                        fileName.endsWith(".py", ignoreCase = true) ||
-                        fileName.endsWith(".java", ignoreCase = true) ||
-                        fileName.endsWith(".kt", ignoreCase = true) ||
-                        fileName.endsWith(".ts", ignoreCase = true) ||
-                        fileName.endsWith(".tsx", ignoreCase = true) ||
-                        fileName.endsWith(".md", ignoreCase = true) ||
-                        fileName.endsWith(".markdown", ignoreCase = true) ||
-                        fileName.endsWith(".mdx", ignoreCase = true) ||
-                        fileName.endsWith(".yml", ignoreCase = true) ||
-                        fileName.endsWith(".yaml", ignoreCase = true)
-
-                    if (isAllowed) {
-                        val localUri = context.createChatFilesByContents(listOf(uri))[0]
-                        UIMessagePart.Document(
-                            url = localUri.toString(),
-                            fileName = fileName,
-                            mime = mime
-                        )
-                    } else {
-                        null
+                scope.launch {
+                    val documents = withContext(Dispatchers.IO) {
+                        context.toSupportedChatDocuments(uris)
                     }
-                }
 
-                if (documents.isNotEmpty()) {
-                    onAddFiles(documents)
-                } else {
-                    // Show toast for unsupported file types
-                    toaster.show("Unsupported file type", type = ToastType.Error)
+                    if (documents.isNotEmpty()) {
+                        onAddFiles(documents)
+                    } else {
+                        val fileName = uris.firstOrNull()?.let(context::getFileNameFromUri) ?: "file"
+                        toaster.show(
+                            context.getString(R.string.assistant_importer_unsupported_file_type, fileName),
+                            type = ToastType.Error,
+                        )
+                    }
                 }
             }
         }
-    BigIconTextButton(
-        shape = shape,
-        icon = {
-            Icon(Icons.Rounded.FolderOpen, null)
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        BigIconTextButton(
+            shape = shape,
+            icon = {
+                if (showGeminiAttachmentMenu) {
+                    GeminiAttachmentMenuIcon()
+                } else {
+                    Icon(Icons.Rounded.FolderOpen, null)
+                }
+            }
+        ) {
+            haptics.perform(HapticPattern.Pop)
+            if (showGeminiAttachmentMenu) {
+                showAttachmentMenu = true
+            } else {
+                pickMedia.launch(arrayOf("*/*"))
+            }
         }
-    ) {
-        pickMedia.launch(arrayOf("*/*"))
+
+        if (showGeminiAttachmentMenu) {
+            GeminiAttachmentMenu(
+                expanded = showAttachmentMenu,
+                onDismissRequest = { showAttachmentMenu = false },
+                onPickVideo = {
+                    haptics.perform(HapticPattern.Pop)
+                    videoPickerLauncher.launch("video/*")
+                },
+                onPickAudio = {
+                    haptics.perform(HapticPattern.Pop)
+                    audioPickerLauncher.launch("audio/*")
+                },
+                onPickFile = {
+                    haptics.perform(HapticPattern.Pop)
+                    pickMedia.launch(arrayOf("*/*"))
+                },
+                modifier = Modifier,
+            )
+        }
     }
 }
 

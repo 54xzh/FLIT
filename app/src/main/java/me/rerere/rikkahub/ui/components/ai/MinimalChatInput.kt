@@ -716,6 +716,7 @@ private fun MinimalPickerContent(
     val localSettings = LocalSettings.current
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
+    val haptics = rememberPremiumHaptics(enabled = localSettings.displaySetting.enableUIHaptics)
     
     // OLED dark mode detection for buttons (not sheet backgrounds)
     val amoledMode by me.rerere.rikkahub.ui.hooks.rememberAmoledDarkMode()
@@ -739,6 +740,11 @@ private fun MinimalPickerContent(
     var showLorebooksPicker by remember { mutableStateOf(false) }
     var showSearchPicker by remember { mutableStateOf(false) }
     var showMcpPicker by remember { mutableStateOf(false) }
+    var showAttachmentMenu by remember { mutableStateOf(false) }
+    val currentChatModel = settings.getCurrentChatModel()
+    val showGeminiAttachmentMenu = remember(currentChatModel?.modelId) {
+        isGeminiAttachmentMenuEnabled(currentChatModel)
+    }
 
     val mcpServers = settings.mcpServers
     val enabledMcpServersCount = remember(mcpServers, assistant.mcpServers) {
@@ -838,47 +844,41 @@ private fun MinimalPickerContent(
     }
     
     // File picker launcher
+    val videoPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetMultipleContents()
+    ) { selectedUris ->
+        if (selectedUris.isNotEmpty()) {
+            scope.launch {
+                val localUris = withContext(Dispatchers.IO) {
+                    context.createChatFilesByContents(selectedUris)
+                }
+                state.addVideos(localUris)
+                onDismiss()
+            }
+        }
+    }
+
+    val audioPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetMultipleContents()
+    ) { selectedUris ->
+        if (selectedUris.isNotEmpty()) {
+            scope.launch {
+                val localUris = withContext(Dispatchers.IO) {
+                    context.createChatFilesByContents(selectedUris)
+                }
+                state.addAudios(localUris)
+                onDismiss()
+            }
+        }
+    }
+
     val filePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { selectedUris ->
         if (selectedUris.isNotEmpty()) {
             scope.launch {
                 val documents = withContext(Dispatchers.IO) {
-                    // Keep consistent with ChatInput's filtering rules.
-                    selectedUris.mapNotNull { uri ->
-                        val fileName = context.getFileNameFromUri(uri) ?: "file"
-                        val mime = context.getFileMimeType(uri) ?: "text/plain"
-
-                        val isAllowed = mime.startsWith("text/") ||
-                            mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-                            mime == "application/pdf" ||
-                            fileName.endsWith(".txt", ignoreCase = true) ||
-                            fileName.endsWith(".md", ignoreCase = true) ||
-                            fileName.endsWith(".csv", ignoreCase = true) ||
-                            fileName.endsWith(".json", ignoreCase = true) ||
-                            fileName.endsWith(".js", ignoreCase = true) ||
-                            fileName.endsWith(".html", ignoreCase = true) ||
-                            fileName.endsWith(".css", ignoreCase = true) ||
-                            fileName.endsWith(".xml", ignoreCase = true) ||
-                            fileName.endsWith(".py", ignoreCase = true) ||
-                            fileName.endsWith(".java", ignoreCase = true) ||
-                            fileName.endsWith(".kt", ignoreCase = true) ||
-                            fileName.endsWith(".ts", ignoreCase = true) ||
-                            fileName.endsWith(".tsx", ignoreCase = true) ||
-                            fileName.endsWith(".markdown", ignoreCase = true) ||
-                            fileName.endsWith(".mdx", ignoreCase = true) ||
-                            fileName.endsWith(".yml", ignoreCase = true) ||
-                            fileName.endsWith(".yaml", ignoreCase = true)
-                        if (!isAllowed) return@mapNotNull null
-
-                        val localUri = context.createChatFilesByContents(listOf(uri)).firstOrNull()
-                            ?: return@mapNotNull null
-                        UIMessagePart.Document(
-                            url = localUri.toString(),
-                            fileName = fileName,
-                            mime = mime,
-                        )
-                    }
+                    context.toSupportedChatDocuments(selectedUris)
                 }
 
                 if (documents.isNotEmpty()) {
@@ -943,14 +943,52 @@ private fun MinimalPickerContent(
             )
             
             // Files button - icon only, no label
-            MinimalFileButtonGroupedIconOnly(
-                icon = Icons.Rounded.FolderOpen,
-                shape = rightButtonShape,
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-                onClick = {
-                    filePickerLauncher.launch(arrayOf("*/*"))
+            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                MinimalFileButtonGroupedIconOnly(
+                    shape = rightButtonShape,
+                    modifier = Modifier.fillMaxSize(),
+                    onClick = {
+                        haptics.perform(HapticPattern.Pop)
+                        if (showGeminiAttachmentMenu) {
+                            showAttachmentMenu = true
+                        } else {
+                            filePickerLauncher.launch(arrayOf("*/*"))
+                        }
+                    },
+                    content = {
+                        if (showGeminiAttachmentMenu) {
+                            GeminiAttachmentMenuIcon()
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.FolderOpen,
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                )
+
+                if (showGeminiAttachmentMenu) {
+                    GeminiAttachmentMenu(
+                        expanded = showAttachmentMenu,
+                        onDismissRequest = { showAttachmentMenu = false },
+                        onPickVideo = {
+                            haptics.perform(HapticPattern.Pop)
+                            videoPickerLauncher.launch("video/*")
+                        },
+                        onPickAudio = {
+                            haptics.perform(HapticPattern.Pop)
+                            audioPickerLauncher.launch("audio/*")
+                        },
+                        onPickFile = {
+                            haptics.perform(HapticPattern.Pop)
+                            filePickerLauncher.launch(arrayOf("*/*"))
+                        },
+                        modifier = Modifier,
+                    )
                 }
-            )
+            }
         }
 
         if (conversation.messageNodes.isEmpty()) {
@@ -1005,7 +1043,7 @@ private fun MinimalPickerContent(
         
         if (uiMode == ChatInputUiMode.Normal) {
             // Model picker - uses actual model icon, full-width clickable
-            val currentModel = settings.getCurrentChatModel()
+            val currentModel = currentChatModel
             val provider = currentModel?.findProvider(providers = settings.providers)
             MinimalPickerItem(
                 icon = {
@@ -1489,10 +1527,10 @@ private fun MinimalFileButtonGrouped(
 // Grouped file button icon-only variant (no text label) for compact picker display
 @Composable
 private fun MinimalFileButtonGroupedIconOnly(
-    icon: ImageVector,
     shape: androidx.compose.ui.graphics.Shape,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    content: @Composable () -> Unit,
 ) {
     // OLED-aware button color (same as floating toolbar's BigIconTextButton)
     val amoledMode by me.rerere.rikkahub.ui.hooks.rememberAmoledDarkMode()
@@ -1511,14 +1549,31 @@ private fun MinimalFileButtonGroupedIconOnly(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun MinimalFileButtonGroupedIconOnly(
+    icon: ImageVector,
+    shape: androidx.compose.ui.graphics.Shape,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    MinimalFileButtonGroupedIconOnly(
+        shape = shape,
+        modifier = modifier,
+        onClick = onClick,
+        content = {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(28.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
+    )
 }
 
 @Composable
