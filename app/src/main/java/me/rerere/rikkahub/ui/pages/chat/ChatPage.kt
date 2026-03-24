@@ -47,6 +47,7 @@ import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,7 +74,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -470,21 +474,12 @@ fun ChatPage(
         saver = LazyListState.Saver,
     ) {
         if (hasMessages) {
-            val persistedIndex = persistedReadPosition
-                ?.itemIndex
-                ?.coerceIn(0, conversation.messageNodes.lastIndex)
-                ?: 0
-            val index = if (hasUsableCachedPosition) {
-                cachedPosition?.first ?: persistedIndex
-            } else {
-                persistedIndex
-            }
-            val offset = if (hasUsableCachedPosition) {
-                cachedPosition?.second ?: persistedReadPosition?.offset?.coerceAtLeast(0) ?: 0
-            } else {
-                persistedReadPosition?.offset?.coerceAtLeast(0) ?: 0
-            }
-            LazyListState(index, offset)
+            val initialPosition = resolveInitialChatListPosition(
+                cachedPosition = cachedPosition.takeIf { hasUsableCachedPosition },
+                persistedReadPosition = persistedReadPosition,
+                itemCount = conversation.messageNodes.size,
+            )
+            LazyListState(initialPosition.index, initialPosition.offset)
         } else {
             LazyListState()
         }
@@ -619,13 +614,7 @@ private fun ChatPageContent(
         !hasCachedPosition && conversation.messageNodes.isNotEmpty() && !initialEntryHandled
     ) 0f else 1f
 
-    // Safety timeout: force-show list if initialization stalls
-    LaunchedEffect(conversation.id, initialSearchQuery) {
-        delay(2000L)
-        if (!initialEntryHandled) {
-            initialEntryHandled = true
-        }
-    }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     // Continuously save scroll position to cache for instant restoration on re-entry
     LaunchedEffect(conversation.id, initialEntryHandled) {
@@ -638,6 +627,31 @@ private fun ChatPageContent(
     }
 
     var pendingReadPositionSample by remember(conversation.id) { mutableStateOf<Pair<Uuid, Int>?>(null) }
+    val persistCurrentReadPosition = remember(
+        chatListState,
+        vm,
+        currentConversationState,
+        previewMode,
+        initialEntryHandled,
+    ) {
+        { force: Boolean ->
+            if (!previewMode && (force || initialEntryHandled)) {
+                val sample = resolveCurrentReadPositionSample(
+                    messageNodes = currentConversationState.value.messageNodes,
+                    itemIndex = chatListState.firstVisibleItemIndex,
+                    offset = chatListState.firstVisibleItemScrollOffset,
+                )
+                if (sample != null) {
+                    vm.updateConversationReadPosition(
+                        nodeId = sample.nodeId,
+                        offset = sample.offset,
+                        itemIndex = sample.itemIndex,
+                    )
+                }
+            }
+        }
+    }
+    val latestPersistCurrentReadPosition = rememberUpdatedState(persistCurrentReadPosition)
 
     val density = LocalDensity.current
     var chatInputHeightPx by remember { mutableStateOf(0) }
@@ -652,6 +666,38 @@ private fun ChatPageContent(
             maxOf(140.dp, chatInputChromeHeightDp + 32.dp)
         } else {
             140.dp
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, conversation.id) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                latestPersistCurrentReadPosition.value(true)
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            latestPersistCurrentReadPosition.value(true)
+        }
+    }
+
+    // Safety timeout: force-show list if initialization stalls
+    LaunchedEffect(
+        conversation.id,
+        initialSearchQuery,
+        hasCachedPosition,
+        conversation.messageNodes.size,
+    ) {
+        delay(2000L)
+        if (!initialEntryHandled) {
+            if (conversation.messageNodes.isNotEmpty() && !hasCachedPosition) {
+                val fallbackIndex = resolveBottomFallbackIndex(conversation.messageNodes.size)
+                runCatching { chatListState.scrollToItem(fallbackIndex) }
+                latestPersistCurrentReadPosition.value(true)
+            }
+            initialEntryHandled = true
         }
     }
 
@@ -727,6 +773,7 @@ private fun ChatPageContent(
         // In-memory cache hit: position is already approximately correct, skip costly restoration.
         if (hasInMemoryCache) {
             initialEntryHandled = true
+            latestPersistCurrentReadPosition.value(true)
             return@LaunchedEffect
         }
 
@@ -776,7 +823,7 @@ private fun ChatPageContent(
         }
 
         if (!restored) {
-            val fallbackIndex = (latestConversation.messageNodes.lastIndex + 1).coerceAtLeast(0)
+            val fallbackIndex = resolveBottomFallbackIndex(latestConversation.messageNodes.size)
             for (i in 0 until 15) {
                 if (chatListState.layoutInfo.totalItemsCount > fallbackIndex || latestConversation.messageNodes.isEmpty()) {
                     runCatching { chatListState.scrollToItem(fallbackIndex) }
@@ -787,6 +834,7 @@ private fun ChatPageContent(
         }
 
         initialEntryHandled = true
+        latestPersistCurrentReadPosition.value(true)
     }
 
     // Auto-scroll to first matching message when opened from search
