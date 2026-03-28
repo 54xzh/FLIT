@@ -25,3 +25,7 @@ settings.local.json
 /upstream
 /web
 /web-ui
+/.android-sdk
+/.android-user
+/.gradle-user
+/.jdks
