@@ -75,6 +75,7 @@ import me.rerere.rikkahub.data.datastore.getEffectiveDisplaySetting
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.modifier.shimmer
 import me.rerere.rikkahub.utils.extractGeminiThinkingTitle
+import me.rerere.rikkahub.utils.extractGeminiLastSection
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.DurationUnit
@@ -98,11 +99,14 @@ fun ChatMessageReasoning(
     val settings = LocalSettings.current
     val effectiveDisplay = settings.getEffectiveDisplaySetting()
     val loading = reasoning.finishedAt == null
+    val isGemini = model != null && ModelRegistry.GEMINI_SERIES.match(model.modelId)
 
     LaunchedEffect(reasoning.reasoning, loading) {
         if (loading) {
             if (!expandState.expanded) expandState = ReasoningCardState.Preview
-            scrollState.animateScrollTo(scrollState.maxValue)
+            if (!isGemini) {
+                scrollState.animateScrollTo(scrollState.maxValue)
+            }
         } else {
             if (expandState.expanded) {
                 expandState = if (effectiveDisplay.autoCloseThinking) {
@@ -239,56 +243,79 @@ fun ChatMessageReasoning(
             }
 
             if (expandState.expanded) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .let {
-                            if (expandState == ReasoningCardState.Preview) {
-                                it
-                                    .graphicsLayer { alpha = 0.99f } // 触发离屏渲染，保证蒙版生效
-                                    .drawWithCache {
-                                        // 创建顶部和底部的渐变蒙版
-                                        val brush = Brush.verticalGradient(
-                                            startY = 0f,
-                                            endY = size.height,
-                                            colorStops = arrayOf(
-                                                0.0f to Color.Transparent,
-                                                (fadeHeight / size.height) to Color.Black,
-                                                (1 - fadeHeight / size.height) to Color.Black,
-                                                1.0f to Color.Transparent
+                if (isGemini && loading && expandState == ReasoningCardState.Preview) {
+                    // Gemini Preview: 用 AnimatedContent 做段落切换动画
+                    val sectionTitle = remember(reasoning.reasoning) {
+                        reasoning.reasoning.extractGeminiThinkingTitle() ?: ""
+                    }
+                    AnimatedContent(
+                        targetState = sectionTitle,
+                        transitionSpec = {
+                            (slideInVertically { it } + fadeIn()) togetherWith
+                                    (slideOutVertically { -it } + fadeOut())
+                        },
+                    ) {
+                        MarkdownBlock(
+                            content = reasoning.reasoning.extractGeminiLastSection()
+                                .replaceRegexes(
+                                    assistant = assistant,
+                                    scope = AssistantAffectScope.ASSISTANT,
+                                    visual = true,
+                                ),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .let {
+                                if (expandState == ReasoningCardState.Preview) {
+                                    it
+                                        .graphicsLayer { alpha = 0.99f }
+                                        .drawWithCache {
+                                            val brush = Brush.verticalGradient(
+                                                startY = 0f,
+                                                endY = size.height,
+                                                colorStops = arrayOf(
+                                                    0.0f to Color.Transparent,
+                                                    (fadeHeight / size.height) to Color.Black,
+                                                    (1 - fadeHeight / size.height) to Color.Black,
+                                                    1.0f to Color.Transparent
+                                                )
                                             )
-                                        )
-                                        onDrawWithContent {
-                                            drawContent()
-                                            drawRect(
-                                                brush = brush,
-                                                size = Size(size.width, size.height),
-                                                blendMode = BlendMode.DstIn // 用蒙版做透明渐变
-                                            )
+                                            onDrawWithContent {
+                                                drawContent()
+                                                drawRect(
+                                                    brush = brush,
+                                                    size = Size(size.width, size.height),
+                                                    blendMode = BlendMode.DstIn
+                                                )
+                                            }
                                         }
-                                    }
-                                    .heightIn(max = 100.dp)
-                                    .verticalScroll(scrollState)
-                            } else {
-                                it
+                                        .heightIn(max = 100.dp)
+                                        .verticalScroll(scrollState)
+                                } else {
+                                    it
+                                }
                             }
-                        }
-
-                ) {
-                    MarkdownBlock(
-                        content = reasoning.reasoning.replaceRegexes(
-                            assistant = assistant,
-                            scope = AssistantAffectScope.ASSISTANT,
-                            visual = true,
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    ) {
+                        MarkdownBlock(
+                            content = reasoning.reasoning.replaceRegexes(
+                                assistant = assistant,
+                                scope = AssistantAffectScope.ASSISTANT,
+                                visual = true,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
 
-            // 如果是gemini, 显示当前的思考标题
-            if (loading && model != null && ModelRegistry.GEMINI_SERIES.match(model.modelId)) {
+            // 如果是gemini且完全折叠, 显示当前的思考标题
+            if (loading && isGemini && !expandState.expanded) {
                 GeminiReasoningTitle(reasoning = reasoning)
             }
         }

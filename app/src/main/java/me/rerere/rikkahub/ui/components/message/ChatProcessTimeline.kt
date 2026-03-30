@@ -1,10 +1,14 @@
 package me.rerere.rikkahub.ui.components.message
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -91,6 +95,7 @@ import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.extractGeminiThinkingTitle
+import me.rerere.rikkahub.utils.extractGeminiLastSection
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import org.koin.compose.koinInject
 import java.util.Locale
@@ -454,15 +459,17 @@ private fun CompactReasoningTimelineItem(
         }
     }
 
+    val isGemini = model != null && ModelRegistry.GEMINI_SERIES.match(model.modelId)
+
     LaunchedEffect(reasoning.reasoning, loading, bodyState) {
-        if (loading && bodyState == ReasoningBodyState.Preview) {
+        if (loading && bodyState == ReasoningBodyState.Preview && !isGemini) {
             withFrameNanos { }
             scrollState.animateScrollTo(scrollState.maxValue)
         }
     }
 
     val geminiTitle = remember(reasoning.reasoning, model) {
-        if (loading && model != null && ModelRegistry.GEMINI_SERIES.match(model.modelId)) {
+        if (loading && isGemini) {
             reasoning.reasoning.extractGeminiThinkingTitle()
         } else {
             null
@@ -478,7 +485,7 @@ private fun CompactReasoningTimelineItem(
         } else {
             stringResource(R.string.notification_live_update_inference)
         },
-        subtitle = geminiTitle,
+        subtitle = geminiTitle?.takeIf { bodyState == ReasoningBodyState.Collapsed },
         trailingIcon = if (bodyState == ReasoningBodyState.Expanded) {
             Icons.Rounded.KeyboardArrowUp
         } else {
@@ -519,27 +526,50 @@ private fun CompactReasoningTimelineItem(
                         animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f)
                     )
             ) {
-                MarkdownBlock(
-                    content = reasoning.reasoning.replaceRegexes(
-                        assistant = assistant,
-                        scope = AssistantAffectScope.ASSISTANT,
-                        visual = true,
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (bodyState == ReasoningBodyState.Preview) {
-                                Modifier
-                                    .heightIn(max = 88.dp)
-                                    .clipToBounds()
-                                    .verticalScroll(scrollState)
-                            } else {
-                                Modifier
-                            }
+                if (isGemini && loading && bodyState == ReasoningBodyState.Preview) {
+                    AnimatedContent(
+                        targetState = geminiTitle ?: "",
+                        transitionSpec = {
+                            (slideInVertically { it } + fadeIn()) togetherWith
+                                    (slideOutVertically { -it } + fadeOut())
+                        },
+                    ) {
+                        MarkdownBlock(
+                            content = reasoning.reasoning.extractGeminiLastSection()
+                                .replaceRegexes(
+                                    assistant = assistant,
+                                    scope = AssistantAffectScope.ASSISTANT,
+                                    visual = true,
+                                ),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 4.dp, end = 8.dp),
                         )
-                        .padding(start = 4.dp, end = 8.dp),
-                )
+                    }
+                } else {
+                    MarkdownBlock(
+                        content = reasoning.reasoning.replaceRegexes(
+                            assistant = assistant,
+                            scope = AssistantAffectScope.ASSISTANT,
+                            visual = true,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (bodyState == ReasoningBodyState.Preview) {
+                                    Modifier
+                                        .heightIn(max = 88.dp)
+                                        .clipToBounds()
+                                        .verticalScroll(scrollState)
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .padding(start = 4.dp, end = 8.dp),
+                    )
+                }
             }
         }
     }

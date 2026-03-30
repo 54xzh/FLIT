@@ -7,7 +7,11 @@
       "Bash(cmd.exe:*)",
       "Bash(powershell.exe -Command \"Test-Path ''C:\\\\Users\\\\54xzh\\\\scoop\\\\apps\\\\cygwin\\\\current\\\\root\\\\bin\\\\cygpath.exe''\")",
       "Bash(powershell.exe -Command \"Get-ChildItem ''C:\\\\Users\\\\54xzh\\\\scoop\\\\apps\\\\cygwin\\\\current\\\\root\\\\bin'' -Filter ''*cyg*'' | Select-Object Name\")",
-      "Bash(cygpath:*)"
+      "Bash(cygpath:*)",
+      "Bash(grep -r \"class.*Thinking\\\\|data class.*Thinking\" /home/xzh/桌面/Project/LastChat --include=*.kt)",
+      "Bash(grep -r \"最近.*行\\\\|recent.*line\\\\|tail.*line\\\\|visible.*line\\\\|maxLine\\\\|lineCount\" /home/xzh/桌面/Project/LastChat --include=*.kt)",
+      "Bash(grep -rn \"recentLines\\\\|recent\\\\|tail\\\\|最近\" /home/xzh/桌面/Project/LastChat --include=*.kt)",
+      "Bash(./gradlew compileDebugKotlin)"
     ]
   }
 }

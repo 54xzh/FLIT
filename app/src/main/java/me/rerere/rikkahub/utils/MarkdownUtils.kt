@@ -52,3 +52,13 @@ fun String.extractGeminiThinkingTitle(): String? {
 
     return null
 }
+
+/**
+ * 提取最后一个以 **粗体标题** 开头的段落（标题行+后续内容）
+ */
+fun String.extractGeminiLastSection(): String {
+    val boldPattern = Regex("^\\*\\*.+?\\*\\*$", RegexOption.MULTILINE)
+    val matches = boldPattern.findAll(this).toList()
+    if (matches.isEmpty()) return this
+    return this.substring(matches.last().range.first).trimEnd()
+}
