@@ -29,3 +29,4 @@ settings.local.json
 /.android-user
 /.gradle-user
 /.jdks
+.claude/settings.local.json
