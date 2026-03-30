@@ -469,10 +469,7 @@ fun ChatPage(
         cachedPosition = cachedPosition,
         itemCount = conversation.messageNodes.size,
     )
-    val chatListState = rememberSaveable(
-        id, hasMessages,
-        saver = LazyListState.Saver,
-    ) {
+    val chatListState = remember(id, hasMessages) {
         if (hasMessages) {
             val initialPosition = resolveInitialChatListPosition(
                 cachedPosition = cachedPosition.takeIf { hasUsableCachedPosition },
@@ -585,9 +582,10 @@ private fun ChatPageContent(
     var savingContextSummary by remember { mutableStateOf(false) }
     val currentConversationState = rememberUpdatedState(conversation)
     val conversationInitialized by vm.conversationInitialized.collectAsStateWithLifecycle()
+    val settingsReady by vm.settingsReady.collectAsStateWithLifecycle()
     val conversationReadPosition by vm.conversationReadPosition.collectAsStateWithLifecycle()
     val loadingOlderHistory by vm.loadingOlderHistory.collectAsStateWithLifecycle()
-    var initialEntryHandled by rememberSaveable(conversation.id, initialSearchQuery) { mutableStateOf(false) }
+    var initialEntryHandled by remember(conversation.id, initialSearchQuery) { mutableStateOf(false) }
     val conversationMessageCount = remember(conversation.totalMessageNodeCount, conversation.messageNodes.size) {
         LargeContextWarningPolicy.resolveMessageCount(conversation)
     }
@@ -608,7 +606,7 @@ private fun ChatPageContent(
         cachedPosition = inMemoryCachedPosition,
         itemCount = conversation.messageNodes.size,
     )
-    val hasPersistedReadPosition = conversationReadPosition != null
+    val hasPersistedReadPosition = settingsReady && conversationReadPosition != null
     val hasCachedPosition = hasInMemoryCache || hasPersistedReadPosition
     val chatListAlpha = if (
         !hasCachedPosition && conversation.messageNodes.isNotEmpty() && !initialEntryHandled
@@ -631,11 +629,12 @@ private fun ChatPageContent(
         chatListState,
         vm,
         currentConversationState,
+        settingsReady,
         previewMode,
         initialEntryHandled,
     ) {
-        { force: Boolean ->
-            if (!previewMode && (force || initialEntryHandled)) {
+        {
+            if (shouldPersistCurrentReadPosition(settingsReady, previewMode, initialEntryHandled)) {
                 val sample = resolveCurrentReadPositionSample(
                     messageNodes = currentConversationState.value.messageNodes,
                     itemIndex = chatListState.firstVisibleItemIndex,
@@ -672,14 +671,14 @@ private fun ChatPageContent(
     DisposableEffect(lifecycleOwner, conversation.id) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                latestPersistCurrentReadPosition.value(true)
+                latestPersistCurrentReadPosition.value()
             }
         }
 
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            latestPersistCurrentReadPosition.value(true)
+            latestPersistCurrentReadPosition.value()
         }
     }
 
@@ -689,15 +688,17 @@ private fun ChatPageContent(
         initialSearchQuery,
         hasCachedPosition,
         conversation.messageNodes.size,
+        settingsReady,
     ) {
+        if (!settingsReady) return@LaunchedEffect
         delay(2000L)
         if (!initialEntryHandled) {
             if (conversation.messageNodes.isNotEmpty() && !hasCachedPosition) {
                 val fallbackIndex = resolveBottomFallbackIndex(conversation.messageNodes.size)
                 runCatching { chatListState.scrollToItem(fallbackIndex) }
-                latestPersistCurrentReadPosition.value(true)
             }
             initialEntryHandled = true
+            latestPersistCurrentReadPosition.value()
         }
     }
 
@@ -760,6 +761,7 @@ private fun ChatPageContent(
     LaunchedEffect(
         conversation.id,
         conversationInitialized,
+        settingsReady,
         initialEntryHandled,
         conversationReadPosition,
         initialSearchQuery,
@@ -767,13 +769,19 @@ private fun ChatPageContent(
         previewMode,
         hasInMemoryCache,
     ) {
-        if (!conversationInitialized || initialEntryHandled) return@LaunchedEffect
-        if (!shouldRunReadPositionRestore(initialSearchQuery, pendingJumpNodeId, previewMode)) return@LaunchedEffect
+        if (!shouldStartInitialReadPositionRestore(
+                settingsReady = settingsReady,
+                conversationInitialized = conversationInitialized,
+                initialEntryHandled = initialEntryHandled,
+                initialSearchQuery = initialSearchQuery,
+                pendingJumpNodeId = pendingJumpNodeId,
+                previewMode = previewMode,
+            )
+        ) return@LaunchedEffect
 
-        // In-memory cache hit: position is already approximately correct, skip costly restoration.
         if (hasInMemoryCache) {
             initialEntryHandled = true
-            latestPersistCurrentReadPosition.value(true)
+            latestPersistCurrentReadPosition.value()
             return@LaunchedEffect
         }
 
@@ -834,7 +842,7 @@ private fun ChatPageContent(
         }
 
         initialEntryHandled = true
-        latestPersistCurrentReadPosition.value(true)
+        latestPersistCurrentReadPosition.value()
     }
 
     // Auto-scroll to first matching message when opened from search

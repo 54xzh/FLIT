@@ -23,6 +23,32 @@ internal fun shouldRunReadPositionRestore(
     return initialSearchQuery.isNullOrBlank() && pendingJumpNodeId == null && !previewMode
 }
 
+internal fun shouldStartInitialReadPositionRestore(
+    settingsReady: Boolean,
+    conversationInitialized: Boolean,
+    initialEntryHandled: Boolean,
+    initialSearchQuery: String?,
+    pendingJumpNodeId: Uuid?,
+    previewMode: Boolean,
+): Boolean {
+    return settingsReady &&
+        conversationInitialized &&
+        !initialEntryHandled &&
+        shouldRunReadPositionRestore(
+            initialSearchQuery = initialSearchQuery,
+            pendingJumpNodeId = pendingJumpNodeId,
+            previewMode = previewMode,
+        )
+}
+
+internal fun shouldPersistCurrentReadPosition(
+    settingsReady: Boolean,
+    previewMode: Boolean,
+    initialEntryHandled: Boolean,
+): Boolean {
+    return settingsReady && !previewMode && initialEntryHandled
+}
+
 internal fun resolveReadPositionNodeIndex(
     messageNodes: List<MessageNode>,
     nodeId: String?,

@@ -134,6 +134,9 @@ class ChatVM(
 
     // 用户设置
     val settings: StateFlow<Settings> = settingsStore.settingsFlow
+    val settingsReady: StateFlow<Boolean> = settingsStore.settingsFlowRaw
+        .map { true }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val conversationReadPosition: StateFlow<ConversationReadPosition?> = settings
         .map { current -> current.getConversationReadPosition(_conversationId) }
         .stateIn(viewModelScope, SharingStarted.Lazily, null)

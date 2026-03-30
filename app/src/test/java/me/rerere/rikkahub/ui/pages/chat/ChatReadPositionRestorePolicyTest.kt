@@ -47,6 +47,82 @@ class ChatReadPositionRestorePolicyTest {
     }
 
     @Test
+    fun shouldStartInitialReadPositionRestore_waitsUntilSettingsReady() {
+        assertFalse(
+            shouldStartInitialReadPositionRestore(
+                settingsReady = false,
+                conversationInitialized = true,
+                initialEntryHandled = false,
+                initialSearchQuery = null,
+                pendingJumpNodeId = null,
+                previewMode = false,
+            )
+        )
+        assertFalse(
+            shouldStartInitialReadPositionRestore(
+                settingsReady = true,
+                conversationInitialized = false,
+                initialEntryHandled = false,
+                initialSearchQuery = null,
+                pendingJumpNodeId = null,
+                previewMode = false,
+            )
+        )
+        assertFalse(
+            shouldStartInitialReadPositionRestore(
+                settingsReady = true,
+                conversationInitialized = true,
+                initialEntryHandled = true,
+                initialSearchQuery = null,
+                pendingJumpNodeId = null,
+                previewMode = false,
+            )
+        )
+        assertTrue(
+            shouldStartInitialReadPositionRestore(
+                settingsReady = true,
+                conversationInitialized = true,
+                initialEntryHandled = false,
+                initialSearchQuery = null,
+                pendingJumpNodeId = null,
+                previewMode = false,
+            )
+        )
+    }
+
+    @Test
+    fun shouldPersistCurrentReadPosition_requiresSettingsAndHandledEntry() {
+        assertFalse(
+            shouldPersistCurrentReadPosition(
+                settingsReady = false,
+                previewMode = false,
+                initialEntryHandled = true,
+            )
+        )
+        assertFalse(
+            shouldPersistCurrentReadPosition(
+                settingsReady = true,
+                previewMode = true,
+                initialEntryHandled = true,
+            )
+        )
+        assertFalse(
+            shouldPersistCurrentReadPosition(
+                settingsReady = true,
+                previewMode = false,
+                initialEntryHandled = false,
+            )
+        )
+        assertTrue(
+            shouldPersistCurrentReadPosition(
+                settingsReady = true,
+                previewMode = false,
+                initialEntryHandled = true,
+            )
+        )
+    }
+
+    @Test
     fun resolveReadPositionNodeIndex_returnsExpectedIndex() {
         val firstId = Uuid.parse("00000000-0000-0000-0000-000000000401")
         val secondId = Uuid.parse("00000000-0000-0000-0000-000000000402")

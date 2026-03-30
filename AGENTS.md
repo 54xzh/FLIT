@@ -95,7 +95,10 @@ LastChat is not just a tool; it is designed to be a "fidget toy".
 ## 6. Testing & Operations
 -   **Unit Tests:** Place in `src/test`. Cover parsing and logic.
 -   **Instrumented Tests:** Place in `src/androidTest`. Cover flows.
--   **Build**: After completing the changes, use `source ~/.bashrc && ./gradlew :app:assembleExpRelease --no-daemon -x :app:uploadCrashlyticsMappingFileExpRelease` to build the package for testing.
+-   **Build Environment:** Use JDK 21. Prefer a project-local JDK and expose it through `JAVA_HOME`.
+-   **Build Cache:** Use a project-local Gradle cache through `GRADLE_USER_HOME` (for example, a `.gradle-user` directory under the repo root).
+-   **Android User Home:** Use a project-local Android user directory through `ANDROID_USER_HOME` and ensure it exists before running Gradle.
+-   **Build**: After completing the changes, use `export PATH=$JAVA_HOME/bin:$PATH && mkdir -p "$ANDROID_USER_HOME" && source ~/.bashrc && ./gradlew :app:assembleExpRelease --no-daemon -x :app:uploadCrashlyticsMappingFileExpRelease` to build the package for testing. Ensure `JAVA_HOME`, `GRADLE_USER_HOME`, and `ANDROID_USER_HOME` are already set to valid project-local paths in the local environment.
 -   **Build Exception**: If the change only updates UI copy or prompt text (no logic, behavior, or resource/schema changes), compile verification can be skipped.
 -   **Commit Guidelines:** Use Conventional Commits (`feat:`, `fix:`, `chore:`).
 -   **Localization Requirement:** When adding or modifying features that introduce/modify user-visible text, you MUST provide both Simplified Chinese and Traditional Chinese `strings.xml` (typically `values-zh-rCN/strings.xml` and `values-zh-rTW/strings.xml`) alongside the default resources.
