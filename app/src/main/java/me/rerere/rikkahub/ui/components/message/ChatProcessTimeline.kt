@@ -378,7 +378,7 @@ private fun ProcessTimelineStep(
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
-                        .padding(top = 6.dp)
+                        .padding(top = 5.75.dp)
                         .size(14.dp),
                 )
                 if (!isLast) {
