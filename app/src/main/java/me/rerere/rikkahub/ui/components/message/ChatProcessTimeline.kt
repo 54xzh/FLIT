@@ -1,15 +1,12 @@
 package me.rerere.rikkahub.ui.components.message
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -476,99 +473,88 @@ private fun CompactReasoningTimelineItem(
         }
     }
 
-    ProcessStepRow(
-        title = if (duration > 0.seconds) {
-            stringResource(
-                R.string.chat_process_reasoning_duration,
-                formatDurationSeconds(duration),
-            )
-        } else {
-            stringResource(R.string.notification_live_update_inference)
-        },
-        subtitle = geminiTitle?.takeIf { bodyState == ReasoningBodyState.Collapsed },
-        trailingIcon = if (bodyState == ReasoningBodyState.Expanded) {
-            Icons.Rounded.KeyboardArrowUp
-        } else {
-            Icons.Rounded.KeyboardArrowDown
-        },
-        onClick = {
-            reasoningBodyStates[stateKey] = when (bodyState) {
-                ReasoningBodyState.Collapsed,
-                ReasoningBodyState.Preview,
-                    -> ReasoningBodyState.Expanded
+    Column {
+        ProcessStepRow(
+            title = if (duration > 0.seconds) {
+                stringResource(
+                    R.string.chat_process_reasoning_duration,
+                    formatDurationSeconds(duration),
+                )
+            } else {
+                stringResource(R.string.notification_live_update_inference)
+            },
+            subtitle = geminiTitle?.takeIf { bodyState == ReasoningBodyState.Collapsed },
+            trailingIcon = if (bodyState == ReasoningBodyState.Expanded) {
+                Icons.Rounded.KeyboardArrowUp
+            } else {
+                Icons.Rounded.KeyboardArrowDown
+            },
+            onClick = {
+                reasoningBodyStates[stateKey] = when (bodyState) {
+                    ReasoningBodyState.Collapsed,
+                    ReasoningBodyState.Preview,
+                        -> ReasoningBodyState.Expanded
 
-                ReasoningBodyState.Expanded -> ReasoningBodyState.Collapsed
-            }
-            haptics.perform(HapticPattern.Pop)
-        },
-    )
+                    ReasoningBodyState.Expanded -> ReasoningBodyState.Collapsed
+                }
+                haptics.perform(HapticPattern.Pop)
+            },
+        )
 
-    AnimatedVisibility(
-        visible = bodyState != ReasoningBodyState.Collapsed,
-        enter = fadeIn(
-            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
-        ) + expandVertically(
-            expandFrom = Alignment.Top,
-            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
-        ),
-        exit = fadeOut(
-            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
-        ) + shrinkVertically(
-            shrinkTowards = Alignment.Top,
-            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
-        ),
-    ) {
-        SelectionContainer {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .animateContentSize(
-                        animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f)
-                    )
-            ) {
-                if (isGemini && loading && bodyState == ReasoningBodyState.Preview) {
-                    AnimatedContent(
-                        targetState = geminiTitle ?: "",
-                        transitionSpec = {
-                            (slideInVertically { it } + fadeIn()) togetherWith
-                                    (slideOutVertically { -it } + fadeOut())
-                        },
-                    ) {
+        if (bodyState != ReasoningBodyState.Collapsed) {
+            Spacer(modifier = Modifier.height(4.dp))
+            SelectionContainer {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .animateContentSize(
+                            animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f)
+                        )
+                ) {
+                    if (isGemini && loading && bodyState == ReasoningBodyState.Preview) {
+                        AnimatedContent(
+                            targetState = geminiTitle ?: "",
+                            transitionSpec = {
+                                (slideInVertically { it } + fadeIn()) togetherWith
+                                        (slideOutVertically { -it } + fadeOut())
+                            },
+                        ) {
+                            MarkdownBlock(
+                                content = reasoning.reasoning.extractGeminiLastSection()
+                                    .replaceRegexes(
+                                        assistant = assistant,
+                                        scope = AssistantAffectScope.ASSISTANT,
+                                        visual = true,
+                                    ),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 4.dp, end = 8.dp),
+                            )
+                        }
+                    } else {
                         MarkdownBlock(
-                            content = reasoning.reasoning.extractGeminiLastSection()
-                                .replaceRegexes(
-                                    assistant = assistant,
-                                    scope = AssistantAffectScope.ASSISTANT,
-                                    visual = true,
-                                ),
+                            content = reasoning.reasoning.replaceRegexes(
+                                assistant = assistant,
+                                scope = AssistantAffectScope.ASSISTANT,
+                                visual = true,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .then(
+                                    if (bodyState == ReasoningBodyState.Preview) {
+                                        Modifier
+                                            .heightIn(max = 88.dp)
+                                            .clipToBounds()
+                                            .verticalScroll(scrollState)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
                                 .padding(start = 4.dp, end = 8.dp),
                         )
                     }
-                } else {
-                    MarkdownBlock(
-                        content = reasoning.reasoning.replaceRegexes(
-                            assistant = assistant,
-                            scope = AssistantAffectScope.ASSISTANT,
-                            visual = true,
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(
-                                if (bodyState == ReasoningBodyState.Preview) {
-                                    Modifier
-                                        .heightIn(max = 88.dp)
-                                        .clipToBounds()
-                                        .verticalScroll(scrollState)
-                                } else {
-                                    Modifier
-                                }
-                            )
-                            .padding(start = 4.dp, end = 8.dp),
-                    )
                 }
             }
         }
@@ -813,7 +799,7 @@ private fun ProcessStepRow(
 
     Row(
         modifier = rowModifier,
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Column(
@@ -845,7 +831,6 @@ private fun ProcessStepRow(
                 imageVector = trailingIcon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 1.dp),
             )
         }
     }
