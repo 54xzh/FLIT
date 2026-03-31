@@ -98,8 +98,13 @@ import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
 import me.rerere.rikkahub.ui.pages.setting.SettingAndroidIntegrationPage
 import me.rerere.rikkahub.ui.pages.setting.SettingFontsPage
+import me.rerere.rikkahub.ui.motion.LocalMotionPolicy
+import me.rerere.rikkahub.ui.motion.rememberSystemMotionPolicy
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import org.koin.android.ext.android.inject
 import me.rerere.rikkahub.utils.fileSizeToString
@@ -141,6 +146,7 @@ class RouteActivity : ComponentActivity() {
     private val okHttpClient by inject<OkHttpClient>()
     private val settingsStore by inject<SettingsStore>()
     private val chatService by inject<me.rerere.rikkahub.service.ChatService>()
+    private val conversationRepo by inject<me.rerere.rikkahub.data.repository.ConversationRepository>()
     private var navStack by mutableStateOf<NavHostController?>(null)
     private var pendingAssistantId by mutableStateOf<String?>(null)
     private var pendingTextSelection by mutableStateOf<TextSelectionData?>(null)
@@ -153,7 +159,19 @@ class RouteActivity : ComponentActivity() {
         disableNavigationBarContrast()
         super.onCreate(savedInstanceState)
         refreshPendingIntentData(intent)
-        
+
+        // Track app launch and initialize usage stats
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching { conversationRepo.initUsageStats() }
+                .onFailure { android.util.Log.e(TAG, "initUsageStats failed", it) }
+            runCatching { conversationRepo.backfillDailyActivityFromConversationHistoryIfNeeded() }
+                .onFailure { android.util.Log.e(TAG, "daily activity backfill failed", it) }
+            runCatching { conversationRepo.backfillUsageStatsFromHistoryIfNeeded() }
+                .onFailure { android.util.Log.e(TAG, "usage stats backfill failed", it) }
+            runCatching { conversationRepo.incrementAppLaunches() }
+                .onFailure { android.util.Log.e(TAG, "increment app launches failed", it) }
+        }
+
         setContent {
             val navStack = rememberNavController()
             this.navStack = navStack
@@ -427,6 +445,7 @@ class RouteActivity : ComponentActivity() {
         val toastState = rememberAppToasterState()
         val settings by settingsStore.settingsFlow.collectAsStateWithLifecycle()
         val tts = rememberCustomTtsState()
+        val motionPolicy = rememberSystemMotionPolicy()
         SharedTransitionLayout {
             CompositionLocalProvider(
                 LocalNavController provides navBackStack,
@@ -435,6 +454,7 @@ class RouteActivity : ComponentActivity() {
                 LocalHighlighter provides highlighter,
                 LocalToaster provides toastState,
                 LocalTTSState provides tts,
+                LocalMotionPolicy provides motionPolicy,
             ) {
                 // Check for backup cleanup results and show toast
                 LaunchedEffect(Unit) {

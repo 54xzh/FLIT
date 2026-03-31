@@ -57,6 +57,11 @@ const val CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID = "chat_completed"
 const val CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID = "chat_live_update"
 
 class LastChatApp : Application(), SingletonImageLoader.Factory {
+    companion object {
+        lateinit var instance: LastChatApp
+            private set
+    }
+
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         val okHttpClient = runCatching { get<OkHttpClient>() }
             .getOrElse { OkHttpClient.Builder().build() }
@@ -83,6 +88,7 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         startKoin {
             androidLogger()
             androidContext(this@LastChatApp)

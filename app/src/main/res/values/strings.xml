@@ -1874,4 +1874,27 @@
     <string name="python_wheels_dependency_optional_show">Tap to expand</string>
     <string name="python_wheels_dependency_optional_hide">Tap to collapse</string>
 
+    <string name="menu_statistics_title">Statistics</string>
+    <string name="menu_stat_daily_streak">Daily Streak</string>
+    <string name="menu_stat_days">days</string>
+    <string name="menu_stat_conversations">Conversations</string>
+    <string name="menu_stat_messages">Messages</string>
+    <string name="menu_stat_input_tokens">Input Tokens</string>
+    <string name="menu_stat_output_tokens">Output Tokens</string>
+    <string name="menu_stat_cached_tokens">Cached Tokens</string>
+    <string name="menu_activity_title">Activity</string>
+    <string name="menu_activity_empty">No activity yet</string>
+    <string name="menu_activity_less">Less</string>
+    <string name="menu_activity_more">More</string>
+    <string name="menu_weekday_monday">Mon</string>
+    <string name="menu_weekday_wednesday">Wed</string>
+    <string name="menu_weekday_friday">Fri</string>
+    <string name="menu_weekday_sunday">Sun</string>
+    <string name="activity_timeline_title">Activity Timeline</string>
+
+    <plurals name="menu_messages_count">
+        <item quantity="one">%1$s message</item>
+        <item quantity="other">%1$s messages</item>
+    </plurals>
+
 </resources>

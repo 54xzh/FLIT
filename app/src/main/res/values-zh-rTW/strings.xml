@@ -1865,4 +1865,26 @@
     <string name="python_wheels_dependency_optional_show">點按展開</string>
     <string name="python_wheels_dependency_optional_hide">點按收起</string>
 
+    <string name="menu_statistics_title">統計</string>
+    <string name="menu_stat_daily_streak">連續天數</string>
+    <string name="menu_stat_days">天</string>
+    <string name="menu_stat_conversations">對話數</string>
+    <string name="menu_stat_messages">訊息數</string>
+    <string name="menu_stat_input_tokens">輸入 Tokens</string>
+    <string name="menu_stat_output_tokens">輸出 Tokens</string>
+    <string name="menu_stat_cached_tokens">快取 Tokens</string>
+    <string name="menu_activity_title">活動</string>
+    <string name="menu_activity_empty">暫無活動</string>
+    <string name="menu_activity_less">較少</string>
+    <string name="menu_activity_more">更多</string>
+    <string name="menu_weekday_monday">週一</string>
+    <string name="menu_weekday_wednesday">週三</string>
+    <string name="menu_weekday_friday">週五</string>
+    <string name="menu_weekday_sunday">週日</string>
+    <string name="activity_timeline_title">活動時間表</string>
+
+    <plurals name="menu_messages_count">
+        <item quantity="other">%1$s 則訊息</item>
+    </plurals>
+
 </resources>

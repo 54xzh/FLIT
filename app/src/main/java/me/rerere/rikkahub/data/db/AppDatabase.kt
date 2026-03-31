@@ -25,6 +25,7 @@ import me.rerere.rikkahub.data.db.dao.ScheduledTaskDao
 import me.rerere.rikkahub.data.db.dao.ScheduledTaskRunDao
 import me.rerere.rikkahub.data.db.dao.ToolResultArchiveDao
 import me.rerere.rikkahub.data.db.dao.ToolResultArchiveChunkDao
+import me.rerere.rikkahub.data.db.dao.UsageStatsDAO
 import me.rerere.rikkahub.data.db.entity.AIRequestLogEntity
 import me.rerere.rikkahub.data.db.entity.BackupLogEntity
 import me.rerere.rikkahub.data.db.entity.ChatEpisodeEntity
@@ -38,6 +39,7 @@ import me.rerere.rikkahub.data.db.entity.ScheduledTaskEntity
 import me.rerere.rikkahub.data.db.entity.ScheduledTaskRunEntity
 import me.rerere.rikkahub.data.db.entity.ToolResultArchiveEntity
 import me.rerere.rikkahub.data.db.entity.ToolResultArchiveChunkEntity
+import me.rerere.rikkahub.data.db.entity.UsageStatsEntity
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.utils.JsonInstant
 
@@ -56,8 +58,9 @@ import me.rerere.rikkahub.utils.JsonInstant
         ScheduledTaskRunEntity::class,
         DailyActivityEntity::class,
         LorebookEntryRevisionEntity::class,
+        UsageStatsEntity::class,
     ],
-    version = 34,
+    version = 35,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -89,6 +92,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 31, to = 32),
         AutoMigration(from = 32, to = 33),
         AutoMigration(from = 33, to = 34),
+        // 34->35 is manual migration (MIGRATION_34_35) - adds usage_stats table
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -118,6 +122,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun dailyActivityDao(): DailyActivityDAO
 
     abstract fun lorebookEntryRevisionDao(): LorebookEntryRevisionDao
+
+    abstract fun usageStatsDao(): UsageStatsDAO
 
     companion object {
         const val TAG = "AppDatabase"
@@ -232,6 +238,31 @@ abstract class AppDatabase : RoomDatabase() {
                 if (!memoryColumns.contains("created_at")) {
                     db.execSQL("ALTER TABLE MemoryEntity ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")
                 }
+            }
+        }
+
+        val MIGRATION_34_35 = object : Migration(34, 35) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 34 to 35")
+                // Create usage_stats table
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `usage_stats` (
+                        `id` INTEGER NOT NULL PRIMARY KEY,
+                        `total_conversations` INTEGER NOT NULL DEFAULT 0,
+                        `total_messages` INTEGER NOT NULL DEFAULT 0,
+                        `input_tokens` INTEGER NOT NULL DEFAULT 0,
+                        `output_tokens` INTEGER NOT NULL DEFAULT 0,
+                        `cached_tokens` INTEGER NOT NULL DEFAULT 0,
+                        `app_launches` INTEGER NOT NULL DEFAULT 0
+                    )
+                """.trimIndent())
+                // Seed initial row
+                db.execSQL("INSERT OR IGNORE INTO usage_stats (id, total_conversations, total_messages, input_tokens, output_tokens, cached_tokens, app_launches) VALUES (1, 0, 0, 0, 0, 0, 0)")
+                // Seed total_conversations from existing conversation count
+                db.execSQL("UPDATE usage_stats SET total_conversations = (SELECT COUNT(*) FROM ConversationEntity) WHERE id = 1")
+                // Seed total_messages from daily_activity if available
+                db.execSQL("UPDATE usage_stats SET total_messages = COALESCE((SELECT SUM(message_count) FROM daily_activity), 0) WHERE id = 1")
+                Log.i(TAG, "migrate: migrate from 34 to 35 success")
             }
         }
     }

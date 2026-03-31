@@ -35,7 +35,7 @@ val dataSourceModule = module {
 
     single {
         Room.databaseBuilder(get(), AppDatabase::class.java, "rikka_hub")
-            .addMigrations(Migration_6_7, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13, AppDatabase.MIGRATION_14_16)
+            .addMigrations(Migration_6_7, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13, AppDatabase.MIGRATION_14_16, AppDatabase.MIGRATION_34_35)
             .build()
     }
 
@@ -103,6 +103,10 @@ val dataSourceModule = module {
 
     single {
         get<AppDatabase>().lorebookEntryRevisionDao()
+    }
+
+    single {
+        get<AppDatabase>().usageStatsDao()
     }
 
     single { McpManager(settingsStore = get(), appScope = get()) }
