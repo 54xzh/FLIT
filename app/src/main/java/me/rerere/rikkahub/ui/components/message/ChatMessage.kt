@@ -309,7 +309,7 @@ fun ChatMessage(
         ) {
             ChatMessageActionButtons(
                 message = message,
-                copyText = displayState.copyText,
+                copyText = displayState.selectionCopyText,
                 ttsText = displayState.ttsText,
                 onRegenerate = onRegenerate,
                 onContinue = onContinue,

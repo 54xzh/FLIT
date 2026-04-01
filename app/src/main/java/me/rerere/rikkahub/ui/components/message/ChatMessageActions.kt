@@ -153,7 +153,7 @@ fun ColumnScope.ChatMessageActionButtons(
             Icons.Rounded.ContentCopy, stringResource(R.string.copy), modifier = Modifier
                 .clip(CircleShape)
                 .clickable {
-                    context.writeClipboardText(copyText.ifBlank { message.toText() })
+                    context.writeClipboardText(copyText.ifBlank { message.toContentText() })
                 }
                 .padding(8.dp)
                 .size(16.dp)
