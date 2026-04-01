@@ -77,7 +77,9 @@ repeat_type values: "once", "daily", "weekly", "monthly", "interval"
 - once/daily/weekly/monthly: time_of_day is required (format "HH:mm")
 - weekly: weekly_days is required (array of "mon","tue","wed","thu","fri","sat","sun")
 - monthly: monthly_day is required (1-28, or -1 for last day of month)
-- interval: interval_value (int) and interval_unit ("hours" or "days") are required""",
+- interval: interval_value (int) and interval_unit ("hours" or "days") are required
+
+IMPORTANT — prompt_template must be written from the USER's perspective, as if the user is sending a message to the assistant. For example: "Please send me today's weather summary." NOT "Send the user a weather summary." Think of it as a message the user would type.""",
     parameters = {
         InputSchema.Obj(
             properties = buildJsonObject {
@@ -87,7 +89,7 @@ repeat_type values: "once", "daily", "weekly", "monthly", "interval"
                 })
                 put("prompt_template", buildJsonObject {
                     put("type", "string")
-                    put("description", "Prompt template sent to the assistant when the task runs. Supports {date}, {time}, {weekday} placeholders.")
+                    put("description", "The message sent as the user turn when the task runs. MUST be written from the user's perspective (e.g. 'Please give me a morning briefing for {date}.'), NOT from the assistant's perspective. Supports {date}, {time}, {weekday} placeholders.")
                 })
                 put("repeat_type", buildJsonObject {
                     put("type", "string")
@@ -262,7 +264,7 @@ private fun buildUpdateTool(
                 })
                 put("prompt_template", buildJsonObject {
                     put("type", "string")
-                    put("description", "New prompt template")
+                    put("description", "New prompt template. Must be written from the user's perspective.")
                 })
                 put("repeat_type", buildJsonObject {
                     put("type", "string")
