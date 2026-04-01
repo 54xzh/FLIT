@@ -5,11 +5,18 @@ import java.net.URI
 import java.util.Locale
 
 private val OFFICIAL_CLAUDE_API_HOSTS = setOf("api.anthropic.com")
+private val OFFICIAL_GROK_API_HOSTS = setOf("api.x.ai")
 
 private fun ProviderSetting?.supportsClaudeBuiltInSearchByHost(): Boolean {
     if (this !is ProviderSetting.Claude) return false
     val host = baseUrl.extractHostFromBaseUrl() ?: return false
     return host in OFFICIAL_CLAUDE_API_HOSTS || host.endsWith(".anthropic.com")
+}
+
+private fun ProviderSetting?.supportsGrokBuiltInSearchByHost(): Boolean {
+    if (this !is ProviderSetting.OpenAI) return false
+    val host = baseUrl.extractHostFromBaseUrl() ?: return false
+    return host in OFFICIAL_GROK_API_HOSTS || host.endsWith(".x.ai")
 }
 
 private fun String.extractHostFromBaseUrl(): String? {
@@ -29,11 +36,15 @@ fun Model.supportsBuiltInSearch(providerSetting: ProviderSetting? = null): Boole
     if (tools.contains(BuiltInTools.ClaudeWebSearch)) {
         return true
     }
+    if (tools.contains(BuiltInTools.GrokWebSearch)) {
+        return true
+    }
 
     return when {
         ModelRegistry.GEMINI_SERIES.match(modelId) -> true
         ModelRegistry.CLAUDE_SERIES.match(modelId) -> providerSetting.supportsClaudeBuiltInSearchByHost()
-        else -> false
+        ModelRegistry.GROK_4.match(modelId) -> providerSetting.supportsGrokBuiltInSearchByHost()
+        else -> providerSetting.supportsGrokBuiltInSearchByHost()
     }
 }
 
@@ -48,25 +59,28 @@ fun Model.isClaudeBuiltInSearchEnabled(providerSetting: ProviderSetting? = null)
         providerSetting.supportsClaudeBuiltInSearchByHost()
 }
 
-fun Model.preferredBuiltInSearchTool(): BuiltInTools? {
+fun Model.preferredBuiltInSearchTool(providerSetting: ProviderSetting? = null): BuiltInTools? {
     return when {
         tools.contains(BuiltInTools.Search) -> BuiltInTools.Search
         tools.contains(BuiltInTools.ClaudeWebSearchDisabled) -> null
         tools.contains(BuiltInTools.ClaudeWebSearch) -> BuiltInTools.ClaudeWebSearch
+        tools.contains(BuiltInTools.GrokWebSearch) -> BuiltInTools.GrokWebSearch
         ModelRegistry.CLAUDE_SERIES.match(modelId) -> BuiltInTools.ClaudeWebSearch
         ModelRegistry.GEMINI_SERIES.match(modelId) -> BuiltInTools.Search
+        providerSetting.supportsGrokBuiltInSearchByHost() -> BuiltInTools.GrokWebSearch
         else -> null
     }
 }
 
-fun Model.ensureBuiltInSearchTool(): Model {
-    val tool = preferredBuiltInSearchTool() ?: return this
+fun Model.ensureBuiltInSearchTool(providerSetting: ProviderSetting? = null): Model {
+    val tool = preferredBuiltInSearchTool(providerSetting) ?: return this
     return if (tools.contains(tool)) this else copy(tools = tools + tool)
 }
 
 fun Model.withoutBuiltInSearchTools(): Model {
     val filtered = tools.filterNot { tool ->
-        tool == BuiltInTools.Search || tool == BuiltInTools.ClaudeWebSearch
+        tool == BuiltInTools.Search || tool == BuiltInTools.ClaudeWebSearch ||
+            tool == BuiltInTools.GrokWebSearch  // GrokXSearch intentionally omitted (model-level opt-in)
     }.toSet()
     return if (filtered == tools) this else copy(tools = filtered)
 }

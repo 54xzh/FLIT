@@ -80,6 +80,8 @@ private const val MCP_TOOL_APPROVAL_REJECTED_TEXT = "User declined this call"
 private const val META_ANTHROPIC_TYPE = "anthropic_type"
 private const val TYPE_SERVER_TOOL_USE = "server_tool_use"
 private const val CLAUDE_WEB_SEARCH_TOOL_NAME = "web_search"
+private const val GROK_WEB_SEARCH_TOOL_NAME = "web_search"
+private const val GROK_X_SEARCH_TOOL_NAME = "x_search"
 
 /**
  * Result of building messages, includes both the messages and info about activated context sources.
@@ -218,7 +220,10 @@ class GenerationHandler(
                 val isClaudeBuiltInWebSearchToolCall =
                     toolCall.toolName == CLAUDE_WEB_SEARCH_TOOL_NAME &&
                         model.tools.contains(BuiltInTools.ClaudeWebSearch)
-                isServerToolUseByMetadata || isClaudeBuiltInWebSearchToolCall
+                val isGrokBuiltInToolCall =
+                    (toolCall.toolName == GROK_WEB_SEARCH_TOOL_NAME && model.tools.contains(BuiltInTools.GrokWebSearch)) ||
+                        (toolCall.toolName == GROK_X_SEARCH_TOOL_NAME && model.tools.contains(BuiltInTools.GrokXSearch))
+                isServerToolUseByMetadata || isClaudeBuiltInWebSearchToolCall || isGrokBuiltInToolCall
             }
             if (toolCalls.isEmpty()) {
                 val shouldResumePauseTurn = latestFinishReasons.any { reason ->

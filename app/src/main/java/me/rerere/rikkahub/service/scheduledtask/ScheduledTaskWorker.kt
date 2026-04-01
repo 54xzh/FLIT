@@ -187,7 +187,7 @@ class ScheduledTaskWorker(
         val modelSupportsBuiltIn = model.supportsBuiltInSearch(modelProvider)
         val useBuiltInSearch = assistantForRun.preferBuiltInSearch && modelSupportsBuiltIn
         val runtimeModel = if (useBuiltInSearch) {
-            model.ensureBuiltInSearchTool()
+            model.ensureBuiltInSearchTool(modelProvider)
         } else {
             model.withoutBuiltInSearchTools()
         }

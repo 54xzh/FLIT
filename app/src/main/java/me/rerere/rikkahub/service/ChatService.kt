@@ -1464,7 +1464,7 @@ class ChatService(
             val modelSupportsBuiltIn = model.supportsBuiltInSearch(modelProvider)
             val useBuiltInSearch = assistant.preferBuiltInSearch && modelSupportsBuiltIn
             val runtimeModel = if (useBuiltInSearch) {
-                model.ensureBuiltInSearchTool()
+                model.ensureBuiltInSearchTool(modelProvider)
             } else {
                 model.withoutBuiltInSearchTools()
             }
@@ -1999,7 +1999,7 @@ class ChatService(
             val modelSupportsBuiltIn = model.supportsBuiltInSearch(seatProvider)
             val useBuiltInSearch = modelSupportsBuiltIn &&
                 (seatAssistant.searchMode is AssistantSearchMode.BuiltIn || seatAssistant.preferBuiltInSearch)
-            val seatModel = if (useBuiltInSearch) model.ensureBuiltInSearchTool() else model.withoutBuiltInSearchTools()
+            val seatModel = if (useBuiltInSearch) model.ensureBuiltInSearchTool(seatProvider) else model.withoutBuiltInSearchTools()
 
             val seatInputTransformers = buildList {
                 if (includeAppContextTransformer) {

@@ -817,6 +817,10 @@
     <string name="setting_page_built_in_tools_claude_search_desc">Enable Claude built-in web search</string>
     <string name="setting_page_built_in_tools_url_context">URL Context</string>
     <string name="setting_page_built_in_tools_url_context_desc">Enable URL content processing</string>
+    <string name="setting_page_built_in_tools_grok_web_search">Grok Web Search</string>
+    <string name="setting_page_built_in_tools_grok_web_search_desc">Enable xAI built-in web search (api.x.ai only)</string>
+    <string name="setting_page_built_in_tools_grok_x_search">Grok X Search</string>
+    <string name="setting_page_built_in_tools_grok_x_search_desc">Enable xAI built-in X (Twitter) search</string>
     <string name="setting_page_chat_settings">Chat Settings</string>
     <string name="setting_page_chat_storage">Chat Storage</string>
     <string name="setting_page_chat_storage_desc">%1$d files, %2$.2f MB</string>

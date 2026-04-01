@@ -2324,6 +2324,14 @@ private fun BuiltInToolsSettings(
                 model.modelId.contains("claude", ignoreCase = true)
         val isClaudeWebSearchChecked = model.isClaudeBuiltInSearchEnabled(parentProvider)
 
+        val showGrokSearchOptions =
+            tools.contains(BuiltInTools.GrokWebSearch) ||
+                tools.contains(BuiltInTools.GrokXSearch) ||
+                (parentProvider is ProviderSetting.OpenAI &&
+                    parentProvider.baseUrl.contains("x.ai", ignoreCase = true)) ||
+                ModelRegistry.GROK_4.match(model.modelId) ||
+                model.modelId.contains("grok", ignoreCase = true)
+
         val availableTools = buildList {
             add(
                 BuiltInTools.Search to Pair(
@@ -2345,6 +2353,20 @@ private fun BuiltInToolsSettings(
                     stringResource(R.string.setting_page_built_in_tools_url_context_desc)
                 )
             )
+            if (showGrokSearchOptions) {
+                add(
+                    BuiltInTools.GrokWebSearch to Pair(
+                        stringResource(R.string.setting_page_built_in_tools_grok_web_search),
+                        stringResource(R.string.setting_page_built_in_tools_grok_web_search_desc)
+                    )
+                )
+                add(
+                    BuiltInTools.GrokXSearch to Pair(
+                        stringResource(R.string.setting_page_built_in_tools_grok_x_search),
+                        stringResource(R.string.setting_page_built_in_tools_grok_x_search_desc)
+                    )
+                )
+            }
         }
 
         availableTools.forEach { (tool, info) ->

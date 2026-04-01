@@ -610,6 +610,10 @@
   <string name="setting_page_built_in_tools_claude_search_desc">啟用 Claude 內建網頁搜尋</string>
   <string name="setting_page_built_in_tools_url_context">URL 上下文</string>
   <string name="setting_page_built_in_tools_url_context_desc">啟用 URL 內容處理</string>
+  <string name="setting_page_built_in_tools_grok_web_search">Grok 網頁搜尋</string>
+  <string name="setting_page_built_in_tools_grok_web_search_desc">啟用 xAI 內建網頁搜尋（僅限 api.x.ai）</string>
+  <string name="setting_page_built_in_tools_grok_x_search">Grok X 搜尋</string>
+  <string name="setting_page_built_in_tools_grok_x_search_desc">啟用 xAI 內建 X（Twitter）搜尋</string>
   <string name="setting_page_chat_settings">聊天設定</string>
   <string name="setting_page_chat_storage">聊天記錄儲存</string>
   <string name="setting_page_chat_storage_desc">%1$d 個檔案，%2$.2f MB</string>

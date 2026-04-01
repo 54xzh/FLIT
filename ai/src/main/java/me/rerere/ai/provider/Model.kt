@@ -71,5 +71,15 @@ sealed class BuiltInTools {
     @Serializable
     @SerialName("url_context")
     data object UrlContext : BuiltInTools()
+
+    // https://docs.x.ai/developers/tools/web-search
+    @Serializable
+    @SerialName("grok_web_search")
+    data object GrokWebSearch : BuiltInTools()
+
+    // https://docs.x.ai/developers/tools/x-search
+    @Serializable
+    @SerialName("grok_x_search")
+    data object GrokXSearch : BuiltInTools()
 }
 

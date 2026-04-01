@@ -38,7 +38,7 @@ object ModelRegistry {
     private val DEEPSEEK_V3_2 = ModelMatcher.containsRegex("deepseek-(v3\\.2)")
     private val QWEN_3 = ModelMatcher.containsRegex("qwen-?3")
     private val DOUBAO_1_6 = ModelMatcher.containsRegex("doubao.+1([-.])6")
-    private val GROK_4 = ModelMatcher.containsRegex("grok-4")
+    val GROK_4 = ModelMatcher.containsRegex("grok-4")
     private val KIMI_K2 = ModelMatcher.containsRegex("kimi-k2")
     private val KIMI_K2_5 = ModelMatcher.containsRegex("kimi-k2\\.5")
     private val STEP_3 = ModelMatcher.containsRegex("step-3")
