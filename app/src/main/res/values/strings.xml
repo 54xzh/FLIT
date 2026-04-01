@@ -1525,6 +1525,7 @@
     <string name="setting_search_page_depth_basic">Basic</string>
     <string name="setting_search_page_depth_deep">Deep</string>
     <string name="setting_search_page_depth_standard">Standard</string>
+    <string name="setting_search_page_model">Model</string>
     <string name="setting_search_page_engines">Engines</string>
     <string name="setting_search_page_include_images">Include Images</string>
     <string name="setting_search_page_include_images_desc">Include images in search results</string>
@@ -1534,9 +1535,11 @@
     <string name="setting_search_page_output_results">Results</string>
     <string name="setting_search_page_output_type">Output Type</string>
     <string name="setting_search_page_output_type_desc">searchResults: multiple sources, sourcedAnswer: synthesized answer</string>
+    <string name="setting_search_page_grok_model_desc">Use an xAI model that supports web search</string>
     <string name="setting_search_page_password">Password</string>
     <string name="setting_search_page_search_depth">Search Depth</string>
     <string name="setting_search_page_search_depth_desc">Standard is faster/cheaper, Deep is more comprehensive</string>
+    <string name="setting_search_preset_grok_desc">xAI web search with cited answers</string>
     <string name="setting_search_page_bing_no_config">Bing search does not require any configuration.</string>
     <string name="setting_search_page_edit_service_title">Edit %1$s</string>
     <string name="setting_search_page_service_fallback_name">Search Service</string>

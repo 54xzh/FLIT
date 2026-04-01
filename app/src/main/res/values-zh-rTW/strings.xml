@@ -1416,6 +1416,7 @@
   <string name="setting_search_page_depth_basic">基礎</string>
   <string name="setting_search_page_depth_deep">深度</string>
   <string name="setting_search_page_depth_standard">標準</string>
+  <string name="setting_search_page_model">模型</string>
   <string name="setting_search_page_engines">引擎</string>
   <string name="setting_search_page_include_images">包含圖片</string>
   <string name="setting_search_page_include_images_desc">在搜索結果中包含圖片</string>
@@ -1425,9 +1426,11 @@
   <string name="setting_search_page_output_results">結果</string>
   <string name="setting_search_page_output_type">輸出類型</string>
   <string name="setting_search_page_output_type_desc">searchResults：多來源結果；sourcedAnswer：綜合答案</string>
+  <string name="setting_search_page_grok_model_desc">使用支援網路搜尋的 xAI 模型</string>
   <string name="setting_search_page_password">密碼</string>
   <string name="setting_search_page_search_depth">搜索深度</string>
   <string name="setting_search_page_search_depth_desc">標準更快/更便宜，深度更全面</string>
+  <string name="setting_search_preset_grok_desc">xAI 網路搜尋並引用答案</string>
   <string name="setting_search_page_bing_no_config">Bing 搜索無需任何配置。</string>
   <string name="setting_search_page_edit_service_title">編輯 %1$s</string>
   <string name="setting_search_page_service_fallback_name">搜索服務</string>
