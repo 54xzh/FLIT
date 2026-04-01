@@ -1474,6 +1474,8 @@
   <string name="assistant_page_local_tools_workspace_files_desc">允許助手讀寫目前對話的工作區檔案。需要先授予工作區根目錄權限。</string>
   <string name="assistant_page_local_tools_lorebooks_editor_title">世界書編輯</string>
   <string name="assistant_page_local_tools_lorebooks_editor_desc">允許助手編輯已啟用的世界書條目（新增/修改/刪除）。工具變更會寫入歷史，可撤銷。</string>
+  <string name="assistant_page_local_tools_scheduled_task_manager_title">定時任務管理</string>
+  <string name="assistant_page_local_tools_scheduled_task_manager_desc">允許助手建立、編輯和刪除定時任務（需要使用者確認）</string>
   <string name="assistant_page_memory_settings_title">記憶設置</string>
   <string name="assistant_page_temperature_level_value_format">%1$s（%2$s）</string>
   <string name="assistant_page_mcp_servers_desc">啟用外部工具服務器</string>

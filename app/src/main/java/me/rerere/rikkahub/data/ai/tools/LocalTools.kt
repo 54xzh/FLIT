@@ -17,7 +17,9 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
+import me.rerere.rikkahub.data.db.dao.ScheduledTaskDao
 import me.rerere.rikkahub.data.model.Skill
+import me.rerere.rikkahub.service.scheduledtask.ScheduledTaskScheduler
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import java.io.File
 import java.util.Locale
@@ -44,9 +46,17 @@ sealed class LocalToolOption {
     @Serializable
     @SerialName("lorebooks_editor")
     data object LorebooksEditor : LocalToolOption()
+
+    @Serializable
+    @SerialName("scheduled_task_manager")
+    data object ScheduledTaskManager : LocalToolOption()
 }
 
-class LocalTools(private val context: Context) {
+class LocalTools(
+    private val context: Context,
+    private val scheduledTaskDao: ScheduledTaskDao,
+    private val scheduledTaskScheduler: ScheduledTaskScheduler,
+) {
     val javascriptTool by lazy {
         Tool(
             name = "eval_javascript",
@@ -541,6 +551,9 @@ class LocalTools(private val context: Context) {
         }
         if (options.contains(LocalToolOption.DeviceControl)) {
             tools.addAll(getDeviceControlTools(assistantId, conversationId))
+        }
+        if (options.contains(LocalToolOption.ScheduledTaskManager)) {
+            tools.addAll(createScheduledTaskTools(assistantId, scheduledTaskDao, scheduledTaskScheduler))
         }
         return tools
     }

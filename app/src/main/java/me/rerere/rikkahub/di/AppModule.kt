@@ -33,7 +33,7 @@ val appModule = module {
     }
 
     single {
-        LocalTools(get())
+        LocalTools(get(), get(), get())
     }
 
     single {
