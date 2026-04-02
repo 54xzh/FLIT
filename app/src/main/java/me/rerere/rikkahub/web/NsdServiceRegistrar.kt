@@ -6,6 +6,7 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.Inet4Address
+import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.NetworkInterface
 import javax.jmdns.JmDNS
@@ -20,6 +21,11 @@ data class RegisteredServiceInfo(
     val hostname: String,
     val port: Int,
     val address: InetAddress,
+)
+
+data class LanAddressInfo(
+    val ipv4Address: Inet4Address? = null,
+    val ipv6Address: Inet6Address? = null,
 )
 
 class NsdServiceRegistrar(
@@ -83,8 +89,12 @@ class NsdServiceRegistrar(
     }
 
     fun findLanAddress(): InetAddress? {
+        return findLanAddresses().ipv4Address
+    }
+
+    fun findLanAddresses(): LanAddressInfo {
         return runCatching {
-            NetworkInterface.getNetworkInterfaces()
+            val addresses = NetworkInterface.getNetworkInterfaces()
                 ?.toList()
                 ?.asSequence()
                 ?.filter { iface ->
@@ -93,12 +103,56 @@ class NsdServiceRegistrar(
                         !iface.isVirtual
                 }
                 ?.flatMap { iface -> iface.inetAddresses.toList().asSequence() }
-                ?.firstOrNull { address ->
-                    address is Inet4Address &&
-                        !address.isLoopbackAddress &&
+                ?.toList()
+                .orEmpty()
+
+            val ipv4Address = addresses
+                .asSequence()
+                .filterIsInstance<Inet4Address>()
+                .firstOrNull { address ->
+                    !address.isLoopbackAddress &&
                         !address.isLinkLocalAddress
                 }
-        }.getOrNull()
+
+            val ipv6Candidates = addresses
+                .asSequence()
+                .filterIsInstance<Inet6Address>()
+                .filter { address ->
+                    !address.isLoopbackAddress &&
+                        !address.isLinkLocalAddress &&
+                        !address.isAnyLocalAddress &&
+                        !address.isMulticastAddress
+                }
+                .toList()
+
+            // Prefer the address the OS would actually use for outgoing traffic
+            // (matches what IPv6 detection sites see), then fall back to list-based selection.
+            val ipv6Address = findRoutingPreferredIpv6Address()
+                ?: ipv6Candidates.firstOrNull(Inet6Address::isGlobalLanAddress)
+                ?: ipv6Candidates.firstOrNull(Inet6Address::isUniqueLocalAddress)
+
+            LanAddressInfo(
+                ipv4Address = ipv4Address,
+                ipv6Address = ipv6Address,
+            )
+        }.getOrDefault(LanAddressInfo())
+    }
+
+    /**
+     * Determines the preferred outbound IPv6 address by performing a route lookup via a
+     * no-op UDP "connect". No packet is actually sent; the OS just picks the correct
+     * source address according to its routing table and RFC 6724 address selection.
+     */
+    private fun findRoutingPreferredIpv6Address(): Inet6Address? {
+        return try {
+            java.net.DatagramSocket().use { socket ->
+                socket.connect(InetAddress.getByName("2001:4860:4860::8888"), 53)
+                socket.localAddress as? Inet6Address
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not determine preferred IPv6 via routing: ${e.message}")
+            null
+        }
     }
 
     private fun cleanup() {
@@ -119,4 +173,13 @@ class NsdServiceRegistrar(
         }
         multicastLock = null
     }
+}
+
+private fun Inet6Address.isGlobalLanAddress(): Boolean {
+    return !isUniqueLocalAddress() && !isSiteLocalAddress
+}
+
+private fun Inet6Address.isUniqueLocalAddress(): Boolean {
+    val firstByte = address.firstOrNull()?.toInt() ?: return false
+    return (firstByte and 0xFE) == 0xFC
 }
