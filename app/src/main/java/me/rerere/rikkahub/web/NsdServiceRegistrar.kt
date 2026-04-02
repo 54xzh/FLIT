@@ -127,54 +127,54 @@ class NsdServiceRegistrar(
 
     /**
      * Returns the public IPv6 address via two strategies:
-     * 1. ConnectivityManager, filtered to non-VPN networks — fast and offline.
-     * 2. HTTP GET to 6.ipw.cn — returns the actual public IPv6 seen by the internet,
-     *    handles cases where the local address from strategy 1 is not publicly reachable.
+     * 1. HTTP GET to 6.ipw.cn — returns the exact public IPv6 seen by the internet.
+     *    This is tried first because ConnectivityManager may return a stable/permanent
+     *    address when the OS actually uses the temporary privacy-extension address for
+     *    outbound traffic, making the stable one appear unreachable externally.
+     * 2. ConnectivityManager, filtered to non-VPN networks — offline fallback for when
+     *    the device has local IPv6 but no public internet access.
      *
-     * Returns null if neither strategy succeeds (no IPv6 connectivity or all failed).
+     * Returns null if neither strategy succeeds.
      */
     private suspend fun findPublicIpv6Address(): Inet6Address? {
-        // Strategy 1: read non-VPN network link properties
-        val cm = context.getSystemService(ConnectivityManager::class.java)
-        if (cm != null) {
-            val candidates = cm.allNetworks
-                .asSequence()
-                .filter { network ->
-                    val caps = cm.getNetworkCapabilities(network) ?: return@filter false
-                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-                }
-                .flatMap { network ->
-                    cm.getLinkProperties(network)
-                        ?.linkAddresses
-                        ?.mapNotNull { it.address as? Inet6Address }
-                        .orEmpty()
-                        .asSequence()
-                }
-                .filter { addr ->
-                    !addr.isLoopbackAddress &&
-                        !addr.isLinkLocalAddress &&
-                        !addr.isAnyLocalAddress &&
-                        !addr.isMulticastAddress
-                }
-                .toList()
-
-            val result = candidates.firstOrNull(Inet6Address::isGlobalLanAddress)
-                ?: candidates.firstOrNull(Inet6Address::isUniqueLocalAddress)
-            if (result != null) return result
-        }
-
-        // Strategy 2: ask 6.ipw.cn for the actual public IPv6
-        return try {
+        // Strategy 1: ask 6.ipw.cn for the actual public IPv6
+        try {
             val connection = java.net.URL("http://6.ipw.cn").openConnection() as java.net.HttpURLConnection
             connection.connectTimeout = 5000
             connection.readTimeout = 5000
             val ip = connection.inputStream.bufferedReader().use { it.readText() }.trim()
             connection.disconnect()
-            InetAddress.getByName(ip) as? Inet6Address
+            val addr = InetAddress.getByName(ip) as? Inet6Address
+            if (addr != null) return addr
         } catch (e: Exception) {
             Log.w(TAG, "Could not fetch public IPv6 via 6.ipw.cn: ${e.message}")
-            null
         }
+
+        // Strategy 2: read non-VPN network link properties
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return null
+        val candidates = cm.allNetworks
+            .asSequence()
+            .filter { network ->
+                val caps = cm.getNetworkCapabilities(network) ?: return@filter false
+                !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            }
+            .flatMap { network ->
+                cm.getLinkProperties(network)
+                    ?.linkAddresses
+                    ?.mapNotNull { it.address as? Inet6Address }
+                    .orEmpty()
+                    .asSequence()
+            }
+            .filter { addr ->
+                !addr.isLoopbackAddress &&
+                    !addr.isLinkLocalAddress &&
+                    !addr.isAnyLocalAddress &&
+                    !addr.isMulticastAddress
+            }
+            .toList()
+
+        return candidates.firstOrNull(Inet6Address::isGlobalLanAddress)
+            ?: candidates.firstOrNull(Inet6Address::isUniqueLocalAddress)
     }
 
     private fun cleanup() {
