@@ -29,14 +29,25 @@ data class WebServerState(
     val port: Int = 8080,
     val serviceName: String = DEFAULT_SERVICE_NAME,
     val hostname: String? = null,
-    val address: String? = null,
+    val ipv4Address: String? = null,
+    val ipv6Address: String? = null,
     val error: String? = null,
 ) {
     val isRunning: Boolean get() = phase == WebServerPhase.Running
     val isLoading: Boolean get() = phase == WebServerPhase.Starting || phase == WebServerPhase.Stopping
     val preferredUrl: String?
-        get() = hostname?.takeIf { it.isNotBlank() }?.let { "http://$it:$port" }
-            ?: address?.takeIf { it.isNotBlank() }?.let { "http://$it:$port" }
+        get() = hostname?.takeIf { it.isNotBlank() }?.let { formatWebServerUrl(it, port) }
+            ?: ipv4Address?.takeIf { it.isNotBlank() }?.let { formatWebServerUrl(it, port) }
+            ?: ipv6Address?.takeIf { it.isNotBlank() }?.let { formatWebServerUrl(it, port) }
+}
+
+fun formatWebServerUrl(host: String, port: Int): String {
+    val normalizedHost = if (host.contains(":") && !host.startsWith("[")) {
+        "[$host]"
+    } else {
+        host
+    }
+    return "http://$normalizedHost:$port"
 }
 
 class WebServerManager(
@@ -89,12 +100,13 @@ class WebServerManager(
                     )
                 }.start(wait = false)
 
-                val address = nsdRegistrar.findLanAddress()?.hostAddress
+                val lanAddressInfo = nsdRegistrar.findLanAddresses()
                 _state.value = WebServerState(
                     phase = WebServerPhase.Running,
                     port = port,
                     serviceName = serviceName,
-                    address = address,
+                    ipv4Address = lanAddressInfo.ipv4Address?.hostAddress,
+                    ipv6Address = lanAddressInfo.ipv6Address?.hostAddress,
                 )
 
                 runCatching {
@@ -102,10 +114,11 @@ class WebServerManager(
                         port = port,
                         serviceName = serviceName,
                     ) { info ->
-                        _state.value = _state.value.copy(
+                        val currentState = _state.value
+                        _state.value = currentState.copy(
                             serviceName = info.serviceName,
                             hostname = info.hostname,
-                            address = info.address.hostAddress,
+                            ipv4Address = info.address.hostAddress,
                         )
                     }
                 }.onFailure {
@@ -128,20 +141,24 @@ class WebServerManager(
 
     fun stop() {
         if (server == null && !_state.value.isRunning) {
-            _state.value = _state.value.copy(
+            val currentState = _state.value
+            _state.value = currentState.copy(
                 phase = WebServerPhase.Idle,
                 error = null,
                 hostname = null,
-                address = null,
+                ipv4Address = null,
+                ipv6Address = null,
             )
             return
         }
 
-        _state.value = _state.value.copy(
+        val currentState = _state.value
+        _state.value = currentState.copy(
             phase = WebServerPhase.Stopping,
             error = null,
             hostname = null,
-            address = null,
+            ipv4Address = null,
+            ipv6Address = null,
         )
 
         appScope.launch(Dispatchers.IO) {
@@ -150,13 +167,15 @@ class WebServerManager(
                 server = null
                 runCatching { nsdRegistrar.unregister() }
                     .onFailure { Log.w(TAG, "mDNS unregister failed", it) }
-                _state.value = _state.value.copy(
+                val stoppedState = _state.value
+                _state.value = stoppedState.copy(
                     phase = WebServerPhase.Idle,
                 )
                 Log.i(TAG, "Web server stopped")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to stop web server", e)
-                _state.value = _state.value.copy(
+                val failedState = _state.value
+                _state.value = failedState.copy(
                     phase = WebServerPhase.Error,
                     error = e.message ?: "Failed to stop web server",
                 )

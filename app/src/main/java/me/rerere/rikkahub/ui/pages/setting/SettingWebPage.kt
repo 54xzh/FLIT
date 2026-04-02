@@ -91,6 +91,7 @@ import me.rerere.rikkahub.utils.writeClipboardText
 import me.rerere.rikkahub.web.WebServerManager
 import me.rerere.rikkahub.web.WebServerPhase
 import me.rerere.rikkahub.web.WebServerState
+import me.rerere.rikkahub.web.formatWebServerUrl
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
@@ -117,8 +118,9 @@ fun SettingWebPage(
     val canStopServer = serverState.phase == WebServerPhase.Running ||
         serverState.phase == WebServerPhase.Stopping
     val localDeviceUrl = "http://localhost:${serverState.port}"
-    val lanUrl = serverState.address?.let { "http://$it:${serverState.port}" }
-    val mdnsUrl = serverState.hostname?.let { "http://$it:${serverState.port}" }
+    val lanUrl = serverState.ipv4Address?.let { formatWebServerUrl(it, serverState.port) }
+    val ipv6Url = serverState.ipv6Address?.let { formatWebServerUrl(it, serverState.port) }
+    val mdnsUrl = serverState.hostname?.let { formatWebServerUrl(it, serverState.port) }
     val batteryOptimizationIgnored = context.isIgnoringBatteryOptimization()
     val shouldShowBackgroundWarning = settings.webServerEnabled && !batteryOptimizationIgnored
 
@@ -425,12 +427,12 @@ fun SettingWebPage(
                 SettingsGroup(
                     title = stringResource(R.string.setting_page_web_server_addresses)
                 ) {
-                    SettingGroupItem(
-                        title = stringResource(R.string.setting_page_web_server_lan_address),
-                        subtitle = lanUrl ?: stringResource(R.string.setting_page_web_server_waiting_for_network),
-                        icon = { Icon(Icons.Rounded.Public, null) },
-                        trailing = {
-                            if (lanUrl != null) {
+                    if (lanUrl != null) {
+                        SettingGroupItem(
+                            title = stringResource(R.string.setting_page_web_server_lan_address),
+                            subtitle = lanUrl,
+                            icon = { Icon(Icons.Rounded.Public, null) },
+                            trailing = {
                                 CopyAddressButton(
                                     onClick = {
                                         haptics.perform(HapticPattern.Pop)
@@ -438,8 +440,24 @@ fun SettingWebPage(
                                     }
                                 )
                             }
-                        }
-                    )
+                        )
+                    }
+
+                    if (ipv6Url != null) {
+                        SettingGroupItem(
+                            title = stringResource(R.string.setting_page_web_server_ipv6_address),
+                            subtitle = ipv6Url,
+                            icon = { Icon(Icons.Rounded.Public, null) },
+                            trailing = {
+                                CopyAddressButton(
+                                    onClick = {
+                                        haptics.perform(HapticPattern.Pop)
+                                        context.writeClipboardText(ipv6Url)
+                                    }
+                                )
+                            }
+                        )
+                    }
 
                     if (mdnsUrl != null) {
                         SettingGroupItem(
@@ -454,6 +472,14 @@ fun SettingWebPage(
                                     }
                                 )
                             }
+                        )
+                    }
+
+                    if (lanUrl == null && ipv6Url == null && mdnsUrl == null) {
+                        SettingGroupItem(
+                            title = stringResource(R.string.setting_page_web_server_lan_address),
+                            subtitle = stringResource(R.string.setting_page_web_server_waiting_for_network),
+                            icon = { Icon(Icons.Rounded.Public, null) },
                         )
                     }
                 }

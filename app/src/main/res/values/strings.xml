@@ -1933,6 +1933,7 @@
     <string name="setting_page_web_server_background_warning_action">Fix</string>
     <string name="setting_page_web_server_addresses">Addresses</string>
     <string name="setting_page_web_server_lan_address">LAN address</string>
+    <string name="setting_page_web_server_ipv6_address">IPv6 address</string>
     <string name="setting_page_web_server_mdns_address">Bonjour address</string>
     <string name="setting_page_web_server_waiting_for_network">Start the server to get a reachable address.</string>
     <string name="setting_page_web_server_error">Web server error</string>
