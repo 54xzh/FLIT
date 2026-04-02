@@ -1081,6 +1081,138 @@ class ChatService(
         }
     }
 
+    suspend fun ensureConversationLoaded(conversationId: Uuid): Conversation? {
+        val currentState = conversations[conversationId]?.value
+        if (currentState != null) return currentState
+        val conversation = withContext(Dispatchers.IO) {
+            conversationRepo.getConversationById(conversationId)
+        } ?: return null
+        updateConversation(conversationId, conversation)
+        return conversation
+    }
+
+    suspend fun createConversation(assistantId: Uuid): Conversation {
+        val settings = settingsStore.settingsFlow.value
+        val assistant = settings.getAssistantById(assistantId) ?: settings.getCurrentAssistant()
+        val conversation = Conversation.ofId(
+            id = Uuid.random(),
+            assistantId = assistant.id,
+        ).updateCurrentMessages(assistant.presetMessages)
+        saveConversation(conversation.id, conversation)
+        return conversation
+    }
+
+    fun stopGeneration(conversationId: Uuid) {
+        cancelGenerationByUser(conversationId)
+    }
+
+    fun isGenerating(conversationId: Uuid): Boolean {
+        return _generationJobs.value[conversationId]?.isActive == true
+    }
+
+    suspend fun editMessage(
+        conversationId: Uuid,
+        messageId: Uuid,
+        parts: List<UIMessagePart>,
+    ) {
+        val currentConversation = ensureConversationLoaded(conversationId) ?: return
+        val updatedConversation = currentConversation.copy(
+            messageNodes = currentConversation.messageNodes.map { node ->
+                if (node.messages.none { it.id == messageId }) return@map node
+                val originalMessage = node.messages.first { it.id == messageId }
+                node.copy(
+                    messages = node.messages + UIMessage(
+                        role = originalMessage.role,
+                        parts = parts,
+                    ),
+                    selectIndex = node.messages.size,
+                )
+            },
+            updateAt = Instant.now(),
+        )
+        saveConversation(conversationId, updatedConversation)
+    }
+
+    suspend fun forkConversationAtMessage(
+        conversationId: Uuid,
+        messageId: Uuid,
+    ): Conversation {
+        val currentConversation = ensureConversationLoaded(conversationId)
+            ?: return Conversation.ofId(Uuid.random())
+
+        val forkEndIndex = currentConversation.messageNodes
+            .indexOfFirst { node -> node.messages.any { it.id == messageId } }
+            .takeIf { it >= 0 }
+            ?: currentConversation.messageNodes.lastIndex
+
+        val nodesToCopy = if (forkEndIndex >= 0) {
+            currentConversation.messageNodes.subList(0, forkEndIndex + 1)
+        } else {
+            emptyList()
+        }
+
+        val forkConversation = Conversation(
+            id = Uuid.random(),
+            assistantId = currentConversation.assistantId,
+            messageNodes = nodesToCopy,
+        )
+        saveConversation(forkConversation.id, forkConversation)
+        return forkConversation
+    }
+
+    suspend fun deleteMessage(
+        conversationId: Uuid,
+        messageId: Uuid,
+    ) {
+        val currentConversation = ensureConversationLoaded(conversationId) ?: return
+        val currentMessages = currentConversation.messageNodes.flatMap { it.messages }
+        val index = currentMessages.indexOfFirst { it.id == messageId }
+        if (index == -1) return
+
+        val allDeleteIds = mutableSetOf(messageId)
+        for (i in index - 1 downTo 0) {
+            val msg = currentMessages[i]
+            if (msg.hasPart<UIMessagePart.ToolCall>() || msg.hasPart<UIMessagePart.ToolResult>()) {
+                allDeleteIds.add(msg.id)
+            } else break
+        }
+        for (i in index + 1 until currentMessages.size) {
+            val msg = currentMessages[i]
+            if (msg.hasPart<UIMessagePart.ToolCall>() || msg.hasPart<UIMessagePart.ToolResult>()) {
+                allDeleteIds.add(msg.id)
+            } else break
+        }
+
+        val updatedConversation = currentConversation.copy(
+            messageNodes = currentConversation.messageNodes.mapNotNull { node ->
+                val newMessages = node.messages.filter { it.id !in allDeleteIds }
+                if (newMessages.isEmpty()) null
+                else {
+                    val newSelectIndex = if (node.selectIndex >= newMessages.size) newMessages.lastIndex else node.selectIndex
+                    node.copy(messages = newMessages, selectIndex = newSelectIndex)
+                }
+            },
+            updateAt = Instant.now(),
+        )
+        saveConversation(conversationId, updatedConversation)
+    }
+
+    suspend fun selectMessageNode(
+        conversationId: Uuid,
+        nodeId: Uuid,
+        selectIndex: Int,
+    ) {
+        val currentConversation = ensureConversationLoaded(conversationId) ?: return
+        val updatedConversation = currentConversation.copy(
+            messageNodes = currentConversation.messageNodes.map { node ->
+                if (node.id != nodeId) node
+                else node.copy(selectIndex = selectIndex.coerceIn(0, node.messages.lastIndex))
+            },
+            updateAt = Instant.now(),
+        )
+        saveConversation(conversationId, updatedConversation)
+    }
+
     /**
      * Switch the assistant for the current conversation.
      *

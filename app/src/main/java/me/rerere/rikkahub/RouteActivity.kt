@@ -98,6 +98,7 @@ import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
 import me.rerere.rikkahub.ui.pages.setting.SettingAndroidIntegrationPage
 import me.rerere.rikkahub.ui.pages.setting.SettingFontsPage
+import me.rerere.rikkahub.ui.pages.setting.SettingWebPage
 import me.rerere.rikkahub.ui.motion.LocalMotionPolicy
 import me.rerere.rikkahub.ui.motion.rememberSystemMotionPolicy
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
@@ -715,6 +716,10 @@ class RouteActivity : ComponentActivity() {
                         SettingFontsPage()
                     }
 
+                    composable<Screen.SettingWeb> {
+                        SettingWebPage()
+                    }
+
                 }
                 // Toast host must be last so it renders on top of all content
                 AppToasterHost(state = toastState)
@@ -850,5 +855,8 @@ sealed interface Screen {
 
     @Serializable
     data object SettingFonts : Screen
+
+    @Serializable
+    data object SettingWeb : Screen
 
 }

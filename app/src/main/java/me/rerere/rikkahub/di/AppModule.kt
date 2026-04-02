@@ -19,6 +19,7 @@ import me.rerere.rikkahub.service.ModelNameGenerationService
 import me.rerere.rikkahub.service.WelcomePhrasesService
 import me.rerere.rikkahub.service.scheduledtask.ScheduledTaskScheduler
 import me.rerere.rikkahub.utils.EmojiData
+import me.rerere.rikkahub.web.WebServerManager
 import me.rerere.rikkahub.utils.EmojiUtils
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.UpdateChecker
@@ -140,6 +141,16 @@ val appModule = module {
         ScheduledTaskScheduler(
             context = get(),
             taskDao = get()
+        )
+    }
+
+    single {
+        WebServerManager(
+            context = get(),
+            appScope = get(),
+            chatService = get(),
+            conversationRepo = get(),
+            settingsStore = get(),
         )
     }
 }

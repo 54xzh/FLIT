@@ -1896,4 +1896,41 @@
         <item quantity="other">%1$s 則訊息</item>
     </plurals>
 
+    <string name="setting_page_web_server">網路存取</string>
+    <string name="setting_page_web_server_desc">在您的網路上使用 LastChat</string>
+    <string name="setting_page_web_server_hero_title">瀏覽器中的 LastChat</string>
+    <string name="setting_page_web_server_hero_desc">啟動本地 Web 伺服器，從同一網路上的裝置瀏覽對話並傳送訊息。</string>
+    <string name="setting_page_web_server_status_idle">伺服器離線</string>
+    <string name="setting_page_web_server_status_starting">正在啟動本地伺服器…</string>
+    <string name="setting_page_web_server_status_stopping">正在關閉伺服器…</string>
+    <string name="setting_page_web_server_status_running">伺服器正在您的區域網路上運行</string>
+    <string name="setting_page_web_server_status_error">伺服器需要處理</string>
+    <string name="setting_page_web_server_start">啟動</string>
+    <string name="setting_page_web_server_stop">停止</string>
+    <string name="setting_page_web_server_open">開啟</string>
+    <string name="setting_page_web_server_access">存取</string>
+    <string name="setting_page_web_server_port">連接埠</string>
+    <string name="setting_page_web_server_port_desc">選擇您的瀏覽器將連接的連接埠。</string>
+    <string name="setting_page_web_server_protect">設定密碼保護</string>
+    <string name="setting_page_web_server_protect_desc">存取 Web UI 時需要密碼</string>
+    <string name="setting_page_web_server_password">存取密碼</string>
+    <string name="setting_page_web_server_background_setup_title">保持網路存取持續運行</string>
+    <string name="setting_page_web_server_background_setup_desc">允許通知和電池更改，以便在螢幕關閉時仍可存取網路。</string>
+    <string name="setting_page_web_server_background_setup_continue">繼續</string>
+    <string name="setting_page_web_server_notification_permission_warning">通知未被允許，伺服器狀態可能被隱藏。</string>
+    <string name="setting_page_web_server_background_warning_title">背景可靠性可能降低</string>
+    <string name="setting_page_web_server_background_warning_desc">螢幕關閉時，電池最佳化可能會停止網路存取。</string>
+    <string name="setting_page_web_server_background_warning_action">修復</string>
+    <string name="setting_page_web_server_addresses">位址</string>
+    <string name="setting_page_web_server_lan_address">區域網路位址</string>
+    <string name="setting_page_web_server_mdns_address">Bonjour 位址</string>
+    <string name="setting_page_web_server_waiting_for_network">啟動伺服器以取得可連線的位址。</string>
+    <string name="setting_page_web_server_error">Web 伺服器錯誤</string>
+    <string name="notification_channel_web_server">Web 伺服器</string>
+    <string name="notification_web_server_title">LastChat Web 伺服器</string>
+    <string name="notification_web_server_starting">正在啟動本地瀏覽器存取…</string>
+    <string name="notification_web_server_stopping">正在關閉本地瀏覽器存取…</string>
+    <string name="notification_web_server_running">本地瀏覽器存取正在運行</string>
+    <string name="notification_web_server_error">Web 伺服器發生故障</string>
+
 </resources>

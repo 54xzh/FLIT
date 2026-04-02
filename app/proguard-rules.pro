@@ -26,4 +26,9 @@
 # keep jlatexmath
 -keep class org.scilab.forge.jlatexmath.** {*;}
 
+# Ktor's IDEA debugger probe references desktop-only java.lang.management APIs.
+# They are not available on Android and are safe to ignore in release shrink.
+-dontwarn java.lang.management.ManagementFactory
+-dontwarn java.lang.management.RuntimeMXBean
+
 -dontobfuscate

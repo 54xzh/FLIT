@@ -19,6 +19,7 @@
   <uses-permission android:name="android.permission.VIBRATE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+  <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
   <uses-feature
     android:name="android.hardware.camera"
@@ -99,6 +100,11 @@
 
     <service
         android:name=".service.KeepAliveService"
+        android:exported="false"
+        android:foregroundServiceType="dataSync" />
+
+    <service
+        android:name=".service.WebServerService"
         android:exported="false"
         android:foregroundServiceType="dataSync" />
 

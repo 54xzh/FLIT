@@ -1906,4 +1906,41 @@
         <item quantity="other">%1$s messages</item>
     </plurals>
 
+    <string name="setting_page_web_server">Web Access</string>
+    <string name="setting_page_web_server_desc">Use LastChat on your network</string>
+    <string name="setting_page_web_server_hero_title">LastChat in a browser</string>
+    <string name="setting_page_web_server_hero_desc">Start a local web server to browse conversations and send messages from devices on the same network.</string>
+    <string name="setting_page_web_server_status_idle">Server is offline</string>
+    <string name="setting_page_web_server_status_starting">Starting local server…</string>
+    <string name="setting_page_web_server_status_stopping">Turning off server…</string>
+    <string name="setting_page_web_server_status_running">Server is live on your LAN</string>
+    <string name="setting_page_web_server_status_error">Server needs attention</string>
+    <string name="setting_page_web_server_start">Start</string>
+    <string name="setting_page_web_server_stop">Stop</string>
+    <string name="setting_page_web_server_open">Open</string>
+    <string name="setting_page_web_server_access">Access</string>
+    <string name="setting_page_web_server_port">Port</string>
+    <string name="setting_page_web_server_port_desc">Choose the port your browser will connect to.</string>
+    <string name="setting_page_web_server_protect">Protect with password</string>
+    <string name="setting_page_web_server_protect_desc">Require a password when accessing the web UI</string>
+    <string name="setting_page_web_server_password">Access password</string>
+    <string name="setting_page_web_server_background_setup_title">Keep web access alive</string>
+    <string name="setting_page_web_server_background_setup_desc">Allow notifications and battery changes so web access stays available with the screen off.</string>
+    <string name="setting_page_web_server_background_setup_continue">Continue</string>
+    <string name="setting_page_web_server_notification_permission_warning">Notifications were not allowed. Server status may be hidden.</string>
+    <string name="setting_page_web_server_background_warning_title">Background reliability may be reduced</string>
+    <string name="setting_page_web_server_background_warning_desc">Battery optimization may stop web access when the screen turns off.</string>
+    <string name="setting_page_web_server_background_warning_action">Fix</string>
+    <string name="setting_page_web_server_addresses">Addresses</string>
+    <string name="setting_page_web_server_lan_address">LAN address</string>
+    <string name="setting_page_web_server_mdns_address">Bonjour address</string>
+    <string name="setting_page_web_server_waiting_for_network">Start the server to get a reachable address.</string>
+    <string name="setting_page_web_server_error">Web server error</string>
+    <string name="notification_channel_web_server">Web server</string>
+    <string name="notification_web_server_title">LastChat web server</string>
+    <string name="notification_web_server_starting">Starting local browser access…</string>
+    <string name="notification_web_server_stopping">Turning off local browser access…</string>
+    <string name="notification_web_server_running">Local browser access is running</string>
+    <string name="notification_web_server_error">Web server failed</string>
+
 </resources>

@@ -66,6 +66,7 @@ import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.InvertColors
+import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.RecordVoiceOver
@@ -248,6 +249,13 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         subtitle = stringResource(R.string.setting_page_skills_desc),
                         icon = { Icon(Icons.Rounded.Extension, null, modifier = Modifier.size(20.dp)) },
                         onClick = { navController.navigate(Screen.SettingSkills) }
+                    )
+
+                    SettingGroupItem(
+                        title = stringResource(R.string.setting_page_web_server),
+                        subtitle = stringResource(R.string.setting_page_web_server_desc),
+                        icon = { Icon(Icons.Rounded.Language, null, modifier = Modifier.size(20.dp)) },
+                        onClick = { navController.navigate(Screen.SettingWeb) }
                     )
 
                     SettingGroupItem(

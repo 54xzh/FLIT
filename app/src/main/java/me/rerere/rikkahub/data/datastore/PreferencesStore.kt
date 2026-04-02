@@ -201,6 +201,13 @@ class SettingsStore(
         val TTS_PROVIDERS = stringPreferencesKey("tts_providers")
         val SELECTED_TTS_PROVIDER = stringPreferencesKey("selected_tts_provider")
 
+        // Web Server
+        val WEB_SERVER_ENABLED = booleanPreferencesKey("web_server_enabled")
+        val WEB_SERVER_PORT = intPreferencesKey("web_server_port")
+        val WEB_SERVER_JWT_ENABLED = booleanPreferencesKey("web_server_jwt_enabled")
+        val WEB_SERVER_ACCESS_PASSWORD = stringPreferencesKey("web_server_access_password")
+        val WEB_SERVER_BACKGROUND_SETUP_SHOWN = booleanPreferencesKey("web_server_background_setup_shown")
+
         // Background Worker
         val CONSOLIDATION_WORKER_INTERVAL = intPreferencesKey("consolidation_worker_interval")
         val CONSOLIDATION_REQUIRES_DEVICE_IDLE = booleanPreferencesKey("consolidation_requires_device_idle")
@@ -453,6 +460,11 @@ class SettingsStore(
                     ?: DEFAULT_SYSTEM_TTS_ID,
                 consolidationWorkerIntervalMinutes = preferences[CONSOLIDATION_WORKER_INTERVAL] ?: 15,
                 consolidationRequiresDeviceIdle = preferences[CONSOLIDATION_REQUIRES_DEVICE_IDLE] ?: false,
+                webServerEnabled = preferences[WEB_SERVER_ENABLED] == true,
+                webServerPort = preferences[WEB_SERVER_PORT] ?: 8080,
+                webServerJwtEnabled = preferences[WEB_SERVER_JWT_ENABLED] == true,
+                webServerAccessPassword = preferences[WEB_SERVER_ACCESS_PASSWORD] ?: "",
+                webServerBackgroundSetupShown = preferences[WEB_SERVER_BACKGROUND_SETUP_SHOWN] == true,
                 modes = preferences[MODES]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
@@ -643,6 +655,9 @@ class SettingsStore(
 	            displaySetting = settingsToSaveWithReboundSearchIndices.displaySetting.coerceForConflicts(),
                 mcpToolCallTimeoutSeconds = settingsToSaveWithReboundSearchIndices.mcpToolCallTimeoutSeconds.coerceAtLeast(1),
                 http429MaxRetries = settingsToSaveWithReboundSearchIndices.http429MaxRetries.coerceIn(0, 10),
+                webServerPort = settingsToSaveWithReboundSearchIndices.webServerPort.coerceIn(1024, 65535),
+                webServerJwtEnabled = settingsToSaveWithReboundSearchIndices.webServerJwtEnabled &&
+                    settingsToSaveWithReboundSearchIndices.webServerAccessPassword.isNotBlank(),
 	        )
 
         settingsFlow.value = finalSettingsToSave
@@ -700,6 +715,12 @@ class SettingsStore(
 
             preferences[CONSOLIDATION_WORKER_INTERVAL] = finalSettingsToSave.consolidationWorkerIntervalMinutes
             preferences[CONSOLIDATION_REQUIRES_DEVICE_IDLE] = finalSettingsToSave.consolidationRequiresDeviceIdle
+
+            preferences[WEB_SERVER_ENABLED] = finalSettingsToSave.webServerEnabled
+            preferences[WEB_SERVER_PORT] = finalSettingsToSave.webServerPort
+            preferences[WEB_SERVER_JWT_ENABLED] = finalSettingsToSave.webServerJwtEnabled
+            preferences[WEB_SERVER_ACCESS_PASSWORD] = finalSettingsToSave.webServerAccessPassword
+            preferences[WEB_SERVER_BACKGROUND_SETUP_SHOWN] = finalSettingsToSave.webServerBackgroundSetupShown
 
             preferences[MODES] = JsonInstant.encodeToString(finalSettingsToSave.modes)
             preferences[LOREBOOKS] = JsonInstant.encodeToString(finalSettingsToSave.lorebooks)
@@ -816,6 +837,13 @@ data class Settings(
     val selectedTTSProviderId: Uuid = DEFAULT_SYSTEM_TTS_ID,
     val consolidationWorkerIntervalMinutes: Int = 15,
     val consolidationRequiresDeviceIdle: Boolean = false,
+
+    // Web Server
+    val webServerEnabled: Boolean = false,
+    val webServerPort: Int = 8080,
+    val webServerJwtEnabled: Boolean = false,
+    val webServerAccessPassword: String = "",
+    val webServerBackgroundSetupShown: Boolean = false,
 
     // Prompt Injections
     val modes: List<Mode> = emptyList(),
