@@ -1467,6 +1467,13 @@
   <string name="developer_option_markdown_font_debug_desc">在聊天气泡下显示字体来源和字重等诊断信息。</string>
   <string name="developer_option_markdown_font_debug_tip">开启后回到聊天页，发送包含 **粗体** 的消息观察效果。</string>
   <string name="developer_option_request_logs_title">打开请求日志</string>
+  <string name="developer_option_ipv6_probe_title">IPv6 检测</string>
+  <string name="developer_option_ipv6_probe_desc">分别检查 6.ipw.cn 返回的 IPv6 和系统默认网络实际会使用的 IPv6。</string>
+  <string name="developer_option_ipv6_probe_action">立即检测</string>
+  <string name="developer_option_ipv6_probe_loading">检测中...</string>
+  <string name="developer_option_ipv6_probe_http_title">外网 IPv6（6.ipw.cn）</string>
+  <string name="developer_option_ipv6_probe_system_title">默认网络 IPv6</string>
+  <string name="developer_option_ipv6_probe_not_found">未检测到 IPv6</string>
   <string name="setting_request_logs_desc">查看 AI 请求日志。</string>
   <string name="setting_request_logs_enable_developer_mode_first">需要先开启开发者模式。</string>
   <string name="request_logs_empty">还没有请求日志</string>

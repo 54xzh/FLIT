@@ -10,7 +10,9 @@ import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.FontDownload
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -34,6 +36,7 @@ import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.ai.AILogging
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
 import me.rerere.rikkahub.ui.context.LocalNavController
+import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupInputItem
 import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
 import me.rerere.rikkahub.ui.theme.AppShapes
 import org.koin.androidx.compose.koinViewModel
@@ -99,6 +102,7 @@ fun DeveloperPage(vm: DeveloperVM = koinViewModel()) {
 private fun DeveloperToolsPage(vm: DeveloperVM) {
     val navController = LocalNavController.current
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val ipv6DebugState by vm.ipv6DebugState.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -151,6 +155,53 @@ private fun DeveloperToolsPage(vm: DeveloperVM) {
                 },
                 onClick = null
             )
+        }
+
+        item {
+            SettingGroupInputItem(
+                title = stringResource(R.string.developer_option_ipv6_probe_title),
+                subtitle = stringResource(R.string.developer_option_ipv6_probe_desc),
+                icon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Public,
+                        contentDescription = null,
+                    )
+                },
+            ) {
+                FilledTonalButton(
+                    onClick = { vm.detectIpv6() },
+                    enabled = !ipv6DebugState.isLoading,
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (ipv6DebugState.isLoading) {
+                                R.string.developer_option_ipv6_probe_loading
+                            } else {
+                                R.string.developer_option_ipv6_probe_action
+                            }
+                        )
+                    )
+                }
+
+                if (ipv6DebugState.hasChecked) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SettingGroupItem(
+                            title = stringResource(R.string.developer_option_ipv6_probe_http_title),
+                            subtitle = ipv6DebugState.httpIpv6
+                                ?: stringResource(R.string.developer_option_ipv6_probe_not_found),
+                            onClick = null,
+                        )
+                        SettingGroupItem(
+                            title = stringResource(R.string.developer_option_ipv6_probe_system_title),
+                            subtitle = ipv6DebugState.systemIpv6
+                                ?: stringResource(R.string.developer_option_ipv6_probe_not_found),
+                            onClick = null,
+                        )
+                    }
+                }
+            }
         }
 
         item {

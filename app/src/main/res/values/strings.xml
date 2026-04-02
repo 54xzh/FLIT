@@ -17,6 +17,13 @@
     <string name="developer_option_auto_continue_on_truncation_desc">When generation stops due to token limit (not manual cancel), automatically continue once.</string>
     <string name="developer_option_markdown_font_debug_tip">After enabling, go back to chat and send a message with **bold** to compare rendering.</string>
     <string name="developer_option_request_logs_title">Open request logs</string>
+    <string name="developer_option_ipv6_probe_title">IPv6 detection</string>
+    <string name="developer_option_ipv6_probe_desc">Check the IPv6 returned by 6.ipw.cn and the IPv6 selected by the default system network.</string>
+    <string name="developer_option_ipv6_probe_action">Run detection</string>
+    <string name="developer_option_ipv6_probe_loading">Detecting…</string>
+    <string name="developer_option_ipv6_probe_http_title">External IPv6 (6.ipw.cn)</string>
+    <string name="developer_option_ipv6_probe_system_title">Default network IPv6</string>
+    <string name="developer_option_ipv6_probe_not_found">No IPv6 detected</string>
     <string name="setting_request_logs_desc">View AI request logs.</string>
     <string name="setting_request_logs_enable_developer_mode_first">Enable Developer Mode to view logs.</string>
     <string name="request_log_status_ok">OK</string>

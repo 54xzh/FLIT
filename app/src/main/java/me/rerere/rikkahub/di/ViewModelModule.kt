@@ -70,7 +70,13 @@ val viewModelModule = module {
             requestLogManager = get(),
         )
     }
-    viewModelOf(::DeveloperVM)
+    viewModel {
+        DeveloperVM(
+            aiLoggingManager = get(),
+            settingsStore = get(),
+            context = get(),
+        )
+    }
     viewModelOf(::MenuVM)
     viewModelOf(::TextSelectionVM)
     viewModelOf(::StorageManagerVM)

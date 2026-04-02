@@ -1497,6 +1497,13 @@
   <string name="developer_option_auto_continue_on_truncation_desc">當生成因 token 上限截斷（非手動取消）時，自動續寫一次。</string>
   <string name="developer_option_markdown_font_debug_tip">啟用後回到聊天頁，發送包含 **粗體** 的訊息觀察效果。</string>
   <string name="developer_option_request_logs_title">打開請求日誌</string>
+  <string name="developer_option_ipv6_probe_title">IPv6 偵測</string>
+  <string name="developer_option_ipv6_probe_desc">分別檢查 6.ipw.cn 回傳的 IPv6 和系統預設網路實際會使用的 IPv6。</string>
+  <string name="developer_option_ipv6_probe_action">立即偵測</string>
+  <string name="developer_option_ipv6_probe_loading">偵測中...</string>
+  <string name="developer_option_ipv6_probe_http_title">外網 IPv6（6.ipw.cn）</string>
+  <string name="developer_option_ipv6_probe_system_title">預設網路 IPv6</string>
+  <string name="developer_option_ipv6_probe_not_found">未偵測到 IPv6</string>
   <string name="a11y_messages">消息</string>
   <string name="a11y_chat_options">對話選項</string>
   <string name="a11y_make_normal_chat">轉為普通對話</string>
