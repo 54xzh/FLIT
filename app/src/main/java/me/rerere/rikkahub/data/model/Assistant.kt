@@ -94,6 +94,7 @@ data class Assistant(
     val mcpServers: Set<Uuid> = emptySet(),
     val localTools: List<LocalToolOption> = emptyList(),
     val enabledSkillIds: Set<Uuid> = emptySet(), // Skills enabled for this assistant
+    val enabledModeIds: Set<Uuid> = emptySet(), // Modes enabled by default for new chats of this assistant
     val background: String? = null,
     val learningMode: Boolean = false,
     val enableSpontaneous: Boolean = false, // 是否启用自发消息

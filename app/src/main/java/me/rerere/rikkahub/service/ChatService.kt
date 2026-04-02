@@ -1097,7 +1097,9 @@ class ChatService(
         val conversation = Conversation.ofId(
             id = Uuid.random(),
             assistantId = assistant.id,
-        ).updateCurrentMessages(assistant.presetMessages)
+        ).updateCurrentMessages(assistant.presetMessages).copy(
+            enabledModeIds = assistant.enabledModeIds,
+        )
         saveConversation(conversation.id, conversation)
         return conversation
     }

@@ -35,8 +35,8 @@ import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.Lorebook
 import me.rerere.rikkahub.data.model.MessageNode
+import me.rerere.rikkahub.data.model.Mode
 import me.rerere.rikkahub.data.model.QuickMessage
-import me.rerere.rikkahub.data.model.Skill
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
@@ -132,6 +132,11 @@ data class UpdateSearchEnabledRequest(
 @Serializable
 data class UpdateSearchServiceRequest(
     val index: Int,
+)
+
+@Serializable
+data class UpdateSearchProvidersRequest(
+    val indices: List<Int>,
 )
 
 @Serializable
@@ -464,6 +469,7 @@ data class WebSettingsDto(
     val mcpServers: List<WebMcpServerDto>,
     val searchServices: List<WebSearchServiceDto>,
     val searchServiceSelected: Int,
+    val searchServiceSelectedIndices: List<Int>,
     val webServerJwtEnabled: Boolean,
 )
 
@@ -560,17 +566,28 @@ fun Settings.toWebSettingsDto(context: Context): WebSettingsDto {
     val currentAssistant = assistants.find { it.id == assistantId }
     val currentModelId = currentAssistant?.chatModelId ?: chatModelId
     val currentSearchMode = currentAssistant?.searchMode
-    val selectedSearchIndex = when (currentSearchMode) {
-        is AssistantSearchMode.Provider -> currentSearchMode.index
-        else -> searchServiceSelected
-    }.coerceIn(0, (searchServices.size - 1).coerceAtLeast(0))
+    val selectedSearchIndices = when (currentSearchMode) {
+        is AssistantSearchMode.Provider -> listOf(currentSearchMode.index)
+        is AssistantSearchMode.MultiProvider -> currentSearchMode.indices
+        else -> if (searchServices.isEmpty()) emptyList() else listOf(searchServiceSelected)
+    }.asSequence()
+        .filter { index -> index in searchServices.indices }
+        .distinct()
+        .sorted()
+        .toList()
+    val selectedSearchIndex = when {
+        selectedSearchIndices.isNotEmpty() -> selectedSearchIndices.first()
+        searchServices.isEmpty() -> 0
+        else -> searchServiceSelected.coerceIn(0, searchServices.lastIndex)
+    }
 
     return WebSettingsDto(
         dynamicColor = dynamicColor,
         themeId = themeId,
         developerMode = developerMode,
         displaySetting = displaySetting.toWebDisplaySetting(context),
-        enableWebSearch = currentSearchMode is AssistantSearchMode.Provider,
+        enableWebSearch = currentSearchMode is AssistantSearchMode.Provider ||
+            currentSearchMode is AssistantSearchMode.MultiProvider,
         favoriteModels = favoriteModels.map(Uuid::toString),
         chatModelId = chatModelId.toString(),
         assistantId = assistantId.toString(),
@@ -584,11 +601,12 @@ fun Settings.toWebSettingsDto(context: Context): WebSettingsDto {
         },
         assistants = assistants.map { it.toWebAssistantDto(context) },
         assistantTags = assistantTags.map { WebAssistantTagDto(id = it.id.toString(), name = it.name) },
-        modeInjections = skills.map { it.toWebModeInjectionDto() },
+        modeInjections = modes.map { it.toWebModeInjectionDto() },
         lorebooks = lorebooks.map { it.toWebLorebookDto() },
         mcpServers = mcpServers.map { it.toWebMcpServerDto() },
         searchServices = searchServices.map { it.toWebSearchServiceDto() },
         searchServiceSelected = selectedSearchIndex,
+        searchServiceSelectedIndices = selectedSearchIndices,
         webServerJwtEnabled = webServerJwtEnabled,
     )
 }
@@ -770,7 +788,7 @@ internal fun Assistant.toWebAssistantDto(context: Context): WebAssistantDto {
         chatModelId = chatModelId?.toString(),
         thinkingBudget = thinkingBudget,
         mcpServers = mcpServers.map(Uuid::toString),
-        modeInjectionIds = enabledSkillIds.map(Uuid::toString),
+        modeInjectionIds = enabledModeIds.map(Uuid::toString),
         lorebookIds = enabledLorebookIds.map(Uuid::toString),
         name = name.ifBlank { "Assistant" },
         avatar = avatar.toWebAvatarDto(context),
@@ -803,11 +821,11 @@ private fun QuickMessage.toWebQuickMessageDto(): WebQuickMessageDto {
     )
 }
 
-private fun Skill.toWebModeInjectionDto(): WebModeInjectionDto {
+private fun Mode.toWebModeInjectionDto(): WebModeInjectionDto {
     return WebModeInjectionDto(
         id = id.toString(),
-        name = name.ifBlank { description.ifBlank { "Skill" } },
-        description = description,
+        name = name.ifBlank { "Mode" },
+        description = prompt,
         enabled = true,
     )
 }

@@ -474,10 +474,10 @@ private fun Route.webRoutes(
             val conversationId = call.parameters["id"].toUuid("conversation id")
             val request = call.receive<UpdateConversationSkillsRequest>()
             val settings = settingsStore.settingsFlow.value
-            val validSkillIds = settings.skills.map { it.id }.toSet()
-            val requestedSkillIds = request.skillIds.map { it.toUuid("skill id") }.toSet()
-            if (!validSkillIds.containsAll(requestedSkillIds)) {
-                throw BadRequestException("skillIds contains unknown skill id")
+            val validModeIds = settings.modes.map { it.id }.toSet()
+            val requestedModeIds = request.skillIds.map { it.toUuid("mode id") }.toSet()
+            if (!validModeIds.containsAll(requestedModeIds)) {
+                throw BadRequestException("skillIds contains unknown mode id")
             }
 
             val conversation = withContext(Dispatchers.IO) {
@@ -486,7 +486,7 @@ private fun Route.webRoutes(
 
             chatService.saveConversation(
                 conversationId,
-                conversation.copy(enabledModeIds = requestedSkillIds, updateAt = Instant.now()),
+                conversation.copy(enabledModeIds = requestedModeIds, updateAt = Instant.now()),
             )
             call.respond(HttpStatusCode.OK, mapOf("status" to "updated"))
         }
@@ -722,7 +722,7 @@ private fun Route.webRoutes(
                 throw NotFoundException("Assistant not found")
             }
 
-            val validModeIds = settings.skills.map { it.id }.toSet()
+            val validModeIds = settings.modes.map { it.id }.toSet()
             val requestedModeIds = request.modeInjectionIds.map { it.toUuid("mode injection id") }.toSet()
             if (!validModeIds.containsAll(requestedModeIds)) {
                 throw BadRequestException("modeInjectionIds contains unknown injection id")
@@ -738,7 +738,7 @@ private fun Route.webRoutes(
                 current.copy(
                     assistants = current.assistants.replaceAssistant(assistantId) { assistant ->
                         assistant.copy(
-                            enabledSkillIds = requestedModeIds,
+                            enabledModeIds = requestedModeIds,
                             enabledLorebookIds = requestedLorebookIds,
                         )
                     }
@@ -755,15 +755,78 @@ private fun Route.webRoutes(
                     if (current.searchServices.isEmpty()) {
                         throw BadRequestException("No search services configured")
                     }
-                    AssistantSearchMode.Provider(
-                        current.searchServiceSelected.coerceIn(0, current.searchServices.lastIndex)
-                    )
+                    when (val existingMode = assistant.searchMode) {
+                        is AssistantSearchMode.Provider -> {
+                            val index = existingMode.index
+                            if (index in current.searchServices.indices) {
+                                existingMode
+                            } else {
+                                AssistantSearchMode.Provider(
+                                    current.searchServiceSelected.coerceIn(0, current.searchServices.lastIndex)
+                                )
+                            }
+                        }
+
+                        is AssistantSearchMode.MultiProvider -> {
+                            val indices = existingMode.indices
+                                .asSequence()
+                                .filter { index -> index in current.searchServices.indices }
+                                .distinct()
+                                .sorted()
+                                .toList()
+                            when (indices.size) {
+                                0 -> AssistantSearchMode.Provider(
+                                    current.searchServiceSelected.coerceIn(0, current.searchServices.lastIndex)
+                                )
+
+                                1 -> AssistantSearchMode.Provider(indices.first())
+                                else -> AssistantSearchMode.MultiProvider(indices)
+                            }
+                        }
+
+                        else -> AssistantSearchMode.Provider(
+                            current.searchServiceSelected.coerceIn(0, current.searchServices.lastIndex)
+                        )
+                    }
                 } else {
                     AssistantSearchMode.Off
                 }
 
                 current.copy(
                     enableWebSearch = request.enabled,
+                    assistants = current.assistants.replaceAssistant(assistant.id) {
+                        it.copy(searchMode = nextSearchMode)
+                    },
+                )
+            }
+            call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
+        }
+
+        post("/search/providers") {
+            val request = call.receive<UpdateSearchProvidersRequest>()
+            settingsStore.update { current ->
+                if (current.searchServices.isEmpty()) {
+                    throw BadRequestException("No search services configured")
+                }
+
+                val sanitizedIndices = request.indices
+                    .asSequence()
+                    .filter { index -> index in current.searchServices.indices }
+                    .distinct()
+                    .sorted()
+                    .toList()
+
+                val assistant = current.getCurrentAssistant()
+                val nextSearchMode = when (sanitizedIndices.size) {
+                    0 -> AssistantSearchMode.Off
+                    1 -> AssistantSearchMode.Provider(sanitizedIndices.first())
+                    else -> AssistantSearchMode.MultiProvider(sanitizedIndices)
+                }
+
+                current.copy(
+                    enableWebSearch = sanitizedIndices.isNotEmpty(),
+                    searchServiceSelected = sanitizedIndices.firstOrNull()
+                        ?: current.searchServiceSelected.coerceIn(0, current.searchServices.lastIndex),
                     assistants = current.assistants.replaceAssistant(assistant.id) {
                         it.copy(searchMode = nextSearchMode)
                     },

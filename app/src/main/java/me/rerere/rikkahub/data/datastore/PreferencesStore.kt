@@ -543,11 +543,15 @@ class SettingsStore(
                     skill
                 }
             }
+            val validModeIds = settings.modes.map { it.id }.toSet()
             val validSkillIds = sanitizedSkills.map { it.id }.toSet()
             val dedupedAssistants = settings.assistants.distinctBy { it.id }.map { assistant ->
                 assistant.copy(
                     mcpServers = assistant.mcpServers.filter { serverId ->
                         serverId in validMcpServerIds
+                    }.toSet(),
+                    enabledModeIds = assistant.enabledModeIds.filter { modeId ->
+                        modeId in validModeIds
                     }.toSet(),
                     enabledSkillIds = assistant.enabledSkillIds.filter { skillId ->
                         skillId in validSkillIds
@@ -1577,6 +1581,7 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
         }
     }
     val validSkillIds = cleanedSkills.map { it.id }.toSet()
+    val validModeIds = modes.map { it.id }.toSet()
     val cleanedEnabledSkillScriptIds = enabledSkillScriptIds.filter { it in validSkillIds }.toSet()
     val cleanedConversationWorkspaceRoots = conversationWorkspaceRoots
         .mapNotNull { (conversationId, uriString) ->
@@ -1612,11 +1617,18 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
         }
     }
 
-    // 2.5 Remove orphaned skill references from assistants
+    // 2.5 Remove orphaned mode / skill references from assistants
     val cleanedAssistantsWithSkills = cleanedAssistants.map { assistant ->
-        val filtered = assistant.enabledSkillIds.filter { it in validSkillIds }.toSet()
-        if (filtered.size != assistant.enabledSkillIds.size) {
-            assistant.copy(enabledSkillIds = filtered)
+        val filteredModeIds = assistant.enabledModeIds.filter { it in validModeIds }.toSet()
+        val filteredSkillIds = assistant.enabledSkillIds.filter { it in validSkillIds }.toSet()
+        if (
+            filteredModeIds.size != assistant.enabledModeIds.size ||
+            filteredSkillIds.size != assistant.enabledSkillIds.size
+        ) {
+            assistant.copy(
+                enabledModeIds = filteredModeIds,
+                enabledSkillIds = filteredSkillIds,
+            )
         } else {
             assistant
         }
