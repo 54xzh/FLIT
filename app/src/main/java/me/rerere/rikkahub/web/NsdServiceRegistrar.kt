@@ -1,6 +1,8 @@
 package me.rerere.rikkahub.web
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -88,13 +90,13 @@ class NsdServiceRegistrar(
         cleanup()
     }
 
-    fun findLanAddress(): InetAddress? {
+    suspend fun findLanAddress(): InetAddress? {
         return findLanAddresses().ipv4Address
     }
 
-    fun findLanAddresses(): LanAddressInfo {
-        return runCatching {
-            val addresses = NetworkInterface.getNetworkInterfaces()
+    suspend fun findLanAddresses(): LanAddressInfo = withContext(Dispatchers.IO) {
+        val addresses = runCatching {
+            NetworkInterface.getNetworkInterfaces()
                 ?.toList()
                 ?.asSequence()
                 ?.filter { iface ->
@@ -105,52 +107,72 @@ class NsdServiceRegistrar(
                 ?.flatMap { iface -> iface.inetAddresses.toList().asSequence() }
                 ?.toList()
                 .orEmpty()
+        }.getOrDefault(emptyList())
 
-            val ipv4Address = addresses
-                .asSequence()
-                .filterIsInstance<Inet4Address>()
-                .firstOrNull { address ->
-                    !address.isLoopbackAddress &&
-                        !address.isLinkLocalAddress
-                }
+        val ipv4Address = addresses
+            .asSequence()
+            .filterIsInstance<Inet4Address>()
+            .firstOrNull { address ->
+                !address.isLoopbackAddress &&
+                    !address.isLinkLocalAddress
+            }
 
-            val ipv6Candidates = addresses
-                .asSequence()
-                .filterIsInstance<Inet6Address>()
-                .filter { address ->
-                    !address.isLoopbackAddress &&
-                        !address.isLinkLocalAddress &&
-                        !address.isAnyLocalAddress &&
-                        !address.isMulticastAddress
-                }
-                .toList()
+        val ipv6Address = findPublicIpv6Address()
 
-            // Prefer the address the OS would actually use for outgoing traffic
-            // (matches what IPv6 detection sites see), then fall back to list-based selection.
-            val ipv6Address = findRoutingPreferredIpv6Address()
-                ?: ipv6Candidates.firstOrNull(Inet6Address::isGlobalLanAddress)
-                ?: ipv6Candidates.firstOrNull(Inet6Address::isUniqueLocalAddress)
-
-            LanAddressInfo(
-                ipv4Address = ipv4Address,
-                ipv6Address = ipv6Address,
-            )
-        }.getOrDefault(LanAddressInfo())
+        LanAddressInfo(
+            ipv4Address = ipv4Address,
+            ipv6Address = ipv6Address,
+        )
     }
 
     /**
-     * Determines the preferred outbound IPv6 address by performing a route lookup via a
-     * no-op UDP "connect". No packet is actually sent; the OS just picks the correct
-     * source address according to its routing table and RFC 6724 address selection.
+     * Returns the public IPv6 address via two strategies:
+     * 1. ConnectivityManager, filtered to non-VPN networks — fast and offline.
+     * 2. HTTP GET to 6.ipw.cn — returns the actual public IPv6 seen by the internet,
+     *    handles cases where the local address from strategy 1 is not publicly reachable.
+     *
+     * Returns null if neither strategy succeeds (no IPv6 connectivity or all failed).
      */
-    private fun findRoutingPreferredIpv6Address(): Inet6Address? {
+    private suspend fun findPublicIpv6Address(): Inet6Address? {
+        // Strategy 1: read non-VPN network link properties
+        val cm = context.getSystemService(ConnectivityManager::class.java)
+        if (cm != null) {
+            val candidates = cm.allNetworks
+                .asSequence()
+                .filter { network ->
+                    val caps = cm.getNetworkCapabilities(network) ?: return@filter false
+                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                }
+                .flatMap { network ->
+                    cm.getLinkProperties(network)
+                        ?.linkAddresses
+                        ?.mapNotNull { it.address as? Inet6Address }
+                        .orEmpty()
+                        .asSequence()
+                }
+                .filter { addr ->
+                    !addr.isLoopbackAddress &&
+                        !addr.isLinkLocalAddress &&
+                        !addr.isAnyLocalAddress &&
+                        !addr.isMulticastAddress
+                }
+                .toList()
+
+            val result = candidates.firstOrNull(Inet6Address::isGlobalLanAddress)
+                ?: candidates.firstOrNull(Inet6Address::isUniqueLocalAddress)
+            if (result != null) return result
+        }
+
+        // Strategy 2: ask 6.ipw.cn for the actual public IPv6
         return try {
-            java.net.DatagramSocket().use { socket ->
-                socket.connect(InetAddress.getByName("2001:4860:4860::8888"), 53)
-                socket.localAddress as? Inet6Address
-            }
+            val connection = java.net.URL("http://6.ipw.cn").openConnection() as java.net.HttpURLConnection
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+            val ip = connection.inputStream.bufferedReader().use { it.readText() }.trim()
+            connection.disconnect()
+            InetAddress.getByName(ip) as? Inet6Address
         } catch (e: Exception) {
-            Log.w(TAG, "Could not determine preferred IPv6 via routing: ${e.message}")
+            Log.w(TAG, "Could not fetch public IPv6 via 6.ipw.cn: ${e.message}")
             null
         }
     }
