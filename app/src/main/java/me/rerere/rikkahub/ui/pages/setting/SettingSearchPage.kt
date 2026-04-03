@@ -107,6 +107,9 @@ import me.rerere.rikkahub.utils.plus
 import me.rerere.search.SearchCommonOptions
 import me.rerere.search.SearchService
 import me.rerere.search.SearchServiceOptions
+import me.rerere.search.displayName
+import me.rerere.search.rawAlias
+import me.rerere.search.withAlias
 import org.koin.androidx.compose.koinViewModel
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -510,7 +513,22 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
                     ),
                     style = MaterialTheme.typography.headlineSmall
                 )
-                
+
+                // Alias field (common to all service types)
+                FormItem(
+                    label = { Text(stringResource(R.string.setting_search_page_alias)) }
+                ) {
+                    OutlinedTextField(
+                        value = currentService.rawAlias,
+                        onValueChange = { currentService = currentService.withAlias(it) },
+                        placeholder = {
+                            Text(SearchServiceOptions.TYPES[currentService::class] ?: "")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                }
+
                 // Configuration options based on service type
                 LazyColumn(
                     modifier = Modifier
@@ -840,9 +858,9 @@ private fun SearchServiceItemContent(
     onClick: () -> Unit,
     dragHandle: @Composable () -> Unit
 ) {
-    val serviceName = SearchServiceOptions.TYPES[service::class] ?: "Unknown"
+    val serviceTypeName = SearchServiceOptions.TYPES[service::class] ?: "Unknown"
     val hasScraping = SearchService.getService(service).scrapingParameters != null
-    
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -857,16 +875,16 @@ private fun SearchServiceItemContent(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AutoAIIcon(
-            name = serviceName,
+            name = serviceTypeName,
             modifier = Modifier.size(40.dp)
         )
-        
+
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = serviceName,
+                text = service.displayName,
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

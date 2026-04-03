@@ -144,8 +144,9 @@ sealed class SearchServiceOptions {
 
     @Serializable
     @SerialName("bing_local")
-    class BingLocalOptions(
-        override val id: Uuid = Uuid.random()
+    data class BingLocalOptions(
+        override val id: Uuid = Uuid.random(),
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
@@ -153,6 +154,7 @@ sealed class SearchServiceOptions {
     data class ZhipuOptions(
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
@@ -161,13 +163,15 @@ sealed class SearchServiceOptions {
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
         val depth: String = "advanced",
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
     @SerialName("exa")
     data class ExaOptions(
         override val id: Uuid = Uuid.random(),
-        val apiKey: String = ""
+        val apiKey: String = "",
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
@@ -179,6 +183,7 @@ sealed class SearchServiceOptions {
         val language: String = "",
         val username: String = "",
         val password: String = "",
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
@@ -187,6 +192,7 @@ sealed class SearchServiceOptions {
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
         val depth: String = "standard",
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
@@ -194,6 +200,7 @@ sealed class SearchServiceOptions {
     data class BraveOptions(
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
@@ -201,6 +208,7 @@ sealed class SearchServiceOptions {
     data class MetasoOptions(
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
@@ -208,6 +216,7 @@ sealed class SearchServiceOptions {
     data class OllamaOptions(
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
@@ -216,6 +225,7 @@ sealed class SearchServiceOptions {
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
         val maxTokensPerPage: Int? = 1024,
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
@@ -223,6 +233,7 @@ sealed class SearchServiceOptions {
     data class FirecrawlOptions(
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
@@ -230,6 +241,7 @@ sealed class SearchServiceOptions {
     data class JinaOptions(
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
@@ -238,6 +250,7 @@ sealed class SearchServiceOptions {
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
         val summary: Boolean = true,
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
@@ -249,6 +262,7 @@ sealed class SearchServiceOptions {
         val outputType: String = "searchResults",
         val includeImages: Boolean = false,
         val stealthMode: Boolean = false,
+        val alias: String = "",
     ) : SearchServiceOptions()
 
     @Serializable
@@ -257,7 +271,67 @@ sealed class SearchServiceOptions {
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
         val model: String = "grok-4.20-0309-non-reasoning",
+        val alias: String = "",
     ) : SearchServiceOptions()
+}
+
+val SearchServiceOptions.rawAlias: String
+    get() = when (this) {
+        is SearchServiceOptions.BingLocalOptions -> alias
+        is SearchServiceOptions.ZhipuOptions -> alias
+        is SearchServiceOptions.TavilyOptions -> alias
+        is SearchServiceOptions.ExaOptions -> alias
+        is SearchServiceOptions.SearXNGOptions -> alias
+        is SearchServiceOptions.LinkUpOptions -> alias
+        is SearchServiceOptions.BraveOptions -> alias
+        is SearchServiceOptions.MetasoOptions -> alias
+        is SearchServiceOptions.OllamaOptions -> alias
+        is SearchServiceOptions.PerplexityOptions -> alias
+        is SearchServiceOptions.FirecrawlOptions -> alias
+        is SearchServiceOptions.JinaOptions -> alias
+        is SearchServiceOptions.BochaOptions -> alias
+        is SearchServiceOptions.NanoGPTOptions -> alias
+        is SearchServiceOptions.GrokOptions -> alias
+    }
+
+val SearchServiceOptions.displayName: String
+    get() {
+        val alias = when (this) {
+            is SearchServiceOptions.BingLocalOptions -> alias
+            is SearchServiceOptions.ZhipuOptions -> alias
+            is SearchServiceOptions.TavilyOptions -> alias
+            is SearchServiceOptions.ExaOptions -> alias
+            is SearchServiceOptions.SearXNGOptions -> alias
+            is SearchServiceOptions.LinkUpOptions -> alias
+            is SearchServiceOptions.BraveOptions -> alias
+            is SearchServiceOptions.MetasoOptions -> alias
+            is SearchServiceOptions.OllamaOptions -> alias
+            is SearchServiceOptions.PerplexityOptions -> alias
+            is SearchServiceOptions.FirecrawlOptions -> alias
+            is SearchServiceOptions.JinaOptions -> alias
+            is SearchServiceOptions.BochaOptions -> alias
+            is SearchServiceOptions.NanoGPTOptions -> alias
+            is SearchServiceOptions.GrokOptions -> alias
+        }
+        return alias.ifBlank { SearchServiceOptions.TYPES[this::class] ?: "Unknown" }
+    }
+
+fun SearchServiceOptions.withAlias(newAlias: String): SearchServiceOptions = when (this) {
+    is SearchServiceOptions.BingLocalOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.ZhipuOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.TavilyOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.ExaOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.SearXNGOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.LinkUpOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.BraveOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.MetasoOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.OllamaOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.PerplexityOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.FirecrawlOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.JinaOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.BochaOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.NanoGPTOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.GrokOptions -> copy(alias = newAlias)
 }
 
 internal suspend fun Call.await(): Response {

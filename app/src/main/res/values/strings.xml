@@ -1550,6 +1550,7 @@
     <string name="setting_search_page_bing_no_config">Bing search does not require any configuration.</string>
     <string name="setting_search_page_edit_service_title">Edit %1$s</string>
     <string name="setting_search_page_service_fallback_name">Search Service</string>
+    <string name="setting_search_page_alias">Alias (Optional)</string>
     <string name="setting_search_page_stealth_mode">Stealth Mode</string>
     <string name="setting_search_page_stealth_mode_desc">Use stealth mode for web scraping</string>
     <string name="setting_search_page_summary">Summary</string>

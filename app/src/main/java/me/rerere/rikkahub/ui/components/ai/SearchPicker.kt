@@ -68,6 +68,7 @@ import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.pages.setting.SearchAbilityTagLine
 import me.rerere.search.SearchService
 import me.rerere.search.SearchServiceOptions
+import me.rerere.search.displayName
 import me.rerere.rikkahub.ui.hooks.rememberAmoledDarkMode
 import org.koin.compose.koinInject
 
@@ -565,7 +566,7 @@ private fun SearchProviderItem(
             modifier = Modifier.size(24.dp)
         )
         Text(
-            text = SearchServiceOptions.TYPES[service::class] ?: "Unknown",
+            text = service.displayName,
             style = MaterialTheme.typography.titleMedium,
             color = contentColor,
             modifier = Modifier.weight(1f)
@@ -652,7 +653,7 @@ private fun SearchProviderToggleItem(
             modifier = Modifier.size(24.dp)
         )
         Text(
-            text = SearchServiceOptions.TYPES[service::class] ?: "Unknown",
+            text = service.displayName,
             style = MaterialTheme.typography.titleMedium,
             color = contentColor,
             modifier = Modifier.weight(1f)

@@ -1434,6 +1434,7 @@
   <string name="setting_search_page_bing_no_config">Bing 搜索無需任何配置。</string>
   <string name="setting_search_page_edit_service_title">編輯 %1$s</string>
   <string name="setting_search_page_service_fallback_name">搜索服務</string>
+  <string name="setting_search_page_alias">別名（可選）</string>
   <string name="setting_search_page_stealth_mode">隱身模式</string>
   <string name="setting_search_page_stealth_mode_desc">使用隱身模式進行網頁抓取</string>
   <string name="setting_search_page_summary">摘要</string>
