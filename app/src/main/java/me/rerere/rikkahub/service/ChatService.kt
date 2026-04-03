@@ -4962,8 +4962,8 @@ class ChatService(
             }
 
             // 生成完时可能已经开始下一轮流式输出。
-            // 这里必须基于“最新的内存态”合并字段，避免用 DB 的旧快照覆盖 messageNodes，导致消息闪消。
-            val latestConversation = getConversationFlow(conversationId).value
+            // 当前会话要优先用内存态；非当前会话则优先回读真实会话，避免把占位会话写回数据库。
+            val latestConversation = getConversationForMerge(conversationId, conversation)
             val latestFallbackTitle = buildFallbackTitleFromConversation(latestConversation)
             val shouldApplyToLatest = when {
                 force -> true
@@ -4996,6 +4996,25 @@ class ChatService(
         }.onFailure {
             Log.e(TAG, "generateTitle failed: ${it.message}", it)
         }
+    }
+
+    private suspend fun getConversationForMerge(
+        conversationId: Uuid,
+        fallback: Conversation,
+    ): Conversation {
+        val inMemoryConversation = conversations[conversationId]?.value
+        val shouldTrustInMemory = inMemoryConversation != null && (
+            conversationReferences.containsKey(conversationId) ||
+                getGenerationJob(conversationId) != null ||
+                temporaryConversations.contains(conversationId)
+            )
+        if (shouldTrustInMemory) {
+            return inMemoryConversation
+        }
+
+        return conversationRepo.getConversationById(conversationId)
+            ?: inMemoryConversation
+            ?: fallback
     }
 
     private fun buildFallbackTitleFromConversation(conversation: Conversation): String {

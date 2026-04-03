@@ -215,9 +215,15 @@ class ConversationRepository(
 
     suspend fun updateConversation(conversation: Conversation) {
         val conversationToStore = prepareConversationForStorage(conversation)
+        val existingConversation = conversationDAO.getConversationById(conversation.id.toString())
+            ?.let { entity -> conversationEntityToConversation(entity) }
+        val shouldInvalidateConsolidation = conversationToStore.isConsolidated &&
+            existingConversation != null &&
+            hasConversationContentChanged(existingConversation, conversationToStore)
+
         // Invalidation Logic: If a consolidated conversation is updated (e.g. new message),
         // we must invalidate the old memory episode to allow re-consolidation.
-        if (conversationToStore.isConsolidated) {
+        if (shouldInvalidateConsolidation) {
             val updatedConversation = conversationToStore.copy(isConsolidated = false)
 
             conversationDAO.update(
@@ -240,6 +246,15 @@ class ConversationRepository(
                 conversationToConversationEntity(conversationToStore)
             )
         }
+    }
+
+    private fun hasConversationContentChanged(
+        previous: Conversation,
+        current: Conversation,
+    ): Boolean {
+        return previous.assistantId != current.assistantId ||
+            previous.messageNodes != current.messageNodes ||
+            previous.truncateIndex != current.truncateIndex
     }
 
     suspend fun deleteConversation(conversation: Conversation, deleteFiles: Boolean = true) {
