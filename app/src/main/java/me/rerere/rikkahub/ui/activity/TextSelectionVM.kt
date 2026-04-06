@@ -17,6 +17,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.handleMessageChunk
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
@@ -145,13 +146,6 @@ class TextSelectionVM(
         currentJob = viewModelScope.launch {
             try {
                 val settings = settingsStore.settingsFlow.value
-                val model = settings.getCurrentChatModel()
-                val providerSetting = model?.findProvider(settings.providers)
-
-                if (model == null || providerSetting == null) {
-                    state = TextSelectionState.Error("No model configured")
-                    return@launch
-                }
 
                 // Get the assistant from text selection config for its system prompt
                 val assistantId = settings.textSelectionConfig.assistantId
@@ -166,6 +160,20 @@ class TextSelectionVM(
                 val actionPromptTemplate = configuredAction?.prompt
                     ?: defaultAction?.prompt
                     ?: ""
+
+                // Use per-action model if set, otherwise fall back to current chat model
+                val actionModelId = configuredAction?.modelId
+                val model = if (actionModelId != null) {
+                    settings.findModelById(actionModelId)
+                } else {
+                    settings.getCurrentChatModel()
+                }
+                val providerSetting = model?.findProvider(settings.providers)
+
+                if (model == null || providerSetting == null) {
+                    state = TextSelectionState.Error("No model configured")
+                    return@launch
+                }
 
                 val systemPrompt = buildSystemPrompt(
                     action = action,

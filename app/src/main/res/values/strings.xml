@@ -1820,6 +1820,7 @@
     <string name="text_selection_preview">Preview</string>
     <string name="text_selection_assistant">Assistant</string>
     <string name="text_selection_use_default">Use default assistant</string>
+    <string name="text_selection_model">Model</string>
     <string name="text_selection_translate_language">Translate to</string>
     <string name="text_selection_edit_action">Edit Action</string>
     <string name="text_selection_add_action">Add Action</string>

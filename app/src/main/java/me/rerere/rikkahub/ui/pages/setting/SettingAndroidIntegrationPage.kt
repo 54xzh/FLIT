@@ -75,6 +75,8 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.model.TextSelectionAction
 import me.rerere.rikkahub.data.model.TextSelectionConfig
+import me.rerere.ai.provider.ModelType
+import me.rerere.rikkahub.ui.components.ai.ModelSelector
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
 import me.rerere.rikkahub.ui.components.ui.ItemPosition
@@ -293,6 +295,7 @@ fun SettingAndroidIntegrationPage(
     editingAction?.let { action ->
         EditActionDialog(
             action = action,
+            providers = settings.providers,
             onDismiss = { editingAction = null },
             onSave = { updated ->
                 scope.launch {
@@ -562,11 +565,13 @@ private fun ActionCard(
 @Composable
 private fun EditActionDialog(
     action: TextSelectionAction,
+    providers: List<me.rerere.ai.provider.ProviderSetting>,
     isNew: Boolean = false,
     onDismiss: () -> Unit,
     onSave: (TextSelectionAction) -> Unit
 ) {
     var prompt by remember { mutableStateOf(action.prompt) }
+    var selectedModelId by remember { mutableStateOf(action.modelId) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -602,11 +607,33 @@ private fun EditActionDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+
+                // Model selector
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.text_selection_model),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    ModelSelector(
+                        modelId = selectedModelId,
+                        providers = providers,
+                        type = ModelType.CHAT,
+                        allowClear = true,
+                        onSelect = { model ->
+                            val shouldClear = model.displayName.isBlank() && model.modelId.isBlank()
+                            selectedModelId = if (shouldClear) null else model.id
+                        }
+                    )
+                }
             }
         },
         confirmButton = {
             Button(
-                onClick = { onSave(action.copy(prompt = prompt)) },
+                onClick = { onSave(action.copy(prompt = prompt, modelId = selectedModelId)) },
                 enabled = prompt.isNotBlank()
             ) {
                 Text(stringResource(R.string.save))

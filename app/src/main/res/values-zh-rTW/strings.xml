@@ -1801,6 +1801,7 @@
   <string name="text_selection_preview">預覽</string>
   <string name="text_selection_assistant">助手</string>
   <string name="text_selection_use_default">使用預設助手</string>
+  <string name="text_selection_model">模型</string>
   <string name="text_selection_translate_language">翻譯為</string>
   <string name="text_selection_edit_action">編輯操作</string>
   <string name="text_selection_add_action">新增操作</string>

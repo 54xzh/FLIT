@@ -24,7 +24,8 @@ data class TextSelectionAction(
     val icon: String, // Material icon name (e.g., "Translate", "Lightbulb")
     val prompt: String,
     val enabled: Boolean = true,
-    val isCustomPrompt: Boolean = false // Special flag for "Ask anything" which shows input field
+    val isCustomPrompt: Boolean = false, // Special flag for "Ask anything" which shows input field
+    val modelId: Uuid? = null // null = use current chat model
 )
 
 val DEFAULT_TEXT_SELECTION_ACTIONS = listOf(

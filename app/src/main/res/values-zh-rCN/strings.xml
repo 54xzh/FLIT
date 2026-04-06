@@ -79,6 +79,7 @@
     <string name="storage_confirm_clear_records_desc">删除所选聊天记录(不包含文件)，删除后不可恢复!</string>
     <string name="storage_confirm_clear_records_verify_prompt">请输入已选会话数（%1$d）后再确认。</string>
     <string name="text_selection_send_to_conversation">发送到对话</string>
+    <string name="text_selection_model">模型</string>
     <string name="storage_confirm_clear_records_verify_label">输入已选会话数</string>
     <string name="storage_confirm_clear_records_verify_hint">请输入 %1$d</string>
     <string name="storage_confirm_clear_attachments_title">清理附件？</string>
