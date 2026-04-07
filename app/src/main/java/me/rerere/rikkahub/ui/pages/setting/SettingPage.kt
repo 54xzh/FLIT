@@ -311,16 +311,6 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         onClick = { navController.navigate(Screen.SettingAbout) }
                     )
                     
-                    val context = LocalContext.current
-                    SettingGroupItem(
-                        title = "Buy Me a Coffee",
-                        subtitle = "Support the development",
-                        icon = { Icon(Icons.Rounded.Favorite, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error) },
-                        onClick = { 
-                            context.openUrl("https://buymeacoffee.com/cocolalilal")
-                        }
-                    )
-
                     SettingGroupItem(
                         title = stringResource(R.string.developer_page_tab_request_logs),
                         subtitle = stringResource(R.string.setting_request_logs_desc),
