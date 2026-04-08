@@ -88,9 +88,7 @@ import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.modifier.shimmer
-import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
 import me.rerere.rikkahub.ui.theme.AppShapes
-import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import me.rerere.rikkahub.service.ChatService
@@ -1080,12 +1078,9 @@ internal fun AskUserBottomSheet(
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     var customInput by remember { mutableStateOf("") }
 
-    val darkMode = LocalDarkMode.current
-    val itemColor = if (darkMode) {
-        MaterialTheme.colorScheme.surfaceContainerLow
-    } else {
-        MaterialTheme.colorScheme.surfaceContainerHigh
-    }
+    // In a ModalBottomSheet the sheet surface is surfaceContainerLow in dark mode,
+    // so items must sit at a higher elevation to be visible.
+    val itemColor = MaterialTheme.colorScheme.surfaceContainerHigh
 
     ModalBottomSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -1114,10 +1109,34 @@ internal fun AskUserBottomSheet(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 options.forEach { option ->
-                    SettingGroupItem(
-                        title = option,
-                        onClick = { onSelect(option) },
+                    val optionInteraction = remember { MutableInteractionSource() }
+                    val optionPressed by optionInteraction.collectIsPressedAsState()
+                    val optionScale by animateFloatAsState(
+                        targetValue = if (optionPressed) 0.98f else 1f,
+                        animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                        label = "ask_user_option_scale",
                     )
+                    Surface(
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            onSelect(option)
+                        },
+                        interactionSource = optionInteraction,
+                        color = itemColor,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { scaleX = optionScale; scaleY = optionScale },
+                    ) {
+                        Text(
+                            text = option,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                        )
+                    }
                 }
 
                 // Custom input row (matches SettingGroupItem visual style)
