@@ -191,6 +191,8 @@
     <string name="assistant_page_local_tools_lorebooks_editor_desc">Allow assistant to create/update/delete entries in enabled lorebooks (undoable via history).</string>
     <string name="assistant_page_local_tools_scheduled_task_manager_title">Scheduled Task Manager</string>
     <string name="assistant_page_local_tools_scheduled_task_manager_desc">Allow assistant to create, update, and delete scheduled tasks (requires approval)</string>
+    <string name="assistant_page_local_tools_ask_user_title">Ask User</string>
+    <string name="assistant_page_local_tools_ask_user_desc">Allow assistant to ask you questions when uncertain</string>
     <string name="assistant_page_manage_memory">Manage Memory (%d)</string>
     <string name="assistant_page_manage_memory_title">Manage Memory</string>
     <string name="assistant_page_recent_memories_title">Recent Memories</string>
@@ -387,6 +389,12 @@
     <string name="mcp_tool_approval_reject">Reject</string>
     <string name="mcp_tool_approval_approved_calling">Approved, running %1$s…</string>
     <string name="mcp_tool_approval_rejected_result">User declined this tool call</string>
+    <string name="ask_user_title">Assistant is asking you</string>
+    <string name="ask_user_step_title">Question</string>
+    <string name="ask_user_respond">Respond</string>
+    <string name="ask_user_dismissed">User dismissed the question</string>
+    <string name="ask_user_type_hint">Type your answer…</string>
+    <string name="ask_user_submit">Send</string>
     <string name="tool_approval_view_params">View params</string>
     <string name="tool_approval_workspace_list">List workspace files</string>
     <string name="tool_approval_workspace_read_file">Read workspace file</string>

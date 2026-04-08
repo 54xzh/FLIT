@@ -171,6 +171,8 @@
     <string name="assistant_page_json_must_be_object">JSON 必须是对象，例如 {&quot;key&quot;:&quot;value&quot;}</string>
     <string name="assistant_page_local_tools_scheduled_task_manager_title">定时任务管理</string>
     <string name="assistant_page_local_tools_scheduled_task_manager_desc">允许助手创建、编辑和删除定时任务（需要用户确认）</string>
+    <string name="assistant_page_local_tools_ask_user_title">询问用户</string>
+    <string name="assistant_page_local_tools_ask_user_desc">允许助手在不确定时向你提问</string>
     <string name="context_refresh_no_summarizer">请先在设置中配置上下文总结模型（或聊天模型）</string>
     <string name="context_dynamic_pruning_title">动态裁剪消息</string>
     <string name="context_dynamic_pruning_desc">仅保留最近消息进入上下文</string>
@@ -187,6 +189,12 @@
     <string name="mcp_tool_approval_reject">拒绝</string>
     <string name="mcp_tool_approval_approved_calling">已批准，正在执行 %1$s…</string>
     <string name="mcp_tool_approval_rejected_result">用户拒绝本次工具调用</string>
+    <string name="ask_user_title">助手向你提问</string>
+    <string name="ask_user_step_title">提问</string>
+    <string name="ask_user_respond">回答</string>
+    <string name="ask_user_dismissed">用户未作回答</string>
+    <string name="ask_user_type_hint">输入你的回答…</string>
+    <string name="ask_user_submit">发送</string>
     <string name="tool_approval_workspace_list">工作区：列出文件</string>
     <string name="tool_approval_workspace_read_file">工作区：读取文件</string>
     <string name="tool_approval_workspace_write_file">工作区：写入文件</string>

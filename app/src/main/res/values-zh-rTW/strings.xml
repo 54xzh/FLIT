@@ -276,6 +276,12 @@
   <string name="mcp_tool_approval_reject">拒絕</string>
   <string name="mcp_tool_approval_approved_calling">已批准，正在執行 %1$s…</string>
   <string name="mcp_tool_approval_rejected_result">用戶拒絕本次工具調用</string>
+  <string name="ask_user_title">助手向你提問</string>
+  <string name="ask_user_step_title">提問</string>
+  <string name="ask_user_respond">回答</string>
+  <string name="ask_user_dismissed">用戶未作回答</string>
+  <string name="ask_user_type_hint">輸入你的回答…</string>
+  <string name="ask_user_submit">傳送</string>
   <string name="tool_approval_view_params">查看參數</string>
   <string name="tool_approval_workspace_list">工作區：列出檔案</string>
   <string name="tool_approval_workspace_read_file">工作區：讀取檔案</string>
@@ -1484,6 +1490,8 @@
   <string name="assistant_page_local_tools_lorebooks_editor_desc">允許助手編輯已啟用的世界書條目（新增/修改/刪除）。工具變更會寫入歷史，可撤銷。</string>
   <string name="assistant_page_local_tools_scheduled_task_manager_title">定時任務管理</string>
   <string name="assistant_page_local_tools_scheduled_task_manager_desc">允許助手建立、編輯和刪除定時任務（需要使用者確認）</string>
+  <string name="assistant_page_local_tools_ask_user_title">詢問使用者</string>
+  <string name="assistant_page_local_tools_ask_user_desc">允許助手在不確定時向你提問</string>
   <string name="assistant_page_memory_settings_title">記憶設置</string>
   <string name="assistant_page_temperature_level_value_format">%1$s（%2$s）</string>
   <string name="assistant_page_mcp_servers_desc">啟用外部工具服務器</string>

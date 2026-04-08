@@ -28,6 +28,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -56,6 +57,7 @@ import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -68,6 +70,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.ai.ui.AskUserState
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.highlight.HighlightText
 import me.rerere.rikkahub.R
@@ -915,4 +918,300 @@ internal fun ToolCallPreviewSheet(
             }
         },
     )
+}
+
+@Composable
+fun AskUserItem(
+    conversationId: Uuid?,
+    askUser: me.rerere.ai.ui.UIMessagePart.AskUser,
+) {
+    val chatService = koinInject<ChatService>()
+    val settings = me.rerere.rikkahub.ui.context.LocalSettings.current
+    val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
+    var showSheet by remember(askUser.toolCallId) { mutableStateOf(false) }
+    val canRespond = conversationId != null && askUser.toolCallId.isNotBlank() && askUser.state == AskUserState.Pending
+
+    Card(
+        modifier = Modifier.animateContentSize(),
+        shape = AppShapes.CardLarge,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.HelpOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.ask_user_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = askUser.question,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            when (askUser.state) {
+                AskUserState.Pending -> {
+                    TextButton(
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            showSheet = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = AppShapes.ButtonPill,
+                    ) {
+                        Text(text = stringResource(R.string.ask_user_respond))
+                    }
+                }
+
+                AskUserState.Answered -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = askUser.answer ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+
+                AskUserState.Dismissed -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = stringResource(R.string.ask_user_dismissed),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showSheet && canRespond) {
+        AskUserBottomSheet(
+            question = askUser.question,
+            options = askUser.options,
+            onSelect = { answer ->
+                showSheet = false
+                haptics.perform(HapticPattern.Pop)
+                chatService.respondAskUser(
+                    conversationId = conversationId ?: return@AskUserBottomSheet,
+                    toolCallId = askUser.toolCallId,
+                    answer = answer,
+                )
+            },
+            onDismissRequest = {
+                showSheet = false
+                haptics.perform(HapticPattern.Pop)
+                chatService.respondAskUser(
+                    conversationId = conversationId ?: return@AskUserBottomSheet,
+                    toolCallId = askUser.toolCallId,
+                    answer = "",
+                )
+            },
+        )
+    }
+}
+
+@Composable
+internal fun AskUserBottomSheet(
+    question: String,
+    options: List<String>,
+    onSelect: (String) -> Unit,
+    onDismissRequest: () -> Unit,
+) {
+    val settings = me.rerere.rikkahub.ui.context.LocalSettings.current
+    val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
+    var customInput by remember { mutableStateOf("") }
+
+    ModalBottomSheet(
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        onDismissRequest = onDismissRequest,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 36.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            // Header
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    shape = AppShapes.CardMedium,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.HelpOutline,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .padding(8.dp)
+                            .size(24.dp),
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.ask_user_title),
+                    style = MaterialTheme.typography.titleLarge,
+                )
+            }
+
+            // Question card
+            Card(
+                shape = AppShapes.CardLarge,
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            ) {
+                Text(
+                    text = question,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                )
+            }
+
+            // Option buttons
+            if (options.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    options.forEach { option ->
+                        val interactionSource = remember { MutableInteractionSource() }
+                        val isPressed by interactionSource.collectIsPressedAsState()
+                        val scale by animateFloatAsState(
+                            targetValue = if (isPressed) 0.85f else 1f,
+                            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+                            label = "ask_user_option_scale",
+                        )
+                        Surface(
+                            onClick = {
+                                haptics.perform(HapticPattern.Pop)
+                                onSelect(option)
+                            },
+                            interactionSource = interactionSource,
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            shape = AppShapes.ButtonPill,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    scaleX = scale
+                                    scaleY = scale
+                                },
+                        ) {
+                            Text(
+                                text = option,
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 13.dp, horizontal = 16.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Custom input row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = customInput,
+                    onValueChange = { customInput = it },
+                    placeholder = { Text(text = stringResource(R.string.ask_user_type_hint)) },
+                    modifier = Modifier.weight(1f),
+                    shape = AppShapes.ButtonPill,
+                    singleLine = true,
+                )
+                val submitInteractionSource = remember { MutableInteractionSource() }
+                val submitPressed by submitInteractionSource.collectIsPressedAsState()
+                val submitScale by animateFloatAsState(
+                    targetValue = if (submitPressed) 0.85f else 1f,
+                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+                    label = "ask_user_submit_scale",
+                )
+                Surface(
+                    onClick = {
+                        if (customInput.isNotBlank()) {
+                            haptics.perform(HapticPattern.Pop)
+                            onSelect(customInput.trim())
+                        }
+                    },
+                    enabled = customInput.isNotBlank(),
+                    interactionSource = submitInteractionSource,
+                    color = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = AppShapes.ButtonPill,
+                    modifier = Modifier.graphicsLayer {
+                        scaleX = submitScale
+                        scaleY = submitScale
+                    },
+                ) {
+                    Text(
+                        text = stringResource(R.string.ask_user_submit),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    )
+                }
+            }
+        }
+    }
 }

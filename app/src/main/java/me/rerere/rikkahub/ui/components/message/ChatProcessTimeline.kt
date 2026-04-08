@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Lightbulb
@@ -76,6 +77,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.provider.Model
 import me.rerere.ai.registry.ModelRegistry
+import me.rerere.ai.ui.AskUserState
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.R
@@ -356,6 +358,12 @@ private fun ProcessTimelineStep(
                         approval = part,
                         arguments = toolCallArgumentsById[part.toolCallId] ?: ProcessEmptyJson,
                         loading = loading && part.state == ToolApprovalState.Approved,
+                    )
+
+                    is UIMessagePart.AskUser -> CompactAskUserTimelineItem(
+                        conversationId = conversationId,
+                        askUser = part,
+                        loading = loading && part.state == AskUserState.Pending,
                     )
 
                     else -> Unit
@@ -953,6 +961,7 @@ private fun processTimelineIcon(part: UIMessagePart): ImageVector {
             -> Icons.Rounded.Lightbulb
 
         is UIMessagePart.ToolApproval -> Icons.Rounded.Extension
+        is UIMessagePart.AskUser -> Icons.Rounded.HelpOutline
         is UIMessagePart.ToolCall -> processTimelineToolIcon(part.toolName)
         is UIMessagePart.ToolResult -> processTimelineToolIcon(part.toolName)
         else -> Icons.Rounded.Build
@@ -964,7 +973,98 @@ private fun processTimelineToolIcon(toolName: String): ImageVector {
         "search_web", "scrape_web" -> Icons.Rounded.Public
         "run_skill_script", "eval_python" -> Icons.Rounded.Terminal
         "create_memory", "edit_memory", "delete_memory" -> Icons.Rounded.Bookmark
+        "ask_user" -> Icons.Rounded.HelpOutline
         else -> Icons.Rounded.Build
+    }
+}
+
+@Composable
+private fun CompactAskUserTimelineItem(
+    conversationId: Uuid?,
+    askUser: UIMessagePart.AskUser,
+    loading: Boolean,
+) {
+    val chatService = koinInject<ChatService>()
+    val settings = LocalSettings.current
+    val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
+    var showSheet by remember(askUser.toolCallId) { mutableStateOf(false) }
+    val canRespond = conversationId != null && askUser.toolCallId.isNotBlank() && askUser.state == AskUserState.Pending
+
+    LaunchedEffect(askUser.toolCallId) {
+        if (askUser.state == AskUserState.Pending) {
+            showSheet = true
+        }
+    }
+
+    val subtitle = when (askUser.state) {
+        AskUserState.Pending -> askUser.question
+        AskUserState.Answered -> askUser.answer?.takeIf { it.isNotBlank() } ?: askUser.question
+        AskUserState.Dismissed -> stringResource(R.string.ask_user_dismissed)
+    }
+
+    ProcessStepRow(
+        title = stringResource(R.string.ask_user_step_title),
+        subtitle = subtitle,
+        trailing = {
+            when (askUser.state) {
+                AskUserState.Pending -> {
+                    if (loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                AskUserState.Answered -> Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp),
+                )
+                AskUserState.Dismissed -> Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        },
+        onClick = if (canRespond) ({
+            haptics.perform(HapticPattern.Pop)
+            showSheet = true
+        }) else null,
+    )
+
+    if (showSheet && canRespond) {
+        AskUserBottomSheet(
+            question = askUser.question,
+            options = askUser.options,
+            onSelect = { answer ->
+                showSheet = false
+                haptics.perform(HapticPattern.Pop)
+                chatService.respondAskUser(
+                    conversationId = conversationId ?: return@AskUserBottomSheet,
+                    toolCallId = askUser.toolCallId,
+                    answer = answer,
+                )
+            },
+            onDismissRequest = {
+                showSheet = false
+                haptics.perform(HapticPattern.Pop)
+                chatService.respondAskUser(
+                    conversationId = conversationId ?: return@AskUserBottomSheet,
+                    toolCallId = askUser.toolCallId,
+                    answer = "",
+                )
+            },
+        )
     }
 }
 
