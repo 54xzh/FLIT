@@ -20,6 +20,7 @@ internal fun UIMessagePart.isProcessDisplayPart(): Boolean {
         is UIMessagePart.ToolCall,
         is UIMessagePart.ToolApproval,
         is UIMessagePart.ToolResult,
+        is UIMessagePart.AskUser,
             -> true
 
         else -> false

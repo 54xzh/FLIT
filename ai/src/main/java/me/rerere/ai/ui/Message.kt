@@ -496,6 +496,13 @@ enum class ToolApprovalState {
 }
 
 @Serializable
+enum class AskUserState {
+    Pending,
+    Answered,
+    Dismissed,
+}
+
+@Serializable
 sealed class UIMessagePart {
     abstract val priority: Int
     abstract val metadata: JsonObject?
@@ -593,6 +600,18 @@ sealed class UIMessagePart {
         val toolCallId: String,
         val toolName: String,
         val state: ToolApprovalState = ToolApprovalState.Pending,
+        override var metadata: JsonObject? = null,
+    ) : UIMessagePart() {
+        override val priority: Int = 0
+    }
+
+    @Serializable
+    data class AskUser(
+        val toolCallId: String,
+        val question: String,
+        val options: List<String>,
+        val state: AskUserState = AskUserState.Pending,
+        val answer: String? = null,
         override var metadata: JsonObject? = null,
     ) : UIMessagePart() {
         override val priority: Int = 0

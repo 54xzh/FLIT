@@ -50,6 +50,10 @@ sealed class LocalToolOption {
     @Serializable
     @SerialName("scheduled_task_manager")
     data object ScheduledTaskManager : LocalToolOption()
+
+    @Serializable
+    @SerialName("ask_user")
+    data object AskUser : LocalToolOption()
 }
 
 class LocalTools(

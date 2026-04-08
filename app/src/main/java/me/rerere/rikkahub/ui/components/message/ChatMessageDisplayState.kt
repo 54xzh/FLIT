@@ -128,6 +128,7 @@ private fun buildProcessCopyBlock(part: UIMessagePart): String? {
     return when (part) {
         is UIMessagePart.Reasoning -> part.reasoning.takeIf { it.isNotBlank() }
         is UIMessagePart.Thinking -> part.thinking.takeIf { it.isNotBlank() }
+        is UIMessagePart.AskUser -> listOf(part.question, part.answer).filterNotNull().joinToString("\n").takeIf { it.isNotBlank() }
         is UIMessagePart.ToolCall,
         is UIMessagePart.ToolApproval,
         is UIMessagePart.ToolResult,

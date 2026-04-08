@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -34,6 +35,7 @@ import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.AskUserState
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UsedLorebookEntry
 import me.rerere.ai.ui.UsedMemory
@@ -128,6 +130,7 @@ class GenerationHandler(
         enabledModeIds: Set<Uuid> = emptySet(),
         source: AIRequestSource = AIRequestSource.OTHER,
         toolApprovalHandler: ToolApprovalHandler? = null,
+        askUserHandler: AskUserHandler? = null,
     ): Flow<GenerationChunk> = flow {
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         val providerImpl = providerManager.getProviderByType(provider)
@@ -300,6 +303,47 @@ class GenerationHandler(
                 )
             }
 
+            suspend fun updateAskUser(
+                toolCallId: String,
+                question: String,
+                options: List<String>,
+                state: AskUserState,
+                answer: String? = null,
+            ) {
+                val currentLastMessage = messages[lastMessageIndex]
+                val parts = currentLastMessage.parts.toMutableList()
+                val idx = parts.indexOfFirst { part ->
+                    part is UIMessagePart.AskUser && part.toolCallId == toolCallId
+                }
+                if (idx >= 0) {
+                    val existing = parts[idx] as UIMessagePart.AskUser
+                    parts[idx] = existing.copy(state = state, answer = answer)
+                } else {
+                    parts.add(
+                        UIMessagePart.AskUser(
+                            toolCallId = toolCallId,
+                            question = question,
+                            options = options,
+                            state = state,
+                            answer = answer,
+                        )
+                    )
+                }
+                messages = messages.toMutableList().apply {
+                    set(lastMessageIndex, currentLastMessage.copy(parts = parts))
+                }
+                emit(
+                    GenerationChunk.Messages(
+                        messages.transforms(
+                            transformers = outputTransformers,
+                            context = context,
+                            model = model,
+                            assistant = assistant,
+                        )
+                    )
+                )
+            }
+
             // handle tool calls
             val results = arrayListOf<UIMessagePart.ToolResult>()
             resolvedToolCalls.forEach { toolCall ->
@@ -342,6 +386,43 @@ class GenerationHandler(
                             } else {
                                 JsonPrimitive(rejectionText)
                             }
+                        }
+                    } else if (toolCall.toolName == "ask_user" && conversationId != null && askUserHandler != null) {
+                        val question = args.jsonObject["question"]?.jsonPrimitive?.contentOrNull ?: ""
+                        val options = args.jsonObject["options"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
+                        updateAskUser(
+                            toolCallId = resolvedToolCallId,
+                            question = question,
+                            options = options,
+                            state = AskUserState.Pending,
+                        )
+                        val answer = runCatching {
+                            askUserHandler.askUser(
+                                AskUserRequest(
+                                    conversationId = conversationId,
+                                    toolCallId = resolvedToolCallId,
+                                    question = question,
+                                    options = options,
+                                )
+                            )
+                        }.getOrNull()
+                        if (answer != null) {
+                            updateAskUser(
+                                toolCallId = resolvedToolCallId,
+                                question = question,
+                                options = options,
+                                state = AskUserState.Answered,
+                                answer = answer,
+                            )
+                            buildJsonObject { put("answer", answer) }
+                        } else {
+                            updateAskUser(
+                                toolCallId = resolvedToolCallId,
+                                question = question,
+                                options = options,
+                                state = AskUserState.Dismissed,
+                            )
+                            JsonPrimitive("The user dismissed the question without answering.")
                         }
                     } else {
                         Log.i(TAG, "generateText: executing tool ${tool.name} with args: $args")

@@ -79,6 +79,8 @@ import me.rerere.rikkahub.data.ai.AIRequestLogManager
 import me.rerere.rikkahub.data.ai.AIRequestSource
 import me.rerere.rikkahub.data.ai.ToolApprovalHandler
 import me.rerere.rikkahub.data.ai.ToolApprovalRequest
+import me.rerere.rikkahub.data.ai.AskUserHandler
+import me.rerere.rikkahub.data.ai.AskUserRequest
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_CONTEXT_SUMMARY_PROMPT
 import me.rerere.rikkahub.data.ai.rag.EmbeddingService
@@ -227,6 +229,9 @@ class ChatService(
     private val toolApprovalEarlyResponses = ConcurrentHashMap<String, Boolean>()
     private val toolApprovalDeferreds = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
 
+    private val askUserEarlyResponses = ConcurrentHashMap<String, String>()
+    private val askUserDeferreds = ConcurrentHashMap<String, CompletableDeferred<String>>()
+
     private fun toolApprovalKey(conversationId: Uuid, toolCallId: String): String {
         return "${conversationId}:${toolCallId}"
     }
@@ -254,6 +259,36 @@ class ChatService(
             return deferred.await()
         } finally {
             toolApprovalDeferreds.remove(key)
+        }
+    }
+
+    private fun askUserKey(conversationId: Uuid, toolCallId: String): String {
+        return "ask:${conversationId}:${toolCallId}"
+    }
+
+    fun respondAskUser(conversationId: Uuid, toolCallId: String, answer: String) {
+        if (toolCallId.isBlank()) return
+        val key = askUserKey(conversationId, toolCallId)
+        val deferred = askUserDeferreds[key]
+        if (deferred != null) {
+            deferred.complete(answer)
+        } else {
+            askUserEarlyResponses[key] = answer
+        }
+    }
+
+    private suspend fun awaitAskUserResponse(conversationId: Uuid, toolCallId: String): String {
+        if (toolCallId.isBlank()) return ""
+        val key = askUserKey(conversationId, toolCallId)
+        askUserEarlyResponses.remove(key)?.let { early ->
+            return early
+        }
+        val deferred = CompletableDeferred<String>()
+        askUserDeferreds[key] = deferred
+        try {
+            return deferred.await()
+        } finally {
+            askUserDeferreds.remove(key)
         }
     }
 
@@ -1803,11 +1838,15 @@ class ChatService(
                             )
                         )
                     }
+                    if (assistant.localTools.contains(LocalToolOption.AskUser)) {
+                        add(createAskUserTool(conversationId = conversation.id))
+                    }
                 },
                 truncateIndex = conversation.truncateIndex,
                 enabledModeIds = conversation.enabledModeIds,
                 source = AIRequestSource.CHAT,
                 toolApprovalHandler = ToolApprovalHandler { request -> awaitToolApproval(request) },
+                askUserHandler = AskUserHandler { request -> awaitAskUserResponse(request.conversationId, request.toolCallId) },
             ).onCompletion { cause ->
                 finalizeGenerationKeepAlive(cause)
                 if (cause is CancellationException) {
@@ -2325,6 +2364,7 @@ class ChatService(
                 maxSteps = seatMaxSteps,
                 source = AIRequestSource.CHAT,
                 toolApprovalHandler = ToolApprovalHandler { request -> awaitToolApproval(request) },
+                askUserHandler = AskUserHandler { request -> awaitAskUserResponse(request.conversationId, request.toolCallId) },
             ).collect { chunk ->
                 when (chunk) {
                     is GenerationChunk.Messages -> {
@@ -3856,6 +3896,36 @@ class ChatService(
 
         resolveOrCreateDirByRelPath(rootDoc, workDirRelPath)
             ?: error("Workspace work directory is not accessible")
+    }
+
+    private fun createAskUserTool(conversationId: Uuid): Tool {
+        return Tool(
+            name = "ask_user",
+            description = "When you encounter uncertainty or need user confirmation, ask the user a question with 2 to 4 options. The user can choose one of the provided options or type a custom answer.",
+            parameters = {
+                InputSchema.Obj(
+                    properties = buildJsonObject {
+                        put("question", buildJsonObject {
+                            put("type", "string")
+                            put("description", "The question to ask the user")
+                        })
+                        put("options", buildJsonObject {
+                            put("type", "array")
+                            put("items", buildJsonObject {
+                                put("type", "string")
+                            })
+                            put("description", "2 to 4 options for the user to choose from")
+                            put("minItems", 2)
+                            put("maxItems", 4)
+                        })
+                    },
+                    required = listOf("question", "options")
+                )
+            },
+            execute = {
+                buildJsonObject { put("answer", "") }
+            }
+        )
     }
 
     private fun createWorkspaceFileTools(

@@ -417,6 +417,14 @@ private fun sanitizePartForLog(part: UIMessagePart, system: Boolean): UIMessageP
         )
 
         UIMessagePart.Search -> UIMessagePart.Search
+
+        is UIMessagePart.AskUser -> part.copy(
+            toolCallId = part.toolCallId.truncateInline(120),
+            question = part.question.truncateTo(REQUEST_LOG_MAX_TEXT_PART_CHARS),
+            options = part.options.map { it.truncateInline(120) },
+            answer = part.answer?.truncateInline(REQUEST_LOG_MAX_TEXT_PART_CHARS),
+            metadata = null,
+        )
     }
 }
 

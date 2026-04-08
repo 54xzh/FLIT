@@ -84,6 +84,7 @@ internal fun buildMessageRenderBlocks(
             is UIMessagePart.ToolCall,
             is UIMessagePart.ToolApproval,
             is UIMessagePart.ToolResult,
+            is UIMessagePart.AskUser,
                 -> {
                     flushMediaParts()
                     pendingProcessParts += part

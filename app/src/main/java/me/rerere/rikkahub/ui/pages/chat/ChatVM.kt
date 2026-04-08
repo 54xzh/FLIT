@@ -348,6 +348,14 @@ class ChatVM(
         )
     }
 
+    fun respondAskUser(toolCallId: String, answer: String) {
+        chatService.respondAskUser(
+            conversationId = _conversationId,
+            toolCallId = toolCallId,
+            answer = answer,
+        )
+    }
+
     fun handleMessageSend(
         content: List<UIMessagePart>,
         answer: Boolean = true,

@@ -1208,6 +1208,7 @@ private fun UIMessage.toSearchableText(): String {
             is UIMessagePart.Image -> part.url
             is UIMessagePart.Video -> part.url
             is UIMessagePart.Audio -> part.url
+            is UIMessagePart.AskUser -> listOf(part.question, part.answer ?: "").joinToString(" ")
             UIMessagePart.Search -> ""
         }
     }
