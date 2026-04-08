@@ -422,7 +422,14 @@ private fun sanitizePartForLog(part: UIMessagePart, system: Boolean): UIMessageP
             toolCallId = part.toolCallId.truncateInline(120),
             question = part.question.truncateTo(REQUEST_LOG_MAX_TEXT_PART_CHARS),
             options = part.options.map { it.truncateInline(120) },
+            questions = part.questions?.map { q ->
+                q.copy(
+                    question = q.question.truncateTo(REQUEST_LOG_MAX_TEXT_PART_CHARS),
+                    options = q.options.map { it.truncateInline(120) },
+                )
+            },
             answer = part.answer?.truncateInline(REQUEST_LOG_MAX_TEXT_PART_CHARS),
+            answers = part.answers?.map { it.truncateInline(REQUEST_LOG_MAX_TEXT_PART_CHARS) },
             metadata = null,
         )
     }

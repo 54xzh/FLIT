@@ -606,12 +606,20 @@ sealed class UIMessagePart {
     }
 
     @Serializable
+    data class AskUserQuestion(
+        val question: String,
+        val options: List<String>,
+    )
+
+    @Serializable
     data class AskUser(
         val toolCallId: String,
         val question: String,
         val options: List<String>,
+        val questions: List<AskUserQuestion>? = null,
         val state: AskUserState = AskUserState.Pending,
         val answer: String? = null,
+        val answers: List<String>? = null,
         override var metadata: JsonObject? = null,
     ) : UIMessagePart() {
         override val priority: Int = 0

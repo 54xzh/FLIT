@@ -1208,7 +1208,15 @@ private fun UIMessage.toSearchableText(): String {
             is UIMessagePart.Image -> part.url
             is UIMessagePart.Video -> part.url
             is UIMessagePart.Audio -> part.url
-            is UIMessagePart.AskUser -> listOf(part.question, part.answer ?: "").joinToString(" ")
+            is UIMessagePart.AskUser -> {
+                val qs = part.questions
+                val as_ = part.answers
+                if (qs != null && as_ != null) {
+                    qs.zip(as_).joinToString(" ") { (q, a) -> "${q.question} $a" }
+                } else {
+                    listOf(part.question, part.answer ?: "").joinToString(" ")
+                }
+            }
             UIMessagePart.Search -> ""
         }
     }

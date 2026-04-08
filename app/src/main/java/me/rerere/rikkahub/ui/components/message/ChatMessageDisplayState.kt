@@ -128,7 +128,15 @@ private fun buildProcessCopyBlock(part: UIMessagePart): String? {
     return when (part) {
         is UIMessagePart.Reasoning -> part.reasoning.takeIf { it.isNotBlank() }
         is UIMessagePart.Thinking -> part.thinking.takeIf { it.isNotBlank() }
-        is UIMessagePart.AskUser -> listOf(part.question, part.answer).filterNotNull().joinToString("\n").takeIf { it.isNotBlank() }
+        is UIMessagePart.AskUser -> {
+            val qs = part.questions
+            val as_ = part.answers
+            if (qs != null && as_ != null) {
+                qs.zip(as_).joinToString("\n") { (q, a) -> "${q.question}: $a" }.takeIf { it.isNotBlank() }
+            } else {
+                listOf(part.question, part.answer).filterNotNull().joinToString("\n").takeIf { it.isNotBlank() }
+            }
+        }
         is UIMessagePart.ToolCall,
         is UIMessagePart.ToolApproval,
         is UIMessagePart.ToolResult,

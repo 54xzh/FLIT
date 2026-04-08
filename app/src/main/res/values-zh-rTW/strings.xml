@@ -277,6 +277,7 @@
   <string name="mcp_tool_approval_approved_calling">已批准，正在執行 %1$s…</string>
   <string name="mcp_tool_approval_rejected_result">用戶拒絕本次工具調用</string>
   <string name="ask_user_title">助手向你提問</string>
+  <string name="ask_user_multi_title">助手向你提出了 %d 個問題</string>
   <string name="ask_user_step_title">提問</string>
   <string name="ask_user_answer_title">回答</string>
   <string name="ask_user_no_reply">無回覆</string>
@@ -284,6 +285,9 @@
   <string name="ask_user_dismissed">用戶未作回答</string>
   <string name="ask_user_type_hint">輸入你的回答…</string>
   <string name="ask_user_submit">傳送</string>
+  <string name="ask_user_wizard_progress">問題 %1$d / %2$d</string>
+  <string name="ask_user_wizard_skip">跳過</string>
+  <string name="ask_user_wizard_next">下一個</string>
   <string name="tool_approval_view_params">查看參數</string>
   <string name="tool_approval_workspace_list">工作區：列出檔案</string>
   <string name="tool_approval_workspace_read_file">工作區：讀取檔案</string>

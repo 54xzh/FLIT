@@ -935,6 +935,8 @@ fun AskUserItem(
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     var showSheet by remember(askUser.toolCallId) { mutableStateOf(false) }
     val canRespond = conversationId != null && askUser.toolCallId.isNotBlank() && askUser.state == AskUserState.Pending
+    val multiQuestions = askUser.questions
+    val isMultiQuestion = multiQuestions != null && multiQuestions.size > 1
 
     Card(
         modifier = Modifier.animateContentSize(),
@@ -967,13 +969,21 @@ fun AskUserItem(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Text(
-                        text = stringResource(R.string.ask_user_title),
+                        text = if (isMultiQuestion) {
+                            stringResource(R.string.ask_user_multi_title, multiQuestions!!.size)
+                        } else {
+                            stringResource(R.string.ask_user_title)
+                        },
                         style = MaterialTheme.typography.titleSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = askUser.question,
+                        text = if (isMultiQuestion) {
+                            multiQuestions!!.first().question
+                        } else {
+                            askUser.question
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                         maxLines = 2,
@@ -997,24 +1007,49 @@ fun AskUserItem(
                 }
 
                 AskUserState.Answered -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Check,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Text(
-                            text = askUser.answer ?: "",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                    val multiAnswers = askUser.answers
+                    if (isMultiQuestion && multiQuestions != null && multiAnswers != null) {
+                        multiQuestions.zip(multiAnswers).forEach { (q, a) ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Text(
+                                    text = "${q.question}: $a",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                text = askUser.answer ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
 
@@ -1042,28 +1077,52 @@ fun AskUserItem(
     }
 
     if (showSheet && canRespond) {
-        AskUserBottomSheet(
-            question = askUser.question,
-            options = askUser.options,
-            onSelect = { answer ->
-                showSheet = false
-                haptics.perform(HapticPattern.Pop)
-                chatService.respondAskUser(
-                    conversationId = conversationId ?: return@AskUserBottomSheet,
-                    toolCallId = askUser.toolCallId,
-                    answer = answer,
-                )
-            },
-            onDismissRequest = {
-                showSheet = false
-                haptics.perform(HapticPattern.Pop)
-                chatService.respondAskUser(
-                    conversationId = conversationId ?: return@AskUserBottomSheet,
-                    toolCallId = askUser.toolCallId,
-                    answer = "",
-                )
-            },
-        )
+        if (isMultiQuestion && multiQuestions != null) {
+            AskUserWizardBottomSheet(
+                questions = multiQuestions,
+                onComplete = { combinedAnswers: String ->
+                    showSheet = false
+                    haptics.perform(HapticPattern.Success)
+                    chatService.respondAskUser(
+                        conversationId = conversationId ?: return@AskUserWizardBottomSheet,
+                        toolCallId = askUser.toolCallId,
+                        answer = combinedAnswers,
+                    )
+                },
+                onDismissRequest = {
+                    showSheet = false
+                    haptics.perform(HapticPattern.Pop)
+                    chatService.respondAskUser(
+                        conversationId = conversationId ?: return@AskUserWizardBottomSheet,
+                        toolCallId = askUser.toolCallId,
+                        answer = "",
+                    )
+                },
+            )
+        } else {
+            AskUserBottomSheet(
+                question = askUser.question,
+                options = askUser.options,
+                onSelect = { answer ->
+                    showSheet = false
+                    haptics.perform(HapticPattern.Pop)
+                    chatService.respondAskUser(
+                        conversationId = conversationId ?: return@AskUserBottomSheet,
+                        toolCallId = askUser.toolCallId,
+                        answer = answer,
+                    )
+                },
+                onDismissRequest = {
+                    showSheet = false
+                    haptics.perform(HapticPattern.Pop)
+                    chatService.respondAskUser(
+                        conversationId = conversationId ?: return@AskUserBottomSheet,
+                        toolCallId = askUser.toolCallId,
+                        answer = "",
+                    )
+                },
+            )
+        }
     }
 }
 
@@ -1216,11 +1275,11 @@ internal fun AskUserBottomSheet(
                                 modifier = Modifier
                                     .padding(9.dp)
                                     .size(22.dp),
-                            )
-                        }
+                        )
                     }
                 }
             }
         }
+    }
     }
 }

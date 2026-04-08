@@ -3901,25 +3901,52 @@ class ChatService(
     private fun createAskUserTool(conversationId: Uuid): Tool {
         return Tool(
             name = "ask_user",
-            description = "ALWAYS use this tool instead of guessing or making assumptions. Call it whenever: the user's intent is ambiguous, a decision has multiple valid paths, an action is irreversible, or you need information only the user has. Do NOT proceed on your own when uncertain — stop and ask. Provide 2–4 concise, mutually exclusive options that cover the most likely choices; the user can also type a custom answer.",
+            description = "ALWAYS use this tool instead of guessing or making assumptions. Call it whenever: the user's intent is ambiguous, a decision has multiple valid paths, an action is irreversible, or you need information only the user has. Do NOT proceed on your own when uncertain — stop and ask. You can ask MULTIPLE questions at once by providing the \"questions\" array, each with its own question text and 2–4 options. The user will answer them one by one in a wizard. If you only have one question, you can still use the single \"question\" + \"options\" format.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
+                        put("questions", buildJsonObject {
+                            put("type", "array")
+                            put("description", "Array of questions to ask the user. Each question has its own text and 2-4 options. Use this for batch questions.")
+                            put("items", buildJsonObject {
+                                put("type", "object")
+                                put("properties", buildJsonObject {
+                                    put("question", buildJsonObject {
+                                        put("type", "string")
+                                        put("description", "The question text")
+                                    })
+                                    put("options", buildJsonObject {
+                                        put("type", "array")
+                                        put("items", buildJsonObject {
+                                            put("type", "string")
+                                        })
+                                        put("description", "2 to 4 options for the user to choose from")
+                                        put("minItems", 2)
+                                        put("maxItems", 4)
+                                    })
+                                })
+                                put("required", buildJsonArray {
+                                    add(JsonPrimitive("question"))
+                                    add(JsonPrimitive("options"))
+                                })
+                            })
+                            put("minItems", 1)
+                        })
                         put("question", buildJsonObject {
                             put("type", "string")
-                            put("description", "The question to ask the user")
+                            put("description", "A single question (legacy format). Ignored when 'questions' array is provided.")
                         })
                         put("options", buildJsonObject {
                             put("type", "array")
                             put("items", buildJsonObject {
                                 put("type", "string")
                             })
-                            put("description", "2 to 4 options for the user to choose from")
+                            put("description", "Options for a single question (legacy format). Ignored when 'questions' array is provided.")
                             put("minItems", 2)
                             put("maxItems", 4)
                         })
                     },
-                    required = listOf("question", "options")
+                    required = listOf()
                 )
             },
             execute = {

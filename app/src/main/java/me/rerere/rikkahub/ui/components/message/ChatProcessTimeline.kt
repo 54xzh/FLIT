@@ -92,6 +92,7 @@ import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.common.http.jsonObjectOrNull
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.extractGeminiThinkingTitle
 import me.rerere.rikkahub.utils.extractGeminiLastSection
@@ -952,10 +953,21 @@ private fun toolTimelineSubtitle(
         }
 
         "ask_user" -> {
-            val answer = runCatching {
+            val singleAnswer = runCatching {
                 content?.jsonObject?.get("answer")?.jsonPrimitiveOrNull?.contentOrNull
             }.getOrNull()
-            answer ?: if (content != null) stringResource(R.string.ask_user_no_reply) else null
+            if (singleAnswer != null) {
+                singleAnswer
+            } else {
+                val answers = content?.jsonObject?.get("answers")?.jsonArray
+                if (answers != null && answers.isNotEmpty()) {
+                    answers.mapNotNull { it.jsonObjectOrNull?.get("answer")?.jsonPrimitiveOrNull?.contentOrNull }.joinToString(", ")
+                } else if (content != null) {
+                    stringResource(R.string.ask_user_no_reply)
+                } else {
+                    null
+                }
+            }
         }
 
         else -> null
@@ -997,6 +1009,8 @@ private fun CompactAskUserTimelineItem(
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     var showSheet by remember(askUser.toolCallId) { mutableStateOf(false) }
     val canRespond = conversationId != null && askUser.toolCallId.isNotBlank() && askUser.state == AskUserState.Pending
+    val multiQuestions = askUser.questions
+    val isMultiQuestion = multiQuestions != null && multiQuestions.size > 1
 
     LaunchedEffect(askUser.toolCallId) {
         if (askUser.state == AskUserState.Pending) {
@@ -1004,7 +1018,11 @@ private fun CompactAskUserTimelineItem(
         }
     }
 
-    val subtitle = askUser.question
+    val subtitle = if (isMultiQuestion) {
+        "${multiQuestions!!.first().question}… (+${multiQuestions.size - 1})"
+    } else {
+        askUser.question
+    }
 
     ProcessStepRow(
         title = stringResource(R.string.ask_user_step_title),
@@ -1047,28 +1065,52 @@ private fun CompactAskUserTimelineItem(
     )
 
     if (showSheet && canRespond) {
-        AskUserBottomSheet(
-            question = askUser.question,
-            options = askUser.options,
-            onSelect = { answer ->
-                showSheet = false
-                haptics.perform(HapticPattern.Pop)
-                chatService.respondAskUser(
-                    conversationId = conversationId ?: return@AskUserBottomSheet,
-                    toolCallId = askUser.toolCallId,
-                    answer = answer,
-                )
-            },
-            onDismissRequest = {
-                showSheet = false
-                haptics.perform(HapticPattern.Pop)
-                chatService.respondAskUser(
-                    conversationId = conversationId ?: return@AskUserBottomSheet,
-                    toolCallId = askUser.toolCallId,
-                    answer = "",
-                )
-            },
-        )
+        if (isMultiQuestion && multiQuestions != null) {
+            AskUserWizardBottomSheet(
+                questions = multiQuestions,
+                onComplete = { combinedAnswers: String ->
+                    showSheet = false
+                    haptics.perform(HapticPattern.Success)
+                    chatService.respondAskUser(
+                        conversationId = conversationId ?: return@AskUserWizardBottomSheet,
+                        toolCallId = askUser.toolCallId,
+                        answer = combinedAnswers,
+                    )
+                },
+                onDismissRequest = {
+                    showSheet = false
+                    haptics.perform(HapticPattern.Pop)
+                    chatService.respondAskUser(
+                        conversationId = conversationId ?: return@AskUserWizardBottomSheet,
+                        toolCallId = askUser.toolCallId,
+                        answer = "",
+                    )
+                },
+            )
+        } else {
+            AskUserBottomSheet(
+                question = askUser.question,
+                options = askUser.options,
+                onSelect = { answer ->
+                    showSheet = false
+                    haptics.perform(HapticPattern.Pop)
+                    chatService.respondAskUser(
+                        conversationId = conversationId ?: return@AskUserBottomSheet,
+                        toolCallId = askUser.toolCallId,
+                        answer = answer,
+                    )
+                },
+                onDismissRequest = {
+                    showSheet = false
+                    haptics.perform(HapticPattern.Pop)
+                    chatService.respondAskUser(
+                        conversationId = conversationId ?: return@AskUserBottomSheet,
+                        toolCallId = askUser.toolCallId,
+                        answer = "",
+                    )
+                },
+            )
+        }
     }
 }
 
