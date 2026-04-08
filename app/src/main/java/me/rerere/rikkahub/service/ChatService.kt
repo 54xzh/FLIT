@@ -3901,7 +3901,7 @@ class ChatService(
     private fun createAskUserTool(conversationId: Uuid): Tool {
         return Tool(
             name = "ask_user",
-            description = "When you encounter uncertainty or need user confirmation, ask the user a question with 2 to 4 options. The user can choose one of the provided options or type a custom answer.",
+            description = "ALWAYS use this tool instead of guessing or making assumptions. Call it whenever: the user's intent is ambiguous, a decision has multiple valid paths, an action is irreversible, or you need information only the user has. Do NOT proceed on your own when uncertain — stop and ask. Provide 2–4 concise, mutually exclusive options that cover the most likely choices; the user can also type a custom answer.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
