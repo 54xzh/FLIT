@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -28,7 +31,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,6 +43,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -59,7 +62,9 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.launch
@@ -83,7 +88,9 @@ import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.modifier.shimmer
+import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
 import me.rerere.rikkahub.ui.theme.AppShapes
+import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import me.rerere.rikkahub.service.ChatService
@@ -1073,6 +1080,13 @@ internal fun AskUserBottomSheet(
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     var customInput by remember { mutableStateOf("") }
 
+    val darkMode = LocalDarkMode.current
+    val itemColor = if (darkMode) {
+        MaterialTheme.colorScheme.surfaceContainerLow
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    }
+
     ModalBottomSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         onDismissRequest = onDismissRequest,
@@ -1080,107 +1094,33 @@ internal fun AskUserBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 36.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(horizontal = 16.dp)
+                .padding(top = 4.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            // Header
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            // Question (plain text, no card wrapper, larger font)
+            Text(
+                text = question,
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+            )
+
+            // Options + input as a settings-style grouped list
+            Column(
+                modifier = Modifier.clip(RoundedCornerShape(24.dp)),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Surface(
-                    shape = AppShapes.CardMedium,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(40.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.HelpOutline,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .size(24.dp),
+                options.forEach { option ->
+                    SettingGroupItem(
+                        title = option,
+                        onClick = { onSelect(option) },
                     )
                 }
-                Text(
-                    text = stringResource(R.string.ask_user_title),
-                    style = MaterialTheme.typography.titleLarge,
-                )
-            }
 
-            // Question card
-            Card(
-                shape = AppShapes.CardLarge,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            ) {
-                Text(
-                    text = question,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                )
-            }
-
-            // Option buttons
-            if (options.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    options.forEach { option ->
-                        val interactionSource = remember { MutableInteractionSource() }
-                        val isPressed by interactionSource.collectIsPressedAsState()
-                        val scale by animateFloatAsState(
-                            targetValue = if (isPressed) 0.85f else 1f,
-                            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
-                            label = "ask_user_option_scale",
-                        )
-                        Surface(
-                            onClick = {
-                                haptics.perform(HapticPattern.Pop)
-                                onSelect(option)
-                            },
-                            interactionSource = interactionSource,
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            shape = AppShapes.ButtonPill,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .graphicsLayer {
-                                    scaleX = scale
-                                    scaleY = scale
-                                },
-                        ) {
-                            Text(
-                                text = option,
-                                style = MaterialTheme.typography.bodyMedium,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 13.dp, horizontal = 16.dp),
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Custom input row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = customInput,
-                    onValueChange = { customInput = it },
-                    placeholder = { Text(text = stringResource(R.string.ask_user_type_hint)) },
-                    modifier = Modifier.weight(1f),
-                    shape = AppShapes.ButtonPill,
-                    singleLine = true,
-                )
+                // Custom input row (matches SettingGroupItem visual style)
                 val submitInteractionSource = remember { MutableInteractionSource() }
                 val submitPressed by submitInteractionSource.collectIsPressedAsState()
                 val submitScale by animateFloatAsState(
@@ -1188,28 +1128,78 @@ internal fun AskUserBottomSheet(
                     animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
                     label = "ask_user_submit_scale",
                 )
+                val canSubmit = customInput.isNotBlank()
                 Surface(
-                    onClick = {
-                        if (customInput.isNotBlank()) {
-                            haptics.perform(HapticPattern.Pop)
-                            onSelect(customInput.trim())
-                        }
-                    },
-                    enabled = customInput.isNotBlank(),
-                    interactionSource = submitInteractionSource,
-                    color = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shape = AppShapes.ButtonPill,
-                    modifier = Modifier.graphicsLayer {
-                        scaleX = submitScale
-                        scaleY = submitScale
-                    },
+                    color = itemColor,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(
-                        text = stringResource(R.string.ask_user_submit),
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        BasicTextField(
+                            value = customInput,
+                            onValueChange = { customInput = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(vertical = 10.dp),
+                            textStyle = MaterialTheme.typography.titleMedium.copy(
+                                color = MaterialTheme.colorScheme.onSurface,
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            singleLine = true,
+                            decorationBox = { innerTextField ->
+                                if (customInput.isEmpty()) {
+                                    Text(
+                                        text = stringResource(R.string.ask_user_type_hint),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                innerTextField()
+                            },
+                        )
+                        Surface(
+                            onClick = {
+                                if (canSubmit) {
+                                    haptics.perform(HapticPattern.Pop)
+                                    onSelect(customInput.trim())
+                                }
+                            },
+                            enabled = canSubmit,
+                            interactionSource = submitInteractionSource,
+                            color = if (canSubmit) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerHighest
+                            },
+                            contentColor = if (canSubmit) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            shape = CircleShape,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .graphicsLayer {
+                                    scaleX = submitScale
+                                    scaleY = submitScale
+                                },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Send,
+                                contentDescription = stringResource(R.string.ask_user_submit),
+                                modifier = Modifier
+                                    .padding(9.dp)
+                                    .size(22.dp),
+                            )
+                        }
+                    }
                 }
             }
         }
