@@ -391,6 +391,8 @@
     <string name="mcp_tool_approval_rejected_result">User declined this tool call</string>
     <string name="ask_user_title">Assistant is asking you</string>
     <string name="ask_user_step_title">Question</string>
+    <string name="ask_user_answer_title">Answer</string>
+    <string name="ask_user_no_reply">No reply</string>
     <string name="ask_user_respond">Respond</string>
     <string name="ask_user_dismissed">User dismissed the question</string>
     <string name="ask_user_type_hint">Type your answer…</string>

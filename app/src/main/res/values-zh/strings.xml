@@ -257,6 +257,9 @@
   <string name="mcp_tool_approval_approved_calling">已批准，正在执行 %1$s…</string>
   <string name="mcp_tool_approval_rejected_result">用户拒绝本次工具调用</string>
   <string name="ask_user_title">助手向你提问</string>
+  <string name="ask_user_step_title">提问</string>
+  <string name="ask_user_answer_title">回答</string>
+  <string name="ask_user_no_reply">无回复</string>
   <string name="ask_user_respond">回答</string>
   <string name="ask_user_dismissed">用户未作回答</string>
   <string name="ask_user_type_hint">输入你的回答…</string>

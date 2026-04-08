@@ -278,6 +278,8 @@
   <string name="mcp_tool_approval_rejected_result">用戶拒絕本次工具調用</string>
   <string name="ask_user_title">助手向你提問</string>
   <string name="ask_user_step_title">提問</string>
+  <string name="ask_user_answer_title">回答</string>
+  <string name="ask_user_no_reply">無回覆</string>
   <string name="ask_user_respond">回答</string>
   <string name="ask_user_dismissed">用戶未作回答</string>
   <string name="ask_user_type_hint">輸入你的回答…</string>

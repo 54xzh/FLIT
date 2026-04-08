@@ -915,6 +915,7 @@ private fun toolTimelineTitle(
             }
         }
         "eval_python" -> stringResource(R.string.chat_message_tool_run_python_generic)
+        "ask_user" -> stringResource(R.string.ask_user_answer_title)
         else -> stringResource(R.string.chat_message_tool_call_generic, toolName)
     }
 }
@@ -948,6 +949,13 @@ private fun toolTimelineSubtitle(
                     ?.firstOrNull()
                     ?.jsonPrimitiveOrNull
                     ?.contentOrNull
+        }
+
+        "ask_user" -> {
+            val answer = runCatching {
+                content?.jsonObject?.get("answer")?.jsonPrimitiveOrNull?.contentOrNull
+            }.getOrNull()
+            answer ?: if (content != null) stringResource(R.string.ask_user_no_reply) else null
         }
 
         else -> null
@@ -996,11 +1004,7 @@ private fun CompactAskUserTimelineItem(
         }
     }
 
-    val subtitle = when (askUser.state) {
-        AskUserState.Pending -> askUser.question
-        AskUserState.Answered -> askUser.answer?.takeIf { it.isNotBlank() } ?: askUser.question
-        AskUserState.Dismissed -> stringResource(R.string.ask_user_dismissed)
-    }
+    val subtitle = askUser.question
 
     ProcessStepRow(
         title = stringResource(R.string.ask_user_step_title),
