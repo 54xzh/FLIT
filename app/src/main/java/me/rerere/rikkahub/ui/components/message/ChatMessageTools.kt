@@ -1136,13 +1136,22 @@ internal fun AskUserBottomSheet(
     val settings = me.rerere.rikkahub.ui.context.LocalSettings.current
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     var customInput by remember { mutableStateOf("") }
+    val coroutineScope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    fun selectWithAnimation(answer: String) {
+        coroutineScope.launch {
+            sheetState.hide()
+            onSelect(answer)
+        }
+    }
 
     // In a ModalBottomSheet the sheet surface is surfaceContainerLow in dark mode,
     // so items must sit at a higher elevation to be visible.
     val itemColor = MaterialTheme.colorScheme.surfaceContainerHigh
 
     ModalBottomSheet(
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetState = sheetState,
         onDismissRequest = onDismissRequest,
     ) {
         Column(
@@ -1178,7 +1187,7 @@ internal fun AskUserBottomSheet(
                     Surface(
                         onClick = {
                             haptics.perform(HapticPattern.Pop)
-                            onSelect(option)
+                            selectWithAnimation(option)
                         },
                         interactionSource = optionInteraction,
                         color = itemColor,
@@ -1246,7 +1255,7 @@ internal fun AskUserBottomSheet(
                             onClick = {
                                 if (canSubmit) {
                                     haptics.perform(HapticPattern.Pop)
-                                    onSelect(customInput.trim())
+                                    selectWithAnimation(customInput.trim())
                                 }
                             },
                             enabled = canSubmit,

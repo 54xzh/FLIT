@@ -1,7 +1,10 @@
 package me.rerere.rikkahub.ui.components.message
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -59,14 +62,25 @@ fun AskUserWizardBottomSheet(
     val answers = remember { mutableStateListOf<String?>().also { repeat(questions.size) { _ -> it.add(null) } } }
     val coroutineScope = rememberCoroutineScope()
     val itemColor = MaterialTheme.colorScheme.surfaceContainerHigh
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    fun completeWithAnimation(result: String) {
+        coroutineScope.launch {
+            sheetState.hide()
+            onComplete(result)
+        }
+    }
 
     ModalBottomSheet(
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetState = sheetState,
         onDismissRequest = onDismissRequest,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .animateContentSize(
+                    animationSpec = tween(durationMillis = 300),
+                )
                 .padding(horizontal = 16.dp)
                 .padding(top = 4.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -117,7 +131,7 @@ fun AskUserWizardBottomSheet(
                                             pagerState.animateScrollToPage(page + 1)
                                         }
                                     } else {
-                                        onComplete(answers.filterNotNull().joinToString("\n---\n"))
+                                        completeWithAnimation(answers.filterNotNull().joinToString("\n---\n"))
                                     }
                                 },
                                 interactionSource = interaction,
@@ -193,7 +207,7 @@ fun AskUserWizardBottomSheet(
                                                     pagerState.animateScrollToPage(page + 1)
                                                 }
                                             } else {
-                                                onComplete(answers.filterNotNull().joinToString("\n---\n"))
+                                                completeWithAnimation(answers.filterNotNull().joinToString("\n---\n"))
                                             }
                                         }
                                     },
@@ -245,11 +259,13 @@ fun AskUserWizardBottomSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     repeat(questions.size) { index ->
+                        val dotWidth by animateDpAsState(
+                            targetValue = if (index == pagerState.currentPage) 16.dp else 6.dp,
+                            animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f),
+                            label = "dot_width_$index",
+                        )
                         Surface(
-                            modifier = Modifier.size(
-                                width = if (index == pagerState.currentPage) 16.dp else 6.dp,
-                                height = 6.dp,
-                            ),
+                            modifier = Modifier.size(width = dotWidth, height = 6.dp),
                             shape = CircleShape,
                             color = if (index == pagerState.currentPage) {
                                 MaterialTheme.colorScheme.primary
@@ -270,7 +286,7 @@ fun AskUserWizardBottomSheet(
                             pagerState.animateScrollToPage(pagerState.currentPage + 1)
                         }
                     } else {
-                        onComplete(answers.map { it ?: "" }.joinToString("\n---\n"))
+                        completeWithAnimation(answers.map { it ?: "" }.joinToString("\n---\n"))
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
