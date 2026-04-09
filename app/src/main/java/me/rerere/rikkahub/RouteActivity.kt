@@ -153,6 +153,7 @@ class RouteActivity : ComponentActivity() {
     private var pendingTextSelection by mutableStateOf<TextSelectionData?>(null)
     private var pendingConversationId by mutableStateOf<String?>(null)
     private var pendingDirectChat by mutableStateOf<DirectChatData?>(null)
+    private var pendingWebServerSettings by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -181,6 +182,7 @@ class RouteActivity : ComponentActivity() {
             DirectChatHandler(navStack)
             TextSelectionHandler(navStack)
             NotificationHandler(navStack)
+            WebServerSettingsHandler(navStack)
             RikkahubTheme {
                 setSingletonImageLoaderFactory { context ->
                     ImageLoader.Builder(context)
@@ -262,6 +264,17 @@ class RouteActivity : ComponentActivity() {
             if (conversationIdStr != null) {
                 pendingConversationId = null
                 navBackStack.navigate(Screen.Chat(conversationIdStr))
+            }
+        }
+    }
+
+    @Composable
+    private fun WebServerSettingsHandler(navBackStack: NavHostController) {
+        val pending = pendingWebServerSettings
+        LaunchedEffect(pending) {
+            if (pending) {
+                pendingWebServerSettings = false
+                navBackStack.navigate(Screen.SettingWeb)
             }
         }
     }
@@ -438,6 +451,11 @@ class RouteActivity : ComponentActivity() {
                 text = text,
                 autoSend = intent.getBooleanExtra(EXTRA_DIRECT_CHAT_AUTO_SEND, false),
             )
+        }
+
+        if (intent?.getBooleanExtra("webServerSettings", false) == true ||
+            intent?.action == "android.service.quicksettings.action.QS_TILE_PREFERENCES") {
+            pendingWebServerSettings = true
         }
     }
 

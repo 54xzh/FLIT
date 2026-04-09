@@ -51,6 +51,9 @@
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
+      <intent-filter>
+        <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+      </intent-filter>
       <meta-data
           android:name="android.app.shortcuts"
           android:resource="@xml/shortcuts" />
@@ -107,6 +110,20 @@
         android:name=".service.WebServerService"
         android:exported="false"
         android:foregroundServiceType="dataSync" />
+
+    <service
+        android:name=".service.WebServerTileService"
+        android:label="LastChat Web"
+        android:icon="@drawable/ic_tile_web_server"
+        android:exported="true"
+        android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+        <intent-filter>
+            <action android:name="android.service.quicksettings.action.QS_TILE" />
+        </intent-filter>
+        <meta-data
+            android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+            android:value="true" />
+    </service>
 
     <provider
       android:name="androidx.core.content.FileProvider"
