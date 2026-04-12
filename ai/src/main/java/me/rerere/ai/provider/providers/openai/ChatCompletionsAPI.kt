@@ -511,6 +511,24 @@ class ChatCompletionsAPI(
                                         })
                                     }
 
+                                    is UIMessagePart.Audio -> {
+                                        add(buildJsonObject {
+                                            part.encodeBase64(withPrefix = false).onSuccess {
+                                                put("type", "input_audio")
+                                                put("input_audio", buildJsonObject {
+                                                    put("data", it)
+                                                    put("format", "mp3")
+                                                })
+                                            }.onFailure {
+                                                it.printStackTrace()
+                                                println("encode audio failed: ${part.url}")
+
+                                                put("type", "text")
+                                                put("text", "")
+                                            }
+                                        })
+                                    }
+
                                     else -> {
                                         Log.w(
                                             TAG,
@@ -645,7 +663,7 @@ class ChatCompletionsAPI(
     }
 
     private fun List<UIMessagePart>.isOnlyTextPart(): Boolean {
-        val gonnaSend = filter { it is UIMessagePart.Text || it is UIMessagePart.Image }.size
+        val gonnaSend = filter { it is UIMessagePart.Text || it is UIMessagePart.Image || it is UIMessagePart.Audio || it is UIMessagePart.Video }.size
         val texts = filter { it is UIMessagePart.Text }.size
         return gonnaSend == texts && texts == 1
     }
