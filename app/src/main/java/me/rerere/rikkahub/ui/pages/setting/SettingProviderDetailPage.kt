@@ -1577,6 +1577,7 @@ private fun ModelPickerFab(
                                             )
                                         }
                                         ModelModalityTag(model = modelMeta)
+                                        ModelAbilityTag(model = modelMeta)
                                     }
                                 }
                                 IconButton(
