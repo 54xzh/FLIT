@@ -15,6 +15,7 @@ import {
   getToolIcon,
   getToolTitle,
   safeJsonParse,
+  TOOL_NAMES,
   ToolApprovalActions,
   ToolDetailContent,
   ToolPreviewContent,
@@ -48,7 +49,9 @@ export function ToolPart({
   const args = React.useMemo(() => safeJsonParse(tool.input), [tool.input]);
   const title = getToolTitle(tool.toolName, args, t);
   const Icon = getToolIcon(tool.toolName, getStringField(args, "action"));
-  const canOpenDrawer = tool.approvalState.type === "pending" || tool.output.length > 0;
+  const isAskUserPending =
+    tool.toolName === TOOL_NAMES.ASK_USER && tool.approvalState.type === "pending";
+  const canOpenDrawer = !isAskUserPending && (tool.approvalState.type === "pending" || tool.output.length > 0);
   const previewContent = <ToolPreviewContent tool={tool} t={t} />;
 
   return (

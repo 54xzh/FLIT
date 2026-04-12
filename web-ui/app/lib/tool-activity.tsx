@@ -10,6 +10,7 @@ import {
   Clock3,
   Globe,
   Image as ImageIcon,
+  Loader2,
   MessageCircleQuestion,
   Video,
   Wrench,
@@ -19,6 +20,7 @@ import {
 import Markdown from "~/components/markdown/markdown";
 import { DocumentPart } from "~/components/message/parts/document-part";
 import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 import { resolveFileUrl } from "~/lib/files";
 import type { DisplaySetting, TextPart as UITextPart, ToolPart as UIToolPart } from "~/types";
 
@@ -374,12 +376,12 @@ export interface AskUserAnswerPayload {
 export function parseAskUserQuestions(args: unknown): AskUserQuestion[] {
   try {
     return getArrayField(args, "questions")
-      .map((question) => {
+      .map((question, idx) => {
         if (!question || typeof question !== "object" || Array.isArray(question)) return null;
         const record = question as Record<string, unknown>;
-        const id = typeof record.id === "string" ? record.id : "";
+        const id = typeof record.id === "string" && record.id ? record.id : `q-${idx}`;
         const prompt = typeof record.question === "string" ? record.question : "";
-        if (!id || !prompt) return null;
+        if (!prompt) return null;
         const options = Array.isArray(record.options)
           ? record.options
               .map((option) => {
@@ -400,7 +402,6 @@ export function parseAskUserQuestions(args: unknown): AskUserQuestion[] {
                 return { label, description };
               })
               .filter((option): option is AskUserOption => option !== null)
-              .slice(0, 3)
           : [];
         return { id, question: prompt, options };
       })
@@ -448,16 +449,80 @@ export function parseAskUserAnswerPayload(raw: string | null | undefined): AskUs
   }
 }
 
-function AskUserToolContent({
+export function AskUserToolContent({
   tool,
   t,
+  onToolApproval,
 }: {
   tool: UIToolPart;
   t: TFunction;
+  onToolApproval?: (toolCallId: string, approved: boolean, reason: string, answer?: string) => void | Promise<void>;
 }) {
+  const isPending = tool.approvalState.type === "pending";
   const args = React.useMemo(() => safeJsonParse(tool.input), [tool.input]);
   const questions = React.useMemo(() => parseAskUserQuestions(args), [args]);
+
+  // Interactive state (only used when pending)
+  const [selectedAnswers, setSelectedAnswers] = React.useState<Map<string, string>>(new Map());
+  const [customInputs, setCustomInputs] = React.useState<Map<string, string>>(new Map());
+  const [submitting, setSubmitting] = React.useState(false);
+
+  const handleSelectOption = React.useCallback((questionId: string, label: string) => {
+    setSelectedAnswers((prev) => new Map(prev).set(questionId, label));
+    setCustomInputs((prev) => {
+      const next = new Map(prev);
+      next.delete(questionId);
+      return next;
+    });
+  }, []);
+
+  const handleCustomInput = React.useCallback((questionId: string, value: string) => {
+    setCustomInputs((prev) => new Map(prev).set(questionId, value));
+    setSelectedAnswers((prev) => {
+      const next = new Map(prev);
+      next.delete(questionId);
+      return next;
+    });
+  }, []);
+
+  const getAnswerForQuestion = React.useCallback(
+    (questionId: string): string => {
+      return selectedAnswers.get(questionId) ?? customInputs.get(questionId) ?? "";
+    },
+    [selectedAnswers, customInputs],
+  );
+
+  const hasAnyAnswer = React.useMemo(() => {
+    return questions.some((q) => getAnswerForQuestion(q.id) !== "");
+  }, [questions, getAnswerForQuestion]);
+
+  const handleSubmit = React.useCallback(async () => {
+    if (!onToolApproval || submitting) return;
+    setSubmitting(true);
+    try {
+      const parts = questions.map((q) => getAnswerForQuestion(q.id));
+      const answer = parts.join("\n---\n");
+      await onToolApproval(tool.toolCallId, true, "", answer);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [onToolApproval, submitting, questions, getAnswerForQuestion, tool.toolCallId]);
+
+  const handleSkip = React.useCallback(async () => {
+    if (!onToolApproval || submitting) return;
+    setSubmitting(true);
+    try {
+      const parts = questions.map((q) => getAnswerForQuestion(q.id));
+      const answer = parts.join("\n---\n");
+      await onToolApproval(tool.toolCallId, true, "", answer);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [onToolApproval, submitting, questions, getAnswerForQuestion, tool.toolCallId]);
+
+  // Completed state: parse structured payload or fall back to raw output
   const answerPayload = React.useMemo(() => {
+    if (isPending) return null;
     if (tool.approvalState.type === "answered") {
       return parseAskUserAnswerPayload(tool.approvalState.answer);
     }
@@ -466,21 +531,113 @@ function AskUserToolContent({
       .map((part) => part.text)
       .join("\n");
     return parseAskUserAnswerPayload(outputText);
-  }, [tool.approvalState, tool.output]);
+  }, [isPending, tool.approvalState, tool.output]);
+
   const answersById = React.useMemo(() => {
     return new Map(answerPayload?.answers.map((answer) => [answer.id, answer]) ?? []);
   }, [answerPayload]);
 
+  // Fallback: handle plain {"answer":"..."} or {"answers":[{question,answer}]} from backend tool result
+  const fallbackAnswersByIndex = React.useMemo(() => {
+    if (isPending || (answerPayload?.answers.length ?? 0) > 0) return null;
+    const outputText = tool.output
+      .filter((part): part is UITextPart => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    if (!outputText) return null;
+    try {
+      const parsed = JSON.parse(outputText) as Record<string, unknown>;
+      if (typeof parsed.answer === "string") return [parsed.answer];
+      if (Array.isArray(parsed.answers)) {
+        return parsed.answers.map((a) => {
+          const rec = a as Record<string, unknown>;
+          return typeof rec.answer === "string" ? rec.answer : "";
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }, [isPending, answerPayload, tool.output]);
+
+  if (isPending) {
+    return (
+      <div className="space-y-4">
+        {questions.map((question) => {
+          const selected = selectedAnswers.get(question.id);
+          const custom = customInputs.get(question.id) ?? "";
+          return (
+            <div key={question.id} className="space-y-2">
+              <div className="text-sm font-medium text-foreground">{question.question}</div>
+              {question.options.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {question.options.map((option) => (
+                    <button
+                      key={option.label}
+                      type="button"
+                      onClick={() => handleSelectOption(question.id, option.label)}
+                      className={
+                        selected === option.label
+                          ? "rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs text-primary cursor-pointer"
+                          : "rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground cursor-pointer hover:border-primary/30 hover:text-foreground"
+                      }
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <Input
+                value={custom}
+                onChange={(e) => handleCustomInput(question.id, e.target.value)}
+                placeholder={t("tool_part.ask_user_input_placeholder")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && questions.length === 1) {
+                    e.preventDefault();
+                    void handleSubmit();
+                  }
+                }}
+              />
+            </div>
+          );
+        })}
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleSkip}
+            disabled={submitting}
+          >
+            {t("tool_part.ask_user_skip")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleSubmit}
+            disabled={submitting || !hasAnyAnswer}
+          >
+            {submitting ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            {t("tool_part.ask_user_submit")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
-      {questions.map((question) => (
+      {questions.map((question, idx) => (
         <div key={question.id} className="space-y-2">
           <div className="text-sm text-foreground">{question.question}</div>
           {question.options.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
               {question.options.map((option) => {
                 const answer = answersById.get(question.id);
-                const selected = answer?.value === option.label;
+                const fallback = fallbackAnswersByIndex?.[idx];
+                const selected = answer?.value === option.label || fallback === option.label;
                 return (
                   <span
                     key={option.label}
@@ -512,11 +669,12 @@ function AskUserToolContent({
                 </div>
               );
             }
-            if (tool.approvalState.type === "pending") {
-              return (
-                <div className="text-muted-foreground text-sm">
-                  {t("tool_part.ask_user_waiting")}
-                </div>
+            const fallback = fallbackAnswersByIndex?.[idx];
+            if (fallback != null) {
+              return fallback ? (
+                <div className="text-primary text-sm">{fallback}</div>
+              ) : (
+                <div className="text-muted-foreground text-sm">{t("tool_part.ask_user_skipped")}</div>
               );
             }
             return null;
@@ -546,7 +704,7 @@ export function ToolDetailContent({
   const isExecuted = tool.output.length > 0;
 
   if (tool.toolName === TOOL_NAMES.ASK_USER) {
-    return <AskUserToolContent tool={tool} t={t} />;
+    return <AskUserToolContent tool={tool} t={t} onToolApproval={onToolApproval} />;
   }
 
   if (tool.toolName === TOOL_NAMES.SEARCH_WEB && isExecuted) {

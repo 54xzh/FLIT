@@ -263,7 +263,11 @@ function ChatInputInner({
   const [error, setError] = React.useState<string | null>(null);
   const [dragActive, setDragActive] = React.useState(false);
   const dragDepthRef = React.useRef(0);
+  // localDismissed: immediately hides the panel on submit/dismiss,
+  // mirroring Android's showSheet=false pattern — no need to wait for SSE.
+  const [localDismissed, setLocalDismissed] = React.useState(false);
   const questionnaireActive =
+    !localDismissed &&
     Boolean(pendingQuestionnaire) && pendingQuestionnaire!.questions.length > 0;
   const [questionIndex, setQuestionIndex] = React.useState(0);
   const [selectedAnswers, setSelectedAnswers] = React.useState<Record<string, string>>({});
@@ -297,6 +301,7 @@ function ChatInputInner({
     setQuestionIndex(0);
     setSelectedAnswers({});
     setCustomAnswers({});
+    setLocalDismissed(false);
   }, [pendingQuestionnaire?.toolCallId]);
 
   React.useEffect(() => {
@@ -363,50 +368,32 @@ function ChatInputInner({
   );
 
   const buildQuestionnairePayload = React.useCallback(
-    (dismissed: boolean) => {
+    (overrideSelected?: Record<string, string>) => {
       if (!pendingQuestionnaire) {
         return null;
       }
 
-      return JSON.stringify({
-        answers: pendingQuestionnaire.questions.map((question) => {
+      const effectiveSelected = overrideSelected ?? selectedAnswers;
+      return pendingQuestionnaire.questions
+        .map((question) => {
           const customValue = (customAnswers[question.id] ?? "").trim();
-          const selectedValue = (selectedAnswers[question.id] ?? "").trim();
-          if (customValue) {
-            return {
-              id: question.id,
-              status: "answered",
-              source: "custom",
-              value: customValue,
-            };
-          }
-          if (selectedValue) {
-            return {
-              id: question.id,
-              status: "answered",
-              source: "option",
-              value: selectedValue,
-            };
-          }
-          return {
-            id: question.id,
-            status: "skipped",
-          };
-        }),
-        dismissed,
-      });
+          const selectedValue = (effectiveSelected[question.id] ?? "").trim();
+          return customValue || selectedValue || "";
+        })
+        .join("\n---\n");
     },
     [customAnswers, pendingQuestionnaire, selectedAnswers],
   );
 
-  const handleQuestionnaireAction = React.useCallback(async (dismissed = false) => {
+  const handleQuestionnaireAction = React.useCallback(async (dismissed = false, overrideSelected?: Record<string, string>) => {
     if (!pendingQuestionnaire || !onToolApproval) {
       return;
     }
 
-    if (dismissed || isFinalQuestion) {
-      const payload = buildQuestionnairePayload(dismissed);
-      if (!payload) return;
+    if (dismissed || isFinalQuestion || overrideSelected) {
+      const payload = buildQuestionnairePayload(overrideSelected);
+      if (payload === null) return;
+      setLocalDismissed(true);
       await onToolApproval(pendingQuestionnaire.toolCallId, true, "", payload);
       return;
     }
@@ -742,15 +729,18 @@ function ChatInputInner({
                   }}
                   onSelectOption={(option) => {
                     if (!activeQuestion) return;
-                    setSelectedAnswers((prev) => ({
-                      ...prev,
+                    const newSelected = {
+                      ...selectedAnswers,
                       [activeQuestion.id]: option.label,
-                    }));
+                    };
+                    setSelectedAnswers(newSelected);
                     setCustomAnswers((prev) => ({
                       ...prev,
                       [activeQuestion.id]: "",
                     }));
-                    if (!isFinalQuestion) {
+                    if (isFinalQuestion) {
+                      void handleQuestionnaireAction(false, newSelected);
+                    } else {
                       setQuestionIndex((current) =>
                         Math.min(current + 1, pendingQuestionnaire.questions.length - 1),
                       );

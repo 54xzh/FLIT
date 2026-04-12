@@ -571,11 +571,19 @@ private fun Route.webRoutes(
             val conversationId = call.parameters["id"].toUuid("conversation id")
             val request = call.receive<ToolApprovalRequest>()
 
-            chatService.respondToolApproval(
-                conversationId = conversationId,
-                toolCallId = request.toolCallId,
-                approved = request.approved,
-            )
+            if (request.answer != null) {
+                chatService.respondAskUser(
+                    conversationId = conversationId,
+                    toolCallId = request.toolCallId,
+                    answer = request.answer,
+                )
+            } else {
+                chatService.respondToolApproval(
+                    conversationId = conversationId,
+                    toolCallId = request.toolCallId,
+                    approved = request.approved,
+                )
+            }
             call.respond(HttpStatusCode.Accepted, mapOf("status" to "accepted"))
         }
 

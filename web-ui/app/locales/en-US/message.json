@@ -82,6 +82,8 @@
     "ask_user_title": "Ask User",
     "ask_user_questions_count": "Ask {{count}} questions",
     "ask_user_submit": "Submit",
+    "ask_user_skip": "Skip",
+    "ask_user_input_placeholder": "Type a custom answer...",
     "ask_user_answered": "Answered",
     "ask_user_waiting": "Waiting for your reply in the composer",
     "ask_user_skipped": "Skipped",

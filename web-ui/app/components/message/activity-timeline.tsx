@@ -27,6 +27,7 @@ import type { ActivityType, TimelineEntry } from "~/lib/message-turns";
 import {
   getStringField,
   safeJsonParse,
+  TOOL_NAMES,
   ToolApprovalActions,
   ToolDetailContent,
   ToolPreviewContent,
@@ -331,6 +332,9 @@ export function ActivityTimeline({
               const Icon = getActivityIcon(entry.activityType);
               const toolArgs = safeJsonParse(entry.tool.input);
               const preview = getStringField(toolArgs, "query");
+              const isAskUserPending =
+                entry.tool.toolName === TOOL_NAMES.ASK_USER &&
+                entry.tool.approvalState.type === "pending";
 
               return (
                 <motion.div
@@ -350,46 +354,62 @@ export function ActivityTimeline({
                   }}
                   className="overflow-hidden rounded-[var(--radius-card-inner)] border border-border/80 bg-background"
                 >
-                  <button
-                    type="button"
-                    onClick={toggleExpanded}
-                    className="flex w-full items-start gap-3 px-4 py-3 text-left"
-                  >
-                    <Icon className={cn("mt-0.5 size-4 text-primary", entry.isLoading && "animate-pulse")} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="text-sm font-medium">{entry.displayName}</div>
-                          {preview ? (
-                            <div className="line-clamp-1 text-xs text-muted-foreground">{preview}</div>
-                          ) : null}
+                  {isAskUserPending ? (
+                    // ask_user pending: non-interactive header only, QuestionnairePanel handles interaction
+                    <div className="flex w-full items-start gap-3 px-4 py-3">
+                      <Icon className="mt-0.5 size-4 text-primary" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium">{entry.displayName}</div>
+                        <div className="pt-2">
+                          <ToolPreviewContent tool={entry.tool} t={t} />
                         </div>
-                        <ToolApprovalActions tool={entry.tool} onToolApproval={onToolApproval} t={t} />
-                      </div>
-                      <div className="pt-2">
-                        <ToolPreviewContent tool={entry.tool} t={t} />
                       </div>
                     </div>
-                    <motion.span
-                      animate={{ rotate: expanded ? 180 : 0 }}
-                      transition={getChatLayoutTransition(reducedMotion)}
-                      className="mt-0.5 text-muted-foreground"
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={toggleExpanded}
+                      className="flex w-full items-start gap-3 px-4 py-3 text-left"
                     >
-                      <ChevronDown className="size-4" />
-                    </motion.span>
-                  </button>
-                  <AnimatePresence initial={false}>
-                    {expanded ? (
-                      <TimelineDetail reducedMotion={reducedMotion}>
-                        <ToolDetailContent
-                          tool={entry.tool}
-                          t={t}
-                          displaySetting={displaySetting}
-                          onToolApproval={onToolApproval}
-                        />
-                      </TimelineDetail>
-                    ) : null}
-                  </AnimatePresence>
+                      <Icon className={cn("mt-0.5 size-4 text-primary", entry.isLoading && "animate-pulse")} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="text-sm font-medium">{entry.displayName}</div>
+                            {preview ? (
+                              <div className="line-clamp-1 text-xs text-muted-foreground">{preview}</div>
+                            ) : null}
+                          </div>
+                          <ToolApprovalActions tool={entry.tool} onToolApproval={onToolApproval} t={t} />
+                        </div>
+                        <div className="pt-2">
+                          <ToolPreviewContent tool={entry.tool} t={t} />
+                        </div>
+                      </div>
+                      <motion.span
+                        animate={{ rotate: expanded ? 180 : 0 }}
+                        transition={getChatLayoutTransition(reducedMotion)}
+                        className="mt-0.5 text-muted-foreground"
+                      >
+                        <ChevronDown className="size-4" />
+                      </motion.span>
+                    </button>
+                  )}
+
+                  {!isAskUserPending && (
+                    <AnimatePresence initial={false}>
+                      {expanded ? (
+                        <TimelineDetail reducedMotion={reducedMotion}>
+                          <ToolDetailContent
+                            tool={entry.tool}
+                            t={t}
+                            displaySetting={displaySetting}
+                            onToolApproval={onToolApproval}
+                          />
+                        </TimelineDetail>
+                      ) : null}
+                    </AnimatePresence>
+                  )}
                 </motion.div>
               );
             })}
