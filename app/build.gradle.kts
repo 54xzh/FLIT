@@ -363,8 +363,8 @@ dependencies {
     implementation(libs.androidx.paging.runtime)
     implementation(libs.androidx.paging.compose)
 
-    // Palette (for color extraction from images)
-    implementation(libs.androidx.palette.ktx)
+    // Color Picker
+    implementation(libs.compose.colorpicker)
 
     // WebDav
     implementation(libs.dav4jvm) {

@@ -20,6 +20,25 @@ enum class ToolResultHistoryMode {
     DISCARD,
 }
 
+@Serializable
+enum class OverlayColorMode {
+    @SerialName("auto")
+    Auto,
+
+    @SerialName("manual")
+    Manual,
+}
+
+@Serializable
+data class BackgroundOverlaySettings(
+    val blurEnabled: Boolean = false,
+    val blurRadius: Float = 10f,            // dp, range 0..25
+    val overlayEnabled: Boolean = false,
+    val overlayOpacity: Float = 0.4f,       // range 0..1
+    val overlayColorMode: OverlayColorMode = OverlayColorMode.Auto,
+    val overlayColorArgb: Long = 0xFF000000, // manual color stored as ARGB
+)
+
 /**
  * Per-assistant UI settings. All nullable - null means "use global setting".
  */
@@ -96,6 +115,7 @@ data class Assistant(
     val enabledSkillIds: Set<Uuid> = emptySet(), // Skills enabled for this assistant
     val enabledModeIds: Set<Uuid> = emptySet(), // Modes enabled by default for new chats of this assistant
     val background: String? = null,
+    val backgroundOverlay: BackgroundOverlaySettings = BackgroundOverlaySettings(),
     val learningMode: Boolean = false,
     val enableSpontaneous: Boolean = false, // 是否启用自发消息
     val backgroundPrompt: String = "", // 后台任务提示词

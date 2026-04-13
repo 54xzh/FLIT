@@ -3,46 +3,74 @@ package me.rerere.rikkahub.ui.pages.assistant.detail
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.github.skydoves.colorpicker.compose.ColorEnvelope
+import com.github.skydoves.colorpicker.compose.HsvColorPicker
+import com.github.skydoves.colorpicker.compose.rememberColorPickerController
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.model.BackgroundOverlaySettings
+import me.rerere.rikkahub.data.model.OverlayColorMode
 import me.rerere.rikkahub.ui.components.ui.FormItem
+import me.rerere.rikkahub.ui.components.ui.HapticSwitch
+import me.rerere.rikkahub.ui.hooks.HapticPattern
+import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
+import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.utils.createChatFilesByContents
 
 @Composable
 fun BackgroundPicker(
     background: String?,
-    onUpdate: (String?) -> Unit
+    overlaySettings: BackgroundOverlaySettings,
+    onUpdateBackground: (String?) -> Unit,
+    onUpdateOverlay: (BackgroundOverlaySettings) -> Unit,
 ) {
     val context = LocalContext.current
+    val haptics = rememberPremiumHaptics()
+    val isDarkMode = LocalDarkMode.current
     var showPickOption by remember { mutableStateOf(false) }
     var showUrlInput by remember { mutableStateOf(false) }
     var urlInput by remember { mutableStateOf("") }
+
+    val autoColor = if (isDarkMode) Color.Black else Color.White
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -50,16 +78,15 @@ fun BackgroundPicker(
         uri?.let {
             val localUris = context.createChatFilesByContents(listOf(it))
             localUris.firstOrNull()?.let { localUri ->
-                onUpdate(localUri.toString())
+                onUpdateBackground(localUri.toString())
             }
         }
     }
 
-    // Use Surface with 10dp corners to match SettingsGroup pattern
     androidx.compose.material3.Surface(
-        color = if (me.rerere.rikkahub.ui.theme.LocalDarkMode.current) 
-            MaterialTheme.colorScheme.surfaceContainerLow 
-        else 
+        color = if (isDarkMode)
+            MaterialTheme.colorScheme.surfaceContainerLow
+        else
             MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(10.dp)
     ) {
@@ -67,7 +94,6 @@ fun BackgroundPicker(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Header matching SettingsGroup pattern
             Text(
                 text = stringResource(R.string.assistant_page_chat_background),
                 style = MaterialTheme.typography.titleMedium,
@@ -78,7 +104,7 @@ fun BackgroundPicker(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            
+
             Button(
                 onClick = {
                     showPickOption = true
@@ -108,22 +134,186 @@ fun BackgroundPicker(
                     )
                     TextButton(
                         onClick = {
-                            onUpdate(null)
+                            onUpdateBackground(null)
                         }
                     ) {
                         Text(stringResource(R.string.assistant_page_remove))
                     }
                 }
 
-                AsyncImage(
-                    model = background,
-                    contentDescription = null,
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(9f / 16f)
-                        .clip(RoundedCornerShape(10.dp)),
-                    contentScale = ContentScale.Crop
-                )
+                        .clip(RoundedCornerShape(10.dp))
+                ) {
+                    AsyncImage(
+                        model = background,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(9f / 16f)
+                            .then(
+                                if (overlaySettings.blurEnabled && overlaySettings.blurRadius > 0f) {
+                                    Modifier.blur(overlaySettings.blurRadius.dp)
+                                } else {
+                                    Modifier
+                                }
+                            ),
+                        contentScale = ContentScale.Crop
+                    )
+                    if (overlaySettings.overlayEnabled) {
+                        val overlayColor = when (overlaySettings.overlayColorMode) {
+                            OverlayColorMode.Auto -> autoColor
+                            OverlayColorMode.Manual -> Color(overlaySettings.overlayColorArgb.toInt())
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(9f / 16f)
+                                .background(overlayColor.copy(alpha = overlaySettings.overlayOpacity))
+                        )
+                    }
+                }
+            }
+
+            AnimatedVisibility(
+                visible = background != null,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FormItem(
+                        label = { Text(stringResource(R.string.assistant_page_background_blur)) },
+                        description = { Text(stringResource(R.string.assistant_page_background_blur_desc)) },
+                        tail = {
+                            HapticSwitch(
+                                checked = overlaySettings.blurEnabled,
+                                onCheckedChange = {
+                                    onUpdateOverlay(overlaySettings.copy(blurEnabled = it))
+                                }
+                            )
+                        }
+                    )
+
+                    AnimatedVisibility(
+                        visible = overlaySettings.blurEnabled,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        androidx.compose.material3.Surface(
+                            color = if (isDarkMode)
+                                MaterialTheme.colorScheme.surfaceContainerLow
+                            else
+                                MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = stringResource(R.string.assistant_page_blur_radius) +
+                                            ": ${overlaySettings.blurRadius.toInt()} dp",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Slider(
+                                    value = overlaySettings.blurRadius,
+                                    onValueChange = {
+                                        onUpdateOverlay(
+                                            overlaySettings.copy(
+                                                blurRadius = (it * 2).toInt().toFloat() / 2
+                                            )
+                                        )
+                                    },
+                                    valueRange = 0f..25f,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+
+                    FormItem(
+                        label = { Text(stringResource(R.string.assistant_page_color_overlay)) },
+                        description = { Text(stringResource(R.string.assistant_page_color_overlay_desc)) },
+                        tail = {
+                            HapticSwitch(
+                                checked = overlaySettings.overlayEnabled,
+                                onCheckedChange = {
+                                    onUpdateOverlay(overlaySettings.copy(overlayEnabled = it))
+                                }
+                            )
+                        }
+                    )
+
+                    AnimatedVisibility(
+                        visible = overlaySettings.overlayEnabled,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        androidx.compose.material3.Surface(
+                            color = if (isDarkMode)
+                                MaterialTheme.colorScheme.surfaceContainerLow
+                            else
+                                MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.assistant_page_overlay_opacity) +
+                                            ": ${(overlaySettings.overlayOpacity * 100).toInt()}%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Slider(
+                                    value = overlaySettings.overlayOpacity,
+                                    onValueChange = {
+                                        onUpdateOverlay(
+                                            overlaySettings.copy(
+                                                overlayOpacity = (it * 100).toInt().toFloat() / 100
+                                            )
+                                        )
+                                    },
+                                    valueRange = 0f..1f,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FilterChip(
+                                        selected = overlaySettings.overlayColorMode == OverlayColorMode.Auto,
+                                        onClick = {
+                                            haptics.perform(HapticPattern.Pop)
+                                            onUpdateOverlay(overlaySettings.copy(overlayColorMode = OverlayColorMode.Auto))
+                                        },
+                                        label = { Text(stringResource(R.string.assistant_page_overlay_color_auto)) }
+                                    )
+                                    FilterChip(
+                                        selected = overlaySettings.overlayColorMode == OverlayColorMode.Manual,
+                                        onClick = {
+                                            haptics.perform(HapticPattern.Pop)
+                                            onUpdateOverlay(overlaySettings.copy(overlayColorMode = OverlayColorMode.Manual))
+                                        },
+                                        label = { Text(stringResource(R.string.assistant_page_overlay_color_manual)) }
+                                    )
+                                }
+
+                                AnimatedVisibility(
+                                    visible = overlaySettings.overlayColorMode == OverlayColorMode.Manual,
+                                    enter = fadeIn() + expandVertically(),
+                                    exit = fadeOut() + shrinkVertically()
+                                ) {
+                                    ManualColorPicker(
+                                        currentColorArgb = overlaySettings.overlayColorArgb,
+                                        onColorSelected = { argb ->
+                                            onUpdateOverlay(overlaySettings.copy(overlayColorArgb = argb))
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -163,7 +353,7 @@ fun BackgroundPicker(
                         Button(
                             onClick = {
                                 showPickOption = false
-                                onUpdate(null)
+                                onUpdateBackground(null)
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -206,7 +396,7 @@ fun BackgroundPicker(
                 TextButton(
                     onClick = {
                         if (urlInput.isNotBlank()) {
-                            onUpdate(urlInput.trim())
+                            onUpdateBackground(urlInput.trim())
                             showUrlInput = false
                         }
                     }
@@ -225,4 +415,36 @@ fun BackgroundPicker(
             }
         )
     }
+}
+
+@Composable
+private fun ManualColorPicker(
+    currentColorArgb: Long,
+    onColorSelected: (Long) -> Unit,
+) {
+    val haptics = rememberPremiumHaptics()
+    val controller = rememberColorPickerController()
+
+    LaunchedEffect(currentColorArgb) {
+        controller.selectByColor(
+            color = Color(currentColorArgb.toInt()),
+            fromUser = false
+        )
+    }
+
+    HsvColorPicker(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(200.dp)
+            .clip(RoundedCornerShape(10.dp)),
+        controller = controller,
+        initialColor = Color(currentColorArgb.toInt()),
+        onColorChanged = { colorEnvelope: ColorEnvelope ->
+            if (colorEnvelope.fromUser) {
+                haptics.perform(HapticPattern.Pop)
+                val color = colorEnvelope.color
+                onColorSelected((0xFF000000L or (color.toArgb().toLong() and 0xFFFFFF)))
+            }
+        }
+    )
 }

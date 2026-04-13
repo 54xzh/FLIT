@@ -31,6 +31,14 @@
   <string name="assistant_page_chaotic">混亂 (危險)</string>
   <string name="assistant_page_chat_background">聊天背景</string>
   <string name="assistant_page_chat_background_desc">設定助手聊天頁面的背景圖片</string>
+  <string name="assistant_page_background_blur">背景模糊</string>
+  <string name="assistant_page_background_blur_desc">對背景圖片套用模糊效果</string>
+  <string name="assistant_page_blur_radius">模糊半徑</string>
+  <string name="assistant_page_color_overlay">顏色遮罩</string>
+  <string name="assistant_page_color_overlay_desc">新增顏色遮罩以提高可讀性</string>
+  <string name="assistant_page_overlay_opacity">遮罩不透明度</string>
+  <string name="assistant_page_overlay_color_auto">自動</string>
+  <string name="assistant_page_overlay_color_manual">手動</string>
   <string name="assistant_page_chat_model">聊天模型</string>
   <string name="assistant_page_chat_model_desc">設定助手的預設聊天模型，如果不設定，則使用全域預設聊天模型</string>
   <string name="assistant_page_clone">複製</string>

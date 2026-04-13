@@ -143,8 +143,12 @@ fun AssistantProfileSubPage(
             // Background Picker
             BackgroundPicker(
                 background = assistant.background,
-                onUpdate = { background ->
+                overlaySettings = assistant.backgroundOverlay,
+                onUpdateBackground = { background ->
                     onUpdate(assistant.copy(background = background))
+                },
+                onUpdateOverlay = { overlay ->
+                    onUpdate(assistant.copy(backgroundOverlay = overlay))
                 }
             )
         }

@@ -95,6 +95,14 @@
     <string name="assistant_page_chaotic">Chaotic (Dangerous)</string>
     <string name="assistant_page_chat_background">Chat Background</string>
     <string name="assistant_page_chat_background_desc">Set background image for assistant chat page</string>
+    <string name="assistant_page_background_blur">Background Blur</string>
+    <string name="assistant_page_background_blur_desc">Apply blur effect to background image</string>
+    <string name="assistant_page_blur_radius">Blur Radius</string>
+    <string name="assistant_page_color_overlay">Color Overlay</string>
+    <string name="assistant_page_color_overlay_desc">Add color overlay for better readability</string>
+    <string name="assistant_page_overlay_opacity">Overlay Opacity</string>
+    <string name="assistant_page_overlay_color_auto">Auto</string>
+    <string name="assistant_page_overlay_color_manual">Manual</string>
     <string name="assistant_page_chat_model">Chat Model</string>
     <string name="assistant_page_chat_model_desc">Set default chat model for assistant. If not set, global default will be used.</string>
     <string name="assistant_page_clone">Clone</string>
