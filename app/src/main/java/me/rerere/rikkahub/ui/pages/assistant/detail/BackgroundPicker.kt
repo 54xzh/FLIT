@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.github.skydoves.colorpicker.compose.BrightnessSlider
 import com.github.skydoves.colorpicker.compose.ColorEnvelope
 import com.github.skydoves.colorpicker.compose.HsvColorPicker
 import com.github.skydoves.colorpicker.compose.rememberColorPickerController
@@ -432,19 +433,33 @@ private fun ManualColorPicker(
         )
     }
 
-    HsvColorPicker(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(200.dp)
-            .clip(RoundedCornerShape(10.dp)),
-        controller = controller,
-        initialColor = Color(currentColorArgb.toInt()),
-        onColorChanged = { colorEnvelope: ColorEnvelope ->
-            if (colorEnvelope.fromUser) {
-                haptics.perform(HapticPattern.Pop)
-                val color = colorEnvelope.color
-                onColorSelected((0xFF000000L or (color.toArgb().toLong() and 0xFFFFFF)))
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        HsvColorPicker(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp)
+                .clip(RoundedCornerShape(10.dp)),
+            controller = controller,
+            initialColor = Color(currentColorArgb.toInt()),
+            onColorChanged = { colorEnvelope: ColorEnvelope ->
+                if (colorEnvelope.fromUser) {
+                    haptics.perform(HapticPattern.Pop)
+                    val color = colorEnvelope.color
+                    onColorSelected((0xFF000000L or (color.toArgb().toLong() and 0xFFFFFF)))
+                }
             }
-        }
-    )
+        )
+
+        BrightnessSlider(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(30.dp)
+                .clip(RoundedCornerShape(10.dp)),
+            controller = controller,
+            borderRadius = 10.dp,
+            borderSize = 0.dp,
+            wheelRadius = 14.dp,
+            wheelColor = Color.White,
+        )
+    }
 }
