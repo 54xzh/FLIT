@@ -1761,6 +1761,12 @@
   <string name="context_max_search_results_value">%d 次搜尋</string>
   <string name="context_max_search_results_unlimited">無限制</string>
 
+  <!-- Image Archiving -->
+  <string name="context_image_archive_title">圖片歸檔</string>
+  <string name="context_image_archive_disabled">保留所有圖片上下文</string>
+  <string name="context_image_archive_after">超過 %d 則訊息後歸檔圖片</string>
+  <string name="context_image_archive_desc">超出閾值的舊圖片將替換為 OCR 文字以節省上下文 Token。需要在設定中配置 OCR 模型。</string>
+
   <!-- Context Refresh -->
   <string name="context_refresh_title">對話摘要</string>
   <string name="context_refresh_button">總結消息</string>

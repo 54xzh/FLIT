@@ -329,6 +329,34 @@ fun AssistantContextManagementSubPage(
             )
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // IMAGE ARCHIVING
+        // ═══════════════════════════════════════════════════════════════════
+        SettingsGroup(title = stringResource(R.string.context_image_archive_title)) {
+            val archiveAge = assistant.archiveImagesAfterMessageAge ?: 0
+            var archiveSliderValue by remember(archiveAge) { mutableFloatStateOf(archiveAge.toFloat()) }
+
+            SliderSettingCard(
+                title = if (archiveSliderValue.roundToInt() == 0) {
+                    stringResource(R.string.context_image_archive_disabled)
+                } else {
+                    stringResource(R.string.context_image_archive_after, archiveSliderValue.roundToInt())
+                },
+                value = archiveSliderValue,
+                valueText = "",
+                description = stringResource(R.string.context_image_archive_desc),
+                onValueChange = { archiveSliderValue = it },
+                onValueChangeFinished = {
+                    val newValue = archiveSliderValue.roundToInt()
+                    onUpdate(assistant.copy(
+                        archiveImagesAfterMessageAge = if (newValue == 0) null else newValue
+                    ))
+                },
+                valueRange = 0f..30f,
+                steps = 29
+            )
+        }
+
         Spacer(Modifier.height(32.dp))
     }
 }

@@ -1766,7 +1766,13 @@
     <string name="context_max_search_results_desc">Limit retained search results (0 = unlimited)</string>
     <string name="context_max_search_results_value">%d searches</string>
     <string name="context_max_search_results_unlimited">Unlimited</string>
-    
+
+    <!-- Image Archiving -->
+    <string name="context_image_archive_title">Image Archiving</string>
+    <string name="context_image_archive_disabled">Keep all images in context</string>
+    <string name="context_image_archive_after">Archive images after %d messages</string>
+    <string name="context_image_archive_desc">Images older than the threshold are replaced with OCR text to save context tokens. Requires an OCR model configured in Settings.</string>
+
     <!-- Context Refresh -->
     <string name="context_refresh_title">Message Summarization</string>
     <string name="context_refresh_button">Summarize Messages</string>

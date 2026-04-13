@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -48,6 +49,7 @@ import me.rerere.ai.ui.truncate
 import me.rerere.ai.util.HttpStatusException
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_LEARNING_MODE_PROMPT
 import me.rerere.rikkahub.data.ai.transformers.InputMessageTransformer
+import me.rerere.rikkahub.data.ai.transformers.OcrTransformer
 import me.rerere.rikkahub.data.ai.transformers.MessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.OutputMessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.onGenerationFinish
@@ -684,6 +686,8 @@ class GenerationHandler(
             }
         } ?: contextMessages
 
+        val imageArchivedMessages = archiveOldImageMessages(effectiveContextMessages, assistant)
+
         // Token estimator (rough estimate: 4 chars per token)
         fun estimateTokens(text: String) = text.length / 4
         fun estimateTokens(message: UIMessage) = estimateTokens(message.toText())
@@ -770,7 +774,7 @@ class GenerationHandler(
         }
 
         // Get recent message text for lorebook keyword scanning
-        val recentMessagesForScan = effectiveContextMessages.takeLast(10).map { it.toText() }
+        val recentMessagesForScan = imageArchivedMessages.takeLast(10).map { it.toText() }
 
         val toolResultRagPrompt = run {
             if (toolResultHistoryMode != ToolResultHistoryMode.RAG) return@run ""
@@ -782,7 +786,7 @@ class GenerationHandler(
             val maxUserTurnIndexExclusive = (totalUserTurnCount - keepUserMessages).coerceAtLeast(0)
             if (maxUserTurnIndexExclusive <= 0) return@run ""
 
-            val queryText = effectiveContextMessages.asReversed()
+            val queryText = imageArchivedMessages.asReversed()
                 .asSequence()
                 .filter { it.role == MessageRole.USER }
                 .take(3)
@@ -987,7 +991,7 @@ class GenerationHandler(
 
         tools.forEach { tool ->
             baseSystemPromptBuilder.appendLine()
-            baseSystemPromptBuilder.append(tool.systemPrompt(model, effectiveContextMessages))
+            baseSystemPromptBuilder.append(tool.systemPrompt(model, imageArchivedMessages))
         }
         val baseSystemPrompt = baseSystemPromptBuilder.toString()
         currentTokens += estimateTokens(baseSystemPrompt)
@@ -998,7 +1002,7 @@ class GenerationHandler(
 
         // 2. Prepare Candidates
         // Chat History (reverse order to prioritize recent)
-        val chatHistoryCandidates = effectiveContextMessages.reversed()
+        val chatHistoryCandidates = imageArchivedMessages.reversed()
         
         // Memories (Prepare effective memories including recent chats if enabled)
         val shouldInjectMemories = assistant.enableMemory &&
@@ -1926,4 +1930,40 @@ class GenerationHandler(
             }
         }
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * 将超出阈值的旧消息中的图片替换为 OCR 文字，以节省上下文 Token。
+     * 只处理本地 file:// 图片；最近 [Assistant.archiveImagesAfterMessageAge] 条消息中的图片保留原样。
+     */
+    private suspend fun archiveOldImageMessages(
+        messages: List<UIMessage>,
+        assistant: Assistant,
+    ): List<UIMessage> {
+        val threshold = assistant.archiveImagesAfterMessageAge?.takeIf { it > 0 } ?: return messages
+        val archiveBeforeIndex = (messages.size - threshold).coerceAtLeast(0)
+        if (archiveBeforeIndex <= 0) return messages
+
+        return withContext(Dispatchers.IO) {
+            messages.mapIndexed { index, message ->
+                if (index >= archiveBeforeIndex) return@mapIndexed message  // 最近消息，保留原图
+                var changed = false
+                val updatedParts = buildList {
+                    message.parts.forEach { part ->
+                        if (part is UIMessagePart.Image && part.url.startsWith("file:")) {
+                            val ocrText = OcrTransformer.performOcr(part)
+                            if (ocrText.isNotBlank()) {
+                                changed = true
+                                add(UIMessagePart.Text(ocrText))
+                            } else {
+                                add(part)
+                            }
+                        } else {
+                            add(part)
+                        }
+                    }
+                }
+                if (changed) message.copy(parts = updatedParts) else message
+            }
+        }
+    }
 }

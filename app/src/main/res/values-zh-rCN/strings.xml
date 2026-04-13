@@ -181,6 +181,10 @@
     <string name="context_manual_limit_input_label">消息条数</string>
     <string name="context_manual_limit_input_hint">请输入数字，最小为 1</string>
     <string name="context_manual_limit_input_error">请输入可处理的整数，且大于等于 1</string>
+    <string name="context_image_archive_title">图片归档</string>
+    <string name="context_image_archive_disabled">保留所有图片上下文</string>
+    <string name="context_image_archive_after">超过 %d 条消息后归档图片</string>
+    <string name="context_image_archive_desc">超出阈值的旧图片将替换为 OCR 文字以节省上下文 Token。需要在设置中配置 OCR 模型。</string>
 
     <string name="mcp_tool_approval_prompt">是否允许执行 %1$s</string>
     <string name="mcp_tool_approval_title">工具审批</string>
