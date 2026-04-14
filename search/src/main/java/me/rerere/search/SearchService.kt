@@ -271,6 +271,10 @@ sealed class SearchServiceOptions {
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
         val model: String = "grok-4.20-0309-non-reasoning",
+        val enableCustom: Boolean = false,
+        val customBaseUrl: String = "https://api.x.ai/v1",
+        val customPath: String = "/responses",
+        val customSystemPrompt: String = "You are a helpful search assistant. Search the web to find accurate and up-to-date information for the user's query. Provide a comprehensive answer with citations.",
         val alias: String = "",
     ) : SearchServiceOptions()
 }

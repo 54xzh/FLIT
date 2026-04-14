@@ -375,6 +375,11 @@
     <string name="notification_web_server_running">本地浏览器访问正在运行</string>
     <string name="notification_web_server_error">网络服务器出现故障</string>
     <string name="setting_search_page_alias">别名（可选）</string>
+    <string name="setting_search_page_grok_enable_custom">启用自定义</string>
+    <string name="setting_search_page_grok_enable_custom_desc">自定义 API 端点和系统提示词</string>
+    <string name="setting_search_page_grok_base_url">Base URL</string>
+    <string name="setting_search_page_grok_path">路径</string>
+    <string name="setting_search_page_grok_system_prompt">系统提示词</string>
     <string name="assistant_page_background_blur">背景模糊</string>
     <string name="assistant_page_background_blur_desc">对背景图片应用模糊效果</string>
     <string name="assistant_page_blur_radius">模糊半径</string>

@@ -1414,6 +1414,11 @@
     <string name="setting_search_page_output_type">输出类型</string>
     <string name="setting_search_page_output_type_desc">searchResults：多来源结果；sourcedAnswer：综合答案</string>
     <string name="setting_search_page_grok_model_desc">使用支持网络搜索的 xAI 模型</string>
+    <string name="setting_search_page_grok_enable_custom">启用自定义</string>
+    <string name="setting_search_page_grok_enable_custom_desc">自定义 API 端点和系统提示词</string>
+    <string name="setting_search_page_grok_base_url">Base URL</string>
+    <string name="setting_search_page_grok_path">路径</string>
+    <string name="setting_search_page_grok_system_prompt">系统提示词</string>
     <string name="setting_search_page_password">密码</string>
     <string name="setting_search_page_search_depth">搜索深度</string>
     <string name="setting_search_page_search_depth_desc">标准更快/更便宜，深度更全面</string>
