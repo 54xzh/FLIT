@@ -380,6 +380,9 @@
     <string name="setting_search_page_grok_base_url">Base URL</string>
     <string name="setting_search_page_grok_path">路径</string>
     <string name="setting_search_page_grok_system_prompt">系统提示词</string>
+    <string name="setting_page_search_multi_strategy">多选策略</string>
+    <string name="setting_page_search_multi_strategy_parallel">并行搜索</string>
+    <string name="setting_page_search_multi_strategy_sequential">顺序回退</string>
     <string name="assistant_page_background_blur">背景模糊</string>
     <string name="assistant_page_background_blur_desc">对背景图片应用模糊效果</string>
     <string name="assistant_page_blur_radius">模糊半径</string>

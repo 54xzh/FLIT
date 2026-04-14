@@ -80,8 +80,15 @@ interface SearchService<T : SearchServiceOptions> {
 }
 
 @Serializable
+enum class MultiSearchStrategy {
+    @SerialName("parallel") PARALLEL,
+    @SerialName("sequential") SEQUENTIAL,
+}
+
+@Serializable
 data class SearchCommonOptions(
-    val resultSize: Int = 5
+    val resultSize: Int = 5,
+    val multiSearchStrategy: MultiSearchStrategy = MultiSearchStrategy.PARALLEL,
 )
 
 @Serializable

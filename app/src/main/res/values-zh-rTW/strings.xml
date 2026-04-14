@@ -849,6 +849,9 @@
   <string name="setting_page_search_provider_type">提供商類型</string>
   <string name="setting_page_search_providers">搜尋提供商</string>
   <string name="setting_page_search_result_size">結果數量</string>
+  <string name="setting_page_search_multi_strategy">多選策略</string>
+  <string name="setting_page_search_multi_strategy_parallel">並行搜尋</string>
+  <string name="setting_page_search_multi_strategy_sequential">順序回退</string>
   <string name="setting_page_search_service">搜尋服務</string>
   <string name="setting_page_search_service_desc">設定搜尋服務</string>
   <string name="setting_page_search_title">搜尋服務</string>

@@ -1065,6 +1065,9 @@
     <string name="setting_page_search_provider_type">Provider Type</string>
     <string name="setting_page_search_providers">Search Providers</string>
     <string name="setting_page_search_result_size">Result Size</string>
+    <string name="setting_page_search_multi_strategy">Multi-Provider Strategy</string>
+    <string name="setting_page_search_multi_strategy_parallel">Parallel</string>
+    <string name="setting_page_search_multi_strategy_sequential">Sequential Fallback</string>
     <string name="setting_page_search_service">Search Providers</string>
     <string name="setting_page_search_service_desc">Configure search services</string>
     <string name="setting_page_search_title">Search Providers</string>

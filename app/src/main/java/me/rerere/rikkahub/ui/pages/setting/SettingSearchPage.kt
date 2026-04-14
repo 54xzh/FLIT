@@ -109,6 +109,7 @@ import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.plus
+import me.rerere.search.MultiSearchStrategy
 import me.rerere.search.SearchCommonOptions
 import me.rerere.search.SearchService
 import me.rerere.search.SearchServiceOptions
@@ -1102,6 +1103,35 @@ private fun CommonOptionsDialog(
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+                FormItem(
+                    label = {
+                        Text(stringResource(R.string.setting_page_search_multi_strategy))
+                    }
+                ) {
+                    val strategies = MultiSearchStrategy.entries
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        strategies.forEachIndexed { index, strategy ->
+                            SegmentedButton(
+                                shape = SegmentedButtonDefaults.itemShape(index, strategies.size),
+                                selected = commonOptions.multiSearchStrategy == strategy,
+                                onClick = {
+                                    commonOptions = commonOptions.copy(multiSearchStrategy = strategy)
+                                    onUpdate(commonOptions)
+                                },
+                                label = {
+                                    Text(
+                                        stringResource(
+                                            if (strategy == MultiSearchStrategy.PARALLEL)
+                                                R.string.setting_page_search_multi_strategy_parallel
+                                            else
+                                                R.string.setting_page_search_multi_strategy_sequential
+                                        )
+                                    )
+                                }
+                            )
+                        }
+                    }
                 }
             }
         },
