@@ -41,7 +41,7 @@ fun AssistantBackground(setting: Settings) {
         if (overlay.overlayEnabled) {
             val overlayColor = when (overlay.overlayColorMode) {
                 OverlayColorMode.Auto -> if (isDarkMode) Color.Black else Color.White
-                OverlayColorMode.Manual -> Color(overlay.overlayColorArgb.toInt())
+                OverlayColorMode.Manual -> if (isDarkMode) Color(overlay.overlayColorArgb.toInt()) else Color(overlay.overlayColorArgbLight.toInt())
             }
             Box(
                 modifier = Modifier

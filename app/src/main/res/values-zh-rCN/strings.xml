@@ -383,4 +383,6 @@
     <string name="assistant_page_overlay_opacity">遮罩不透明度</string>
     <string name="assistant_page_overlay_color_auto">自动</string>
     <string name="assistant_page_overlay_color_manual">手动</string>
+    <string name="assistant_page_overlay_dark_color">深色模式</string>
+    <string name="assistant_page_overlay_light_color">浅色模式</string>
 </resources>

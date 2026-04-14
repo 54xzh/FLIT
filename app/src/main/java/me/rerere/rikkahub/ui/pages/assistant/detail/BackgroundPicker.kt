@@ -9,6 +9,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,8 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -166,7 +170,7 @@ fun BackgroundPicker(
                     if (overlaySettings.overlayEnabled) {
                         val overlayColor = when (overlaySettings.overlayColorMode) {
                             OverlayColorMode.Auto -> autoColor
-                            OverlayColorMode.Manual -> Color(overlaySettings.overlayColorArgb.toInt())
+                            OverlayColorMode.Manual -> if (isDarkMode) Color(overlaySettings.overlayColorArgb.toInt()) else Color(overlaySettings.overlayColorArgbLight.toInt())
                         }
                         Box(
                             modifier = Modifier
@@ -304,12 +308,27 @@ fun BackgroundPicker(
                                     enter = fadeIn() + expandVertically(),
                                     exit = fadeOut() + shrinkVertically()
                                 ) {
-                                    ManualColorPicker(
-                                        currentColorArgb = overlaySettings.overlayColorArgb,
-                                        onColorSelected = { argb ->
-                                            onUpdateOverlay(overlaySettings.copy(overlayColorArgb = argb))
-                                        }
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        ColorPreviewCard(
+                                            modifier = Modifier.weight(1f),
+                                            label = stringResource(R.string.assistant_page_overlay_dark_color),
+                                            colorArgb = overlaySettings.overlayColorArgb,
+                                            onColorSelected = { argb ->
+                                                onUpdateOverlay(overlaySettings.copy(overlayColorArgb = argb))
+                                            }
+                                        )
+                                        ColorPreviewCard(
+                                            modifier = Modifier.weight(1f),
+                                            label = stringResource(R.string.assistant_page_overlay_light_color),
+                                            colorArgb = overlaySettings.overlayColorArgbLight,
+                                            onColorSelected = { argb ->
+                                                onUpdateOverlay(overlaySettings.copy(overlayColorArgbLight = argb))
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -419,47 +438,116 @@ fun BackgroundPicker(
 }
 
 @Composable
-private fun ManualColorPicker(
-    currentColorArgb: Long,
+private fun ColorPreviewCard(
+    modifier: Modifier = Modifier,
+    label: String,
+    colorArgb: Long,
     onColorSelected: (Long) -> Unit,
+) {
+    val isDarkMode = LocalDarkMode.current
+    var showDialog by remember { mutableStateOf(false) }
+
+    val cardColor = if (isDarkMode)
+        MaterialTheme.colorScheme.surfaceContainerLow
+    else
+        MaterialTheme.colorScheme.surfaceContainerHigh
+
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(cardColor)
+            .clickable { showDialog = true }
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(Color(colorArgb.toInt()))
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape
+                )
+        )
+        Column {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "#${String.format("%06X", colorArgb and 0xFFFFFF)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    if (showDialog) {
+        ColorPickerDialog(
+            initialColorArgb = colorArgb,
+            onColorSelected = onColorSelected,
+            onDismiss = { showDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun ColorPickerDialog(
+    initialColorArgb: Long,
+    onColorSelected: (Long) -> Unit,
+    onDismiss: () -> Unit,
 ) {
     val haptics = rememberPremiumHaptics()
     val controller = rememberColorPickerController()
 
-    LaunchedEffect(currentColorArgb) {
+    LaunchedEffect(initialColorArgb) {
         controller.selectByColor(
-            color = Color(currentColorArgb.toInt()),
+            color = Color(initialColorArgb.toInt()),
             fromUser = false
         )
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        HsvColorPicker(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp)
-                .clip(RoundedCornerShape(10.dp)),
-            controller = controller,
-            initialColor = Color(currentColorArgb.toInt()),
-            onColorChanged = { colorEnvelope: ColorEnvelope ->
-                if (colorEnvelope.fromUser) {
-                    haptics.perform(HapticPattern.Pop)
-                    val color = colorEnvelope.color
-                    onColorSelected((0xFF000000L or (color.toArgb().toLong() and 0xFFFFFF)))
-                }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(android.R.string.ok))
             }
-        )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                HsvColorPicker(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(10.dp)),
+                    controller = controller,
+                    initialColor = Color(initialColorArgb.toInt()),
+                    onColorChanged = { colorEnvelope: ColorEnvelope ->
+                        if (colorEnvelope.fromUser) {
+                            haptics.perform(HapticPattern.Pop)
+                            val color = colorEnvelope.color
+                            onColorSelected(0xFF000000L or (color.toArgb().toLong() and 0xFFFFFF))
+                        }
+                    }
+                )
 
-        BrightnessSlider(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(30.dp)
-                .clip(RoundedCornerShape(10.dp)),
-            controller = controller,
-            borderRadius = 10.dp,
-            borderSize = 0.dp,
-            wheelRadius = 14.dp,
-            wheelColor = Color.White,
-        )
-    }
+                BrightnessSlider(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(30.dp)
+                        .clip(RoundedCornerShape(10.dp)),
+                    controller = controller,
+                    borderRadius = 10.dp,
+                    borderSize = 0.dp,
+                    wheelRadius = 14.dp,
+                    wheelColor = Color.White,
+                )
+            }
+        }
+    )
 }

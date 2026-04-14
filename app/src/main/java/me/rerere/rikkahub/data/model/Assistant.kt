@@ -32,11 +32,12 @@ enum class OverlayColorMode {
 @Serializable
 data class BackgroundOverlaySettings(
     val blurEnabled: Boolean = false,
-    val blurRadius: Float = 10f,            // dp, range 0..25
+    val blurRadius: Float = 10f,
     val overlayEnabled: Boolean = false,
-    val overlayOpacity: Float = 0.4f,       // range 0..1
+    val overlayOpacity: Float = 0.4f,
     val overlayColorMode: OverlayColorMode = OverlayColorMode.Auto,
-    val overlayColorArgb: Long = 0xFF000000, // manual color stored as ARGB
+    val overlayColorArgb: Long = 0xFF000000,
+    val overlayColorArgbLight: Long = 0xFFFFFFFF,
 )
 
 /**
