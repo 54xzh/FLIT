@@ -41,6 +41,8 @@
   <string name="assistant_page_overlay_color_manual">手動</string>
   <string name="assistant_page_overlay_dark_color">深色模式</string>
   <string name="assistant_page_overlay_light_color">淺色模式</string>
+  <string name="color_picker_recommended">推薦顏色</string>
+  <string name="color_picker_recent">最近使用</string>
   <string name="assistant_page_chat_model">聊天模型</string>
   <string name="assistant_page_chat_model_desc">設定助手的預設聊天模型，如果不設定，則使用全域預設聊天模型</string>
   <string name="assistant_page_clone">複製</string>

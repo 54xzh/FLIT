@@ -4,35 +4,50 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -40,8 +55,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -58,6 +78,8 @@ import me.rerere.rikkahub.ui.components.ui.FormItem
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
+import me.rerere.rikkahub.ui.hooks.rememberRecentOverlayColors
+import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.utils.createChatFilesByContents
 
@@ -437,6 +459,7 @@ fun BackgroundPicker(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ColorPreviewCard(
     modifier: Modifier = Modifier,
@@ -445,7 +468,7 @@ private fun ColorPreviewCard(
     onColorSelected: (Long) -> Unit,
 ) {
     val isDarkMode = LocalDarkMode.current
-    var showDialog by remember { mutableStateOf(false) }
+    var showSheet by remember { mutableStateOf(false) }
 
     val cardColor = if (isDarkMode)
         MaterialTheme.colorScheme.surfaceContainerLow
@@ -454,9 +477,9 @@ private fun ColorPreviewCard(
 
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(AppShapes.ListItem)
             .background(cardColor)
-            .clickable { showDialog = true }
+            .clickable { showSheet = true }
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -486,68 +509,361 @@ private fun ColorPreviewCard(
         }
     }
 
-    if (showDialog) {
-        ColorPickerDialog(
+    if (showSheet) {
+        ColorPickerBottomSheet(
             initialColorArgb = colorArgb,
-            onColorSelected = onColorSelected,
-            onDismiss = { showDialog = false }
+            onColorConfirmed = { newColor ->
+                onColorSelected(newColor)
+                showSheet = false
+            },
+            onDismiss = { showSheet = false }
         )
     }
 }
 
+private val RecommendedColors = listOf(
+    0xFF000000L, 0xFF1C1C1EL, 0xFF3A3A3CL, 0xFF636366L,
+    0xFFFFFFFFL, 0xFFF5F5F0L, 0xFFFFF8E1L, 0xFFE8EAF6L,
+    0xFF0D47A1L, 0xFF1A237EL, 0xFF004D40L, 0xFF4A148CL,
+    0xFFFF8F00L, 0xFF5D4037L, 0xFFB71C1CL, 0xFF1B5E20L,
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ColorPickerDialog(
+private fun ColorPickerBottomSheet(
     initialColorArgb: Long,
-    onColorSelected: (Long) -> Unit,
+    onColorConfirmed: (Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val haptics = rememberPremiumHaptics()
     val controller = rememberColorPickerController()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val recentColorsState = rememberRecentOverlayColors()
+    val recentColors by remember { derivedStateOf { recentColorsState.value } }
 
-    LaunchedEffect(initialColorArgb) {
+    var selectedColorArgb by remember { mutableStateOf(initialColorArgb) }
+    val selectedColor = remember(selectedColorArgb) {
+        Color(selectedColorArgb.toInt())
+    }
+
+    var hexInput by remember { mutableStateOf(formatHex(selectedColorArgb)) }
+
+    LaunchedEffect(Unit) {
         controller.selectByColor(
             color = Color(initialColorArgb.toInt()),
             fromUser = false
         )
     }
 
-    AlertDialog(
+    ModalBottomSheet(
+        sheetState = sheetState,
         onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(android.R.string.ok))
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                HsvColorPicker(
+        shape = AppShapes.BottomSheet,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp)
-                        .clip(RoundedCornerShape(10.dp)),
-                    controller = controller,
-                    initialColor = Color(initialColorArgb.toInt()),
-                    onColorChanged = { colorEnvelope: ColorEnvelope ->
-                        if (colorEnvelope.fromUser) {
-                            haptics.perform(HapticPattern.Pop)
-                            val color = colorEnvelope.color
-                            onColorSelected(0xFF000000L or (color.toArgb().toLong() and 0xFFFFFF))
+                        .size(48.dp)
+                        .clip(AppShapes.Avatar)
+                        .background(selectedColor)
+                        .border(
+                            width = 2.dp,
+                            color = if (selectedColor.luminance() > 0.5f)
+                                MaterialTheme.colorScheme.outlineVariant
+                            else
+                                Color.Transparent,
+                            shape = AppShapes.Avatar
+                        )
+                )
+                OutlinedTextField(
+                    value = hexInput,
+                    onValueChange = { input ->
+                        val cleaned = input.trimStart('#').take(6)
+                        hexInput = cleaned
+                        val parsed = parseHexToArgb(cleaned)
+                        if (parsed != null) {
+                            selectedColorArgb = parsed
+                            controller.selectByColor(
+                                color = Color(parsed.toInt()),
+                                fromUser = false
+                            )
                         }
+                    },
+                    label = { Text("HEX") },
+                    prefix = { Text("#") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = AppShapes.InputField,
+                )
+            }
+
+            HsvColorPicker(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .clip(AppShapes.CardSmall),
+                controller = controller,
+                initialColor = Color(initialColorArgb.toInt()),
+                onColorChanged = { colorEnvelope: ColorEnvelope ->
+                    if (colorEnvelope.fromUser) {
+                        haptics.perform(HapticPattern.Pop)
+                        val color = colorEnvelope.color
+                        val argb = 0xFF000000L or (color.toArgb().toLong() and 0xFFFFFF)
+                        selectedColorArgb = argb
+                        hexInput = formatHex(argb)
                     }
+                }
+            )
+
+            HueSlider(
+                controller = controller,
+                onHueChanged = { hue ->
+                    val color = controller.selectedColor.value
+                    val argb = 0xFF000000L or (color.toArgb().toLong() and 0xFFFFFF)
+                    selectedColorArgb = argb
+                    hexInput = formatHex(argb)
+                }
+            )
+
+            BrightnessSlider(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(30.dp)
+                    .clip(AppShapes.Chip),
+                controller = controller,
+                borderRadius = 12.dp,
+                borderSize = 0.dp,
+                wheelRadius = 14.dp,
+                wheelColor = Color.White,
+            )
+
+            HorizontalDivider()
+
+            Text(
+                text = stringResource(R.string.color_picker_recommended),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            ColorSwatchGrid(
+                colors = RecommendedColors,
+                selectedColorArgb = selectedColorArgb,
+                onColorClick = { argb ->
+                    haptics.perform(HapticPattern.Pop)
+                    selectedColorArgb = argb
+                    hexInput = formatHex(argb)
+                    controller.selectByColor(
+                        color = Color(argb.toInt()),
+                        fromUser = false
+                    )
+                }
+            )
+
+            if (recentColors.isNotEmpty()) {
+                Text(
+                    text = stringResource(R.string.color_picker_recent),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                BrightnessSlider(
+                ColorSwatchGrid(
+                    colors = recentColors,
+                    selectedColorArgb = selectedColorArgb,
+                    onColorClick = { argb ->
+                        haptics.perform(HapticPattern.Pop)
+                        selectedColorArgb = argb
+                        hexInput = formatHex(argb)
+                        controller.selectByColor(
+                            color = Color(argb.toInt()),
+                            fromUser = false
+                        )
+                    }
+                )
+            }
+
+            Button(
+                onClick = {
+                    addRecentColor(recentColorsState, selectedColorArgb)
+                    onColorConfirmed(selectedColorArgb)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = AppShapes.ButtonPill,
+            ) {
+                Text(stringResource(android.R.string.ok))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ColorSwatchGrid(
+    colors: List<Long>,
+    selectedColorArgb: Long,
+    onColorClick: (Long) -> Unit,
+) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        colors.forEach { argb ->
+            val isSelected = argb == selectedColorArgb
+            val color = Color(argb.toInt())
+            val scale by animateFloatAsState(
+                targetValue = if (isSelected) 0.85f else 1f,
+                animationSpec = spring(
+                    dampingRatio = 0.6f,
+                    stiffness = 300f
+                ),
+                label = "swatch_scale"
+            )
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .pointerInput(Unit) {
+                        detectTapGestures { onColorClick(argb) }
+                    }
+            ) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(30.dp)
-                        .clip(RoundedCornerShape(10.dp)),
-                    controller = controller,
-                    borderRadius = 10.dp,
-                    borderSize = 0.dp,
-                    wheelRadius = 14.dp,
-                    wheelColor = Color.White,
+                        .size(36.dp * scale)
+                        .align(Alignment.Center)
+                        .clip(AppShapes.Avatar)
+                        .background(color)
+                        .border(
+                            width = if (isSelected) 3.dp else 1.dp,
+                            color = if (isSelected)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.outlineVariant,
+                            shape = AppShapes.Avatar
+                        )
                 )
             }
         }
-    )
+    }
+}
+
+@Composable
+private fun HueSlider(
+    controller: com.github.skydoves.colorpicker.compose.ColorPickerController,
+    onHueChanged: (Float) -> Unit,
+) {
+    var hue by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(controller.selectedColor.value) {
+        val color = controller.selectedColor.value
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+        hue = hsv[0]
+    }
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(30.dp)
+            .clip(AppShapes.Chip)
+            .pointerInput(Unit) {
+                fun updateHue(x: Float) {
+                    val newHue = ((x / size.width) * 360f).coerceIn(0f, 360f)
+                    hue = newHue
+                    val currentColor = controller.selectedColor.value
+                    val hsv = FloatArray(3)
+                    android.graphics.Color.colorToHSV(currentColor.toArgb(), hsv)
+                    hsv[0] = newHue
+                    val newColor = Color(android.graphics.Color.HSVToColor(hsv))
+                    controller.selectByColor(newColor, fromUser = true)
+                    onHueChanged(newHue)
+                }
+
+                detectTapGestures { offset -> updateHue(offset.x) }
+            }
+            .pointerInput(Unit) {
+                fun updateHue(x: Float) {
+                    val newHue = ((x / size.width) * 360f).coerceIn(0f, 360f)
+                    hue = newHue
+                    val currentColor = controller.selectedColor.value
+                    val hsv = FloatArray(3)
+                    android.graphics.Color.colorToHSV(currentColor.toArgb(), hsv)
+                    hsv[0] = newHue
+                    val newColor = Color(android.graphics.Color.HSVToColor(hsv))
+                    controller.selectByColor(newColor, fromUser = true)
+                    onHueChanged(newHue)
+                }
+
+                detectDragGestures { change, _ ->
+                    change.consume()
+                    updateHue(change.position.x)
+                }
+            }
+    ) {
+        val rainbowColors = listOf(
+            Color.Red,
+            Color(0xFFFF7F00),
+            Color.Yellow,
+            Color.Green,
+            Color.Cyan,
+            Color.Blue,
+            Color.Magenta,
+            Color.Red,
+        )
+        drawRoundRect(
+            brush = Brush.horizontalGradient(rainbowColors),
+            cornerRadius = CornerRadius(12.dp.toPx()),
+        )
+        val indicatorX = (hue / 360f) * size.width
+        val indicatorRadius = 14.dp.toPx()
+        drawCircle(
+            color = Color.White,
+            radius = indicatorRadius,
+            center = Offset(indicatorX, size.height / 2),
+        )
+        drawCircle(
+            color = Color.Black,
+            radius = indicatorRadius - 2.dp.toPx(),
+            center = Offset(indicatorX, size.height / 2),
+        )
+        val currentColor = controller.selectedColor.value
+        drawCircle(
+            color = currentColor,
+            radius = indicatorRadius - 4.dp.toPx(),
+            center = Offset(indicatorX, size.height / 2),
+        )
+    }
+}
+
+private fun formatHex(argb: Long): String {
+    return String.format("%06X", argb and 0xFFFFFF)
+}
+
+private fun parseHexToArgb(hex: String): Long? {
+    if (hex.length != 6) return null
+    return try {
+        0xFF000000L or hex.toLong(16)
+    } catch (_: NumberFormatException) {
+        null
+    }
+}
+
+private fun addRecentColor(
+    recentColorsState: androidx.compose.runtime.MutableState<List<Long>>,
+    newColor: Long,
+) {
+    val current = recentColorsState.value.toMutableList()
+    current.remove(newColor)
+    current.add(0, newColor)
+    recentColorsState.value = current.take(8)
 }

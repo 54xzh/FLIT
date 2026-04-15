@@ -393,4 +393,6 @@
     <string name="assistant_page_overlay_color_manual">手动</string>
     <string name="assistant_page_overlay_dark_color">深色模式</string>
     <string name="assistant_page_overlay_light_color">浅色模式</string>
+    <string name="color_picker_recommended">推荐颜色</string>
+    <string name="color_picker_recent">最近使用</string>
 </resources>

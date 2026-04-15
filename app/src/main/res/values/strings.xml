@@ -105,6 +105,8 @@
     <string name="assistant_page_overlay_color_manual">Manual</string>
     <string name="assistant_page_overlay_dark_color">Dark Mode</string>
     <string name="assistant_page_overlay_light_color">Light Mode</string>
+    <string name="color_picker_recommended">Recommended</string>
+    <string name="color_picker_recent">Recent</string>
     <string name="assistant_page_chat_model">Chat Model</string>
     <string name="assistant_page_chat_model_desc">Set default chat model for assistant. If not set, global default will be used.</string>
     <string name="assistant_page_clone">Clone</string>

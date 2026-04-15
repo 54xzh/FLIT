@@ -126,9 +126,27 @@ fun SharedPreferences.getBooleanFlowForKey(keyForBoolean: String, defaultValue: 
         awaitClose { unregisterOnSharedPreferenceChangeListener(listener) }
     }.buffer(Channel.UNLIMITED) // so trySend never fails
 
-/**
- * Expressive font preference hook (M3E rounded font vs Normal)
- */
+private const val RECENT_OVERLAY_COLORS_KEY = "recent_overlay_colors"
+private const val MAX_RECENT_COLORS = 8
+
+@Composable
+fun rememberRecentOverlayColors(): MutableState<List<Long>> {
+    val stringState = rememberSharedPreferenceString(RECENT_OVERLAY_COLORS_KEY, "")
+    return remember {
+        object : MutableState<List<Long>> {
+            override var value: List<Long>
+                get() = stringState.value?.takeIf { it.isNotBlank() }?.split(",")
+                    ?.mapNotNull { it.toLongOrNull() } ?: emptyList()
+                set(value) {
+                    stringState.value = value.take(MAX_RECENT_COLORS).joinToString(",")
+                }
+
+            override fun component1(): List<Long> = value
+            override fun component2(): (List<Long>) -> Unit = { value = it }
+        }
+    }
+}
+
 @Composable
 fun rememberExpressiveFont(): MutableState<Boolean> {
     return rememberSharedPreferenceBoolean("use_expressive_font", true)
