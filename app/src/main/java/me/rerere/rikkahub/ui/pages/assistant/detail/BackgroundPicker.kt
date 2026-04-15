@@ -524,8 +524,6 @@ private fun ColorPreviewCard(
 private val RecommendedColors = listOf(
     0xFF000000L, 0xFF1C1C1EL, 0xFF3A3A3CL, 0xFF636366L,
     0xFFFFFFFFL, 0xFFF5F5F0L, 0xFFFFF8E1L, 0xFFE8EAF6L,
-    0xFF0D47A1L, 0xFF1A237EL, 0xFF004D40L, 0xFF4A148CL,
-    0xFFFF8F00L, 0xFF5D4037L, 0xFFB71C1CL, 0xFF1B5E20L,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -547,6 +545,14 @@ private fun ColorPickerBottomSheet(
     }
 
     var hexInput by remember { mutableStateOf(formatHex(selectedColorArgb)) }
+
+    val dynamicColors = listOf(
+        MaterialTheme.colorScheme.primary,
+        MaterialTheme.colorScheme.primaryContainer,
+        MaterialTheme.colorScheme.secondary,
+        MaterialTheme.colorScheme.tertiary,
+    ).map { 0xFF000000L or (it.toArgb().toLong() and 0xFFFFFF) }
+    val allRecommended = RecommendedColors + dynamicColors
 
     LaunchedEffect(Unit) {
         controller.selectByColor(
@@ -658,7 +664,7 @@ private fun ColorPickerBottomSheet(
             )
 
             ColorSwatchGrid(
-                colors = RecommendedColors,
+                colors = allRecommended,
                 selectedColorArgb = selectedColorArgb,
                 onColorClick = { argb ->
                     haptics.perform(HapticPattern.Pop)
