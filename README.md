@@ -4,7 +4,7 @@
   <img src="docs/newest_app_icon.png" alt="LastChat Icon" width="128" height="128" />
 </div>
 
-**LastChat Plus** 是一款功能丰富的 Android AI 助手应用。它是 [RikkaHub](https://github.com/re-ovo/RikkaHub) 的分支 LastChat 的分支版本，在原有的基础上增加中文翻译与一些特色功能，主要通过 **Codex** 进行修改和优化。
+**LastChat Plus** 是一款功能丰富的 Android AI 助手应用。它是 [RikkaHub](https://github.com/re-ovo/RikkaHub) 的分支 LastChat 的分支版本，在原有的基础上增加中文翻译与一些特色功能。
 
 本项目旨在为 Android 平台提供一个注重隐私且高度个性化的 AI 聊天体验。
 
@@ -54,7 +54,7 @@
 
 ### 隐私与数据
 *   **本地优先**: 聊天记录和向量记忆均本地存储在你的设备上。
-*   **WebDAV 备份**: 安全地同步和备份数据到任何兼容 WebDAV 的服务器。
+*   **WebDAV 与对象存储备份**：支持将数据安全同步与备份到任意兼容 WebDAV 的服务器或主流对象存储服务（如 R2 等）。
 
 ## 技术栈
 *   **Kotlin** & **Jetpack Compose**
@@ -67,8 +67,9 @@
 *   关于页面灵感来自 [PixelPlayer](https://github.com/theovilardo/PixelPlayer)
 *   图片裁剪工具修改自 [LavenderPhotos](https://github.com/kaii-lb/LavenderPhotos) 的图像编辑器
 *   主要由以下 **AI Agent** 驱动开发:
-    *   **GPT 5.3 Codex**
-    *   **Claude 4.6 Opus**
+    *   **GPT 5.4**
+    *   **Claude Opus/Sonnet 4.6**
+    *   **GLM 5.1**
     *   **Gemini 3 Pro**
 
 ## 反馈与交流
