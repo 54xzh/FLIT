@@ -75,7 +75,7 @@ fun BackgroundPicker(
     var showUrlInput by remember { mutableStateOf(false) }
     var urlInput by remember { mutableStateOf("") }
 
-    val autoColor = if (isDarkMode) Color.Black else Color.White
+    val autoColor = MaterialTheme.colorScheme.background
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()

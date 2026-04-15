@@ -3,6 +3,7 @@ package me.rerere.rikkahub.ui.pages.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -40,7 +41,7 @@ fun AssistantBackground(setting: Settings) {
 
         if (overlay.overlayEnabled) {
             val overlayColor = when (overlay.overlayColorMode) {
-                OverlayColorMode.Auto -> if (isDarkMode) Color.Black else Color.White
+                OverlayColorMode.Auto -> MaterialTheme.colorScheme.background
                 OverlayColorMode.Manual -> if (isDarkMode) Color(overlay.overlayColorArgb.toInt()) else Color(overlay.overlayColorArgbLight.toInt())
             }
             Box(
