@@ -6,7 +6,9 @@ import android.os.Build
 import android.os.Environment
 import android.widget.Toast
 import androidx.core.net.toUri
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
@@ -19,75 +21,120 @@ import me.rerere.rikkahub.R
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-// 获取所有 releases，筛选包含 "zh" 的 tag
 private const val GITHUB_API_URL = "https://api.github.com/repos/54xzh/LastChat/releases"
+private const val CLOUDFLARE_FALLBACK_URL = "https://update-cache.54xzh.com/api/releases"
 
 class UpdateChecker(private val client: OkHttpClient) {
     private val json = Json { ignoreUnknownKeys = true }
 
     fun checkUpdate(): Flow<UiState<UpdateInfo>> = flow {
         emit(UiState.Loading)
-        emit(
-            UiState.Success(
-                data = try {
-                    val response = client.newCall(
-                        Request.Builder()
-                            .url(GITHUB_API_URL)
-                            .get()
-                            .addHeader("Accept", "application/vnd.github+json")
-                            .addHeader(
-                                "User-Agent",
-                                "LastChat ${BuildConfig.VERSION_NAME} #${BuildConfig.VERSION_CODE}"
-                            )
-                            .build()
-                    ).await()
-                    if (response.isSuccessful) {
-                        val responseBody = response.body?.string()
-                            ?: throw Exception("Empty response body")
-                        val releases = json.decodeFromString<List<GitHubRelease>>(responseBody)
-                        // 筛选 tag_name 包含 "plus" 的版本，取最新的一个
-                        val release = releases.firstOrNull { it.tag_name.contains("plus", ignoreCase = true) }
-                            ?: throw Exception("No plus release found")
-                        
-                        // Convert GitHub release to UpdateInfo
-                        val arch = getDeviceArchitecture()
-                        val downloads = release.assets
-                            .filter { it.name.endsWith(".apk") }
-                            .map { asset ->
-                                UpdateDownload(
-                                    name = asset.name,
-                                    url = asset.browser_download_url,
-                                    size = formatFileSize(asset.size)
-                                )
-                            }
-                        
-                        // Sort downloads to prioritize architecture match
-                        val sortedDownloads = downloads.sortedByDescending { download ->
-                            when {
-                                download.name.contains(arch, ignoreCase = true) -> 2
-                                download.name.contains("universal", ignoreCase = true) -> 1
-                                else -> 0
-                            }
-                        }
-                        
-                        UpdateInfo(
-                            version = release.tag_name.removePrefix("v").removePrefix("V"),
-                            publishedAt = release.published_at,
-                            changelog = release.body.orEmpty(),
-                            downloads = sortedDownloads
-                        )
-                    } else {
-                        throw Exception("Failed to fetch update info: ${response.code}")
-                    }
-                } catch (e: Exception) {
-                    throw Exception("Failed to fetch update info", e)
-                }
-            )
-        )
+        val updateInfo = try {
+            fetchFromGitHub()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: GitHubUnavailableException) {
+            fetchFromCloudflare()
+        } catch (e: IOException) {
+            fetchFromCloudflare()
+        } catch (e: Exception) {
+            throw e
+        }
+        emit(UiState.Success(data = updateInfo))
     }.catch {
         emit(UiState.Error(it))
     }.flowOn(Dispatchers.IO)
-    
+
+    private suspend fun fetchFromGitHub(): UpdateInfo {
+        val response = client.newCall(
+            Request.Builder()
+                .url(GITHUB_API_URL)
+                .get()
+                .addHeader("Accept", "application/vnd.github+json")
+                .addHeader(
+                    "User-Agent",
+                    "LastChat ${BuildConfig.VERSION_NAME} #${BuildConfig.VERSION_CODE}"
+                )
+                .build()
+        ).await()
+
+        if (!response.isSuccessful) {
+            throw GitHubUnavailableException("GitHub API returned ${response.code}")
+        }
+
+        val responseBody = response.body?.string()
+            ?: throw GitHubUnavailableException("Empty response body")
+        val releases = json.decodeFromString<List<GitHubRelease>>(responseBody)
+        val release = releases.firstOrNull { it.tag_name.contains("plus", ignoreCase = true) }
+            ?: throw Exception("No plus release found")
+        return release.toUpdateInfo()
+    }
+
+    private suspend fun fetchFromCloudflare(): UpdateInfo {
+        val response = client.newCall(
+            Request.Builder()
+                .url(CLOUDFLARE_FALLBACK_URL)
+                .get()
+                .build()
+        ).await()
+
+        if (!response.isSuccessful) {
+            throw Exception("Cloudflare fallback returned ${response.code}")
+        }
+
+        val responseBody = response.body?.string()
+            ?: throw Exception("Empty response body")
+        val cached = json.decodeFromString<CachedRelease>(responseBody)
+        return cached.toUpdateInfo()
+    }
+
+    private fun GitHubRelease.toUpdateInfo(): UpdateInfo = buildUpdateInfo(
+        tagName = tag_name,
+        body = body,
+        publishedAt = published_at,
+        assets = assets
+    )
+
+    private fun CachedRelease.toUpdateInfo(): UpdateInfo = buildUpdateInfo(
+        tagName = tag_name,
+        body = body,
+        publishedAt = published_at,
+        assets = assets
+    )
+
+    private fun buildUpdateInfo(
+        tagName: String,
+        body: String?,
+        publishedAt: String,
+        assets: List<GitHubAsset>
+    ): UpdateInfo {
+        val arch = getDeviceArchitecture()
+        val downloads = assets
+            .filter { it.name.endsWith(".apk") }
+            .map { asset ->
+                UpdateDownload(
+                    name = asset.name,
+                    url = asset.browser_download_url,
+                    size = formatFileSize(asset.size)
+                )
+            }
+
+        val sortedDownloads = downloads.sortedByDescending { download ->
+            when {
+                download.name.contains(arch, ignoreCase = true) -> 2
+                download.name.contains("universal", ignoreCase = true) -> 1
+                else -> 0
+            }
+        }
+
+        return UpdateInfo(
+            version = tagName.removePrefix("v").removePrefix("V"),
+            publishedAt = publishedAt,
+            changelog = body.orEmpty(),
+            downloads = sortedDownloads
+        )
+    }
+
     private fun getDeviceArchitecture(): String {
         val abis = Build.SUPPORTED_ABIS
         return when {
@@ -98,7 +145,7 @@ class UpdateChecker(private val client: OkHttpClient) {
             else -> "universal"
         }
     }
-    
+
     private fun formatFileSize(bytes: Long): String {
         return when {
             bytes >= 1_048_576 -> String.format("%.1f MB", bytes / 1_048_576.0)
@@ -143,6 +190,16 @@ data class GitHubAsset(
 )
 
 @Serializable
+data class CachedRelease(
+    val tag_name: String,
+    val name: String,
+    val body: String? = null,
+    val published_at: String,
+    val assets: List<GitHubAsset>,
+    val cached_at: String? = null
+)
+
+@Serializable
 data class UpdateDownload(
     val name: String,
     val url: String,
@@ -157,15 +214,9 @@ data class UpdateInfo(
     val downloads: List<UpdateDownload>
 )
 
-/**
- * 版本号值类，封装版本号字符串并提供比较功能
- */
 @JvmInline
 value class Version(val value: String) : Comparable<Version> {
 
-    /**
-     * 将版本号分解为数字数组
-     */
     private fun parseVersion(): List<Int> {
         val normalized = value
             .trim()
@@ -182,9 +233,6 @@ value class Version(val value: String) : Comparable<Version> {
             }
     }
 
-    /**
-     * 实现 Comparable 接口的比较方法
-     */
     override fun compareTo(other: Version): Int {
         val thisParts = this.parseVersion()
         val otherParts = other.parseVersion()
@@ -205,15 +253,13 @@ value class Version(val value: String) : Comparable<Version> {
     }
 
     companion object {
-        /**
-         * 比较两个版本号字符串
-         */
         fun compare(version1: String, version2: String): Int {
             return Version(version1).compareTo(Version(version2))
         }
     }
 }
 
-// 扩展操作符函数，使比较更直观
 operator fun String.compareTo(other: Version): Int = Version(this).compareTo(other)
 operator fun Version.compareTo(other: String): Int = this.compareTo(Version(other))
+
+private class GitHubUnavailableException(message: String) : IOException(message)
