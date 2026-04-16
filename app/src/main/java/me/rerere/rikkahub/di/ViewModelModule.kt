@@ -75,6 +75,7 @@ val viewModelModule = module {
             aiLoggingManager = get(),
             settingsStore = get(),
             context = get(),
+            updateChecker = get(),
         )
     }
     viewModelOf(::MenuVM)

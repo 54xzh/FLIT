@@ -9,6 +9,10 @@ import kotlinx.coroutines.launch
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.ai.AILoggingManager
+import me.rerere.rikkahub.utils.UiState
+import me.rerere.rikkahub.utils.UpdateChecker
+import me.rerere.rikkahub.utils.UpdateInfo
+import me.rerere.rikkahub.utils.UpdateSource
 import me.rerere.rikkahub.web.NsdServiceRegistrar
 
 data class DeveloperIpv6DebugState(
@@ -22,6 +26,7 @@ class DeveloperVM(
     private val aiLoggingManager: AILoggingManager,
     private val settingsStore: SettingsStore,
     private val context: Context,
+    private val updateChecker: UpdateChecker,
 ) : ViewModel() {
     val logs = aiLoggingManager.getLogs()
     val settings = settingsStore.settingsFlow
@@ -29,6 +34,12 @@ class DeveloperVM(
 
     private val _ipv6DebugState = MutableStateFlow(DeveloperIpv6DebugState())
     val ipv6DebugState = _ipv6DebugState.asStateFlow()
+
+    private val _updateState = MutableStateFlow<UiState<UpdateInfo>?>(null)
+    val updateState = _updateState.asStateFlow()
+
+    private val _selectedSource = MutableStateFlow(UpdateSource.GITHUB)
+    val selectedSource = _selectedSource.asStateFlow()
 
     fun updateSettings(update: (Settings) -> Settings) {
         viewModelScope.launch {
@@ -52,6 +63,18 @@ class DeveloperVM(
                 httpIpv6 = httpIpv6,
                 systemIpv6 = systemIpv6,
             )
+        }
+    }
+
+    fun selectSource(source: UpdateSource) {
+        _selectedSource.value = source
+    }
+
+    fun checkForUpdates(source: UpdateSource) {
+        viewModelScope.launch {
+            updateChecker.checkUpdate(source).collect { state ->
+                _updateState.value = state
+            }
         }
     }
 }

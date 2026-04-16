@@ -298,6 +298,14 @@
     <string name="developer_option_ipv6_probe_http_title">外网 IPv6（6.ipw.cn）</string>
     <string name="developer_option_ipv6_probe_system_title">默认网络 IPv6</string>
     <string name="developer_option_ipv6_probe_not_found">未检测到 IPv6</string>
+    <string name="developer_option_manual_update_title">手动检查更新</string>
+    <string name="developer_option_manual_update_desc">从 GitHub API 或 Cloudflare 缓存检查更新。</string>
+    <string name="developer_option_manual_update_source_github">GitHub</string>
+    <string name="developer_option_manual_update_source_cloudflare">Cloudflare</string>
+    <string name="developer_option_manual_update_action">检查</string>
+    <string name="developer_option_manual_update_loading">检查中…</string>
+    <string name="developer_option_manual_update_no_result">未找到发布版本</string>
+    <string name="developer_option_manual_update_error_prefix">错误：%1$s</string>
 
     <string name="backup_page_object_storage_backup">对象存储备份</string>
     <string name="backup_page_object_storage_backup_files">对象存储备份文件列表</string>

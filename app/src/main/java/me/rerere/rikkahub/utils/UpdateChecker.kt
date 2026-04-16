@@ -24,6 +24,11 @@ import okhttp3.Request
 private const val GITHUB_API_URL = "https://api.github.com/repos/54xzh/LastChat/releases"
 private const val CLOUDFLARE_FALLBACK_URL = "https://update-cache.54xzh.com/api/releases"
 
+enum class UpdateSource {
+    GITHUB,
+    CLOUDFLARE
+}
+
 class UpdateChecker(private val client: OkHttpClient) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -39,6 +44,17 @@ class UpdateChecker(private val client: OkHttpClient) {
             fetchFromCloudflare()
         } catch (e: Exception) {
             throw e
+        }
+        emit(UiState.Success(data = updateInfo))
+    }.catch {
+        emit(UiState.Error(it))
+    }.flowOn(Dispatchers.IO)
+
+    fun checkUpdate(source: UpdateSource): Flow<UiState<UpdateInfo>> = flow {
+        emit(UiState.Loading)
+        val updateInfo = when (source) {
+            UpdateSource.GITHUB -> fetchFromGitHub()
+            UpdateSource.CLOUDFLARE -> fetchFromCloudflare()
         }
         emit(UiState.Success(data = updateInfo))
     }.catch {

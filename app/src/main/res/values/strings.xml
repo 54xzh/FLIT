@@ -24,6 +24,14 @@
     <string name="developer_option_ipv6_probe_http_title">External IPv6 (6.ipw.cn)</string>
     <string name="developer_option_ipv6_probe_system_title">Default network IPv6</string>
     <string name="developer_option_ipv6_probe_not_found">No IPv6 detected</string>
+    <string name="developer_option_manual_update_title">Manual Update Check</string>
+    <string name="developer_option_manual_update_desc">Check for updates from GitHub API or Cloudflare cache.</string>
+    <string name="developer_option_manual_update_source_github">GitHub</string>
+    <string name="developer_option_manual_update_source_cloudflare">Cloudflare</string>
+    <string name="developer_option_manual_update_action">Check</string>
+    <string name="developer_option_manual_update_loading">Checking…</string>
+    <string name="developer_option_manual_update_no_result">No release found</string>
+    <string name="developer_option_manual_update_error_prefix">Error: %1$s</string>
     <string name="setting_request_logs_desc">View AI request logs.</string>
     <string name="setting_request_logs_enable_developer_mode_first">Enable Developer Mode to view logs.</string>
     <string name="request_log_status_ok">OK</string>

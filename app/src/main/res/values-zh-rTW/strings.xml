@@ -1539,6 +1539,14 @@
   <string name="developer_option_ipv6_probe_http_title">外網 IPv6（6.ipw.cn）</string>
   <string name="developer_option_ipv6_probe_system_title">預設網路 IPv6</string>
   <string name="developer_option_ipv6_probe_not_found">未偵測到 IPv6</string>
+  <string name="developer_option_manual_update_title">手動檢查更新</string>
+  <string name="developer_option_manual_update_desc">從 GitHub API 或 Cloudflare 快取檢查更新。</string>
+  <string name="developer_option_manual_update_source_github">GitHub</string>
+  <string name="developer_option_manual_update_source_cloudflare">Cloudflare</string>
+  <string name="developer_option_manual_update_action">檢查</string>
+  <string name="developer_option_manual_update_loading">檢查中…</string>
+  <string name="developer_option_manual_update_no_result">未找到發佈版本</string>
+  <string name="developer_option_manual_update_error_prefix">錯誤：%1$s</string>
   <string name="a11y_messages">消息</string>
   <string name="a11y_chat_options">對話選項</string>
   <string name="a11y_make_normal_chat">轉為普通對話</string>
