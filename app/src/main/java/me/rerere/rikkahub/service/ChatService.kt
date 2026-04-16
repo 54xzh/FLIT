@@ -1055,6 +1055,23 @@ class ChatService(
 
     // 初始化对话
     suspend fun initializeConversation(conversationId: Uuid): Boolean {
+        // If there is an active generation job, the in-memory StateFlow has the latest
+        // streaming data. Loading from DB would overwrite it with stale pre-generation state.
+        val activeJob = getGenerationJob(conversationId)
+        if (activeJob != null && activeJob.isActive) {
+            val inMemoryConversation = conversations[conversationId]?.value
+            if (inMemoryConversation != null && inMemoryConversation.messageNodes.isNotEmpty()) {
+                val settingsSnapshot = settingsStore.settingsFlow.value
+                val isGroupChat = settingsSnapshot.groupChatTemplates.any { it.id == inMemoryConversation.assistantId }
+                if (isGroupChat) {
+                    settingsStore.updateChatTarget(ChatTarget.GroupChat(inMemoryConversation.assistantId))
+                } else {
+                    settingsStore.updateAssistant(inMemoryConversation.assistantId)
+                }
+                return true
+            }
+        }
+
         val loadResult = conversationRepo.getConversationByIdCatching(conversationId)
         val loadError = loadResult.exceptionOrNull()
         if (loadError != null) {
