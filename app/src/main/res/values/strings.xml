@@ -38,6 +38,7 @@
     <string name="request_log_status_error">Error</string>
     <string name="request_logs_empty">No request logs yet</string>
     <string name="request_logs_filter_all">All</string>
+    <string name="request_logs_filter_error">Errors Only</string>
     <string name="request_logs_export_empty">No logs to export</string>
     <string name="request_logs_export_failed">Failed to export logs: %1$s</string>
     <string name="request_log_empty_details">Select a log to view details</string>

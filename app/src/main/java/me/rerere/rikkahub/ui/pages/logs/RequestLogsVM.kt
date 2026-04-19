@@ -23,6 +23,9 @@ class RequestLogsVM(
     private val _sourceFilter = MutableStateFlow<AIRequestSource?>(null)
     val sourceFilter: StateFlow<AIRequestSource?> = _sourceFilter.asStateFlow()
 
+    private val _errorOnly = MutableStateFlow(false)
+    val errorOnly: StateFlow<Boolean> = _errorOnly.asStateFlow()
+
     init {
         viewModelScope.launch {
             requestLogManager.reclassifyRecentLogsIfNeeded()
@@ -42,8 +45,11 @@ class RequestLogsVM(
             initialValue = emptyList(),
         )
 
-    val logs: StateFlow<List<AIRequestLogEntity>> = combine(rawLogs, _sourceFilter) { logs, filter ->
-        if (filter == null) logs else logs.filter { it.source == filter.name }
+    val logs: StateFlow<List<AIRequestLogEntity>> = combine(rawLogs, _sourceFilter, _errorOnly) { logs, filter, errOnly ->
+        var result = logs
+        if (filter != null) result = result.filter { it.source == filter.name }
+        if (errOnly) result = result.filter { it.error != null }
+        result
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -54,10 +60,15 @@ class RequestLogsVM(
         _sourceFilter.value = source
     }
 
+    fun toggleErrorOnly() {
+        _errorOnly.value = !_errorOnly.value
+    }
+
     fun clearAll() {
         viewModelScope.launch {
             requestLogManager.clearAll()
             _sourceFilter.value = null
+            _errorOnly.value = false
         }
     }
 }

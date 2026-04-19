@@ -1513,6 +1513,7 @@
   <string name="setting_request_logs_enable_developer_mode_first">需要先开启开发者模式。</string>
   <string name="request_logs_empty">还没有请求日志</string>
   <string name="request_logs_filter_all">全部</string>
+  <string name="request_logs_filter_error">仅错误</string>
   <string name="request_logs_export_empty">暂无可导出的日志</string>
   <string name="request_logs_export_failed">导出失败：%1$s</string>
   <string name="request_log_status_ok">成功</string>

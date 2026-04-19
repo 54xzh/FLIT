@@ -85,6 +85,7 @@ fun RequestLogsOverviewPage(vm: RequestLogsVM = koinViewModel()) {
     val logs by vm.logs.collectAsStateWithLifecycle()
     val sourceFilter by vm.sourceFilter.collectAsStateWithLifecycle()
     val sources by vm.availableSources.collectAsStateWithLifecycle()
+    val errorOnly by vm.errorOnly.collectAsStateWithLifecycle()
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -176,6 +177,8 @@ fun RequestLogsOverviewPage(vm: RequestLogsVM = koinViewModel()) {
                         selected = sourceFilter,
                         sources = sources,
                         onSelect = { vm.setSourceFilter(it) },
+                        errorOnly = errorOnly,
+                        onToggleErrorOnly = { vm.toggleErrorOnly() },
                     )
                 }
             }
@@ -210,6 +213,8 @@ private fun SourceFilterRow(
     selected: AIRequestSource?,
     sources: List<AIRequestSource>,
     onSelect: (AIRequestSource?) -> Unit,
+    errorOnly: Boolean,
+    onToggleErrorOnly: () -> Unit,
 ) {
     val haptics = rememberPremiumHaptics()
 
@@ -225,6 +230,19 @@ private fun SourceFilterRow(
                 onSelect(null)
             },
             label = { Text(stringResource(R.string.request_logs_filter_all)) },
+        )
+        FilterChip(
+            selected = errorOnly,
+            onClick = {
+                haptics.perform(HapticPattern.Pop)
+                onToggleErrorOnly()
+            },
+            label = {
+                Text(
+                    text = stringResource(R.string.request_logs_filter_error),
+                    color = if (errorOnly) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
         )
         sources.forEach { source ->
             FilterChip(

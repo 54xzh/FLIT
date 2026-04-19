@@ -1702,6 +1702,7 @@
   <string name="setting_request_logs_enable_developer_mode_first">需要先啟用開發者模式。</string>
   <string name="request_logs_empty">還沒有請求日誌</string>
   <string name="request_logs_filter_all">全部</string>
+  <string name="request_logs_filter_error">僅錯誤</string>
   <string name="request_logs_export_empty">暫無可匯出的日誌</string>
   <string name="request_logs_export_failed">匯出失敗：%1$s</string>
   <string name="request_log_not_found">未找到日誌</string>
