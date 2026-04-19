@@ -241,6 +241,7 @@ private fun SharedTransitionScope.ChatListNormal(
     val loadingState by rememberUpdatedState(loading)
     val loadingOlderState by rememberUpdatedState(loadingOlderHistory)
     var isRecentScroll by remember { mutableStateOf(false) }
+    var userScrolledAway by remember(conversation.id) { mutableStateOf(false) }
     val conversationUpdated by rememberUpdatedState(conversation)
     val context = LocalContext.current
     val navController = LocalNavController.current
@@ -409,11 +410,33 @@ private fun SharedTransitionScope.ChatListNormal(
     ) {
         // Empty chat state removed - assistant icon now shown in TopBar
 
+        // 当 loading 状态变化时重置用户滚动标记
+        LaunchedEffect(loading) {
+            userScrolledAway = false
+        }
+
+        // 检测用户主动滚动离开底部的意图
+        LaunchedEffect(state) {
+            var wasScrollInProgress = false
+            snapshotFlow { state.isScrollInProgress }.collect { scrolling ->
+                if (wasScrollInProgress && !scrolling) {
+                    // 用户主动滚动刚刚结束（触摸/惯性完成）
+                    val atBottom = state.layoutInfo.visibleItemsInfo.isAtBottom()
+                    if (atBottom) {
+                        userScrolledAway = false
+                    } else if (loadingState) {
+                        userScrolledAway = true
+                    }
+                }
+                wasScrollInProgress = scrolling
+            }
+        }
+
         // 自动滚动到底部
         LaunchedEffect(state) {
             snapshotFlow { state.layoutInfo.visibleItemsInfo }.collect { visibleItemsInfo ->
                 // println("is bottom = ${visibleItemsInfo.isAtBottom()}, scroll = ${state.isScrollInProgress}, can_scroll = ${state.canScrollForward}, loading = $loading")
-                if (!state.isScrollInProgress && loadingState) {
+                if (!state.isScrollInProgress && loadingState && !userScrolledAway) {
                     if (visibleItemsInfo.isAtBottom()) {
                         state.requestScrollToItem(conversationUpdated.messageNodes.lastIndex + 10)
                         // Log.i(TAG, "ChatList: scroll to ${conversationUpdated.messageNodes.lastIndex}")
