@@ -33,9 +33,12 @@ import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.WindowInsets
@@ -182,6 +185,8 @@ fun MinimalChatInput(
     onLongSendClick: () -> Unit,
     onNavigateToLorebook: (String) -> Unit = {},
     onRefreshContext: suspend () -> ChatService.ContextRefreshResult = { ChatService.ContextRefreshResult(false, errorMessage = "Not configured") },
+    autoHideSuggestions: Boolean = false,
+    onSuggestionsTopYChanged: (Float) -> Unit = {},
 ) {
     val context = LocalContext.current
     val toaster = LocalToaster.current
@@ -305,7 +310,17 @@ fun MinimalChatInput(
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically()
             ) {
+                val suggestionAutoHideAlpha by animateFloatAsState(
+                    targetValue = if (autoHideSuggestions) 0f else 1f,
+                    animationSpec = tween(durationMillis = 200),
+                    label = "suggestion_auto_hide_alpha"
+                )
                 ChatSuggestionsRow(
+                    modifier = Modifier
+                        .graphicsLayer { alpha = suggestionAutoHideAlpha }
+                        .onGloballyPositioned {
+                            if (it.isAttached) onSuggestionsTopYChanged(it.boundsInWindow().top)
+                        },
                     suggestions = chatSuggestions,
                     onClickSuggestion = onClickSuggestion,
                     onLongPressSuggestion = { suggestion ->

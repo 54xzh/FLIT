@@ -47,6 +47,7 @@ import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,6 +67,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -668,6 +671,18 @@ private fun ChatPageContent(
         }
     }
 
+    var suggestionsTopInWindow by remember(conversation.id) { mutableStateOf<Float?>(null) }
+    var chatListTopInWindow by remember(conversation.id) { mutableStateOf(0f) }
+    val autoHideSuggestions by remember(chatListState) {
+        derivedStateOf {
+            if (!setting.displaySetting.hideSuggestionsOnOverlap) return@derivedStateOf false
+            val top = suggestionsTopInWindow ?: return@derivedStateOf false
+            val last = chatListState.layoutInfo.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf false
+            val lastBottomInWindow = chatListTopInWindow + last.offset + last.size
+            lastBottomInWindow >= top
+        }
+    }
+
     DisposableEffect(lifecycleOwner, conversation.id) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
@@ -1032,7 +1047,9 @@ private fun ChatPageContent(
                 }
 
                 ChatList(
-                    modifier = Modifier.graphicsLayer { alpha = chatListAlpha },
+                    modifier = Modifier
+                        .graphicsLayer { alpha = chatListAlpha }
+                        .onGloballyPositioned { chatListTopInWindow = it.boundsInWindow().top },
                     innerPadding = PaddingValues(bottom = chatListBottomPadding),
                     conversation = conversation,
                     state = chatListState,
@@ -1386,6 +1403,8 @@ private fun ChatPageContent(
                             navController.navigate(Screen.SettingLorebookDetail(lorebookId))
                         },
                         onRefreshContext = { vm.refreshContext() },
+                        autoHideSuggestions = autoHideSuggestions,
+                        onSuggestionsTopYChanged = { suggestionsTopInWindow = it },
                     )
                 } else {
                     ChatInput(
@@ -1477,6 +1496,8 @@ private fun ChatPageContent(
                             navController.navigate(Screen.SettingLorebookDetail(lorebookId))
                         },
                         onRefreshContext = { vm.refreshContext() },
+                        autoHideSuggestions = autoHideSuggestions,
+                        onSuggestionsTopYChanged = { suggestionsTopInWindow = it },
                     )
                 }
 

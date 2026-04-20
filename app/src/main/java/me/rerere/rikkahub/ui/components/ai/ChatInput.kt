@@ -209,6 +209,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.window.PopupProperties
 
 enum class ExpandState {
@@ -363,6 +366,8 @@ fun ChatInput(
     onLongSendClick: () -> Unit,
     onNavigateToLorebook: (String) -> Unit = {},
     onRefreshContext: suspend () -> ChatService.ContextRefreshResult = { ChatService.ContextRefreshResult(false, errorMessage = "Not configured") },
+    autoHideSuggestions: Boolean = false,
+    onSuggestionsTopYChanged: (Float) -> Unit = {},
 ) {
     val context = LocalContext.current
     val toaster = LocalToaster.current
@@ -468,7 +473,17 @@ fun ChatInput(
 
             // Suggestions row (shown above toolbar, below images)
             if (uiMode == ChatInputUiMode.Normal && chatSuggestions.isNotEmpty()) {
+                val suggestionAutoHideAlpha by animateFloatAsState(
+                    targetValue = if (autoHideSuggestions) 0f else 1f,
+                    animationSpec = tween(durationMillis = 200),
+                    label = "suggestion_auto_hide_alpha"
+                )
                 ChatSuggestionsRow(
+                    modifier = Modifier
+                        .graphicsLayer { alpha = suggestionAutoHideAlpha }
+                        .onGloballyPositioned {
+                            if (it.isAttached) onSuggestionsTopYChanged(it.boundsInWindow().top)
+                        },
                     suggestions = chatSuggestions,
                     onClickSuggestion = onClickSuggestion,
                     onLongPressSuggestion = { suggestion ->

@@ -403,4 +403,6 @@
     <string name="assistant_page_overlay_light_color">浅色模式</string>
     <string name="color_picker_recommended">推荐颜色</string>
     <string name="color_picker_recent">最近使用</string>
+    <string name="setting_display_page_hide_suggestions_overlap_title">遮挡消息时自动隐藏建议</string>
+    <string name="setting_display_page_hide_suggestions_overlap_desc">当聊天建议覆盖到消息文本时淡出</string>
 </resources>

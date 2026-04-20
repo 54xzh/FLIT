@@ -697,6 +697,8 @@
     <string name="setting_display_page_font_size_title">Font Size</string>
     <string name="setting_display_page_notification_message_generated">Notification on Completion</string>
     <string name="setting_display_page_notification_message_generated_desc">Show notification when message generation completes in background</string>
+    <string name="setting_display_page_hide_suggestions_overlap_title">Auto-hide suggestions on overlap</string>
+    <string name="setting_display_page_hide_suggestions_overlap_desc">Fade out chat suggestions when they cover message text</string>
     <string name="setting_display_page_notification_live_update">Live Update Mode</string>
     <string name="setting_display_page_notification_live_update_desc">Notifications will be pushed during message generation after enabling. If it does not take effect, please select Compatibility Mode.</string>
     <string name="setting_live_update_mode_off">Off</string>
