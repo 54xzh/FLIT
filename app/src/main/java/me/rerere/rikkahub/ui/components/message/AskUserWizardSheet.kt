@@ -35,10 +35,8 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,6 +67,7 @@ fun AskUserWizardBottomSheet(
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     val pagerState = rememberPagerState(pageCount = { questions.size })
     val answers = remember { mutableStateListOf<String?>().also { repeat(questions.size) { _ -> it.add(null) } } }
+    val customInputs = remember { mutableStateListOf<String>().also { repeat(questions.size) { _ -> it.add("") } } }
     val coroutineScope = rememberCoroutineScope()
     val itemColor = MaterialTheme.colorScheme.surfaceContainerHigh
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -201,7 +200,7 @@ fun AskUserWizardBottomSheet(
                             }
                         }
 
-                        var customInput by remember { mutableStateOf("") }
+                        val customInput = customInputs[page]
                         val submitInteraction = remember { MutableInteractionSource() }
                         val submitPressed by submitInteraction.collectIsPressedAsState()
                         val submitScale by animateFloatAsState(
@@ -225,7 +224,7 @@ fun AskUserWizardBottomSheet(
                             ) {
                                 BasicTextField(
                                     value = customInput,
-                                    onValueChange = { customInput = it },
+                                    onValueChange = { customInputs[page] = it },
                                     modifier = Modifier
                                         .weight(1f)
                                         .padding(vertical = 10.dp),
@@ -251,7 +250,6 @@ fun AskUserWizardBottomSheet(
                                             haptics.perform(HapticPattern.Pop)
                                             answers[page] = customInput.trim()
                                             if (page < questions.size - 1) {
-                                                customInput = ""
                                                 coroutineScope.launch {
                                                     pagerState.animateScrollToPage(page + 1)
                                                 }
