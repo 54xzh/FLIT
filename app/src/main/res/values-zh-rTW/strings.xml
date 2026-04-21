@@ -300,6 +300,7 @@
   <string name="ask_user_wizard_progress">問題 %1$d / %2$d</string>
   <string name="ask_user_wizard_skip">跳過</string>
   <string name="ask_user_wizard_next">下一個</string>
+  <string name="ask_user_wizard_previous">上一個</string>
   <string name="tool_approval_view_params">查看參數</string>
   <string name="tool_approval_workspace_list">工作區：列出檔案</string>
   <string name="tool_approval_workspace_read_file">工作區：讀取檔案</string>

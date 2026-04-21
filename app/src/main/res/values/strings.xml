@@ -422,6 +422,7 @@
     <string name="ask_user_wizard_progress">Question %1$d / %2$d</string>
     <string name="ask_user_wizard_skip">Skip</string>
     <string name="ask_user_wizard_next">Next</string>
+    <string name="ask_user_wizard_previous">Previous</string>
     <string name="tool_approval_view_params">View params</string>
     <string name="tool_approval_workspace_list">List workspace files</string>
     <string name="tool_approval_workspace_read_file">Read workspace file</string>

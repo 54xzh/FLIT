@@ -205,6 +205,7 @@
     <string name="ask_user_wizard_progress">问题 %1$d / %2$d</string>
     <string name="ask_user_wizard_skip">跳过</string>
     <string name="ask_user_wizard_next">下一个</string>
+    <string name="ask_user_wizard_previous">上一个</string>
     <string name="tool_approval_workspace_list">工作区：列出文件</string>
     <string name="tool_approval_workspace_read_file">工作区：读取文件</string>
     <string name="tool_approval_workspace_write_file">工作区：写入文件</string>

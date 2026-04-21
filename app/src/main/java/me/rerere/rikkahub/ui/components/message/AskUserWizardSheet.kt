@@ -18,6 +18,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -122,6 +123,7 @@ fun AskUserWizardBottomSheet(
                                 animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
                                 label = "wizard_option_scale",
                             )
+                            val isSelected = answers[page] == option
                             Surface(
                                 onClick = {
                                     haptics.perform(HapticPattern.Pop)
@@ -142,13 +144,27 @@ fun AskUserWizardBottomSheet(
                                     .fillMaxWidth()
                                     .graphicsLayer { scaleX = scale; scaleY = scale },
                             ) {
-                                Text(
-                                    text = option,
-                                    style = MaterialTheme.typography.titleMedium,
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(16.dp),
-                                )
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Text(
+                                        text = option,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Check,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -277,28 +293,75 @@ fun AskUserWizardBottomSheet(
                 }
             }
 
-            TextButton(
-                onClick = {
-                    haptics.perform(HapticPattern.Pop)
-                    if (pagerState.currentPage < questions.size - 1) {
-                        answers[pagerState.currentPage] = ""
-                        coroutineScope.launch {
-                            pagerState.animateScrollToPage(pagerState.currentPage + 1)
-                        }
-                    } else {
-                        completeWithAnimation(answers.map { it ?: "" }.joinToString("\n---\n"))
-                    }
-                },
+            val isLast = pagerState.currentPage == questions.size - 1
+            val allAnswered = answers.all { !it.isNullOrBlank() }
+            val canGoPrev = pagerState.currentPage > 0
+            val nextEnabled = if (isLast) allAnswered else true
+
+            val prevInteraction = remember { MutableInteractionSource() }
+            val prevPressed by prevInteraction.collectIsPressedAsState()
+            val prevScale by animateFloatAsState(
+                targetValue = if (prevPressed) 0.85f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+                label = "wizard_prev_scale",
+            )
+
+            val nextInteraction = remember { MutableInteractionSource() }
+            val nextPressed by nextInteraction.collectIsPressedAsState()
+            val nextScale by animateFloatAsState(
+                targetValue = if (nextPressed) 0.85f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+                label = "wizard_next_scale",
+            )
+
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = AppShapes.ButtonPill,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    text = if (pagerState.currentPage < questions.size - 1) {
-                        stringResource(R.string.ask_user_wizard_skip)
-                    } else {
-                        stringResource(R.string.ask_user_submit)
-                    }
-                )
+                TextButton(
+                    onClick = {
+                        haptics.perform(HapticPattern.Pop)
+                        coroutineScope.launch {
+                            pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                        }
+                    },
+                    enabled = canGoPrev,
+                    interactionSource = prevInteraction,
+                    modifier = Modifier
+                        .weight(1f)
+                        .graphicsLayer { scaleX = prevScale; scaleY = prevScale },
+                    shape = AppShapes.ButtonPill,
+                ) {
+                    Text(text = stringResource(R.string.ask_user_wizard_previous))
+                }
+
+                FilledTonalButton(
+                    onClick = {
+                        if (isLast) {
+                            haptics.perform(HapticPattern.Success)
+                            completeWithAnimation(answers.map { it ?: "" }.joinToString("\n---\n"))
+                        } else {
+                            haptics.perform(HapticPattern.Pop)
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                            }
+                        }
+                    },
+                    enabled = nextEnabled,
+                    interactionSource = nextInteraction,
+                    modifier = Modifier
+                        .weight(1f)
+                        .graphicsLayer { scaleX = nextScale; scaleY = nextScale },
+                    shape = AppShapes.ButtonPill,
+                ) {
+                    Text(
+                        text = if (isLast) {
+                            stringResource(R.string.ask_user_submit)
+                        } else {
+                            stringResource(R.string.ask_user_wizard_next)
+                        }
+                    )
+                }
             }
         }
     }

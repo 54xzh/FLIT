@@ -1080,11 +1080,6 @@ private fun CompactAskUserTimelineItem(
                 onDismissRequest = {
                     showSheet = false
                     haptics.perform(HapticPattern.Pop)
-                    chatService.respondAskUser(
-                        conversationId = conversationId ?: return@AskUserWizardBottomSheet,
-                        toolCallId = askUser.toolCallId,
-                        answer = "",
-                    )
                 },
             )
         } else {
@@ -1103,11 +1098,6 @@ private fun CompactAskUserTimelineItem(
                 onDismissRequest = {
                     showSheet = false
                     haptics.perform(HapticPattern.Pop)
-                    chatService.respondAskUser(
-                        conversationId = conversationId ?: return@AskUserBottomSheet,
-                        toolCallId = askUser.toolCallId,
-                        answer = "",
-                    )
                 },
             )
         }

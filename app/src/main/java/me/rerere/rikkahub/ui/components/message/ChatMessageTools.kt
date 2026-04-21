@@ -1092,11 +1092,6 @@ fun AskUserItem(
                 onDismissRequest = {
                     showSheet = false
                     haptics.perform(HapticPattern.Pop)
-                    chatService.respondAskUser(
-                        conversationId = conversationId ?: return@AskUserWizardBottomSheet,
-                        toolCallId = askUser.toolCallId,
-                        answer = "",
-                    )
                 },
             )
         } else {
@@ -1115,11 +1110,6 @@ fun AskUserItem(
                 onDismissRequest = {
                     showSheet = false
                     haptics.perform(HapticPattern.Pop)
-                    chatService.respondAskUser(
-                        conversationId = conversationId ?: return@AskUserBottomSheet,
-                        toolCallId = askUser.toolCallId,
-                        answer = "",
-                    )
                 },
             )
         }
