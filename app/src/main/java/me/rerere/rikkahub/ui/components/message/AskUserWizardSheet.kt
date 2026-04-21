@@ -167,8 +167,6 @@ fun AskUserWizardBottomSheet(
                                         coroutineScope.launch {
                                             pagerState.animateScrollToPage(page + 1)
                                         }
-                                    } else {
-                                        completeWithAnimation(answers.filterNotNull().joinToString("\n---\n"))
                                     }
                                 },
                                 interactionSource = interaction,
@@ -257,8 +255,6 @@ fun AskUserWizardBottomSheet(
                                                 coroutineScope.launch {
                                                     pagerState.animateScrollToPage(page + 1)
                                                 }
-                                            } else {
-                                                completeWithAnimation(answers.filterNotNull().joinToString("\n---\n"))
                                             }
                                         }
                                     },
