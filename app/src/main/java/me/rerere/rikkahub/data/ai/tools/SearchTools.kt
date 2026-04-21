@@ -231,7 +231,7 @@ object SearchTools {
                                                     commonOptions = settings.searchCommonOptions,
                                                     serviceOptions = options,
                                                 ).getOrThrow()
-                                            }
+                                            }.normalizeEmptyAsFailure()
                                             ProviderSearchOutcome(providerName = service.name, result = searchResult)
                                         }
                                     }.awaitAll()
@@ -250,7 +250,7 @@ object SearchTools {
                                                 commonOptions = settings.searchCommonOptions,
                                                 serviceOptions = options,
                                             ).getOrThrow()
-                                        }
+                                        }.normalizeEmptyAsFailure()
                                         results += ProviderSearchOutcome(providerName = service.name, result = searchResult)
                                         if (searchResult.isSuccess) break
                                     }
@@ -392,6 +392,21 @@ object SearchTools {
             }
         }
     }
+
+    private class EmptySearchResultException :
+        RuntimeException("Search provider returned no answer and no items")
+
+    private fun SearchResult.isMeaningful(): Boolean =
+        !answer.isNullOrBlank() || items.isNotEmpty()
+
+    private fun Result<SearchResult>.normalizeEmptyAsFailure(): Result<SearchResult> =
+        fold(
+            onSuccess = { result ->
+                if (result.isMeaningful()) Result.success(result)
+                else Result.failure(EmptySearchResultException())
+            },
+            onFailure = { Result.failure(it) }
+        )
 
     internal fun mergeProviderSearchOutcomes(outcomes: List<ProviderSearchOutcome>): MergedSearchResult {
         var mergedAnswer: String? = null
