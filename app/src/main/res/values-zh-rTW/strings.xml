@@ -1138,6 +1138,7 @@
   <string name="notification_live_update_waiting">等待中</string>
   <string name="notification_live_update_inference">推理中</string>
   <string name="notification_live_update_tool_call">工具調用中</string>
+  <string name="notification_live_update_waiting_for_answer">待回答</string>
   <string name="notification_live_update_output">輸出中</string>
   <string name="notification_live_update_done">輸出完成</string>
   <string name="notification_live_update_error">生成異常</string>

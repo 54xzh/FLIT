@@ -64,6 +64,7 @@ import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.supportsBuiltInSearch
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.withoutBuiltInSearchTools
+import me.rerere.ai.ui.AskUserState
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.finishReasoning
@@ -850,6 +851,19 @@ class ChatService(
             ChatLiveUpdateState.WAITING -> lastUserText.short() to lastUserText.long()
             ChatLiveUpdateState.INFERENCE -> lastUserText.short() to lastUserText.long()
             ChatLiveUpdateState.TOOL_CALL -> lastUserText.short() to lastUserText.long()
+            ChatLiveUpdateState.WAITING_FOR_ANSWER -> {
+                val pendingQuestion = conversation.currentMessages
+                    .asReversed()
+                    .asSequence()
+                    .flatMap { it.parts.asSequence() }
+                    .filterIsInstance<UIMessagePart.AskUser>()
+                    .firstOrNull { it.state == AskUserState.Pending }
+                    ?.let { part ->
+                        part.questions?.firstOrNull()?.question?.takeIf { it.isNotBlank() }
+                            ?: part.question.takeIf { it.isNotBlank() }
+                    }
+                (pendingQuestion ?: lastUserText).short() to (pendingQuestion ?: lastUserText).long()
+            }
             ChatLiveUpdateState.OUTPUT -> lastAssistantText.short() to lastAssistantText.long()
             ChatLiveUpdateState.DONE -> lastAssistantText.short() to lastAssistantText.long()
             ChatLiveUpdateState.ERROR -> {

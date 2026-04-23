@@ -27,6 +27,7 @@ enum class ChatLiveUpdateState {
     WAITING,
     INFERENCE,
     TOOL_CALL,
+    WAITING_FOR_ANSWER,
     OUTPUT,
     DONE,
     ERROR,
@@ -37,6 +38,7 @@ internal fun ChatLiveUpdateState.isOngoing(): Boolean {
         ChatLiveUpdateState.WAITING,
         ChatLiveUpdateState.INFERENCE,
         ChatLiveUpdateState.TOOL_CALL,
+        ChatLiveUpdateState.WAITING_FOR_ANSWER,
         ChatLiveUpdateState.OUTPUT,
         -> true
 
@@ -130,6 +132,7 @@ class ChatLiveUpdateNotifier(
             ChatLiveUpdateState.WAITING -> context.getString(R.string.notification_live_update_waiting)
             ChatLiveUpdateState.INFERENCE -> context.getString(R.string.notification_live_update_inference)
             ChatLiveUpdateState.TOOL_CALL -> context.getString(R.string.notification_live_update_tool_call)
+            ChatLiveUpdateState.WAITING_FOR_ANSWER -> context.getString(R.string.notification_live_update_waiting_for_answer)
             ChatLiveUpdateState.OUTPUT -> context.getString(R.string.notification_live_update_output)
             ChatLiveUpdateState.DONE -> context.getString(R.string.notification_live_update_done)
             ChatLiveUpdateState.ERROR -> context.getString(R.string.notification_live_update_error)

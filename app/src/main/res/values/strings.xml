@@ -616,6 +616,7 @@
     <string name="notification_live_update_waiting">Waiting</string>
     <string name="notification_live_update_inference">Reasoning</string>
     <string name="notification_live_update_tool_call">Using tools</string>
+    <string name="notification_live_update_waiting_for_answer">Waiting for answer</string>
     <string name="notification_live_update_output">Generating</string>
     <string name="notification_live_update_done">Generation completed</string>
     <string name="notification_live_update_error">Generation failed</string>
