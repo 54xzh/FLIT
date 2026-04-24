@@ -90,6 +90,43 @@ class ChatCompletionsAPITest {
     }
 
     @Test
+    fun `deepseek should pass back reasoning_content from previous tool-call turns`() {
+        val api = ChatCompletionsAPI(OkHttpClient(), KeyRoulette.default())
+        val messages = listOf(
+            // Turn 1: user asks, assistant calls tool
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("搜天气"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Reasoning(reasoning = "reasoning_A"),
+                    UIMessagePart.ToolCall(toolCallId = "call_1", toolName = "weather", arguments = "{}"),
+                    UIMessagePart.Text("")
+                )
+            ),
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(UIMessagePart.ToolResult(toolCallId = "call_1", toolName = "weather", content = kotlinx.serialization.json.JsonPrimitive("晴天"), arguments = kotlinx.serialization.json.JsonObject(emptyMap())))
+            ),
+            // Turn 1 continued: assistant responds after tool
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Reasoning(reasoning = "reasoning_B"),
+                    UIMessagePart.Text("晴天")
+                )
+            ),
+            // Turn 2: follow-up question
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("那明天呢？"))),
+        )
+
+        val json = buildMessagesJson(api, messages, modelId = "deepseek-v3.2")
+        // Index 1: assistant with tool call from turn 1
+        assertEquals("reasoning_A", json[1].jsonObject["reasoning_content"]?.jsonPrimitive?.content)
+        // Index 3: assistant response after tool in turn 1
+        assertEquals("reasoning_B", json[3].jsonObject["reasoning_content"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `previous turn reasoning should not be uploaded`() {
         val api = ChatCompletionsAPI(OkHttpClient(), KeyRoulette.default())
         val messages = listOf(
