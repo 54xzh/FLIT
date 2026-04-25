@@ -160,6 +160,25 @@ fun AssistantToolsSubPage(
                 }
             )
 
+            // Chat Search
+            SettingGroupItem(
+                title = stringResource(R.string.assistant_page_local_tools_chat_search_title),
+                subtitle = stringResource(R.string.assistant_page_local_tools_chat_search_desc),
+                trailing = {
+                    HapticSwitch(
+                        checked = assistant.localTools.contains(LocalToolOption.ChatSearch),
+                        onCheckedChange = { enabled ->
+                            val newLocalTools = if (enabled) {
+                                assistant.localTools + LocalToolOption.ChatSearch
+                            } else {
+                                assistant.localTools - LocalToolOption.ChatSearch
+                            }
+                            onUpdate(assistant.copy(localTools = newLocalTools))
+                        }
+                    )
+                }
+            )
+
             // Lorebooks Editor
             SettingGroupItem(
                 title = stringResource(R.string.assistant_page_local_tools_lorebooks_editor_title),

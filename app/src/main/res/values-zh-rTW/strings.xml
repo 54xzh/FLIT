@@ -1520,6 +1520,8 @@
   <string name="assistant_page_local_tools_lorebooks_editor_desc">允許助手編輯已啟用的世界書條目（新增/修改/刪除）。工具變更會寫入歷史，可撤銷。</string>
   <string name="assistant_page_local_tools_memory_search_title">記憶搜索</string>
   <string name="assistant_page_local_tools_memory_search_desc">允許助手在對話中按關鍵字主動查閱已儲存的記憶。</string>
+  <string name="assistant_page_local_tools_chat_search_title">聊天搜索</string>
+  <string name="assistant_page_local_tools_chat_search_desc">允許助手按關鍵字搜索過往的聊天記錄。</string>
   <string name="assistant_page_local_tools_scheduled_task_manager_title">定時任務管理</string>
   <string name="assistant_page_local_tools_scheduled_task_manager_desc">允許助手建立、編輯和刪除定時任務（需要使用者確認）</string>
   <string name="assistant_page_local_tools_ask_user_title">詢問使用者</string>

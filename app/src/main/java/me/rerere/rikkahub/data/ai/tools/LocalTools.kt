@@ -58,6 +58,10 @@ sealed class LocalToolOption {
     @Serializable
     @SerialName("memory_search")
     data object MemorySearch : LocalToolOption()
+
+    @Serializable
+    @SerialName("chat_search")
+    data object ChatSearch : LocalToolOption()
 }
 
 class LocalTools(

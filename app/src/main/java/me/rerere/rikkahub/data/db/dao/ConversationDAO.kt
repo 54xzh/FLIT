@@ -26,6 +26,14 @@ data class ConversationSearchIndexRow(
     val nodes: String,
 )
 
+data class ChatSearchResultRow(
+    val id: String,
+    val title: String,
+    val searchText: String,
+    val updateAt: Long,
+    val isPinned: Boolean,
+)
+
 data class ConversationMonthCount(
     val yearMonth: String,
     val count: Int,
@@ -77,6 +85,9 @@ interface ConversationDAO {
 
     @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated FROM conversationentity WHERE assistant_id = :assistantId AND (title LIKE '%' || :searchText || '%' OR search_text LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
     fun searchConversationsOfAssistantPaging(assistantId: String, searchText: String): PagingSource<Int, LightConversationEntity>
+
+    @Query("SELECT id, title, search_text as searchText, update_at as updateAt, is_pinned as isPinned FROM conversationentity WHERE assistant_id = :assistantId AND search_text LIKE '%' || :searchText || '%' ORDER BY is_pinned DESC, update_at DESC LIMIT :limit")
+    suspend fun searchChatContentOfAssistant(assistantId: String, searchText: String, limit: Int): List<ChatSearchResultRow>
 
     @Query("SELECT id, nodes FROM conversationentity WHERE search_text_version < :version ORDER BY update_at DESC LIMIT :limit")
     suspend fun getSearchIndexBackfillBatch(version: Int, limit: Int): List<ConversationSearchIndexRow>

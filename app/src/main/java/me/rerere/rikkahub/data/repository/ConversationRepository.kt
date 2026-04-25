@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.contentOrNull
+import me.rerere.rikkahub.data.db.dao.ChatSearchResultRow
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.DailyActivityDAO
 import me.rerere.rikkahub.data.db.dao.EmbeddingCacheDAO
@@ -165,6 +166,14 @@ class ConversationRepository(
         pagingData.map { entity ->
             conversationSummaryToConversation(entity)
         }
+    }
+
+    suspend fun searchChatContentOfAssistant(
+        assistantId: Uuid,
+        searchText: String,
+        limit: Int,
+    ): List<ChatSearchResultRow> {
+        return conversationDAO.searchChatContentOfAssistant(assistantId.toString(), searchText, limit)
     }
 
     suspend fun getConversationByIdCatching(uuid: Uuid): Result<Conversation?> {

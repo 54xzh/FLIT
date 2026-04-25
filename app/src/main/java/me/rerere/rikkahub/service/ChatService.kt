@@ -1826,6 +1826,15 @@ class ChatService(
                             )
                         )
                     }
+                    if (assistant.localTools.contains(LocalToolOption.ChatSearch)) {
+                        addAll(
+                            me.rerere.rikkahub.data.ai.tools.ChatSearchTools.create(
+                                assistantId = assistant.id,
+                                conversationId = conversation.id,
+                                conversationRepo = conversationRepo,
+                            )
+                        )
+                    }
                     if (hasEnabledLorebooksForAssistant) {
                         addAll(
                             LorebookTools.create(
@@ -2269,6 +2278,15 @@ class ChatService(
                         me.rerere.rikkahub.data.ai.tools.MemoryTools.create(
                             assistantId = seatAssistant.id,
                             memoryRepository = memoryRepository,
+                        )
+                    )
+                }
+                if (seatAssistant.localTools.contains(LocalToolOption.ChatSearch)) {
+                    addAll(
+                        me.rerere.rikkahub.data.ai.tools.ChatSearchTools.create(
+                            assistantId = seatAssistant.id,
+                            conversationId = conversation.id,
+                            conversationRepo = conversationRepo,
                         )
                     )
                 }

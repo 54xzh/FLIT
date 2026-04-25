@@ -212,6 +212,8 @@
     <string name="assistant_page_local_tools_lorebooks_editor_desc">Allow assistant to create/update/delete entries in enabled lorebooks (undoable via history).</string>
     <string name="assistant_page_local_tools_memory_search_title">Memory Search</string>
     <string name="assistant_page_local_tools_memory_search_desc">Allow assistant to look up its saved memories by keyword during the conversation.</string>
+    <string name="assistant_page_local_tools_chat_search_title">Chat Search</string>
+    <string name="assistant_page_local_tools_chat_search_desc">Allow assistant to search past chat conversations by keyword.</string>
     <string name="assistant_page_local_tools_scheduled_task_manager_title">Scheduled Task Manager</string>
     <string name="assistant_page_local_tools_scheduled_task_manager_desc">Allow assistant to create, update, and delete scheduled tasks (requires approval)</string>
     <string name="assistant_page_local_tools_ask_user_title">Ask User</string>
