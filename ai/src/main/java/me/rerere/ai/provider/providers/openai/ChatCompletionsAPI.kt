@@ -466,6 +466,29 @@ class ChatCompletionsAPI(
         val requireReasoningContentForToolCalls =
             modelId.contains("deepseek", ignoreCase = true) || modelId.contains("kimi", ignoreCase = true)
 
+        // Identify indices belonging to turns (between user messages) that contain tool calls.
+        // DeepSeek/Kimi require reasoning_content from ALL assistant messages in such turns
+        // to be passed back in subsequent requests, not just the current turn.
+        val toolCallTurnIndices = if (requireReasoningContentForToolCalls) {
+            val indices = mutableSetOf<Int>()
+            val userIndices = messages.mapIndexedNotNull { i, m ->
+                if (m.role == MessageRole.USER) i else null
+            }
+            for (i in userIndices.indices) {
+                val turnStart = if (i == 0) 0 else userIndices[i - 1] + 1
+                val turnEnd = userIndices[i]
+                val turnHasToolCalls = (turnStart until turnEnd).any { idx ->
+                    messages[idx].role == MessageRole.ASSISTANT && messages[idx].getToolCalls().isNotEmpty()
+                }
+                if (turnHasToolCalls) {
+                    (turnStart until turnEnd).forEach { indices.add(it) }
+                }
+            }
+            indices
+        } else {
+            emptySet()
+        }
+
         messages.forEachIndexed { index, message ->
             if (!message.isValidToUpload()) return@forEachIndexed
 
@@ -572,10 +595,13 @@ class ChatCompletionsAPI(
                         .filterIsInstance<UIMessagePart.Reasoning>()
                         .firstOrNull()
                         ?.reasoning
+                    val inToolCallTurn = index in toolCallTurnIndices
                     val shouldAttachReasoningContent =
                         message.role == MessageRole.ASSISTANT &&
-                            index > lastUserMessageIndex &&
-                            (!reasoning.isNullOrBlank() || (requireReasoningContentForToolCalls && message.getToolCalls().isNotEmpty()))
+                            (inToolCallTurn && !reasoning.isNullOrBlank() || (
+                                index > lastUserMessageIndex &&
+                                    (!reasoning.isNullOrBlank() || (requireReasoningContentForToolCalls && message.getToolCalls().isNotEmpty()))
+                                ))
                     if (shouldAttachReasoningContent) {
                         put("reasoning_content", reasoning ?: "")
                     }
