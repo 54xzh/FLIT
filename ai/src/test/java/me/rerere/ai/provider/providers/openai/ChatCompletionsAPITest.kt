@@ -127,6 +127,29 @@ class ChatCompletionsAPITest {
     }
 
     @Test
+    fun `deepseek should pass back empty reasoning_content from previous tool-call turns when missing`() {
+        val api = ChatCompletionsAPI(OkHttpClient(), KeyRoulette.default())
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("搜天气"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.ToolCall(toolCallId = "call_1", toolName = "weather", arguments = "{}"),
+                    UIMessagePart.Text("")
+                )
+            ),
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(UIMessagePart.ToolResult(toolCallId = "call_1", toolName = "weather", content = kotlinx.serialization.json.JsonPrimitive("晴天"), arguments = kotlinx.serialization.json.JsonObject(emptyMap())))
+            ),
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("那明天呢？"))),
+        )
+
+        val json = buildMessagesJson(api, messages, modelId = "deepseek-v3.2")
+        assertEquals("", json[1].jsonObject["reasoning_content"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `previous turn reasoning should not be uploaded`() {
         val api = ChatCompletionsAPI(OkHttpClient(), KeyRoulette.default())
         val messages = listOf(
@@ -146,4 +169,3 @@ class ChatCompletionsAPITest {
         assertNull(assistant["reasoning_content"])
     }
 }
-

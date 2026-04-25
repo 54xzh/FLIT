@@ -596,11 +596,12 @@ class ChatCompletionsAPI(
                         .firstOrNull()
                         ?.reasoning
                     val inToolCallTurn = index in toolCallTurnIndices
+                    val hasToolCalls = message.getToolCalls().isNotEmpty()
                     val shouldAttachReasoningContent =
                         message.role == MessageRole.ASSISTANT &&
-                            (inToolCallTurn && !reasoning.isNullOrBlank() || (
+                            (inToolCallTurn && (!reasoning.isNullOrBlank() || hasToolCalls) || (
                                 index > lastUserMessageIndex &&
-                                    (!reasoning.isNullOrBlank() || (requireReasoningContentForToolCalls && message.getToolCalls().isNotEmpty()))
+                                    (!reasoning.isNullOrBlank() || (requireReasoningContentForToolCalls && hasToolCalls))
                                 ))
                     if (shouldAttachReasoningContent) {
                         put("reasoning_content", reasoning ?: "")
