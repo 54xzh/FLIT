@@ -141,6 +141,25 @@ fun AssistantToolsSubPage(
                 }
             )
 
+            // Memory Search
+            SettingGroupItem(
+                title = stringResource(R.string.assistant_page_local_tools_memory_search_title),
+                subtitle = stringResource(R.string.assistant_page_local_tools_memory_search_desc),
+                trailing = {
+                    HapticSwitch(
+                        checked = assistant.localTools.contains(LocalToolOption.MemorySearch),
+                        onCheckedChange = { enabled ->
+                            val newLocalTools = if (enabled) {
+                                assistant.localTools + LocalToolOption.MemorySearch
+                            } else {
+                                assistant.localTools - LocalToolOption.MemorySearch
+                            }
+                            onUpdate(assistant.copy(localTools = newLocalTools))
+                        }
+                    )
+                }
+            )
+
             // Lorebooks Editor
             SettingGroupItem(
                 title = stringResource(R.string.assistant_page_local_tools_lorebooks_editor_title),

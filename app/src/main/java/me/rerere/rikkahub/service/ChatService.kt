@@ -1818,6 +1818,14 @@ class ChatService(
                         assistantId = assistant.id,
                         conversationId = conversation.id
                     ))
+                    if (assistant.localTools.contains(LocalToolOption.MemorySearch)) {
+                        addAll(
+                            me.rerere.rikkahub.data.ai.tools.MemoryTools.create(
+                                assistantId = assistant.id,
+                                memoryRepository = memoryRepository,
+                            )
+                        )
+                    }
                     if (hasEnabledLorebooksForAssistant) {
                         addAll(
                             LorebookTools.create(
@@ -2255,6 +2263,14 @@ class ChatService(
                 val hasWorkspaceFiles = seatAssistant.localTools.contains(LocalToolOption.WorkspaceFiles)
                 if (hasWorkspaceFiles) {
                     addAll(createWorkspaceFileTools(conversationId = conversation.id, settingsSnapshot = settings))
+                }
+                if (seatAssistant.localTools.contains(LocalToolOption.MemorySearch)) {
+                    addAll(
+                        me.rerere.rikkahub.data.ai.tools.MemoryTools.create(
+                            assistantId = seatAssistant.id,
+                            memoryRepository = memoryRepository,
+                        )
+                    )
                 }
                 if (seatAssistant.localTools.contains(LocalToolOption.PythonEngine)) {
                     add(
