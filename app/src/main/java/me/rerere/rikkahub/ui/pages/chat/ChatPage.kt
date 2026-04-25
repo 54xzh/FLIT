@@ -873,7 +873,7 @@ private fun ChatPageContent(
 
         if (conversation.messageNodes.isNotEmpty()) {
             val matchIndex = conversation.messageNodes.indexOfFirst { node ->
-                node.currentMessage.toText().contains(initialSearchQuery, ignoreCase = true)
+                node.currentMessage.toContentText().contains(initialSearchQuery, ignoreCase = true)
             }
             if (matchIndex >= 0) {
                 delay(100)

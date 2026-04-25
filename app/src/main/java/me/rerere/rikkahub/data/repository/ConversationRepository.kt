@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.repository
 
 import android.content.Context
+import android.util.Log
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -58,6 +59,7 @@ class ConversationRepository(
     private val usageStatsDAO: UsageStatsDAO,
 ) {
     companion object {
+        private const val TAG = "ConversationRepository"
         private const val PAGE_SIZE = 20
         private const val INITIAL_LOAD_SIZE = 40
         private const val MAX_LOADED_MESSAGE_NODES_FOR_HUGE_CHAT = 320
@@ -188,6 +190,8 @@ class ConversationRepository(
                 assistantId = entity.assistantId,
                 title = entity.title,
                 nodes = entity.nodes,
+                searchText = entity.searchText,
+                searchTextVersion = entity.searchTextVersion,
                 createAt = entity.createAt,
                 updateAt = entity.updateAt,
                 truncateIndex = entity.truncateIndex,
@@ -322,6 +326,8 @@ class ConversationRepository(
             id = conversation.id.toString(),
             title = conversation.title,
             nodes = JsonInstant.encodeToString(conversation.messageNodes),
+            searchText = buildConversationVisibleSearchText(conversation.messageNodes),
+            searchTextVersion = CONVERSATION_SEARCH_TEXT_VERSION,
             createAt = conversation.createAt.toEpochMilli(),
             updateAt = conversation.updateAt.toEpochMilli(),
             assistantId = conversation.assistantId.toString(),
@@ -780,6 +786,30 @@ class ConversationRepository(
         }
     }
 
+    suspend fun backfillConversationSearchTextIfNeeded(batchSize: Int = 50) = withContext(Dispatchers.IO) {
+        while (true) {
+            val rows = conversationDAO.getSearchIndexBackfillBatch(
+                version = CONVERSATION_SEARCH_TEXT_VERSION,
+                limit = batchSize.coerceAtLeast(1),
+            )
+            if (rows.isEmpty()) break
+
+            rows.forEach { row ->
+                val searchText = runCatching {
+                    buildConversationVisibleSearchText(decodeMessageNodesFromJson(row.nodes))
+                }.onFailure { error ->
+                    Log.w(TAG, "Failed to rebuild conversation search text for ${row.id}", error)
+                }.getOrDefault("")
+
+                conversationDAO.updateSearchText(
+                    id = row.id,
+                    searchText = searchText,
+                    version = CONVERSATION_SEARCH_TEXT_VERSION,
+                )
+            }
+        }
+    }
+
     private fun conversationSummaryToConversation(entity: LightConversationEntity): Conversation {
         return Conversation(
             id = Uuid.parse(entity.id),
@@ -1066,6 +1096,10 @@ private data class RawConversationEntity(
     val assistantId: String,
     val title: String,
     val nodes: String,
+    @SerialName("search_text")
+    val searchText: String,
+    @SerialName("search_text_version")
+    val searchTextVersion: Int,
     @SerialName("create_at")
     val createAt: Long,
     @SerialName("update_at")

@@ -60,7 +60,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         LorebookEntryRevisionEntity::class,
         UsageStatsEntity::class,
     ],
-    version = 35,
+    version = 36,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -93,6 +93,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 32, to = 33),
         AutoMigration(from = 33, to = 34),
         // 34->35 is manual migration (MIGRATION_34_35) - adds usage_stats table
+        // 35->36 is manual migration (MIGRATION_35_36) - adds visible conversation search text
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -263,6 +264,15 @@ abstract class AppDatabase : RoomDatabase() {
                 // Seed total_messages from daily_activity if available
                 db.execSQL("UPDATE usage_stats SET total_messages = COALESCE((SELECT SUM(message_count) FROM daily_activity), 0) WHERE id = 1")
                 Log.i(TAG, "migrate: migrate from 34 to 35 success")
+            }
+        }
+
+        val MIGRATION_35_36 = object : Migration(35, 36) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 35 to 36")
+                db.execSQL("ALTER TABLE ConversationEntity ADD COLUMN search_text TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE ConversationEntity ADD COLUMN search_text_version INTEGER NOT NULL DEFAULT 0")
+                Log.i(TAG, "migrate: migrate from 35 to 36 success")
             }
         }
     }

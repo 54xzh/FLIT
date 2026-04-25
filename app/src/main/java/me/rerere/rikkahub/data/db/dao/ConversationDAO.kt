@@ -21,6 +21,11 @@ data class ConversationNodesScanRow(
     val nodes: String,
 )
 
+data class ConversationSearchIndexRow(
+    val id: String,
+    val nodes: String,
+)
+
 data class ConversationMonthCount(
     val yearMonth: String,
     val count: Int,
@@ -61,17 +66,23 @@ interface ConversationDAO {
     @Query("SELECT id, assistant_id as assistantId, nodes FROM conversationentity ORDER BY update_at DESC LIMIT :limit OFFSET :offset")
     suspend fun getNodesBatchForScan(limit: Int, offset: Int): List<ConversationNodesScanRow>
 
-    @Query("SELECT * FROM conversationentity WHERE (title LIKE '%' || :searchText || '%' OR nodes LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
+    @Query("SELECT * FROM conversationentity WHERE (title LIKE '%' || :searchText || '%' OR search_text LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
     fun searchConversations(searchText: String): Flow<List<ConversationEntity>>
 
-    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated FROM conversationentity WHERE (title LIKE '%' || :searchText || '%' OR nodes LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
+    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated FROM conversationentity WHERE (title LIKE '%' || :searchText || '%' OR search_text LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
     fun searchConversationsPaging(searchText: String): PagingSource<Int, LightConversationEntity>
 
-    @Query("SELECT * FROM conversationentity WHERE assistant_id = :assistantId AND (title LIKE '%' || :searchText || '%' OR nodes LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
+    @Query("SELECT * FROM conversationentity WHERE assistant_id = :assistantId AND (title LIKE '%' || :searchText || '%' OR search_text LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
     fun searchConversationsOfAssistant(assistantId: String, searchText: String): Flow<List<ConversationEntity>>
 
-    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated FROM conversationentity WHERE assistant_id = :assistantId AND (title LIKE '%' || :searchText || '%' OR nodes LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
+    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated FROM conversationentity WHERE assistant_id = :assistantId AND (title LIKE '%' || :searchText || '%' OR search_text LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
     fun searchConversationsOfAssistantPaging(assistantId: String, searchText: String): PagingSource<Int, LightConversationEntity>
+
+    @Query("SELECT id, nodes FROM conversationentity WHERE search_text_version < :version ORDER BY update_at DESC LIMIT :limit")
+    suspend fun getSearchIndexBackfillBatch(version: Int, limit: Int): List<ConversationSearchIndexRow>
+
+    @Query("UPDATE conversationentity SET search_text = :searchText, search_text_version = :version WHERE id = :id")
+    suspend fun updateSearchText(id: String, searchText: String, version: Int)
 
     @Query("SELECT * FROM conversationentity WHERE id = :id")
     fun getConversationFlowById(id: String): Flow<ConversationEntity?>

@@ -199,6 +199,15 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
                 }
             }
         }
+
+        // Keep sidebar search limited to titles and visible chat text for existing conversations.
+        get<AppScope>().launch(Dispatchers.IO) {
+            try {
+                get<ConversationRepository>().backfillConversationSearchTextIfNeeded()
+            } catch (e: Exception) {
+                Log.e(TAG, "Conversation search text backfill failed", e)
+            }
+        }
     }
 
     private fun deleteTempFiles() {

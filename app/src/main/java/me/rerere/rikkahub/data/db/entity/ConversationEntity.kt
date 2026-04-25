@@ -19,6 +19,10 @@ data class ConversationEntity(
     val title: String,
     @ColumnInfo("nodes")
     val nodes: String,
+    @ColumnInfo(name = "search_text", defaultValue = "''")
+    val searchText: String = "",
+    @ColumnInfo(name = "search_text_version", defaultValue = "0")
+    val searchTextVersion: Int = 0,
     @ColumnInfo("create_at")
     val createAt: Long,
     @ColumnInfo("update_at")
