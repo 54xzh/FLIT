@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -47,6 +48,8 @@ import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.replaceRegexes
 import me.rerere.rikkahub.data.model.id
 import me.rerere.rikkahub.data.repository.ConversationRepository
+import me.rerere.rikkahub.data.repository.ModelQuotaRepository
+import me.rerere.rikkahub.data.repository.QuotaUsageResult
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.ui.hooks.writeStringPreference
 import me.rerere.rikkahub.utils.UiState
@@ -68,7 +71,8 @@ class ChatVM(
     private val chatService: ChatService,
     val updateChecker: UpdateChecker,
     private val analytics: FirebaseAnalytics,
-    private val appScope: me.rerere.rikkahub.AppScope
+    private val appScope: me.rerere.rikkahub.AppScope,
+    private val modelQuotaRepo: ModelQuotaRepository,
 ) : ViewModel() {
     private val _conversationId: Uuid = Uuid.parse(id)
     val conversationId: Uuid
@@ -272,8 +276,17 @@ class ChatVM(
         settings.getCurrentChatModel()
     }.stateIn(viewModelScope, SharingStarted.Lazily, null)
 
+    val quotaUsageFlow: StateFlow<QuotaUsageResult?> = settings.flatMapLatest { settings ->
+        val model = settings.getCurrentChatModel() ?: return@flatMapLatest flowOf(null)
+        val allModels = settings.providers.flatMap { it.models }
+        modelQuotaRepo.getQuotaUsageFlow(model, allModels)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     // 错误流 (从ChatService获取)
     val errorFlow: SharedFlow<Throwable> = chatService.errorFlow
+
+    // 配额警告流 (从ChatService获取)
+    val quotaWarningFlow: SharedFlow<QuotaUsageResult> = chatService.quotaWarningFlow
 
     // 生成完成 (从ChatService获取)
     val generationDoneFlow: SharedFlow<Uuid> = chatService.generationDoneFlow

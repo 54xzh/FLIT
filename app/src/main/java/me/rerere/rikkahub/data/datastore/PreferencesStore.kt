@@ -1206,6 +1206,36 @@ fun Settings.getCurrentChatModel(): Model? {
     return findModelById(this.getCurrentAssistant().chatModelId ?: this.chatModelId)
 }
 
+fun Model.findQuotaOwner(allModels: List<Model>): Model? {
+    return findQuotaGroup(allModels).firstOrNull { model -> model.quota?.enabled == true }
+}
+
+fun Model.findQuotaGroup(allModels: List<Model>): List<Model> {
+    val knownIds = allModels.map { it.id }.toSet()
+    val relatedModelIds = mutableSetOf(this.id)
+    var changed: Boolean
+
+    do {
+        changed = false
+        allModels.forEach { model ->
+            val sharedIds = model.quota?.sharedModelIds.orEmpty().filter { it in knownIds }
+            val isConnected = model.id in relatedModelIds || sharedIds.any { it in relatedModelIds }
+            if (isConnected) {
+                if (relatedModelIds.add(model.id)) {
+                    changed = true
+                }
+                sharedIds.forEach { sharedId ->
+                    if (relatedModelIds.add(sharedId)) {
+                        changed = true
+                    }
+                }
+            }
+        }
+    } while (changed)
+
+    return allModels.filter { it.id in relatedModelIds }
+}
+
 fun Settings.getCurrentAssistant(): Assistant {
     return this.assistants.find { it.id == assistantId } ?: this.assistants.first()
 }

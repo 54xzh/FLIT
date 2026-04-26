@@ -5,6 +5,7 @@ import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.GenMediaRepository
 import me.rerere.rikkahub.data.repository.LorebookEntryRevisionRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.ModelQuotaRepository
 import me.rerere.rikkahub.data.repository.StorageManagerRepository
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
 import org.koin.dsl.module
@@ -43,5 +44,9 @@ val repositoryModule = module {
             genMediaDAO = get(),
             aiRequestLogDao = get(),
         )
+    }
+
+    single {
+        ModelQuotaRepository(get())
     }
 }

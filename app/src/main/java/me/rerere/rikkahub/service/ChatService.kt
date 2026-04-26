@@ -126,6 +126,8 @@ import me.rerere.rikkahub.data.model.toMessageNode
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.LorebookEntryRevisionRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.ModelQuotaRepository
+import me.rerere.rikkahub.data.repository.QuotaUsageResult
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.JsonInstantPretty
@@ -198,6 +200,7 @@ class ChatService(
     private val localTools: LocalTools,
     private val okHttpClient: OkHttpClient,
     val mcpManager: McpManager,
+    private val modelQuotaRepo: ModelQuotaRepository,
 ) {
     // 存储每个对话的状态
     private val conversations = ConcurrentHashMap<Uuid, MutableStateFlow<Conversation>>()
@@ -312,6 +315,10 @@ class ChatService(
     // 生成完成流
     private val _generationDoneFlow = MutableSharedFlow<Uuid>()
     val generationDoneFlow: SharedFlow<Uuid> = _generationDoneFlow.asSharedFlow()
+
+    // 配额警告流
+    private val _quotaWarningFlow = MutableSharedFlow<QuotaUsageResult>()
+    val quotaWarningFlow: SharedFlow<QuotaUsageResult> = _quotaWarningFlow.asSharedFlow()
 
     // 前台状态管理
     private val _isForeground = MutableStateFlow(false)
@@ -1385,6 +1392,22 @@ class ChatService(
                     Log.w(TAG, "sendMessage: recordDailyActivity failed (${e.message})", e)
                 }
 
+                // Pre-send quota check
+                try {
+                    val settings = settingsStore.settingsFlow.value
+                    val currentModel = settings.getCurrentChatModel()
+                    if (currentModel != null) {
+                        val allModels = settings.providers.flatMap { it.models }
+                        modelQuotaRepo.checkAndAutoReset(currentModel, allModels)
+                        val quotaResult = modelQuotaRepo.getQuotaUsage(currentModel, allModels)
+                        if (quotaResult != null && quotaResult.isOverLimit) {
+                            _quotaWarningFlow.emit(quotaResult)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "sendMessage: quota check failed (${e.message})", e)
+                }
+
                 // 开始补全
                 if(answer){
                     handleMessageComplete(
@@ -1927,6 +1950,31 @@ class ChatService(
                     updateAt = Instant.now()
                 )
                 updateConversation(conversationId, updatedConversation)
+
+                // Record quota usage after generation
+                if (cause == null) {
+                    try {
+                        val lastAssistantMsg = updatedConversation.currentMessages
+                            .lastOrNull { it.role == MessageRole.ASSISTANT }
+                        val tokenUsage = lastAssistantMsg?.usage
+                        val chatModelId = lastAssistantMsg?.modelId
+                            ?: settings.getCurrentChatModel()?.id
+                        val currentModel = settings.getCurrentChatModel()
+                        if (tokenUsage != null && chatModelId != null && currentModel != null) {
+                            modelQuotaRepo.recordUsage(chatModelId, tokenUsage)
+                            val allModels = settings.providers.flatMap { it.models }
+                            val updatedQuota = modelQuotaRepo.getQuotaUsage(
+                                currentModel,
+                                allModels
+                            )
+                            if (updatedQuota != null && updatedQuota.isAtReminder) {
+                                _quotaWarningFlow.emit(updatedQuota)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "quota recording failed (${e.message})", e)
+                    }
+                }
 
                 val generationFinishedNormally = cause == null
                 if (generationFinishedNormally) {

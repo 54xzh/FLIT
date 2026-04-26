@@ -196,6 +196,7 @@ import me.rerere.rikkahub.utils.deleteChatFiles
 import me.rerere.rikkahub.utils.getFileMimeType
 import me.rerere.rikkahub.utils.getFileNameFromUri
 import java.io.File
+import java.text.NumberFormat
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 import java.util.Locale
@@ -835,7 +836,7 @@ fun ChatInput(
                             onUpdateSettings = onUpdateSettings,
                             onNavigateToLorebook = onNavigateToLorebook,
                             onShowContextRefreshDialog = { showContextRefreshDialog = true },
-                            onDismiss = { dismissExpand() }
+                            onDismiss = { dismissExpand() },
                         )
                     }
                 }
@@ -1281,8 +1282,8 @@ private fun MediaFileInputRow(
                             .background(MaterialTheme.colorScheme.secondary),
                         tint = MaterialTheme.colorScheme.onSecondary
                     )
-                }
             }
+        }
     }
 }
 
@@ -1424,7 +1425,7 @@ private fun FilesPicker(
     onUpdateSettings: (Settings) -> Unit,
     onNavigateToLorebook: (String) -> Unit,
     onShowContextRefreshDialog: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     val settings = LocalSettings.current
     val amoledMode by rememberAmoledDarkMode()

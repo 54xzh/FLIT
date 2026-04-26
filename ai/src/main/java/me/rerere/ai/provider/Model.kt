@@ -5,6 +5,26 @@ import kotlinx.serialization.Serializable
 import kotlin.uuid.Uuid
 
 @Serializable
+enum class QuotaResetPeriod {
+    @SerialName("daily") DAILY,
+    @SerialName("weekly") WEEKLY,
+    @SerialName("monthly") MONTHLY,
+}
+
+@Serializable
+data class ModelQuota(
+    val enabled: Boolean = false,
+    val tokenLimit: Long = 0,
+    val reminderPercentage: Float = 80f,
+    val sharedModelIds: Set<Uuid> = emptySet(),
+    val resetPeriod: QuotaResetPeriod = QuotaResetPeriod.MONTHLY,
+    val resetHour: Int = 0,
+    val resetMinute: Int = 0,
+    val resetDayOfWeek: Int = 1,
+    val resetDayOfMonth: Int = 1,
+)
+
+@Serializable
 data class Model(
     val modelId: String = "",
     val displayName: String = "",
@@ -17,10 +37,11 @@ data class Model(
     val abilities: List<ModelAbility> = emptyList(),
     val tools: Set<BuiltInTools> = emptySet(),
     val providerOverwrite: ProviderSetting? = null,
-    val iconUrl: String? = null, // Remote icon URL
-    val providerSlug: String? = null, // Provider slug for LobeHub CDN icons (e.g., "anthropic")
-    val customIconUri: String? = null, // User-selected custom icon URI
-    val imageGenerationMethod: ImageGenerationMethod? = null, // Only for IMAGE type models
+    val iconUrl: String? = null,
+    val providerSlug: String? = null,
+    val customIconUri: String? = null,
+    val imageGenerationMethod: ImageGenerationMethod? = null,
+    val quota: ModelQuota? = null,
 )
 
 @Serializable
@@ -82,4 +103,3 @@ sealed class BuiltInTools {
     @SerialName("grok_x_search")
     data object GrokXSearch : BuiltInTools()
 }
-

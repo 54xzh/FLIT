@@ -137,10 +137,22 @@ import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
 import kotlin.uuid.Uuid
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.draw.clip
+import me.rerere.rikkahub.data.repository.QuotaUsageResult
+import java.text.NumberFormat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.graphics.graphicsLayer
@@ -413,6 +425,26 @@ fun ChatPage(
         }
     }
 
+    // Handle quota warnings
+    val numberFormat = remember { java.text.NumberFormat.getNumberInstance() }
+    LaunchedEffect(Unit) {
+        vm.quotaWarningFlow.collect { result ->
+            val usedStr = numberFormat.format(result.usedTokens)
+            val limitStr = numberFormat.format(result.tokenLimit)
+            if (result.isOverLimit) {
+                toaster.show(
+                    context.getString(R.string.quota_exceeded_warning, usedStr, limitStr),
+                    type = ToastType.Error
+                )
+            } else if (result.isAtReminder) {
+                toaster.show(
+                    context.getString(R.string.quota_reminder_warning, result.usagePercentage),
+                    type = ToastType.Warning
+                )
+            }
+        }
+    }
+
     val setting by vm.settings.collectAsStateWithLifecycle()
     val conversation by vm.conversation.collectAsStateWithLifecycle()
     val loadingJob by vm.conversationJob.collectAsStateWithLifecycle()
@@ -588,6 +620,7 @@ private fun ChatPageContent(
     val settingsReady by vm.settingsReady.collectAsStateWithLifecycle()
     val conversationReadPosition by vm.conversationReadPosition.collectAsStateWithLifecycle()
     val loadingOlderHistory by vm.loadingOlderHistory.collectAsStateWithLifecycle()
+    val quotaUsage by vm.quotaUsageFlow.collectAsStateWithLifecycle()
     var initialEntryHandled by remember(conversation.id, initialSearchQuery) { mutableStateOf(false) }
     val conversationMessageCount = remember(conversation.totalMessageNodeCount, conversation.messageNodes.size) {
         LargeContextWarningPolicy.resolveMessageCount(conversation)
@@ -926,6 +959,7 @@ private fun ChatPageContent(
                     drawerState = drawerState,
                     previewMode = previewMode,
                     isTemporaryChat = isTemporaryChat,
+                    quotaUsage = quotaUsage,
                     onNewChat = {
                         // Temporary chats are not persisted, so just navigate to new chat
                         navigateToChatPage(navController)
@@ -1929,6 +1963,168 @@ private fun ContextSummaryEditSheet(
 }
 
 @Composable
+private fun TopBarQuotaIndicator(
+    usage: QuotaUsageResult,
+    modifier: Modifier = Modifier,
+) {
+    val progress = if (usage.tokenLimit > 0) {
+        (usage.usedTokens.toFloat() / usage.tokenLimit).coerceIn(0f, 1f)
+    } else 0f
+
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+        label = "topbar_quota_progress",
+    )
+
+    val warningAmber = Color(0xFFE6A817)
+    val color = when {
+        usage.isOverLimit -> MaterialTheme.colorScheme.error
+        usage.isAtReminder -> warningAmber
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    var showSheet by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .clickable { showSheet = true },
+        contentAlignment = Alignment.Center,
+    ) {
+        CircularProgressIndicator(
+            progress = { animatedProgress },
+            modifier = Modifier.size(24.dp),
+            color = color,
+            trackColor = color.copy(alpha = 0.2f),
+            strokeWidth = 3.dp,
+        )
+    }
+
+    if (showSheet) {
+        QuotaDetailSheet(
+            usage = usage,
+            color = color,
+            onDismiss = { showSheet = false },
+        )
+    }
+}
+
+@Composable
+private fun QuotaDetailSheet(
+    usage: QuotaUsageResult,
+    color: Color,
+    onDismiss: () -> Unit,
+) {
+    val numberFormat = remember { NumberFormat.getNumberInstance() }
+    val dateTimeFormat = remember {
+        java.text.DateFormat.getDateTimeInstance(
+            java.text.DateFormat.MEDIUM,
+            java.text.DateFormat.SHORT,
+        )
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    Text(
+                        text = stringResource(R.string.quota_settings_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = "%.1f%%".format(usage.usagePercentage),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = color,
+                    )
+                }
+                val progress = if (usage.tokenLimit > 0) {
+                    (usage.usedTokens.toFloat() / usage.tokenLimit).coerceIn(0f, 1f)
+                } else 0f
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp)),
+                    color = color,
+                    trackColor = color.copy(alpha = 0.2f),
+                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.quota_detail_used),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = numberFormat.format(usage.usedTokens) + " tokens",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.quota_detail_limit),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = numberFormat.format(usage.tokenLimit) + " tokens",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.quota_detail_next_reset),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = dateTimeFormat.format(java.util.Date(usage.nextResetAt)),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun TopBar(
     settings: Settings,
     conversation: Conversation,
@@ -1942,6 +2138,7 @@ private fun TopBar(
     onUpdateSettings: (Settings) -> Unit,
     onToggleTemporaryChat: () -> Unit,
     onSetConversationAssistant: (Uuid) -> Unit,
+    quotaUsage: QuotaUsageResult? = null,
 ) {
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
@@ -2016,7 +2213,20 @@ private fun TopBar(
         actions = {
             // Check if chat is "empty" (no user-sent messages, ignoring preset messages)
             val isEmpty = !conversation.messageNodes.any { it.role == me.rerere.ai.core.MessageRole.USER }
-            
+
+            AnimatedVisibility(
+                visible = quotaUsage != null,
+                enter = fadeIn(spring(dampingRatio = 0.6f, stiffness = 400f)) +
+                        scaleIn(initialScale = 0.85f, animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f)),
+                exit = fadeOut(spring(dampingRatio = 0.6f, stiffness = 400f)) +
+                        scaleOut(targetScale = 0.85f, animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f)),
+                label = "quota_indicator_visibility",
+            ) {
+                quotaUsage?.let { usage ->
+                    TopBarQuotaIndicator(usage = usage)
+                }
+            }
+
             // Fluid transition between assistant icon and search/new icons
             androidx.compose.animation.AnimatedContent(
                 targetState = isEmpty to isTemporaryChat,

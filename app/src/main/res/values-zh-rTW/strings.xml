@@ -2000,4 +2000,47 @@
     <string name="notification_web_server_running">本地瀏覽器存取正在運行</string>
     <string name="notification_web_server_error">Web 伺服器發生故障</string>
 
+    <string name="quota_settings_title">Token 限額</string>
+    <string name="quota_settings_enable">啟用 Token 限額</string>
+    <string name="quota_settings_enable_desc">當這組模型接近或超過限額時顯示提醒。</string>
+    <string name="quota_settings_disabled_desc">未啟用。點擊設定 Token 限制和重置時間。</string>
+    <string name="quota_settings_summary">%1$s tokens · %2$d 個共享模型</string>
+    <string name="quota_settings_summary_with_usage">%1$s / %2$s tokens · %3$d 個共享模型</string>
+    <string name="quota_settings_current_usage">目前用量</string>
+    <string name="quota_settings_usage_rules">用量規則</string>
+    <string name="quota_settings_token_limit">Token 限制</string>
+    <string name="quota_settings_token_limit_desc">統計輸入、輸出和快取輸入 Token。</string>
+    <string name="quota_settings_reminder_percentage">提醒閾值 %1$d%%</string>
+    <string name="quota_settings_reset_period">重置週期</string>
+    <string name="quota_settings_reset_schedule">重置時間</string>
+    <string name="quota_settings_reset_daily">每天</string>
+    <string name="quota_settings_reset_weekly">每週</string>
+    <string name="quota_settings_reset_monthly">每月</string>
+    <string name="quota_settings_reset_hour">小時</string>
+    <string name="quota_settings_reset_minute">分鐘</string>
+    <string name="quota_settings_reset_time_desc">每天 %1$s 重置。</string>
+    <string name="quota_settings_reset_weekday">重置星期</string>
+    <string name="quota_settings_reset_month_day">每月日期</string>
+    <string name="quota_settings_reset_month_day_desc">如果當月沒有這個日期，會在當月最後一天重置。</string>
+    <string name="quota_settings_weekday_monday">週一</string>
+    <string name="quota_settings_weekday_tuesday">週二</string>
+    <string name="quota_settings_weekday_wednesday">週三</string>
+    <string name="quota_settings_weekday_thursday">週四</string>
+    <string name="quota_settings_weekday_friday">週五</string>
+    <string name="quota_settings_weekday_saturday">週六</string>
+    <string name="quota_settings_weekday_sunday">週日</string>
+    <string name="quota_settings_shared_models">共享配額模型</string>
+    <string name="quota_settings_shared_models_desc">選擇此提供商下的模型來共享配額</string>
+    <string name="quota_settings_shared_models_empty">這個提供商下沒有其他模型。</string>
+    <string name="quota_settings_reset_usage">重置用量</string>
+    <string name="quota_settings_reset_confirm">確定將 Token 用量計數器歸零嗎？</string>
+    <string name="quota_exceeded_warning">Token 配額已超出（%1$s / %2$s）</string>
+    <string name="quota_reminder_warning">Token 用量已達配額的 %1$.0f%%</string>
+    <string name="quota_usage_display">%1$s / %2$s</string>
+    <string name="quota_usage_tokens">tokens</string>
+    <string name="a11y_token_quota">Token 用量</string>
+    <string name="quota_detail_used">已用</string>
+    <string name="quota_detail_limit">限額</string>
+    <string name="quota_detail_next_reset">下次重置</string>
+
 </resources>

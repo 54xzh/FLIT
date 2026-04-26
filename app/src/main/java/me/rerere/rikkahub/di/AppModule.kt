@@ -133,7 +133,8 @@ val appModule = module {
             lorebookEntryRevisionRepository = get(),
             localTools = get(),
             okHttpClient = get(),
-            mcpManager = get()
+            mcpManager = get(),
+            modelQuotaRepo = get()
         )
     }
 

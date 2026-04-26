@@ -2010,4 +2010,47 @@
     <string name="notification_web_server_running">Local browser access is running</string>
     <string name="notification_web_server_error">Web server failed</string>
 
+    <string name="quota_settings_title">Token Quota</string>
+    <string name="quota_settings_enable">Enable Token Quota</string>
+    <string name="quota_settings_enable_desc">Show warnings when this model group reaches the limit.</string>
+    <string name="quota_settings_disabled_desc">Off. Tap to set token limits and reset schedule.</string>
+    <string name="quota_settings_summary">%1$s tokens · %2$d shared models</string>
+    <string name="quota_settings_summary_with_usage">%1$s / %2$s tokens · %3$d shared models</string>
+    <string name="quota_settings_current_usage">Current usage</string>
+    <string name="quota_settings_usage_rules">Usage Rules</string>
+    <string name="quota_settings_token_limit">Token Limit</string>
+    <string name="quota_settings_token_limit_desc">Counts input, output, and cached input tokens.</string>
+    <string name="quota_settings_reminder_percentage">Reminder at %1$d%%</string>
+    <string name="quota_settings_reset_period">Reset Period</string>
+    <string name="quota_settings_reset_schedule">Reset Schedule</string>
+    <string name="quota_settings_reset_daily">Daily</string>
+    <string name="quota_settings_reset_weekly">Weekly</string>
+    <string name="quota_settings_reset_monthly">Monthly</string>
+    <string name="quota_settings_reset_hour">Hour</string>
+    <string name="quota_settings_reset_minute">Minute</string>
+    <string name="quota_settings_reset_time_desc">Resets every day at %1$s.</string>
+    <string name="quota_settings_reset_weekday">Reset weekday</string>
+    <string name="quota_settings_reset_month_day">Day of month</string>
+    <string name="quota_settings_reset_month_day_desc">If the month is shorter, it resets on the last day of that month.</string>
+    <string name="quota_settings_weekday_monday">Mon</string>
+    <string name="quota_settings_weekday_tuesday">Tue</string>
+    <string name="quota_settings_weekday_wednesday">Wed</string>
+    <string name="quota_settings_weekday_thursday">Thu</string>
+    <string name="quota_settings_weekday_friday">Fri</string>
+    <string name="quota_settings_weekday_saturday">Sat</string>
+    <string name="quota_settings_weekday_sunday">Sun</string>
+    <string name="quota_settings_shared_models">Shared Quota Models</string>
+    <string name="quota_settings_shared_models_desc">Select models from this provider to share quota</string>
+    <string name="quota_settings_shared_models_empty">No other models in this provider.</string>
+    <string name="quota_settings_reset_usage">Reset Usage</string>
+    <string name="quota_settings_reset_confirm">Reset token usage counter to zero?</string>
+    <string name="quota_exceeded_warning">Token quota exceeded (%1$s / %2$s)</string>
+    <string name="quota_reminder_warning">Token usage at %1$.0f%% of quota</string>
+    <string name="quota_usage_display">%1$s / %2$s</string>
+    <string name="quota_usage_tokens">tokens</string>
+    <string name="a11y_token_quota">Token quota usage</string>
+    <string name="quota_detail_used">Used</string>
+    <string name="quota_detail_limit">Limit</string>
+    <string name="quota_detail_next_reset">Next Reset</string>
+
 </resources>

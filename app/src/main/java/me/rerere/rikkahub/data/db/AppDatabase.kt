@@ -25,6 +25,7 @@ import me.rerere.rikkahub.data.db.dao.ScheduledTaskDao
 import me.rerere.rikkahub.data.db.dao.ScheduledTaskRunDao
 import me.rerere.rikkahub.data.db.dao.ToolResultArchiveDao
 import me.rerere.rikkahub.data.db.dao.ToolResultArchiveChunkDao
+import me.rerere.rikkahub.data.db.dao.ModelQuotaUsageDAO
 import me.rerere.rikkahub.data.db.dao.UsageStatsDAO
 import me.rerere.rikkahub.data.db.entity.AIRequestLogEntity
 import me.rerere.rikkahub.data.db.entity.BackupLogEntity
@@ -35,6 +36,7 @@ import me.rerere.rikkahub.data.db.entity.EmbeddingCacheEntity
 import me.rerere.rikkahub.data.db.entity.GenMediaEntity
 import me.rerere.rikkahub.data.db.entity.LorebookEntryRevisionEntity
 import me.rerere.rikkahub.data.db.entity.MemoryEntity
+import me.rerere.rikkahub.data.db.entity.ModelQuotaUsageEntity
 import me.rerere.rikkahub.data.db.entity.ScheduledTaskEntity
 import me.rerere.rikkahub.data.db.entity.ScheduledTaskRunEntity
 import me.rerere.rikkahub.data.db.entity.ToolResultArchiveEntity
@@ -59,8 +61,9 @@ import me.rerere.rikkahub.utils.JsonInstant
         DailyActivityEntity::class,
         LorebookEntryRevisionEntity::class,
         UsageStatsEntity::class,
+        ModelQuotaUsageEntity::class,
     ],
-    version = 36,
+    version = 37,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -94,6 +97,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 33, to = 34),
         // 34->35 is manual migration (MIGRATION_34_35) - adds usage_stats table
         // 35->36 is manual migration (MIGRATION_35_36) - adds visible conversation search text
+        // 36->37 is manual migration (MIGRATION_36_37) - adds model_quota_usage table
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -125,6 +129,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun lorebookEntryRevisionDao(): LorebookEntryRevisionDao
 
     abstract fun usageStatsDao(): UsageStatsDAO
+
+    abstract fun modelQuotaUsageDao(): ModelQuotaUsageDAO
 
     companion object {
         const val TAG = "AppDatabase"
@@ -273,6 +279,23 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE ConversationEntity ADD COLUMN search_text TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE ConversationEntity ADD COLUMN search_text_version INTEGER NOT NULL DEFAULT 0")
                 Log.i(TAG, "migrate: migrate from 35 to 36 success")
+            }
+        }
+
+        val MIGRATION_36_37 = object : Migration(36, 37) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 36 to 37")
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `model_quota_usage` (
+                        `model_id` TEXT NOT NULL PRIMARY KEY,
+                        `input_tokens` INTEGER NOT NULL DEFAULT 0,
+                        `output_tokens` INTEGER NOT NULL DEFAULT 0,
+                        `cached_tokens` INTEGER NOT NULL DEFAULT 0,
+                        `last_reset_at` INTEGER NOT NULL DEFAULT 0,
+                        `last_updated_at` INTEGER NOT NULL DEFAULT 0
+                    )
+                """.trimIndent())
+                Log.i(TAG, "migrate: migrate from 36 to 37 success")
             }
         }
     }
