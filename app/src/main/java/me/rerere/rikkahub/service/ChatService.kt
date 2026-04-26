@@ -1607,6 +1607,7 @@ class ChatService(
                     it
                 }
             }
+            val quotaBaselineMessages = conversation.currentMessages
 
             val persistentConversationId =
                 conversationId.takeIf { !temporaryConversations.contains(conversationId) }
@@ -1954,14 +1955,22 @@ class ChatService(
                 // Record quota usage after generation
                 if (cause == null) {
                     try {
-                        val lastAssistantMsg = updatedConversation.currentMessages
-                            .lastOrNull { it.role == MessageRole.ASSISTANT }
-                        val tokenUsage = lastAssistantMsg?.usage
-                        val chatModelId = lastAssistantMsg?.modelId
+                        val tokenUsage = calculateQuotaTokenUsageDelta(
+                            baselineMessages = quotaBaselineMessages,
+                            finalMessages = updatedConversation.currentMessages,
+                        )
+                        val chatModelId = updatedConversation.currentMessages
+                            .lastOrNull { it.role == MessageRole.ASSISTANT && it.modelId != null }
+                            ?.modelId
                             ?: settings.getCurrentChatModel()?.id
                         val currentModel = settings.getCurrentChatModel()
-                        if (tokenUsage != null && chatModelId != null && currentModel != null) {
-                            modelQuotaRepo.recordUsage(chatModelId, tokenUsage)
+                        if (!tokenUsage.isEmpty && chatModelId != null && currentModel != null) {
+                            modelQuotaRepo.recordUsage(
+                                modelId = chatModelId,
+                                inputTokens = tokenUsage.inputTokens,
+                                outputTokens = tokenUsage.outputTokens,
+                                cachedTokens = tokenUsage.cachedTokens,
+                            )
                             val allModels = settings.providers.flatMap { it.models }
                             val updatedQuota = modelQuotaRepo.getQuotaUsage(
                                 currentModel,

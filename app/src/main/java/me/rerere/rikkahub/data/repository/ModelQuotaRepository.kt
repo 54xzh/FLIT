@@ -43,15 +43,29 @@ class ModelQuotaRepository(
     private val zoneId: ZoneId = ZoneId.systemDefault(),
 ) {
     suspend fun recordUsage(modelId: Uuid, usage: TokenUsage) {
+        recordUsage(
+            modelId = modelId,
+            inputTokens = usage.promptTokens.toLong(),
+            outputTokens = usage.completionTokens.toLong(),
+            cachedTokens = usage.cachedTokens.toLong(),
+        )
+    }
+
+    suspend fun recordUsage(
+        modelId: Uuid,
+        inputTokens: Long,
+        outputTokens: Long,
+        cachedTokens: Long,
+    ) {
         withContext(Dispatchers.IO) {
             val now = nowMillis()
             val idStr = modelId.toString()
             dao.insertIfMissing(newUsageEntity(idStr, now))
             dao.addUsage(
                 modelId = idStr,
-                inputTokens = usage.promptTokens.toLong(),
-                outputTokens = usage.completionTokens.toLong(),
-                cachedTokens = usage.cachedTokens.toLong(),
+                inputTokens = inputTokens.coerceAtLeast(0L),
+                outputTokens = outputTokens.coerceAtLeast(0L),
+                cachedTokens = cachedTokens.coerceAtLeast(0L),
                 timestamp = now,
             )
         }
