@@ -2011,6 +2011,8 @@
     <string name="notification_web_server_error">Web server failed</string>
 
     <string name="quota_settings_title">Token Quota</string>
+    <string name="quota_settings_section_title">Quota Settings</string>
+    <string name="quota_settings_button">Token Quota Settings</string>
     <string name="quota_settings_enable">Enable Token Quota</string>
     <string name="quota_settings_enable_desc">Show warnings when this model group reaches the limit.</string>
     <string name="quota_settings_disabled_desc">Off. Tap to set token limits and reset schedule.</string>

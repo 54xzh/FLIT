@@ -2001,6 +2001,8 @@
     <string name="notification_web_server_error">Web 伺服器發生故障</string>
 
     <string name="quota_settings_title">Token 限額</string>
+    <string name="quota_settings_section_title">限額設定</string>
+    <string name="quota_settings_button">Token 限額設定</string>
     <string name="quota_settings_enable">啟用 Token 限額</string>
     <string name="quota_settings_enable_desc">當這組模型接近或超過限額時顯示提醒。</string>
     <string name="quota_settings_disabled_desc">未啟用。點擊設定 Token 限制和重置時間。</string>

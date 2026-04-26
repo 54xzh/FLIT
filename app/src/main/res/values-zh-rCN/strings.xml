@@ -412,6 +412,8 @@
     <string name="setting_display_page_hide_suggestions_overlap_title">遮挡消息时自动隐藏建议</string>
     <string name="setting_display_page_hide_suggestions_overlap_desc">当聊天建议覆盖到消息文本时淡出</string>
     <string name="quota_settings_title">Token 限额</string>
+    <string name="quota_settings_section_title">限额设置</string>
+    <string name="quota_settings_button">Token 限额设置</string>
     <string name="quota_settings_enable">启用 Token 限额</string>
     <string name="quota_settings_enable_desc">当这组模型接近或超过限额时显示提醒。</string>
     <string name="quota_settings_disabled_desc">未启用。点击设置 Token 限制和重置时间。</string>
