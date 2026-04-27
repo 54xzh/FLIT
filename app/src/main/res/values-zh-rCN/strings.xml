@@ -344,7 +344,7 @@
     <string name="setting_page_built_in_tools_claude_search">Claude 网页搜索</string>
     <string name="setting_page_built_in_tools_claude_search_desc">启用 Claude 内置网页搜索</string>
     <string name="setting_page_built_in_tools_grok_web_search">Grok 网页搜索</string>
-    <string name="setting_page_built_in_tools_grok_web_search_desc">启用 xAI 内置网页搜索（仅限 api.x.ai）</string>
+    <string name="setting_page_built_in_tools_grok_web_search_desc">启用 xAI 内置网页搜索（第三方中转可能不支持）</string>
     <string name="setting_page_built_in_tools_grok_x_search">Grok X 搜索</string>
     <string name="setting_page_built_in_tools_grok_x_search_desc">启用 xAI 内置 X（Twitter）搜索</string>
     <string name="chat_process_reasoning_duration">思考了 %1$s 秒</string>

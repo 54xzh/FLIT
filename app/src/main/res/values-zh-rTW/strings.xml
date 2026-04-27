@@ -638,7 +638,7 @@
   <string name="setting_page_built_in_tools_url_context">URL 上下文</string>
   <string name="setting_page_built_in_tools_url_context_desc">啟用 URL 內容處理</string>
   <string name="setting_page_built_in_tools_grok_web_search">Grok 網頁搜尋</string>
-  <string name="setting_page_built_in_tools_grok_web_search_desc">啟用 xAI 內建網頁搜尋（僅限 api.x.ai）</string>
+  <string name="setting_page_built_in_tools_grok_web_search_desc">啟用 xAI 內建網頁搜尋（第三方中轉可能不支援）</string>
   <string name="setting_page_built_in_tools_grok_x_search">Grok X 搜尋</string>
   <string name="setting_page_built_in_tools_grok_x_search_desc">啟用 xAI 內建 X（Twitter）搜尋</string>
   <string name="setting_page_chat_settings">聊天設定</string>
