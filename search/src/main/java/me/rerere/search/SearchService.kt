@@ -282,6 +282,7 @@ sealed class SearchServiceOptions {
         val customBaseUrl: String = "https://api.x.ai/v1",
         val customPath: String = "/responses",
         val customSystemPrompt: String = "You are a helpful search assistant. Search the web to find accurate and up-to-date information for the user's query. Provide a comprehensive answer with citations.",
+        val enableStream: Boolean = false,
         val alias: String = "",
     ) : SearchServiceOptions()
 }

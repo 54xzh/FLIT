@@ -1548,6 +1548,16 @@ private fun GrokOptions(
                     maxLines = 6
                 )
             }
+            FormItem(
+                label = { Text("流式输出") },
+                description = { Text("如果使用非流式出现错误可尝试打开") },
+                tail = {
+                    HapticSwitch(
+                        checked = options.enableStream,
+                        onCheckedChange = { onUpdateOptions(options.copy(enableStream = it)) }
+                    )
+                }
+            )
         }
     }
 }

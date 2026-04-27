@@ -7,6 +7,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -15,6 +17,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
@@ -23,6 +27,9 @@ import me.rerere.search.SearchService.Companion.httpClient
 import me.rerere.search.SearchService.Companion.json
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.sse.EventSource
+import okhttp3.sse.EventSourceListener
+import okhttp3.sse.EventSources
 
 private const val TAG = "GrokSearchService"
 
@@ -80,6 +87,7 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
 
             val body = buildJsonObject {
                 put("model", JsonPrimitive(serviceOptions.model))
+                put("stream", JsonPrimitive(serviceOptions.enableStream))
                 put("input", buildJsonArray {
                     add(buildJsonObject {
                         put("role", JsonPrimitive("system"))
@@ -110,40 +118,161 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
                 .addHeader("Content-Type", "application/json")
                 .build()
 
-            val response = httpClient.newCall(request).await()
-            if (!response.isSuccessful) {
-                error("response failed #${response.code}: ${response.body?.string()}")
+            if (serviceOptions.enableStream) {
+                searchWithStreaming(request, commonOptions)
+            } else {
+                searchWithoutStreaming(request, commonOptions)
             }
-
-            val responseBody = response.body.string().let {
-                json.decodeFromString<GrokResponse>(it)
-            }
-
-            val messageOutput = responseBody.output.firstOrNull {
-                it.type == "message" && it.role == "assistant"
-            }
-            val textContent = messageOutput?.content?.firstOrNull {
-                it.type == "output_text"
-            }
-
-            val items = textContent?.annotations
-                ?.filter { it.type == "url_citation" && !it.url.isNullOrBlank() }
-                ?.distinctBy { it.url }
-                ?.take(commonOptions.resultSize)
-                ?.map { annotation ->
-                    SearchResultItem(
-                        title = annotation.title?.takeIf { it.isNotBlank() } ?: annotation.url.orEmpty(),
-                        url = annotation.url.orEmpty(),
-                        text = "",
-                    )
-                }
-                .orEmpty()
-
-            SearchResult(
-                answer = textContent?.text,
-                items = items,
-            )
         }
+    }
+
+    private suspend fun searchWithoutStreaming(
+        request: Request,
+        commonOptions: SearchCommonOptions
+    ): SearchResult {
+        val response = httpClient.newCall(request).await()
+        if (!response.isSuccessful) {
+            error("response failed #${response.code}: ${response.body?.string()}")
+        }
+
+        val responseBody = response.body.string().let {
+            json.decodeFromString<GrokResponse>(it)
+        }
+
+        return parseGrokResponse(responseBody, commonOptions)
+    }
+
+    private suspend fun searchWithStreaming(
+        request: Request,
+        commonOptions: SearchCommonOptions
+    ): SearchResult {
+        var completedResponse: JsonObject? = null
+        var streamError: Throwable? = null
+
+        callbackFlow {
+            val listener = object : EventSourceListener() {
+                override fun onEvent(
+                    eventSource: EventSource,
+                    id: String?,
+                    type: String?,
+                    data: String
+                ) {
+                    Log.d(TAG, "onEvent: $id/$type $data")
+                    if (type == "response.completed") {
+                        val eventData = runCatching {
+                            json.parseToJsonElement(data).jsonObject
+                        }.getOrNull()
+                        if (eventData != null) {
+                            completedResponse = eventData
+                            close()
+                        }
+                    }
+                }
+
+                override fun onFailure(eventSource: EventSource, t: Throwable?, response: okhttp3.Response?) {
+                    val statusCode = response?.code ?: -1
+                    val body = response?.body?.string().orEmpty()
+                    streamError = Exception("Stream failed #$statusCode: $body", t)
+                    close(streamError)
+                }
+
+                override fun onClosed(eventSource: EventSource) {
+                    close()
+                }
+            }
+
+            val eventSource = EventSources.createFactory(httpClient)
+                .newEventSource(request, listener)
+
+            awaitClose {
+                eventSource.cancel()
+            }
+        }.collect {}
+
+        if (streamError != null) {
+            throw streamError!!
+        }
+
+        val result = completedResponse
+            ?: throw Exception("Stream completed without response")
+
+        val responseObject = result["response"]?.jsonObject
+            ?: error("response not found in completed event")
+
+        return parseGrokResponseFromJson(responseObject, commonOptions)
+    }
+
+    private fun parseGrokResponse(responseBody: GrokResponse, commonOptions: SearchCommonOptions): SearchResult {
+        val messageOutput = responseBody.output.firstOrNull {
+            it.type == "message" && it.role == "assistant"
+        }
+        val textContent = messageOutput?.content?.firstOrNull {
+            it.type == "output_text"
+        }
+
+        val items = textContent?.annotations
+            ?.filter { it.type == "url_citation" && !it.url.isNullOrBlank() }
+            ?.distinctBy { it.url }
+            ?.take(commonOptions.resultSize)
+            ?.map { annotation ->
+                SearchResultItem(
+                    title = annotation.title?.takeIf { it.isNotBlank() } ?: annotation.url.orEmpty(),
+                    url = annotation.url.orEmpty(),
+                    text = "",
+                )
+            }
+            .orEmpty()
+
+        return SearchResult(
+            answer = textContent?.text,
+            items = items,
+        )
+    }
+
+    private fun parseGrokResponseFromJson(responseObject: JsonObject, commonOptions: SearchCommonOptions): SearchResult {
+        val outputArray = responseObject["output"]?.jsonArray
+            ?: return SearchResult(answer = null, items = emptyList())
+
+        var answer: String? = null
+        val items = mutableListOf<SearchResultItem>()
+
+        for (outputItem in outputArray) {
+            val output = outputItem.jsonObject
+            val type = output["type"]?.jsonPrimitive?.content
+
+            if (type == "message") {
+                val contentArray = output["content"]?.jsonArray
+                for (contentItem in contentArray.orEmpty()) {
+                    val content = contentItem.jsonObject
+                    val contentType = content["type"]?.jsonPrimitive?.content
+                    if (contentType == "output_text") {
+                        answer = content["text"]?.jsonPrimitive?.content
+                        val annotations = content["annotations"]?.jsonArray
+                        for (annotationItem in annotations.orEmpty()) {
+                            val annotation = annotationItem.jsonObject
+                            val annotationType = annotation["type"]?.jsonPrimitive?.content
+                            if (annotationType == "url_citation") {
+                                val url = annotation["url"]?.jsonPrimitive?.content
+                                if (!url.isNullOrBlank() && items.none { it.url == url }) {
+                                    val title = annotation["title"]?.jsonPrimitive?.content
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?: url
+                                    if (items.size < commonOptions.resultSize) {
+                                        items.add(SearchResultItem(
+                                            title = title,
+                                            url = url,
+                                            text = "",
+                                        ))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return SearchResult(answer = answer, items = items)
     }
 
     override suspend fun scrape(
