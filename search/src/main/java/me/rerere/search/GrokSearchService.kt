@@ -149,7 +149,7 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
         var completedResponse: JsonObject? = null
         var streamError: Throwable? = null
 
-        callbackFlow {
+        callbackFlow<Unit> {
             val listener = object : EventSourceListener() {
                 override fun onEvent(
                     eventSource: EventSource,
