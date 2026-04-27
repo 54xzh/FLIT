@@ -11,6 +11,7 @@ import kotlinx.coroutines.withContext
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelQuota
+import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.QuotaResetPeriod
 import me.rerere.rikkahub.data.datastore.findQuotaGroup
 import me.rerere.rikkahub.data.datastore.findQuotaOwner
@@ -28,6 +29,9 @@ data class QuotaUsageResult(
     val tokenLimit: Long,
     val reminderPercentage: Float,
     val ownerModelId: Uuid,
+    val quotaGroupId: Uuid? = null,
+    val quotaGroupName: String? = null,
+    val modelCount: Int = 1,
     val resetPeriod: QuotaResetPeriod,
     val lastResetAt: Long,
     val nextResetAt: Long,
@@ -79,8 +83,37 @@ class ModelQuotaRepository(
         }
     }
 
+    suspend fun getQuotaUsageForProviders(model: Model, providers: List<ProviderSetting>): QuotaUsageResult? {
+        return withContext(Dispatchers.IO) {
+            val scope = model.resolveProviderQuotaScope(providers) ?: return@withContext null
+            resetQuotaIfNeeded(scope)
+            buildQuotaUsage(scope, dao.getUsageForModels(scope.modelIds))
+        }
+    }
+
     fun getQuotaUsageFlow(model: Model, allModels: List<Model>): Flow<QuotaUsageResult?> {
         val scope = model.resolveQuotaScope(allModels) ?: return kotlinx.coroutines.flow.flowOf(null)
+        val usageChanges = dao.getUsageForModelsFlow(scope.modelIds).map { Unit }
+        val resetTicks = flow {
+            while (true) {
+                emit(Unit)
+                val delayMs = (calculateNextResetAt(scope.quota) - nowMillis()).coerceAtLeast(1_000L)
+                delay(delayMs)
+            }
+        }
+
+        return merge(usageChanges, resetTicks)
+            .map {
+                withContext(Dispatchers.IO) {
+                    resetQuotaIfNeeded(scope)
+                    buildQuotaUsage(scope, dao.getUsageForModels(scope.modelIds))
+                }
+            }
+            .distinctUntilChanged()
+    }
+
+    fun getQuotaUsageFlowForProviders(model: Model, providers: List<ProviderSetting>): Flow<QuotaUsageResult?> {
+        val scope = model.resolveProviderQuotaScope(providers) ?: return kotlinx.coroutines.flow.flowOf(null)
         val usageChanges = dao.getUsageForModelsFlow(scope.modelIds).map { Unit }
         val resetTicks = flow {
             while (true) {
@@ -112,9 +145,25 @@ class ModelQuotaRepository(
         }
     }
 
+    suspend fun resetQuota(modelIds: Set<Uuid>) {
+        withContext(Dispatchers.IO) {
+            val now = nowMillis()
+            val allIds = modelIds.map { it.toString() }
+            allIds.forEach { dao.insertIfMissing(newUsageEntity(it, now)) }
+            dao.resetUsageForModels(allIds, now)
+        }
+    }
+
     suspend fun checkAndAutoReset(model: Model, allModels: List<Model>) {
         withContext(Dispatchers.IO) {
             val scope = model.resolveQuotaScope(allModels) ?: return@withContext
+            resetQuotaIfNeeded(scope)
+        }
+    }
+
+    suspend fun checkAndAutoResetForProviders(model: Model, providers: List<ProviderSetting>) {
+        withContext(Dispatchers.IO) {
+            val scope = model.resolveProviderQuotaScope(providers) ?: return@withContext
             resetQuotaIfNeeded(scope)
         }
     }
@@ -141,6 +190,9 @@ class ModelQuotaRepository(
             tokenLimit = scope.quota.tokenLimit,
             reminderPercentage = scope.quota.reminderPercentage,
             ownerModelId = scope.owner.id,
+            quotaGroupId = scope.groupId,
+            quotaGroupName = scope.groupName,
+            modelCount = scope.modelIds.size,
             resetPeriod = scope.quota.resetPeriod,
             lastResetAt = lastResetAt,
             nextResetAt = calculateNextResetAt(scope.quota),
@@ -156,6 +208,51 @@ class ModelQuotaRepository(
             quota = quota,
             modelIds = modelIds,
         )
+    }
+
+    private fun Model.resolveProviderQuotaScope(providers: List<ProviderSetting>): QuotaScope? {
+        val provider = providers.firstOrNull { provider ->
+            provider.models.any { it.id == this.id }
+        }
+        val providerModels = provider?.models
+        if (provider != null && providerModels != null) {
+            val knownIds = providerModels.map { it.id }.toSet()
+            val group = provider.quotaGroups.firstOrNull { this.id in it.modelIds }
+            if (group != null) {
+                val modelIds = group.modelIds.filter { it in knownIds }
+                val owner = providerModels.firstOrNull { it.id == modelIds.firstOrNull() } ?: this
+                return QuotaScope(
+                    owner = owner,
+                    quota = group.quota,
+                    modelIds = modelIds.map { it.toString() },
+                    groupId = group.id,
+                    groupName = group.name,
+                ).takeIf { it.quota.enabled && it.modelIds.isNotEmpty() }
+            }
+
+            val modelQuota = quota
+            val hasLegacySharing = modelQuota?.sharedModelIds?.isNotEmpty() == true ||
+                    providerModels.any { otherModel -> this.id in otherModel.quota?.sharedModelIds.orEmpty() }
+            if (hasLegacySharing) {
+                val legacyScope = resolveQuotaScope(providerModels)
+                if (legacyScope != null) {
+                    return legacyScope
+                }
+            }
+
+            if (modelQuota?.enabled == true) {
+                return QuotaScope(
+                    owner = this,
+                    quota = modelQuota,
+                    modelIds = listOf(id.toString()),
+                )
+            }
+
+            return null
+        }
+
+        val allModels = providers.flatMap { it.models }
+        return resolveQuotaScope(allModels)
     }
 
     private fun newUsageEntity(modelId: String, timestamp: Long): ModelQuotaUsageEntity {
@@ -249,5 +346,7 @@ class ModelQuotaRepository(
         val owner: Model,
         val quota: ModelQuota,
         val modelIds: List<String>,
+        val groupId: Uuid? = null,
+        val groupName: String? = null,
     )
 }

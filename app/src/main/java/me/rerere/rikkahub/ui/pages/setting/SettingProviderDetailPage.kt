@@ -124,6 +124,7 @@ import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
+import me.rerere.ai.provider.ModelQuotaGroup
 import me.rerere.ai.provider.ModelType
 import me.rerere.ai.provider.ImageGenerationMethod
 import me.rerere.ai.provider.ModelQuota
@@ -198,7 +199,7 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
         val newSettings = settings.copy(
             providers = settings.providers.map {
                 if (newProvider.id == it.id) {
-                    newProvider
+                    newProvider.ensureVisibleQuotaGroups()
                 } else {
                     it
                 }
@@ -229,7 +230,7 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                                     existingModel
                                 }
                             }
-                        )
+                        ).ensureVisibleQuotaGroups()
                     }
                 }
             )
@@ -794,12 +795,460 @@ private fun QuotaSharedModelRow(
     }
 }
 
+@Composable
+private fun QuotaSourceCard(
+    currentGroup: ModelQuotaGroup?,
+    singleQuota: ModelQuota?,
+    onDisable: () -> Unit,
+    onUseSingle: () -> Unit,
+    onOpenGroups: () -> Unit,
+    onManageGroup: () -> Unit,
+) {
+    val sourceTitle = when {
+        currentGroup != null -> stringResource(R.string.quota_source_group, currentGroup.name)
+        singleQuota?.enabled == true -> stringResource(R.string.quota_source_single)
+        else -> stringResource(R.string.quota_source_none)
+    }
+    val sourceDesc = when {
+        currentGroup != null -> stringResource(R.string.quota_source_group_desc)
+        singleQuota?.enabled == true -> stringResource(R.string.quota_source_single_desc)
+        else -> stringResource(R.string.quota_source_none_desc)
+    }
+
+    QuotaSectionCard(
+        title = stringResource(R.string.quota_source_title),
+        subtitle = sourceDesc,
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.NetworkCheck,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                Text(
+                    text = sourceTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            QuotaSourceOptionRow(
+                title = stringResource(R.string.quota_source_none),
+                subtitle = stringResource(R.string.quota_source_none_option_desc),
+                selected = currentGroup == null && singleQuota?.enabled != true,
+                onClick = onDisable,
+            )
+            QuotaSourceOptionRow(
+                title = stringResource(R.string.quota_source_single),
+                subtitle = stringResource(R.string.quota_source_single_option_desc),
+                selected = currentGroup == null && singleQuota?.enabled == true,
+                onClick = onUseSingle,
+            )
+            QuotaSourceOptionRow(
+                title = stringResource(R.string.quota_source_group_option),
+                subtitle = if (currentGroup != null) {
+                    stringResource(R.string.quota_source_group_current, currentGroup.name)
+                } else {
+                    stringResource(R.string.quota_source_group_option_desc)
+                },
+                selected = currentGroup != null,
+                onClick = if (currentGroup != null) onManageGroup else onOpenGroups,
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuotaSourceOptionRow(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val haptics = rememberPremiumHaptics(enabled = true)
+    Surface(
+        onClick = {
+            haptics.perform(HapticPattern.Pop)
+            onClick()
+        },
+        modifier = Modifier.fillMaxWidth(),
+        shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+        color = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                imageVector = if (selected) Icons.Rounded.Check else Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = if (selected) {
+                    MaterialTheme.colorScheme.onSecondaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.78f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuotaGroupSummaryRow(
+    group: ModelQuotaGroup,
+    provider: ProviderSetting,
+    usage: QuotaUsageResult?,
+    numberFormat: NumberFormat,
+    onClick: () -> Unit,
+) {
+    val models = provider.models.filter { it.id in group.modelIds }
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(Icons.Rounded.ViewModule, contentDescription = null)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = group.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = stringResource(
+                        R.string.quota_group_summary,
+                        models.size,
+                        numberFormat.format(usage?.usedTokens ?: 0L),
+                        numberFormat.format(group.quota.tokenLimit),
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null)
+        }
+    }
+}
+
+@Composable
+private fun QuotaGroupPickerRow(
+    group: ModelQuotaGroup,
+    provider: ProviderSetting,
+    selected: Boolean,
+    currentModelId: Uuid,
+    onClick: () -> Unit,
+    onManage: () -> Unit,
+) {
+    val models = provider.models.filter { it.id in group.modelIds }
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+        color = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                imageVector = if (selected) Icons.Rounded.Check else Icons.Rounded.ViewModule,
+                contentDescription = null,
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = group.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Tag(type = if (currentModelId in group.modelIds) TagType.SUCCESS else TagType.INFO) {
+                        Text(stringResource(R.string.quota_group_model_count, models.size))
+                    }
+                    Tag {
+                        Text(stringResource(group.quota.resetPeriod.stringRes()))
+                    }
+                }
+            }
+            IconButton(onClick = onManage) {
+                Icon(Icons.Rounded.Settings, contentDescription = stringResource(R.string.quota_group_manage_title))
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuotaGroupModelRow(
+    model: Model,
+    provider: ProviderSetting,
+    selected: Boolean,
+    enabled: Boolean = true,
+    note: String?,
+    onClick: () -> Unit,
+) {
+    val haptics = rememberPremiumHaptics(enabled = true)
+    Surface(
+        onClick = {
+            if (enabled) {
+                haptics.perform(HapticPattern.Pop)
+                onClick()
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
+        shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+        color = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ModelIcon(
+                model = model,
+                provider = provider,
+                modifier = Modifier.size(30.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    text = model.displayName.ifBlank { model.modelId },
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = note ?: model.modelId,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                imageVector = if (selected) Icons.Rounded.Check else Icons.Rounded.Add,
+                contentDescription = null,
+                tint = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+    }
+}
+
 private fun List<Model>.upsertModel(model: Model): List<Model> {
     return if (any { it.id == model.id }) {
         map { if (it.id == model.id) model else it }
     } else {
         this + model
     }
+}
+
+private fun ProviderSetting.sanitizedQuotaGroups(): List<ModelQuotaGroup> {
+    val knownIds = models.map { it.id }.toSet()
+    val usedIds = mutableSetOf<Uuid>()
+    return quotaGroups.mapNotNull { group ->
+        val modelIds = group.modelIds
+            .filter { it in knownIds && usedIds.add(it) }
+            .toSet()
+        if (modelIds.isEmpty()) {
+            null
+        } else {
+            group.copy(
+                quota = group.quota.copy(enabled = true, sharedModelIds = emptySet()),
+                modelIds = modelIds,
+            )
+        }
+    }
+}
+
+private fun ProviderSetting.findQuotaGroupForModel(modelId: Uuid): ModelQuotaGroup? {
+    return sanitizedQuotaGroups().firstOrNull { modelId in it.modelIds }
+}
+
+private fun ProviderSetting.findQuotaGroup(groupId: Uuid?): ModelQuotaGroup? {
+    return sanitizedQuotaGroups().firstOrNull { it.id == groupId }
+}
+
+private fun ProviderSetting.withModelQuota(modelId: Uuid, quota: ModelQuota): ProviderSetting {
+    return copyProvider(
+        models = models.map { model ->
+            if (model.id == modelId) model.copy(quota = quota.copy(sharedModelIds = emptySet())) else model
+        },
+        quotaGroups = sanitizedQuotaGroups(),
+    )
+}
+
+private fun ProviderSetting.withQuotaGroups(groups: List<ModelQuotaGroup>): ProviderSetting {
+    val knownIds = models.map { it.id }.toSet()
+    val usedIds = mutableSetOf<Uuid>()
+    val cleanedGroups = groups.mapNotNull { group ->
+        val modelIds = group.modelIds
+            .filter { it in knownIds && usedIds.add(it) }
+            .toSet()
+        if (modelIds.isEmpty()) {
+            null
+        } else {
+            group.copy(
+                name = group.name.ifBlank { "Quota Group" },
+                quota = group.quota.copy(enabled = true, sharedModelIds = emptySet()),
+                modelIds = modelIds,
+            )
+        }
+    }
+    return copyProvider(quotaGroups = cleanedGroups)
+}
+
+private fun ProviderSetting.moveModelToQuotaGroup(modelId: Uuid, groupId: Uuid): ProviderSetting {
+    return withQuotaGroups(
+        sanitizedQuotaGroups().map { group ->
+            when (group.id) {
+                groupId -> group.copy(modelIds = group.modelIds + modelId)
+                else -> group.copy(modelIds = group.modelIds - modelId)
+            }
+        }
+    )
+}
+
+private fun ProviderSetting.removeModelFromQuotaGroups(modelId: Uuid): ProviderSetting {
+    return withQuotaGroups(
+        sanitizedQuotaGroups().map { group ->
+            group.copy(modelIds = group.modelIds - modelId)
+        }
+    )
+}
+
+private fun ProviderSetting.upsertQuotaGroup(group: ModelQuotaGroup): ProviderSetting {
+    val withoutMemberConflicts = sanitizedQuotaGroups().map { existing ->
+        if (existing.id == group.id) {
+            existing
+        } else {
+            existing.copy(modelIds = existing.modelIds - group.modelIds)
+        }
+    }
+    val exists = withoutMemberConflicts.any { it.id == group.id }
+    val nextGroups = if (exists) {
+        withoutMemberConflicts.map { existing ->
+            if (existing.id == group.id) group else existing
+        }
+    } else {
+        withoutMemberConflicts + group
+    }
+    return withQuotaGroups(nextGroups)
+}
+
+private fun ProviderSetting.deleteQuotaGroup(groupId: Uuid): ProviderSetting {
+    return withQuotaGroups(sanitizedQuotaGroups().filterNot { it.id == groupId })
+}
+
+private fun ProviderSetting.legacyQuotaGroups(): List<ModelQuotaGroup> {
+    val knownIds = models.map { it.id }.toSet()
+    val visited = mutableSetOf<Uuid>()
+    val groups = mutableListOf<ModelQuotaGroup>()
+
+    models.forEach { model ->
+        if (model.id in visited) return@forEach
+        val groupIds = findQuotaGroupIds(models, model.id)
+        visited += groupIds
+        if (groupIds.size > 1) {
+            val owner = models.firstOrNull { it.id in groupIds && it.quota?.enabled == true }
+                ?: models.firstOrNull { it.id == model.id }
+                ?: model
+            val quota = (owner.quota ?: ModelQuota(enabled = true)).copy(
+                enabled = true,
+                sharedModelIds = emptySet(),
+            )
+            groups += ModelQuotaGroup(
+                name = owner.displayName.ifBlank { owner.modelId }.ifBlank { "Quota Group" },
+                quota = quota,
+                modelIds = groupIds.filter { it in knownIds }.toSet(),
+            )
+        }
+    }
+
+    return groups
+}
+
+private fun ProviderSetting.ensureVisibleQuotaGroups(): ProviderSetting {
+    if (quotaGroups.isNotEmpty()) {
+        return copyProvider(quotaGroups = sanitizedQuotaGroups())
+    }
+    val legacyGroups = legacyQuotaGroups()
+    if (legacyGroups.isEmpty()) {
+        return this
+    }
+    return withQuotaGroups(legacyGroups)
+}
+
+private fun List<ProviderSetting>.ensureVisibleQuotaGroups(): List<ProviderSetting> {
+    return map { it.ensureVisibleQuotaGroups() }
 }
 
 private fun findQuotaGroupIds(models: List<Model>, modelId: Uuid): Set<Uuid> {
@@ -902,9 +1351,15 @@ private fun formatQuotaTime(hour: Int, minute: Int): String {
     return "%02d:%02d".format(hour.coerceIn(0, 23), minute.coerceIn(0, 59))
 }
 
+private enum class QuotaSettingsPage {
+    MODEL,
+    GROUPS,
+    GROUP_DETAIL,
+}
+
 
 @Composable
-private fun TokenQuotaSettingsContent(
+private fun TokenQuotaSettingsContentLegacy(
     model: Model,
     provider: ProviderSetting,
     onBack: () -> Unit,
@@ -1207,6 +1662,519 @@ private fun TokenQuotaSettingsContent(
             },
             dismissButton = {
                 TextButton(onClick = { showResetConfirm = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun TokenQuotaSettingsContent(
+    model: Model,
+    provider: ProviderSetting,
+    onBack: () -> Unit,
+    onProviderChange: (ProviderSetting) -> Unit,
+) {
+    val toaster = LocalToaster.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val modelQuotaRepo = koinInject<ModelQuotaRepository>()
+    val numberFormat = remember { NumberFormat.getNumberInstance() }
+    val haptics = rememberPremiumHaptics(enabled = true)
+    var showResetConfirm by remember { mutableStateOf(false) }
+    var showDeleteGroupConfirm by remember { mutableStateOf<ModelQuotaGroup?>(null) }
+    var page by remember { mutableStateOf(QuotaSettingsPage.MODEL) }
+    var selectedGroupId by remember { mutableStateOf<Uuid?>(null) }
+
+    var draftProvider by remember(provider.id, model.id) {
+        mutableStateOf(provider.ensureVisibleQuotaGroups())
+    }
+    LaunchedEffect(provider, model.id) {
+        draftProvider = provider.ensureVisibleQuotaGroups()
+    }
+
+    val currentModel = draftProvider.models.firstOrNull { it.id == model.id } ?: model
+    val groups = draftProvider.sanitizedQuotaGroups()
+    val currentGroup = groups.firstOrNull { currentModel.id in it.modelIds }
+    val selectedGroup = groups.firstOrNull { it.id == selectedGroupId } ?: currentGroup
+    val effectiveQuota = currentGroup?.quota ?: currentModel.quota ?: ModelQuota()
+    val enabled = currentGroup != null || effectiveQuota.enabled
+    val effectiveModelIds = currentGroup?.modelIds ?: setOf(currentModel.id)
+
+    var quotaUsage by remember(currentModel.id, currentGroup?.id, effectiveQuota.enabled) {
+        mutableStateOf<QuotaUsageResult?>(null)
+    }
+    LaunchedEffect(draftProvider, currentModel.id, currentGroup?.id, effectiveQuota.enabled) {
+        quotaUsage = if (enabled) {
+            modelQuotaRepo.getQuotaUsageForProviders(currentModel, listOf(draftProvider))
+        } else {
+            null
+        }
+    }
+
+    fun commitProvider(updatedProvider: ProviderSetting) {
+        val sanitized = updatedProvider.ensureVisibleQuotaGroups()
+        draftProvider = sanitized
+        onProviderChange(sanitized)
+    }
+
+    fun updateSingleQuota(updatedQuota: ModelQuota) {
+        commitProvider(
+            draftProvider
+                .removeModelFromQuotaGroups(currentModel.id)
+                .withModelQuota(currentModel.id, updatedQuota.copy(sharedModelIds = emptySet()))
+        )
+    }
+
+    fun updateCurrentGroup(updatedGroup: ModelQuotaGroup) {
+        commitProvider(draftProvider.upsertQuotaGroup(updatedGroup))
+    }
+
+    fun createGroup(): ModelQuotaGroup {
+        val groupName = currentModel.displayName.ifBlank { currentModel.modelId }
+            .ifBlank { context.getString(R.string.quota_group_default_name) }
+        val group = ModelQuotaGroup(
+            name = context.getString(R.string.quota_group_name_format, groupName),
+            quota = (currentModel.quota ?: ModelQuota()).copy(enabled = true, sharedModelIds = emptySet()),
+            modelIds = setOf(currentModel.id),
+        )
+        commitProvider(draftProvider.upsertQuotaGroup(group))
+        selectedGroupId = group.id
+        page = QuotaSettingsPage.GROUP_DETAIL
+        return group
+    }
+
+    fun openGroupDetail(group: ModelQuotaGroup) {
+        selectedGroupId = group.id
+        page = QuotaSettingsPage.GROUP_DETAIL
+    }
+
+    val title = when (page) {
+        QuotaSettingsPage.MODEL -> stringResource(R.string.quota_settings_title)
+        QuotaSettingsPage.GROUPS -> stringResource(R.string.quota_group_select_title)
+        QuotaSettingsPage.GROUP_DETAIL -> selectedGroup?.name ?: stringResource(R.string.quota_group_manage_title)
+    }
+    val subtitle = when (page) {
+        QuotaSettingsPage.MODEL -> currentModel.displayName.ifBlank { currentModel.modelId }
+        QuotaSettingsPage.GROUPS -> stringResource(R.string.quota_group_select_desc)
+        QuotaSettingsPage.GROUP_DETAIL -> stringResource(
+            R.string.quota_group_model_count,
+            selectedGroup?.modelIds?.size ?: 0,
+        )
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    TokenQuotaBackButton(
+                        onClick = {
+                            if (page == QuotaSettingsPage.MODEL) {
+                                onBack()
+                            } else {
+                                page = QuotaSettingsPage.MODEL
+                            }
+                        }
+                    )
+                },
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        ModelIcon(
+                            model = currentModel,
+                            provider = draftProvider,
+                            modifier = Modifier.size(26.dp),
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(
+                                text = title,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                },
+            )
+        },
+    ) { contentPadding ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .imePadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(contentPadding)
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                when (page) {
+                    QuotaSettingsPage.MODEL -> {
+                        QuotaUsageCard(
+                            usage = quotaUsage,
+                            quota = effectiveQuota,
+                            numberFormat = numberFormat,
+                        )
+
+                        QuotaSourceCard(
+                            currentGroup = currentGroup,
+                            singleQuota = currentModel.quota,
+                            onDisable = {
+                                haptics.perform(HapticPattern.Pop)
+                                updateSingleQuota((currentModel.quota ?: ModelQuota()).copy(enabled = false))
+                            },
+                            onUseSingle = {
+                                haptics.perform(HapticPattern.Pop)
+                                updateSingleQuota((currentModel.quota ?: ModelQuota()).copy(enabled = true))
+                            },
+                            onOpenGroups = {
+                                haptics.perform(HapticPattern.Pop)
+                                page = QuotaSettingsPage.GROUPS
+                            },
+                            onManageGroup = {
+                                haptics.perform(HapticPattern.Pop)
+                                currentGroup?.let(::openGroupDetail)
+                            },
+                        )
+
+                        AnimatedVisibility(visible = currentGroup == null && currentModel.quota?.enabled == true) {
+                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                QuotaSectionCard(
+                                    title = stringResource(R.string.quota_settings_usage_rules),
+                                ) {
+                                    QuotaLimitField(
+                                        tokenLimit = effectiveQuota.tokenLimit,
+                                        onTokenLimitChange = {
+                                            updateSingleQuota(effectiveQuota.copy(tokenLimit = it))
+                                        },
+                                    )
+
+                                    QuotaReminderSlider(
+                                        percentage = effectiveQuota.reminderPercentage,
+                                        onPercentageChange = {
+                                            updateSingleQuota(effectiveQuota.copy(reminderPercentage = it))
+                                        },
+                                    )
+                                }
+
+                                QuotaSectionCard(
+                                    title = stringResource(R.string.quota_settings_reset_schedule),
+                                ) {
+                                    QuotaResetPeriodPicker(
+                                        period = effectiveQuota.resetPeriod,
+                                        onPeriodChange = {
+                                            haptics.perform(HapticPattern.Pop)
+                                            updateSingleQuota(effectiveQuota.copy(resetPeriod = it))
+                                        },
+                                    )
+                                    QuotaResetTimeFields(
+                                        quota = effectiveQuota,
+                                        onQuotaChange = ::updateSingleQuota,
+                                    )
+                                }
+                            }
+                        }
+
+                        if (currentGroup != null) {
+                            QuotaSectionCard(
+                                title = stringResource(R.string.quota_group_active_title),
+                                subtitle = stringResource(R.string.quota_group_active_desc),
+                            ) {
+                                QuotaGroupSummaryRow(
+                                    group = currentGroup,
+                                    provider = draftProvider,
+                                    usage = quotaUsage,
+                                    numberFormat = numberFormat,
+                                    onClick = {
+                                        haptics.perform(HapticPattern.Pop)
+                                        openGroupDetail(currentGroup)
+                                    },
+                                )
+                                TextButton(
+                                    onClick = {
+                                    haptics.perform(HapticPattern.Pop)
+                                    commitProvider(draftProvider.removeModelFromQuotaGroups(currentModel.id))
+                                    selectedGroupId = null
+                                },
+                            ) {
+                                    Text(stringResource(R.string.quota_group_leave))
+                                }
+                            }
+                        }
+
+                        AnimatedVisibility(visible = enabled) {
+                            OutlinedCard(
+                                onClick = {
+                                    haptics.perform(HapticPattern.Pop)
+                                    showResetConfirm = true
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Refresh,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.quota_settings_reset_usage),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    QuotaSettingsPage.GROUPS -> {
+                        QuotaSectionCard(
+                            title = stringResource(R.string.quota_group_select_title),
+                            subtitle = stringResource(R.string.quota_group_select_desc),
+                        ) {
+                            if (groups.isEmpty()) {
+                                Text(
+                                    text = stringResource(R.string.quota_group_empty),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    groups.forEach { group ->
+                                        QuotaGroupPickerRow(
+                                            group = group,
+                                            provider = draftProvider,
+                                            selected = group.id == currentGroup?.id,
+                                            currentModelId = currentModel.id,
+                                            onClick = {
+                                                haptics.perform(HapticPattern.Pop)
+                                                commitProvider(draftProvider.moveModelToQuotaGroup(currentModel.id, group.id))
+                                                selectedGroupId = group.id
+                                                page = QuotaSettingsPage.MODEL
+                                            },
+                                            onManage = {
+                                                haptics.perform(HapticPattern.Pop)
+                                                openGroupDetail(group)
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                            Button(
+                                onClick = {
+                                    haptics.perform(HapticPattern.Pop)
+                                    createGroup()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = me.rerere.rikkahub.ui.theme.AppShapes.ButtonPill,
+                            ) {
+                                Icon(Icons.Rounded.Add, contentDescription = null)
+                                Spacer(modifier = Modifier.size(8.dp))
+                                Text(stringResource(R.string.quota_group_create))
+                            }
+                        }
+                    }
+
+                    QuotaSettingsPage.GROUP_DETAIL -> {
+                        val group = selectedGroup
+                        if (group == null) {
+                            QuotaSectionCard {
+                                Text(
+                                    text = stringResource(R.string.quota_group_missing),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            QuotaSectionCard(
+                                title = stringResource(R.string.quota_group_basic_info),
+                            ) {
+                                OutlinedTextField(
+                                    value = group.name,
+                                    onValueChange = { updateCurrentGroup(group.copy(name = it)) },
+                                    label = { Text(stringResource(R.string.quota_group_name)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+                                )
+                            }
+
+                            QuotaSectionCard(
+                                title = stringResource(R.string.quota_settings_usage_rules),
+                            ) {
+                                QuotaLimitField(
+                                    tokenLimit = group.quota.tokenLimit,
+                                    onTokenLimitChange = {
+                                        updateCurrentGroup(group.copy(quota = group.quota.copy(tokenLimit = it)))
+                                    },
+                                )
+                                QuotaReminderSlider(
+                                    percentage = group.quota.reminderPercentage,
+                                    onPercentageChange = {
+                                        updateCurrentGroup(group.copy(quota = group.quota.copy(reminderPercentage = it)))
+                                    },
+                                )
+                            }
+
+                            QuotaSectionCard(
+                                title = stringResource(R.string.quota_settings_reset_schedule),
+                            ) {
+                                QuotaResetPeriodPicker(
+                                    period = group.quota.resetPeriod,
+                                    onPeriodChange = {
+                                        haptics.perform(HapticPattern.Pop)
+                                        updateCurrentGroup(group.copy(quota = group.quota.copy(resetPeriod = it)))
+                                    },
+                                )
+                                QuotaResetTimeFields(
+                                    quota = group.quota,
+                                    onQuotaChange = { updateCurrentGroup(group.copy(quota = it)) },
+                                )
+                            }
+
+                            QuotaSectionCard(
+                                title = stringResource(R.string.quota_group_models_title),
+                                subtitle = stringResource(R.string.quota_group_models_desc),
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    draftProvider.models.forEach { modelItem ->
+                                        val memberOf = groups.firstOrNull { modelItem.id in it.modelIds }
+                                        val selected = modelItem.id in group.modelIds
+                                        val canRemove = !selected || group.modelIds.size > 1
+                                        QuotaGroupModelRow(
+                                            model = modelItem,
+                                            provider = draftProvider,
+                                            selected = selected,
+                                            enabled = canRemove,
+                                            note = if (!selected && memberOf != null) {
+                                                stringResource(R.string.quota_group_in_other_group, memberOf.name)
+                                            } else if (selected && !canRemove) {
+                                                stringResource(R.string.quota_group_keep_one_model)
+                                            } else null,
+                                            onClick = {
+                                                val nextGroup = if (selected) {
+                                                    group.copy(modelIds = group.modelIds - modelItem.id)
+                                                } else {
+                                                    group.copy(modelIds = group.modelIds + modelItem.id)
+                                                }
+                                                updateCurrentGroup(nextGroup)
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+
+                            OutlinedCard(
+                                onClick = {
+                                    haptics.perform(HapticPattern.Pop)
+                                    showDeleteGroupConfirm = group
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Delete,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.quota_group_delete),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(96.dp)
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                MaterialTheme.colorScheme.background,
+                            )
+                        )
+                    )
+            )
+        }
+    }
+
+    if (showResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirm = false },
+            title = { Text(stringResource(R.string.quota_settings_reset_usage)) },
+            text = { Text(stringResource(R.string.quota_settings_reset_confirm)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            modelQuotaRepo.resetQuota(effectiveModelIds)
+                            quotaUsage = modelQuotaRepo.getQuotaUsageForProviders(currentModel, listOf(draftProvider))
+                        }
+                        showResetConfirm = false
+                        toaster.show(
+                            message = context.getString(R.string.quota_settings_reset_usage),
+                            type = ToastType.Success,
+                        )
+                    },
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirm = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    showDeleteGroupConfirm?.let { group ->
+        AlertDialog(
+            onDismissRequest = { showDeleteGroupConfirm = null },
+            title = { Text(stringResource(R.string.quota_group_delete)) },
+            text = { Text(stringResource(R.string.quota_group_delete_confirm)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        commitProvider(draftProvider.deleteQuotaGroup(group.id))
+                        selectedGroupId = null
+                        page = QuotaSettingsPage.MODEL
+                        showDeleteGroupConfirm = null
+                    },
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteGroupConfirm = null }) {
                     Text(stringResource(R.string.cancel))
                 }
             },
@@ -1635,14 +2603,14 @@ private fun ModelList(
         }
         
         if (needsUpdate) {
-            onUpdateProvider(providerSetting.copyProvider(models = updatedModels))
+            onUpdateProvider(providerSetting.copyProvider(models = updatedModels).ensureVisibleQuotaGroups())
         }
     }
     
     var expanded by rememberSaveable { mutableStateOf(true) }
     val lazyListState = rememberLazyListState()
     val reorderableLazyListState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        onUpdateProvider(providerSetting.moveMove(from.index, to.index))
+        onUpdateProvider(providerSetting.moveMove(from.index, to.index).ensureVisibleQuotaGroups())
     }
     val scope = rememberCoroutineScope()
     val haptics = me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics()
@@ -1683,13 +2651,13 @@ private fun ModelList(
                             position = position,
                             canDelete = canDelete,
                             onDelete = {
-                                onUpdateProvider(providerSetting.delModel(item))
+                                onUpdateProvider(providerSetting.delModel(item).ensureVisibleQuotaGroups())
                             },
                             onEdit = { editedModel ->
-                                onUpdateProvider(providerSetting.editModel(editedModel))
+                                onUpdateProvider(providerSetting.editModel(editedModel).ensureVisibleQuotaGroups())
                             },
-                            onUpdateModels = { updatedModels ->
-                                onUpdateProvider(providerSetting.copyProvider(models = updatedModels))
+                            onUpdateProvider = { updatedProvider ->
+                                onUpdateProvider(updatedProvider)
                             },
                             onGenerateModelName = onGenerateModelName,
                             parentProvider = providerSetting,
@@ -1783,7 +2751,7 @@ private fun ModelList(
                 models = modelList,
                 selectedModels = providerSetting.models,
                 onAddModel = {
-                    onUpdateProvider(providerSetting.addModel(it))
+                    onUpdateProvider(providerSetting.addModel(it).ensureVisibleQuotaGroups())
                     scope.launch {
                         val generatedName = onGenerateModelName(it.modelId)
                         if (!generatedName.isNullOrBlank()) {
@@ -1792,14 +2760,14 @@ private fun ModelList(
                     }
                 },
                 onRemoveModel = {
-                    onUpdateProvider(providerSetting.delModel(it))
+                    onUpdateProvider(providerSetting.delModel(it).ensureVisibleQuotaGroups())
                 },
                 onAddModels = { models ->
                     var updated = providerSetting
                     models.forEach { model ->
                         updated = updated.addModel(model)
                     }
-                    onUpdateProvider(updated)
+                    onUpdateProvider(updated.ensureVisibleQuotaGroups())
                     models.forEach { model ->
                         scope.launch {
                             val generatedName = onGenerateModelName(model.modelId)
@@ -1814,15 +2782,15 @@ private fun ModelList(
                     models.forEach { model ->
                         updated = updated.delModel(model)
                     }
-                    onUpdateProvider(updated)
+                    onUpdateProvider(updated.ensureVisibleQuotaGroups())
                 },
                 parentProvider = providerSetting
             )
             
             // Main FAB for add new custom model
             AddNewModelFab(
-                onAddModels = { updatedModels ->
-                    onUpdateProvider(providerSetting.copyProvider(models = updatedModels))
+                onAddProvider = { updatedProvider ->
+                    onUpdateProvider(updatedProvider.ensureVisibleQuotaGroups())
                 },
                 onGenerateModelName = onGenerateModelName,
                 parentProvider = providerSetting
@@ -1835,6 +2803,7 @@ private fun ModelList(
 private fun ModelSettingsForm(
     model: Model,
     onModelChange: (Model) -> Unit,
+    onProviderChange: ((ProviderSetting) -> Unit)? = null,
     onProviderModelsChange: ((List<Model>) -> Unit)? = null,
     onGenerateModelName: suspend (String) -> String?,
     isEdit: Boolean,
@@ -2098,7 +3067,9 @@ private fun ModelSettingsForm(
                                 model = model,
                                 parentProvider = parentProvider,
                                 canOpenPage = isEdit,
-                                onModelsChange = onProviderModelsChange,
+                                onProviderChange = onProviderChange ?: onProviderModelsChange?.let { updateModels ->
+                                    { updatedProvider -> updateModels(updatedProvider.models) }
+                                },
                             )
                         }
                     }
@@ -2481,15 +3452,15 @@ private fun ModelPickerFab(
 
 @Composable
 private fun AddNewModelFab(
-    onAddModels: (List<Model>) -> Unit,
+    onAddProvider: (ProviderSetting) -> Unit,
     onGenerateModelName: suspend (String) -> String?,
     parentProvider: ProviderSetting
 ) {
     val dialogState = useEditState<Model> {}
     val scope = rememberCoroutineScope()
     val haptics = me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics()
-    var syncedProviderModels by remember(parentProvider.models) {
-        mutableStateOf<List<Model>?>(null)
+    var syncedProvider by remember(parentProvider) {
+        mutableStateOf<ProviderSetting?>(null)
     }
     
     FloatingActionButton(
@@ -2545,8 +3516,13 @@ private fun AddNewModelFab(
                         ModelSettingsForm(
                             model = modelState,
                             onModelChange = { dialogState.currentState = it },
+                            onProviderChange = { updatedProvider ->
+                                syncedProvider = updatedProvider
+                                dialogState.currentState = updatedProvider.models.firstOrNull { it.id == modelState.id }
+                                    ?: dialogState.currentState
+                            },
                             onProviderModelsChange = { updatedModels ->
-                                syncedProviderModels = updatedModels
+                                syncedProvider = parentProvider.copyProvider(models = updatedModels)
                                 dialogState.currentState = updatedModels.firstOrNull { it.id == modelState.id }
                                     ?: dialogState.currentState
                             },
@@ -2570,10 +3546,15 @@ private fun AddNewModelFab(
                         TextButton(
                             onClick = {
                                 if (modelState.modelId.isNotBlank() && modelState.displayName.isNotBlank()) {
-                                    val finalModels = syncedProviderModels
-                                        ?.map { if (it.id == modelState.id) modelState else it }
-                                        ?: (parentProvider.models + modelState)
-                                    onAddModels(finalModels)
+                                    val baseProvider = syncedProvider ?: parentProvider
+                                    val finalProvider = baseProvider.copyProvider(
+                                        models = if (baseProvider.models.any { it.id == modelState.id }) {
+                                            baseProvider.models.map { if (it.id == modelState.id) modelState else it }
+                                        } else {
+                                            baseProvider.models + modelState
+                                        }
+                                    )
+                                    onAddProvider(finalProvider.ensureVisibleQuotaGroups())
                                     dialogState.dismiss()
                                 }
                             },
@@ -3009,7 +3990,7 @@ private fun ModelCard(
     canDelete: Boolean,
     onDelete: () -> Unit,
     onEdit: (Model) -> Unit,
-    onUpdateModels: (List<Model>) -> Unit,
+    onUpdateProvider: (ProviderSetting) -> Unit,
     onGenerateModelName: suspend (String) -> String?,
     parentProvider: ProviderSetting,
     dragHandle: @Composable () -> Unit,
@@ -3022,8 +4003,8 @@ private fun ModelCard(
     var initialSettingsPage by rememberSaveable(model.id) {
         mutableIntStateOf(0)
     }
-    var syncedProviderModels by remember(model.id, parentProvider.models) {
-        mutableStateOf<List<Model>?>(null)
+    var syncedProvider by remember(model.id, parentProvider) {
+        mutableStateOf<ProviderSetting?>(null)
     }
 
     if (dialogState.isEditing) {
@@ -3074,8 +4055,13 @@ private fun ModelCard(
                         ModelSettingsForm(
                             model = editingModel,
                             onModelChange = { dialogState.currentState = it },
+                            onProviderChange = { updatedProvider ->
+                                syncedProvider = updatedProvider
+                                dialogState.currentState = updatedProvider.models.firstOrNull { it.id == editingModel.id }
+                                    ?: dialogState.currentState
+                            },
                             onProviderModelsChange = { updatedModels ->
-                                syncedProviderModels = updatedModels
+                                syncedProvider = parentProvider.copyProvider(models = updatedModels)
                                 dialogState.currentState = updatedModels.firstOrNull { it.id == editingModel.id }
                                     ?: dialogState.currentState
                             },
@@ -3100,11 +4086,14 @@ private fun ModelCard(
                         TextButton(
                             onClick = {
                                 if (editingModel.displayName.isNotBlank()) {
-                                    if (syncedProviderModels != null) {
-                                        onUpdateModels(
-                                            syncedProviderModels!!.map { syncedModel ->
-                                                if (syncedModel.id == editingModel.id) editingModel else syncedModel
-                                            }
+                                    val providerToSave = syncedProvider
+                                    if (providerToSave != null) {
+                                        onUpdateProvider(
+                                            providerToSave.copyProvider(
+                                                models = providerToSave.models.map { syncedModel ->
+                                                    if (syncedModel.id == editingModel.id) editingModel else syncedModel
+                                                },
+                                            ).ensureVisibleQuotaGroups()
                                         )
                                         dialogState.dismiss()
                                     } else {
@@ -3484,7 +4473,7 @@ private fun TokenQuotaSettings(
     model: Model,
     parentProvider: ProviderSetting?,
     canOpenPage: Boolean,
-    onModelsChange: ((List<Model>) -> Unit)?,
+    onProviderChange: ((ProviderSetting) -> Unit)?,
 ) {
     val haptics = rememberPremiumHaptics(enabled = true)
     val currentModel = parentProvider?.models?.firstOrNull { it.id == model.id } ?: model
@@ -3515,7 +4504,7 @@ private fun TokenQuotaSettings(
         }
     }
 
-    if (showQuotaSheet && parentProvider != null && onModelsChange != null) {
+    if (showQuotaSheet && parentProvider != null && onProviderChange != null) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         val scope = rememberCoroutineScope()
         ModalBottomSheet(
@@ -3539,7 +4528,7 @@ private fun TokenQuotaSettings(
                             showQuotaSheet = false
                         }
                     },
-                    onModelsChange = onModelsChange,
+                    onProviderChange = onProviderChange,
                 )
             }
         }

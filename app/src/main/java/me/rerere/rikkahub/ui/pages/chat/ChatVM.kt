@@ -278,8 +278,7 @@ class ChatVM(
 
     val quotaUsageFlow: StateFlow<QuotaUsageResult?> = settings.flatMapLatest { settings ->
         val model = settings.getCurrentChatModel() ?: return@flatMapLatest flowOf(null)
-        val allModels = settings.providers.flatMap { it.models }
-        modelQuotaRepo.getQuotaUsageFlow(model, allModels)
+        modelQuotaRepo.getQuotaUsageFlowForProviders(model, settings.providers)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // 错误流 (从ChatService获取)

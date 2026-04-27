@@ -1397,9 +1397,8 @@ class ChatService(
                     val settings = settingsStore.settingsFlow.value
                     val currentModel = settings.getCurrentChatModel()
                     if (currentModel != null) {
-                        val allModels = settings.providers.flatMap { it.models }
-                        modelQuotaRepo.checkAndAutoReset(currentModel, allModels)
-                        val quotaResult = modelQuotaRepo.getQuotaUsage(currentModel, allModels)
+                        modelQuotaRepo.checkAndAutoResetForProviders(currentModel, settings.providers)
+                        val quotaResult = modelQuotaRepo.getQuotaUsageForProviders(currentModel, settings.providers)
                         if (quotaResult != null && quotaResult.isOverLimit) {
                             _quotaWarningFlow.emit(quotaResult)
                         }
@@ -1971,10 +1970,9 @@ class ChatService(
                                 outputTokens = tokenUsage.outputTokens,
                                 cachedTokens = tokenUsage.cachedTokens,
                             )
-                            val allModels = settings.providers.flatMap { it.models }
-                            val updatedQuota = modelQuotaRepo.getQuotaUsage(
+                            val updatedQuota = modelQuotaRepo.getQuotaUsageForProviders(
                                 currentModel,
-                                allModels
+                                settings.providers
                             )
                             if (updatedQuota != null && updatedQuota.isAtReminder) {
                                 _quotaWarningFlow.emit(updatedQuota)

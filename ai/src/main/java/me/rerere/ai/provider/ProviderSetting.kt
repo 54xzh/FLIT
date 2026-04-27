@@ -30,11 +30,20 @@ data class BalanceOption(
 )
 
 @Serializable
+data class ModelQuotaGroup(
+    val id: Uuid = Uuid.random(),
+    val name: String = "",
+    val quota: ModelQuota = ModelQuota(enabled = true),
+    val modelIds: Set<Uuid> = emptySet(),
+)
+
+@Serializable
 sealed class ProviderSetting {
     abstract val id: Uuid
     abstract val enabled: Boolean
     abstract val name: String
     abstract val models: List<Model>
+    abstract val quotaGroups: List<ModelQuotaGroup>
     abstract val proxy: ProviderProxy
     abstract val balanceOption: BalanceOption
     abstract val tags: List<Uuid>
@@ -53,6 +62,7 @@ sealed class ProviderSetting {
         enabled: Boolean = this.enabled,
         name: String = this.name,
         models: List<Model> = this.models,
+        quotaGroups: List<ModelQuotaGroup> = this.quotaGroups,
         proxy: ProviderProxy = this.proxy,
         balanceOption: BalanceOption = this.balanceOption,
         tags: List<Uuid> = this.tags,
@@ -69,6 +79,7 @@ sealed class ProviderSetting {
         override var enabled: Boolean = true,
         override var name: String = "OpenAI",
         override var models: List<Model> = emptyList(),
+        override var quotaGroups: List<ModelQuotaGroup> = emptyList(),
         override var proxy: ProviderProxy = ProviderProxy.None,
         override val balanceOption: BalanceOption = BalanceOption(),
         override var tags: List<Uuid> = emptyList(),
@@ -90,7 +101,12 @@ sealed class ProviderSetting {
         }
 
         override fun delModel(model: Model): ProviderSetting {
-            return copy(models = models.filter { it.id != model.id })
+            return copy(
+                models = models.filter { it.id != model.id },
+                quotaGroups = quotaGroups.map { group ->
+                    group.copy(modelIds = group.modelIds - model.id)
+                }
+            )
         }
 
         override fun moveMove(
@@ -108,6 +124,7 @@ sealed class ProviderSetting {
             enabled: Boolean,
             name: String,
             models: List<Model>,
+            quotaGroups: List<ModelQuotaGroup>,
             proxy: ProviderProxy,
             balanceOption: BalanceOption,
             tags: List<Uuid>,
@@ -121,6 +138,7 @@ sealed class ProviderSetting {
                 enabled = enabled,
                 name = name,
                 models = models,
+                quotaGroups = quotaGroups,
                 customIconUri = customIconUri,
                 builtIn = builtIn,
                 description = description,
@@ -139,6 +157,7 @@ sealed class ProviderSetting {
         override var enabled: Boolean = true,
         override var name: String = "Google",
         override var models: List<Model> = emptyList(),
+        override var quotaGroups: List<ModelQuotaGroup> = emptyList(),
         override var proxy: ProviderProxy = ProviderProxy.None,
         override val balanceOption: BalanceOption = BalanceOption(),
         override var tags: List<Uuid> = emptyList(),
@@ -163,7 +182,12 @@ sealed class ProviderSetting {
         }
 
         override fun delModel(model: Model): ProviderSetting {
-            return copy(models = models.filter { it.id != model.id })
+            return copy(
+                models = models.filter { it.id != model.id },
+                quotaGroups = quotaGroups.map { group ->
+                    group.copy(modelIds = group.modelIds - model.id)
+                }
+            )
         }
 
         override fun moveMove(
@@ -181,6 +205,7 @@ sealed class ProviderSetting {
             enabled: Boolean,
             name: String,
             models: List<Model>,
+            quotaGroups: List<ModelQuotaGroup>,
             proxy: ProviderProxy,
             balanceOption: BalanceOption,
             tags: List<Uuid>,
@@ -194,6 +219,7 @@ sealed class ProviderSetting {
                 enabled = enabled,
                 name = name,
                 models = models,
+                quotaGroups = quotaGroups,
                 customIconUri = customIconUri,
                 builtIn = builtIn,
                 description = description,
@@ -212,6 +238,7 @@ sealed class ProviderSetting {
         override var enabled: Boolean = true,
         override var name: String = "Claude",
         override var models: List<Model> = emptyList(),
+        override var quotaGroups: List<ModelQuotaGroup> = emptyList(),
         override var proxy: ProviderProxy = ProviderProxy.None,
         override val balanceOption: BalanceOption = BalanceOption(),
         override var tags: List<Uuid> = emptyList(),
@@ -231,7 +258,12 @@ sealed class ProviderSetting {
         }
 
         override fun delModel(model: Model): ProviderSetting {
-            return copy(models = models.filter { it.id != model.id })
+            return copy(
+                models = models.filter { it.id != model.id },
+                quotaGroups = quotaGroups.map { group ->
+                    group.copy(modelIds = group.modelIds - model.id)
+                }
+            )
         }
 
         override fun moveMove(
@@ -249,6 +281,7 @@ sealed class ProviderSetting {
             enabled: Boolean,
             name: String,
             models: List<Model>,
+            quotaGroups: List<ModelQuotaGroup>,
             proxy: ProviderProxy,
             balanceOption: BalanceOption,
             tags: List<Uuid>,
@@ -262,6 +295,7 @@ sealed class ProviderSetting {
                 enabled = enabled,
                 name = name,
                 models = models,
+                quotaGroups = quotaGroups,
                 customIconUri = customIconUri,
                 proxy = proxy,
                 balanceOption = balanceOption,
