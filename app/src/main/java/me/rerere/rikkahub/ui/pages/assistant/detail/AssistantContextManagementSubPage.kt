@@ -357,6 +357,34 @@ fun AssistantContextManagementSubPage(
             )
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // DOCUMENT ARCHIVING
+        // ═══════════════════════════════════════════════════════════════════
+        SettingsGroup(title = stringResource(R.string.context_doc_archive_title)) {
+            val docArchiveAge = assistant.archiveDocumentsAfterMessageAge ?: 0
+            var docArchiveSliderValue by remember(docArchiveAge) { mutableFloatStateOf(docArchiveAge.toFloat()) }
+
+            SliderSettingCard(
+                title = if (docArchiveSliderValue.roundToInt() == 0) {
+                    stringResource(R.string.context_doc_archive_disabled)
+                } else {
+                    stringResource(R.string.context_doc_archive_after, docArchiveSliderValue.roundToInt())
+                },
+                value = docArchiveSliderValue,
+                valueText = "",
+                description = stringResource(R.string.context_doc_archive_desc),
+                onValueChange = { docArchiveSliderValue = it },
+                onValueChangeFinished = {
+                    val newValue = docArchiveSliderValue.roundToInt()
+                    onUpdate(assistant.copy(
+                        archiveDocumentsAfterMessageAge = if (newValue == 0) null else newValue
+                    ))
+                },
+                valueRange = 0f..30f,
+                steps = 29
+            )
+        }
+
         Spacer(Modifier.height(32.dp))
     }
 }

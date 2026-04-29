@@ -14,6 +14,7 @@ enum class AIRequestSource {
     TOOL_RESULT_RAG,
     TRANSLATION,
     OCR,
+    DOCUMENT_SUMMARY,
     SCHEDULED_MESSAGE,
     SPONTANEOUS,
     MODEL_NAME_GENERATION,
@@ -35,6 +36,7 @@ fun AIRequestSource.displayNameZh(): String {
         AIRequestSource.TOOL_RESULT_RAG -> "工具结果检索"
         AIRequestSource.TRANSLATION -> "翻译"
         AIRequestSource.OCR -> "OCR"
+        AIRequestSource.DOCUMENT_SUMMARY -> "文件摘要"
         AIRequestSource.SCHEDULED_MESSAGE -> "定时消息"
         AIRequestSource.SPONTANEOUS -> "主动通知"
         AIRequestSource.MODEL_NAME_GENERATION -> "模型名称生成"

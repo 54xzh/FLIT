@@ -128,6 +128,7 @@ data class Assistant(
     val enableHistorySummarization: Boolean = false, // Generate summaries of pruned messages
     val maxSearchResultsRetained: Int? = null, // null = keep all, e.g. 2 = keep last 2 search results
     val archiveImagesAfterMessageAge: Int? = null, // null = 关闭；N = 只保留最近 N 条消息中的图片，更旧的替换为 OCR 文字
+    val archiveDocumentsAfterMessageAge: Int? = null, // null = 关闭；N = 只保留最近 N 条消息中的文件原文，更旧的替换为 AI 摘要
     val enableContextRefresh: Boolean = false, // Show Summarize Messages button in chat input
     val autoRegenerateSummary: Boolean = false, // Automatically summarize when maxHistoryMessages reached
 

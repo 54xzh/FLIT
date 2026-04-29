@@ -76,6 +76,7 @@
     <string name="request_log_source_tool_result_rag">Tool Result Retrieval</string>
     <string name="request_log_source_translation">Translation</string>
     <string name="request_log_source_ocr">OCR</string>
+    <string name="request_log_source_document_summary">Document Summary</string>
     <string name="request_log_source_scheduled_message">Scheduled Message</string>
     <string name="request_log_source_spontaneous">Spontaneous</string>
     <string name="request_log_source_model_name_generation">Model Name Generation</string>
@@ -1801,6 +1802,12 @@
     <string name="context_image_archive_disabled">Keep all images in context</string>
     <string name="context_image_archive_after">Archive images after %d messages</string>
     <string name="context_image_archive_desc">Images older than the threshold are replaced with OCR text to save context tokens. Requires an OCR model configured in Settings.</string>
+
+    <!-- Document Archiving -->
+    <string name="context_doc_archive_title">File Archiving</string>
+    <string name="context_doc_archive_disabled">Keep all file contents in context</string>
+    <string name="context_doc_archive_after">Archive files after %d messages</string>
+    <string name="context_doc_archive_desc">Files older than the threshold are replaced with AI summaries to save context tokens. Summaries are pre-generated in the background. Requires a context summarizer model.</string>
 
     <!-- Context Refresh -->
     <string name="context_refresh_title">Message Summarization</string>

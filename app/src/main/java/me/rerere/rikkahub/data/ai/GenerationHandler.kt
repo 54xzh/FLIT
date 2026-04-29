@@ -49,6 +49,7 @@ import me.rerere.ai.ui.truncate
 import me.rerere.ai.util.HttpStatusException
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_LEARNING_MODE_PROMPT
 import me.rerere.rikkahub.data.ai.transformers.InputMessageTransformer
+import me.rerere.rikkahub.data.ai.transformers.DocumentSummaryTransformer
 import me.rerere.rikkahub.data.ai.transformers.OcrTransformer
 import me.rerere.rikkahub.data.ai.transformers.MessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.OutputMessageTransformer
@@ -687,6 +688,8 @@ class GenerationHandler(
         } ?: contextMessages
 
         val imageArchivedMessages = archiveOldImageMessages(effectiveContextMessages, assistant)
+        preSummarizeDocuments(imageArchivedMessages, assistant, settings)
+        val documentArchivedMessages = archiveOldDocumentMessages(imageArchivedMessages, assistant, settings)
 
         // Token estimator (rough estimate: 4 chars per token)
         fun estimateTokens(text: String) = text.length / 4
@@ -774,7 +777,7 @@ class GenerationHandler(
         }
 
         // Get recent message text for lorebook keyword scanning
-        val recentMessagesForScan = imageArchivedMessages.takeLast(10).map { it.toText() }
+        val recentMessagesForScan = documentArchivedMessages.takeLast(10).map { it.toText() }
 
         val toolResultRagPrompt = run {
             if (toolResultHistoryMode != ToolResultHistoryMode.RAG) return@run ""
@@ -786,7 +789,7 @@ class GenerationHandler(
             val maxUserTurnIndexExclusive = (totalUserTurnCount - keepUserMessages).coerceAtLeast(0)
             if (maxUserTurnIndexExclusive <= 0) return@run ""
 
-            val queryText = imageArchivedMessages.asReversed()
+            val queryText = documentArchivedMessages.asReversed()
                 .asSequence()
                 .filter { it.role == MessageRole.USER }
                 .take(3)
@@ -991,7 +994,7 @@ class GenerationHandler(
 
         tools.forEach { tool ->
             baseSystemPromptBuilder.appendLine()
-            baseSystemPromptBuilder.append(tool.systemPrompt(model, imageArchivedMessages))
+            baseSystemPromptBuilder.append(tool.systemPrompt(model, documentArchivedMessages))
         }
         val baseSystemPrompt = baseSystemPromptBuilder.toString()
         currentTokens += estimateTokens(baseSystemPrompt)
@@ -1002,7 +1005,7 @@ class GenerationHandler(
 
         // 2. Prepare Candidates
         // Chat History (reverse order to prioritize recent)
-        val chatHistoryCandidates = imageArchivedMessages.reversed()
+        val chatHistoryCandidates = documentArchivedMessages.reversed()
         
         // Memories (Prepare effective memories including recent chats if enabled)
         val shouldInjectMemories = assistant.enableMemory &&
@@ -1964,6 +1967,61 @@ class GenerationHandler(
                 }
                 if (changed) message.copy(parts = updatedParts) else message
             }
+        }
+    }
+
+    /**
+     * 对即将进入归档区间（阈值前 1-2 轮）的文件，后台发起 AI 摘要（fire-and-forget）。
+     * 摘要结果写入缓存，供 [archiveOldDocumentMessages] 直接读取。
+     */
+    private fun preSummarizeDocuments(
+        messages: List<UIMessage>,
+        assistant: Assistant,
+        settings: Settings,
+    ) {
+        val threshold = assistant.archiveDocumentsAfterMessageAge?.takeIf { it > 0 } ?: return
+        val archiveBeforeIndex = (messages.size - threshold).coerceAtLeast(0)
+        val prewarmEnd = (archiveBeforeIndex + 2).coerceAtMost(messages.size)
+        for (i in archiveBeforeIndex until prewarmEnd) {
+            messages[i].parts.filterIsInstance<UIMessagePart.Document>().forEach { doc ->
+                DocumentSummaryTransformer.prewarm(doc, settings, assistant)
+            }
+        }
+    }
+
+    /**
+     * 将超出阈值的旧消息中的文件替换为 AI 摘要，以节省上下文 Token。
+     * 只从缓存读取摘要；缓存未命中则保留原文，并后台补发摘要预热。
+     */
+    private fun archiveOldDocumentMessages(
+        messages: List<UIMessage>,
+        assistant: Assistant,
+        settings: Settings,
+    ): List<UIMessage> {
+        val threshold = assistant.archiveDocumentsAfterMessageAge?.takeIf { it > 0 } ?: return messages
+        val archiveBeforeIndex = (messages.size - threshold).coerceAtLeast(0)
+        if (archiveBeforeIndex <= 0) return messages
+
+        return messages.mapIndexed { index, message ->
+            if (index >= archiveBeforeIndex) return@mapIndexed message
+            var changed = false
+            val updatedParts = buildList {
+                message.parts.forEach { part ->
+                    if (part is UIMessagePart.Document) {
+                        val cached = DocumentSummaryTransformer.getCached(part.url)
+                        if (cached != null) {
+                            changed = true
+                            add(UIMessagePart.Text(cached))
+                        } else {
+                            DocumentSummaryTransformer.prewarm(part, settings, assistant)
+                            add(part)
+                        }
+                    } else {
+                        add(part)
+                    }
+                }
+            }
+            if (changed) message.copy(parts = updatedParts) else message
         }
     }
 }

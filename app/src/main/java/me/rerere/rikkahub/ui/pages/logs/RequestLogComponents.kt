@@ -204,6 +204,7 @@ fun AIRequestSource.displayName(): String {
         AIRequestSource.TOOL_RESULT_RAG -> stringResource(R.string.request_log_source_tool_result_rag)
         AIRequestSource.TRANSLATION -> stringResource(R.string.request_log_source_translation)
         AIRequestSource.OCR -> stringResource(R.string.request_log_source_ocr)
+        AIRequestSource.DOCUMENT_SUMMARY -> stringResource(R.string.request_log_source_document_summary)
         AIRequestSource.SCHEDULED_MESSAGE -> stringResource(R.string.request_log_source_scheduled_message)
         AIRequestSource.SPONTANEOUS -> stringResource(R.string.request_log_source_spontaneous)
         AIRequestSource.MODEL_NAME_GENERATION -> stringResource(R.string.request_log_source_model_name_generation)

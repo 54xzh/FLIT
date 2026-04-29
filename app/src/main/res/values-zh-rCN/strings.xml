@@ -191,6 +191,11 @@
     <string name="context_image_archive_after">超过 %d 条消息后归档图片</string>
     <string name="context_image_archive_desc">超出阈值的旧图片将替换为 OCR 文字以节省上下文 Token。需要在设置中配置 OCR 模型。</string>
 
+    <string name="context_doc_archive_title">文件归档</string>
+    <string name="context_doc_archive_disabled">保留所有文件内容</string>
+    <string name="context_doc_archive_after">超过 %d 条消息后归档文件</string>
+    <string name="context_doc_archive_desc">超出阈值的旧文件将替换为 AI 摘要以节省上下文 Token。摘要会在归档前后台预生成。需要配置上下文总结模型。</string>
+
     <string name="mcp_tool_approval_prompt">是否允许执行 %1$s</string>
     <string name="mcp_tool_approval_title">工具审批</string>
     <string name="mcp_tool_approval_subtitle">工具：%1$s</string>
@@ -294,6 +299,7 @@
 
     <string name="setting_provider_page_generate_model_name">生成模型名称</string>
     <string name="setting_provider_page_generate_model_name_failed">模型名称生成失败</string>
+    <string name="request_log_source_document_summary">文件摘要</string>
     <string name="request_log_source_model_name_generation">模型名称生成</string>
     <string name="developer_option_auto_continue_on_truncation_title">截断时自动续写一次</string>
     <string name="developer_option_auto_continue_on_truncation_desc">当生成因 token 上限截断（非手动取消）时，自动续写一次。</string>

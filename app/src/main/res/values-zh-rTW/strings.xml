@@ -1747,6 +1747,7 @@
   <string name="request_log_source_tool_result_rag">工具結果檢索</string>
   <string name="request_log_source_translation">翻譯</string>
   <string name="request_log_source_ocr">OCR</string>
+  <string name="request_log_source_document_summary">檔案摘要</string>
   <string name="request_log_source_scheduled_message">定時訊息</string>
   <string name="request_log_source_spontaneous">主動通知</string>
   <string name="request_log_source_model_name_generation">模型名稱生成</string>
@@ -1795,6 +1796,12 @@
   <string name="context_image_archive_disabled">保留所有圖片上下文</string>
   <string name="context_image_archive_after">超過 %d 則訊息後歸檔圖片</string>
   <string name="context_image_archive_desc">超出閾值的舊圖片將替換為 OCR 文字以節省上下文 Token。需要在設定中配置 OCR 模型。</string>
+
+  <!-- Document Archiving -->
+  <string name="context_doc_archive_title">檔案歸檔</string>
+  <string name="context_doc_archive_disabled">保留所有檔案內容</string>
+  <string name="context_doc_archive_after">超過 %d 則訊息後歸檔檔案</string>
+  <string name="context_doc_archive_desc">超出閾值的舊檔案將替換為 AI 摘要以節省上下文 Token。摘要會在歸檔前於背景預先產生。需要配置上下文摘要模型。</string>
 
   <!-- Context Refresh -->
   <string name="context_refresh_title">對話摘要</string>
