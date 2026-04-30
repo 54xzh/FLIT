@@ -49,6 +49,9 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlin.uuid.Uuid
 
+private const val HISTORY_STATS_SCAN_BATCH_SIZE = 32
+private const val HISTORY_STATS_MAX_NODE_CHARS = 512 * 1024
+
 class ConversationRepository(
     private val context: Context,
     private val conversationDAO: ConversationDAO,
@@ -534,27 +537,39 @@ class ConversationRepository(
      * This is safe to run repeatedly and fills gaps caused by imports/restores.
      */
     suspend fun backfillDailyActivityFromConversationHistoryIfNeeded() {
-        val conversations = conversationDAO.getAll().first()
-        if (conversations.isEmpty()) return
+        val total = conversationDAO.getConversationCount()
+        if (total <= 0) return
 
         val existingDates = dailyActivityDAO.getAllDatesFlow().first().toHashSet()
         val dateCounts = mutableMapOf<String, Int>()
         val formatter = DateTimeFormatter.ISO_LOCAL_DATE
 
-        conversations.forEach { entity ->
-            val fallbackDate = Instant.ofEpochMilli(entity.createAt)
-                .atZone(ZoneId.systemDefault())
-                .toLocalDate()
-                .format(formatter)
+        var offset = 0
+        while (offset < total) {
+            val batch = conversationDAO.getHistoryBatchForStats(
+                limit = HISTORY_STATS_SCAN_BATCH_SIZE,
+                offset = offset,
+                maxNodeChars = HISTORY_STATS_MAX_NODE_CHARS
+            )
+            if (batch.isEmpty()) break
 
-            val selectedDates = extractSelectedMessageDates(entity.nodes)
-            if (selectedDates.isEmpty()) {
-                dateCounts[fallbackDate] = (dateCounts[fallbackDate] ?: 0) + 1
-            } else {
-                selectedDates.forEach { date ->
-                    dateCounts[date] = (dateCounts[date] ?: 0) + 1
+            batch.forEach { entity ->
+                val fallbackDate = Instant.ofEpochMilli(entity.createAt)
+                    .atZone(ZoneId.systemDefault())
+                    .toLocalDate()
+                    .format(formatter)
+
+                val selectedDates = extractSelectedMessageDates(entity.nodes)
+                if (selectedDates.isEmpty()) {
+                    dateCounts[fallbackDate] = (dateCounts[fallbackDate] ?: 0) + 1
+                } else {
+                    selectedDates.forEach { date ->
+                        dateCounts[date] = (dateCounts[date] ?: 0) + 1
+                    }
                 }
             }
+
+            offset += batch.size
         }
 
         if (dateCounts.isEmpty()) return
@@ -587,57 +602,47 @@ class ConversationRepository(
 
     fun getUsageStatsFlow(): Flow<UsageStatsEntity?> = usageStatsDAO.getStatsFlow()
 
-    fun getUsageStatsLast12MonthsFlow(): Flow<UsageStatsEntity> = combine(
-        conversationDAO.getAll(),
-        dailyActivityDAO.getAllActivityFlow(),
-        usageStatsDAO.getStatsFlow()
-    ) { allConversations, allActivity, persistedStats ->
+    fun getUsageStatsLast12MonthsFlow(): Flow<UsageStatsEntity> {
         val today = LocalDate.now()
         val windowStart = today.withDayOfMonth(1).minusMonths(11)
+        val zoneId = ZoneId.systemDefault()
+        val windowStartMs = windowStart.atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val windowEndMs = today.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
         val formatter = DateTimeFormatter.ISO_LOCAL_DATE
 
-        val conversationCountInWindow = allConversations.count { entity ->
-            val createdDate = Instant.ofEpochMilli(entity.createAt)
-                .atZone(ZoneId.systemDefault())
-                .toLocalDate()
-            !createdDate.isBefore(windowStart) && !createdDate.isAfter(today)
-        }.toLong()
+        return combine(
+            conversationDAO.getConversationCountCreatedBetweenFlow(windowStartMs, windowEndMs),
+            dailyActivityDAO.getAllActivityFlow(),
+            usageStatsDAO.getStatsFlow()
+        ) { conversationCountInWindow, allActivity, persistedStats ->
+            val messagesFromActivityInWindow = allActivity.sumOf { entity ->
+                val date = runCatching { LocalDate.parse(entity.date, formatter) }.getOrNull()
+                if (date != null && !date.isBefore(windowStart) && !date.isAfter(today)) {
+                    entity.messageCount.toLong()
+                } else {
+                    0L
+                }
+            }
 
-        val usageTotalsInWindow = allConversations.fold(HistoricalUsageTotals()) { acc, entity ->
-            val fallbackDate = Instant.ofEpochMilli(entity.createAt)
-                .atZone(ZoneId.systemDefault())
-                .toLocalDate()
-            acc + extractHistoricalUsage(
-                nodesJson = entity.nodes,
-                windowStart = windowStart,
-                windowEnd = today,
-                fallbackDate = fallbackDate
+            val fallbackMessageCount = persistedStats?.totalMessages ?: 0L
+            val messageCount = if (messagesFromActivityInWindow > 0L) {
+                messagesFromActivityInWindow
+            } else {
+                fallbackMessageCount
+            }
+
+            // Avoid parsing all conversation JSON on stats page entry. Large histories can exceed
+            // CursorWindow or heap limits, so token cards use the persistent accumulator instead.
+            UsageStatsEntity(
+                id = 1,
+                totalConversations = conversationCountInWindow.toLong(),
+                totalMessages = messageCount,
+                inputTokens = persistedStats?.inputTokens ?: 0L,
+                outputTokens = persistedStats?.outputTokens ?: 0L,
+                cachedTokens = persistedStats?.cachedTokens ?: 0L,
+                appLaunches = persistedStats?.appLaunches ?: 0L
             )
         }
-
-        val messagesFromActivityInWindow = allActivity.sumOf { entity ->
-            val date = runCatching { LocalDate.parse(entity.date, formatter) }.getOrNull()
-            if (date != null && !date.isBefore(windowStart) && !date.isAfter(today)) {
-                entity.messageCount.toLong()
-            } else {
-                0L
-            }
-        }
-
-        val bestMessageCount = maxOf(
-            messagesFromActivityInWindow,
-            usageTotalsInWindow.selectedMessageCount.toLong()
-        )
-
-        UsageStatsEntity(
-            id = 1,
-            totalConversations = conversationCountInWindow,
-            totalMessages = bestMessageCount,
-            inputTokens = usageTotalsInWindow.inputTokens,
-            outputTokens = usageTotalsInWindow.outputTokens,
-            cachedTokens = usageTotalsInWindow.cachedTokens,
-            appLaunches = persistedStats?.appLaunches ?: 0L
-        )
     }
 
     suspend fun backfillUsageStatsFromHistoryIfNeeded() {
@@ -654,11 +659,21 @@ class ConversationRepository(
 
         if (!needsConversationBackfill && !hasNoTokenHistory) return
 
-        val allConversations = conversationDAO.getAll().first()
-        if (allConversations.isEmpty()) return
+        var historicalTotals = HistoricalUsageTotals()
+        var offset = 0
+        while (offset.toLong() < conversationCount) {
+            val batch = conversationDAO.getHistoryBatchForStats(
+                limit = HISTORY_STATS_SCAN_BATCH_SIZE,
+                offset = offset,
+                maxNodeChars = HISTORY_STATS_MAX_NODE_CHARS
+            )
+            if (batch.isEmpty()) break
 
-        val historicalTotals = allConversations.fold(HistoricalUsageTotals()) { acc, entity ->
-            acc + extractHistoricalUsage(entity.nodes)
+            batch.forEach { entity ->
+                historicalTotals += extractHistoricalUsage(entity.nodes)
+            }
+
+            offset += batch.size
         }
 
         val messagesFromActivity = runCatching { dailyActivityDAO.getTotalMessageCountFlow().first() }

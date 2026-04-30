@@ -5,10 +5,12 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
@@ -18,6 +20,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
+import java.util.concurrent.atomic.AtomicReference
 
 enum class TimeLabel {
     EARLY_BIRD,
@@ -34,6 +37,9 @@ class MenuVM(
     private val conversationRepository: ConversationRepository,
     private val settingsStore: SettingsStore
 ) : ViewModel() {
+    private val initialCachedUiState = cachedUiState.get()
+    val hasWarmStats: Boolean = initialCachedUiState != null
+
     val currentAssistant = settingsStore.settingsFlow
         .map { it.getCurrentAssistant() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -74,10 +80,18 @@ class MenuVM(
     }
         .flowOn(Dispatchers.Default)
         .distinctUntilChanged()
+        .onEach { state ->
+            if (state !is MenuUiState.Loading) {
+                cachedUiState.set(state)
+            }
+        }
+        .catch {
+            emit(cachedUiState.get() ?: MenuUiState.Empty(MenuStats()))
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = MenuUiState.Loading
+            initialValue = initialCachedUiState ?: MenuUiState.Loading
         )
 
     private fun calculateStreak(distinctDates: List<String>): Int {
@@ -108,6 +122,10 @@ class MenuVM(
         }
 
         return streak
+    }
+
+    private companion object {
+        val cachedUiState = AtomicReference<MenuUiState?>(null)
     }
 }
 

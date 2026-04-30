@@ -92,6 +92,7 @@ private val HeatmapCardMinHeight = 264.dp
 fun MenuPage() {
     val vm: MenuVM = koinViewModel()
     val uiState by vm.uiState.collectAsStateWithLifecycle()
+    val revealImmediately = remember(vm) { vm.hasWarmStats }
 
     Scaffold(
         topBar = {
@@ -111,7 +112,8 @@ fun MenuPage() {
     ) { innerPadding ->
         MenuStatsContent(
             uiState = uiState,
-            innerPadding = innerPadding
+            innerPadding = innerPadding,
+            revealImmediately = revealImmediately
         )
     }
 }
@@ -119,7 +121,8 @@ fun MenuPage() {
 @Composable
 private fun MenuStatsContent(
     uiState: MenuUiState,
-    innerPadding: PaddingValues
+    innerPadding: PaddingValues,
+    revealImmediately: Boolean
 ) {
     val loadedStats = when (uiState) {
         MenuUiState.Loading -> null
@@ -129,7 +132,8 @@ private fun MenuStatsContent(
     val showEmptyActivity = uiState is MenuUiState.Empty
     val revealStage = rememberStatsWidgetRevealStage(
         isLoading = uiState is MenuUiState.Loading,
-        revealKey = uiState !is MenuUiState.Loading
+        revealKey = uiState !is MenuUiState.Loading,
+        revealImmediately = revealImmediately && loadedStats != null
     )
 
     LazyColumn(
@@ -349,19 +353,28 @@ private fun StatsWidgetCrossfade(
 @Composable
 private fun rememberStatsWidgetRevealStage(
     isLoading: Boolean,
-    revealKey: Any
+    revealKey: Any,
+    revealImmediately: Boolean
 ): Int {
     val motionPolicy = LocalMotionPolicy.current
-    var revealStage by remember(revealKey, motionPolicy.reduceMotion) {
-        mutableIntStateOf(if (isLoading) -1 else if (motionPolicy.reduceMotion) 3 else -1)
+    var revealStage by remember(revealKey, motionPolicy.reduceMotion, revealImmediately) {
+        mutableIntStateOf(
+            if (isLoading) {
+                -1
+            } else if (motionPolicy.reduceMotion || revealImmediately) {
+                3
+            } else {
+                -1
+            }
+        )
     }
 
-    LaunchedEffect(isLoading, revealKey, motionPolicy.reduceMotion) {
+    LaunchedEffect(isLoading, revealKey, motionPolicy.reduceMotion, revealImmediately) {
         if (isLoading) {
             revealStage = -1
             return@LaunchedEffect
         }
-        if (motionPolicy.reduceMotion) {
+        if (motionPolicy.reduceMotion || revealImmediately) {
             revealStage = 3
             return@LaunchedEffect
         }
