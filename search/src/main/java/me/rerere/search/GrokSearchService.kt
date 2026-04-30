@@ -171,7 +171,7 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
 
                 override fun onFailure(eventSource: EventSource, t: Throwable?, response: okhttp3.Response?) {
                     val statusCode = response?.code ?: -1
-                    val body = response?.body?.string().orEmpty()
+                    val body = runCatching { response?.body?.string() }.getOrNull().orEmpty()
                     streamError = Exception("Stream failed #$statusCode: $body", t)
                     close(streamError)
                 }
