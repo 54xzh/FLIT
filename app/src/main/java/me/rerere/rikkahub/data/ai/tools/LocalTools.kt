@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -108,17 +109,7 @@ class LocalTools(
                     })
                     val code = it.jsonObject["code"]?.jsonPrimitive?.contentOrNull
                     val result = jsContext.evaluate(code)
-                    buildJsonObject {
-                        put(
-                            "result", when (result) {
-                                is QuickJSObject -> JsonPrimitive(result.stringify())
-                                else -> JsonPrimitive(result.toString())
-                            }
-                        )
-                        if (logs.isNotEmpty()) {
-                            put("console_output", JsonPrimitive(logs.toString().trimEnd()))
-                        }
-                    }
+                    buildJavascriptToolResult(result, logs.toString())
                 } finally {
                     jsContext.destroy()
                 }
@@ -595,5 +586,19 @@ class LocalTools(
             tools.addAll(createScheduledTaskTools(assistantId, scheduledTaskDao, scheduledTaskScheduler))
         }
         return tools
+    }
+}
+
+internal fun buildJavascriptToolResult(result: Any?, consoleOutput: String): JsonObject = buildJsonObject {
+    if (result != null) {
+        put(
+            "result", when (result) {
+                is QuickJSObject -> JsonPrimitive(result.stringify())
+                else -> JsonPrimitive(result.toString())
+            }
+        )
+    }
+    if (consoleOutput.isNotEmpty()) {
+        put("console_output", JsonPrimitive(consoleOutput.trimEnd()))
     }
 }
