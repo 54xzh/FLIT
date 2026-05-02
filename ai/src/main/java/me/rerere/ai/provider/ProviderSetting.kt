@@ -88,6 +88,10 @@ sealed class ProviderSetting {
         @Transient override val description: @Composable (() -> Unit) = {},
         @Transient override val shortDescription: @Composable (() -> Unit) = {},
         var apiKey: String = "",
+        var multiKeyEnabled: Boolean = false,
+        var apiKeys: List<ProviderApiKey> = emptyList(),
+        var keyStrategy: ProviderKeyStrategy = ProviderKeyStrategy.RANDOM,
+        var legacyApiKeyBackup: String = "",
         var baseUrl: String = "https://api.openai.com/v1",
         var chatCompletionsPath: String = "/chat/completions",
         var useResponseApi: Boolean = false,
@@ -166,6 +170,10 @@ sealed class ProviderSetting {
         @Transient override val description: @Composable (() -> Unit) = {},
         @Transient override val shortDescription: @Composable (() -> Unit) = {},
         var apiKey: String = "",
+        var multiKeyEnabled: Boolean = false,
+        var apiKeys: List<ProviderApiKey> = emptyList(),
+        var keyStrategy: ProviderKeyStrategy = ProviderKeyStrategy.RANDOM,
+        var legacyApiKeyBackup: String = "",
         var baseUrl: String = "https://generativelanguage.googleapis.com/v1beta", // only for google AI
         var vertexAI: Boolean = false,
         var privateKey: String = "", // only for vertex AI
@@ -247,6 +255,10 @@ sealed class ProviderSetting {
         @Transient override val description: @Composable (() -> Unit) = {},
         @Transient override val shortDescription: @Composable (() -> Unit) = {},
         var apiKey: String = "",
+        var multiKeyEnabled: Boolean = false,
+        var apiKeys: List<ProviderApiKey> = emptyList(),
+        var keyStrategy: ProviderKeyStrategy = ProviderKeyStrategy.RANDOM,
+        var legacyApiKeyBackup: String = "",
         var baseUrl: String = "https://api.anthropic.com/v1",
     ) : ProviderSetting() {
         override fun addModel(model: Model): ProviderSetting {

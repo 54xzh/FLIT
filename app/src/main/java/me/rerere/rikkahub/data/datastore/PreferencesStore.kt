@@ -27,6 +27,8 @@ import kotlinx.serialization.json.booleanOrNull
 import me.rerere.rikkahub.R
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.normalizeProviderApiKeys
+import me.rerere.ai.provider.syncEnabledApiKeysToLegacyField
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_LEARNING_MODE_PROMPT
@@ -593,7 +595,7 @@ class SettingsStore(
                         is ProviderSetting.Claude -> provider.copy(
                             models = provider.models.distinctBy { model -> model.id }
                         )
-                    }
+                    }.normalizeProviderApiKeys()
                 },
                 assistants = dedupedAssistants,
                 skillFolders = dedupedSkillFolders,
@@ -656,6 +658,9 @@ class SettingsStore(
             }
 	        val finalSettingsToSave = settingsToSaveWithReboundSearchIndices.copy(
                 assistants = normalizedAssistants,
+                providers = settingsToSaveWithReboundSearchIndices.providers.map { provider ->
+                    provider.normalizeProviderApiKeys().syncEnabledApiKeysToLegacyField()
+                },
 	            displaySetting = settingsToSaveWithReboundSearchIndices.displaySetting.coerceForConflicts(),
                 mcpToolCallTimeoutSeconds = settingsToSaveWithReboundSearchIndices.mcpToolCallTimeoutSeconds.coerceAtLeast(1),
                 http429MaxRetries = settingsToSaveWithReboundSearchIndices.http429MaxRetries.coerceIn(0, 10),

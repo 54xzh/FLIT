@@ -81,7 +81,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
 
     private fun buildUrl(providerSetting: ProviderSetting.Google, path: String): HttpUrl {
         return if (!providerSetting.vertexAI) {
-            val key = keyRoulette.next(providerSetting.apiKey)
+            val key = keyRoulette.next(providerSetting)
             "${providerSetting.baseUrl}/$path".toHttpUrl()
                 .newBuilder()
                 .addQueryParameter("key", key)

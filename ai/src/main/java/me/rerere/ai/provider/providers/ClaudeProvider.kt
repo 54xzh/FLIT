@@ -41,6 +41,7 @@ import me.rerere.ai.util.configureClientWithProxy
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.encodeBase64
 import me.rerere.ai.util.HttpStatusException
+import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.parseErrorDetail
@@ -68,11 +69,13 @@ private const val TYPE_SERVER_TOOL_USE = "server_tool_use"
 private const val TYPE_WEB_SEARCH_TOOL_RESULT = "web_search_tool_result"
 
 class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSetting.Claude> {
+    private val keyRoulette = KeyRoulette.default()
+
     override suspend fun listModels(providerSetting: ProviderSetting.Claude): List<Model> =
         withContext(Dispatchers.IO) {
             val request = Request.Builder()
                 .url("${providerSetting.baseUrl}/models")
-                .addHeader("x-api-key", providerSetting.apiKey)
+                .addHeader("x-api-key", keyRoulette.next(providerSetting))
                 .addHeader("anthropic-version", ANTHROPIC_VERSION)
                 .get()
                 .build()
@@ -121,7 +124,7 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             .url("${providerSetting.baseUrl}/messages")
             .headers(params.customHeaders.toHeaders())
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-            .addHeader("x-api-key", providerSetting.apiKey)
+            .addHeader("x-api-key", keyRoulette.next(providerSetting))
             .addHeader("anthropic-version", ANTHROPIC_VERSION)
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
@@ -194,7 +197,7 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             .url("${providerSetting.baseUrl}/messages")
             .headers(params.customHeaders.toHeaders())
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-            .addHeader("x-api-key", providerSetting.apiKey)
+            .addHeader("x-api-key", keyRoulette.next(providerSetting))
             .addHeader("anthropic-version", ANTHROPIC_VERSION)
             .addHeader("Content-Type", "application/json")
             .configureReferHeaders(providerSetting.baseUrl)

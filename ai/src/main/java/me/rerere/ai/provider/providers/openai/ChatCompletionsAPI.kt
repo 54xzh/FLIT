@@ -84,7 +84,7 @@ class ChatCompletionsAPI(
             .url("${providerSetting.baseUrl}${providerSetting.chatCompletionsPath}")
             .headers(params.customHeaders.toHeaders())
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-            .addHeader("Authorization", "Bearer ${keyRoulette.next(providerSetting.apiKey)}")
+            .addHeader("Authorization", "Bearer ${keyRoulette.next(providerSetting)}")
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
 
@@ -170,7 +170,7 @@ class ChatCompletionsAPI(
             .url("${providerSetting.baseUrl}${providerSetting.chatCompletionsPath}")
             .headers(params.customHeaders.toHeaders())
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-            .addHeader("Authorization", "Bearer ${keyRoulette.next(providerSetting.apiKey)}")
+            .addHeader("Authorization", "Bearer ${keyRoulette.next(providerSetting)}")
             .addHeader("Content-Type", "application/json")
             .configureReferHeaders(providerSetting.baseUrl)
             .build()

@@ -42,12 +42,12 @@ class OpenAIProvider(
     private val keyRoulette = KeyRoulette.default()
 
     private val chatCompletionsAPI = ChatCompletionsAPI(client = client, keyRoulette = keyRoulette)
-    private val responseAPI = ResponseAPI(client = client)
+    private val responseAPI = ResponseAPI(client = client, keyRoulette = keyRoulette)
 
 
     override suspend fun listModels(providerSetting: ProviderSetting.OpenAI): List<Model> =
         withContext(Dispatchers.IO) {
-            val key = keyRoulette.next(providerSetting.apiKey)
+            val key = keyRoulette.next(providerSetting)
             
             // Fetch regular models
             val regularModels = fetchModelsFromUrl(
@@ -142,7 +142,7 @@ class OpenAIProvider(
     }
 
     override suspend fun getBalance(providerSetting: ProviderSetting.OpenAI): String = withContext(Dispatchers.IO) {
-        val key = keyRoulette.next(providerSetting.apiKey)
+        val key = keyRoulette.next(providerSetting)
         val url = if (providerSetting.balanceOption.apiPath.startsWith("http")) {
             providerSetting.balanceOption.apiPath
         } else {
@@ -213,7 +213,7 @@ class OpenAIProvider(
             "Expected OpenAI provider setting"
         }
 
-        val key = keyRoulette.next(providerSetting.apiKey)
+        val key = keyRoulette.next(providerSetting)
 
         val requestBody = json.encodeToString(
             buildJsonObject {
@@ -274,7 +274,7 @@ class OpenAIProvider(
         model: Model,
         callTimeoutSeconds: Long?,
     ): List<List<Float>> = withContext(Dispatchers.IO) {
-        val key = keyRoulette.next(providerSetting.apiKey)
+        val key = keyRoulette.next(providerSetting)
         val requestBody = json.encodeToString(
             buildJsonObject {
                 put("model", model.modelId)

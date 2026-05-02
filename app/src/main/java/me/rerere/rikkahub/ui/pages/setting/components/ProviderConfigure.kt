@@ -180,6 +180,26 @@ fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSettin
         is ProviderSetting.Google -> this.apiKey
         is ProviderSetting.Claude -> this.apiKey
     }
+    val multiKeyEnabled = when (this) {
+        is ProviderSetting.OpenAI -> this.multiKeyEnabled
+        is ProviderSetting.Google -> this.multiKeyEnabled
+        is ProviderSetting.Claude -> this.multiKeyEnabled
+    }
+    val apiKeys = when (this) {
+        is ProviderSetting.OpenAI -> this.apiKeys
+        is ProviderSetting.Google -> this.apiKeys
+        is ProviderSetting.Claude -> this.apiKeys
+    }
+    val keyStrategy = when (this) {
+        is ProviderSetting.OpenAI -> this.keyStrategy
+        is ProviderSetting.Google -> this.keyStrategy
+        is ProviderSetting.Claude -> this.keyStrategy
+    }
+    val legacyApiKeyBackup = when (this) {
+        is ProviderSetting.OpenAI -> this.legacyApiKeyBackup
+        is ProviderSetting.Google -> this.legacyApiKeyBackup
+        is ProviderSetting.Claude -> this.legacyApiKeyBackup
+    }
 
     val baseUrl = when (this) {
         is ProviderSetting.OpenAI -> this.baseUrl
@@ -201,6 +221,10 @@ fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSettin
             tags = this.tags,
             customIconUri = this.customIconUri,
             apiKey = apiKey,
+            multiKeyEnabled = multiKeyEnabled,
+            apiKeys = apiKeys,
+            keyStrategy = keyStrategy,
+            legacyApiKeyBackup = legacyApiKeyBackup,
             baseUrl = rewrittenBaseUrl
         )
         ProviderSetting.Google::class -> ProviderSetting.Google(
@@ -213,6 +237,10 @@ fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSettin
             tags = this.tags,
             customIconUri = this.customIconUri,
             apiKey = apiKey,
+            multiKeyEnabled = multiKeyEnabled,
+            apiKeys = apiKeys,
+            keyStrategy = keyStrategy,
+            legacyApiKeyBackup = legacyApiKeyBackup,
             baseUrl = rewrittenBaseUrl
         )
         ProviderSetting.Claude::class -> ProviderSetting.Claude(
@@ -225,6 +253,10 @@ fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSettin
             tags = this.tags,
             customIconUri = this.customIconUri,
             apiKey = apiKey,
+            multiKeyEnabled = multiKeyEnabled,
+            apiKeys = apiKeys,
+            keyStrategy = keyStrategy,
+            legacyApiKeyBackup = legacyApiKeyBackup,
             baseUrl = rewrittenBaseUrl
         )
         else -> this // Return unchanged if unknown type
@@ -282,6 +314,7 @@ private fun ColumnScope.ProviderConfigureOpenAI(
         modifier = Modifier
             .fillMaxWidth()
             .onFocusChanged { if (!it.isFocused) apiKeyVisible = false },
+        enabled = !provider.multiKeyEnabled,
         maxLines = if (apiKeyVisible) 3 else 1,
         visualTransformation = if (apiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
@@ -293,6 +326,10 @@ private fun ColumnScope.ProviderConfigureOpenAI(
             }
         }
     )
+
+    ProviderMultiKeySection(provider = provider) { updated ->
+        (updated as? ProviderSetting.OpenAI)?.let(onEdit)
+    }
 
     OutlinedTextField(
         value = provider.baseUrl,
@@ -359,6 +396,7 @@ private fun ColumnScope.ProviderConfigureClaude(
         modifier = Modifier
             .fillMaxWidth()
             .onFocusChanged { if (!it.isFocused) apiKeyVisible = false },
+        enabled = !provider.multiKeyEnabled,
         maxLines = 1,
         visualTransformation = if (apiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
@@ -370,6 +408,10 @@ private fun ColumnScope.ProviderConfigureClaude(
             }
         }
     )
+
+    ProviderMultiKeySection(provider = provider) { updated ->
+        (updated as? ProviderSetting.Claude)?.let(onEdit)
+    }
 
     OutlinedTextField(
         value = provider.baseUrl,
@@ -415,6 +457,7 @@ private fun ColumnScope.ProviderConfigureGoogle(
             modifier = Modifier
                 .fillMaxWidth()
                 .onFocusChanged { if (!it.isFocused) apiKeyVisible = false },
+            enabled = !provider.multiKeyEnabled,
             maxLines = if (apiKeyVisible) 3 else 1,
             visualTransformation = if (apiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
@@ -426,6 +469,10 @@ private fun ColumnScope.ProviderConfigureGoogle(
                 }
             }
         )
+
+        ProviderMultiKeySection(provider = provider) { updated ->
+            (updated as? ProviderSetting.Google)?.let(onEdit)
+        }
 
         OutlinedTextField(
             value = provider.baseUrl,
