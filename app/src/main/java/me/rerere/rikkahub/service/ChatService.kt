@@ -936,11 +936,17 @@ class ChatService(
     // 获取对话的StateFlow
     fun getConversationFlow(conversationId: Uuid): StateFlow<Conversation> {
         val settings = settingsStore.settingsFlow.value
+        val assistant = when (val target = settings.chatTarget) {
+            is ChatTarget.Assistant -> settings.getAssistantById(target.assistantId)
+            is ChatTarget.GroupChat -> null
+        } ?: settings.getCurrentAssistant()
         return conversations.getOrPut(conversationId) {
             MutableStateFlow(
                 Conversation.ofId(
                     id = conversationId,
                     assistantId = settings.chatTarget.id
+                ).copy(
+                    enabledModeIds = assistant.enabledModeIds
                 )
             )
         }
@@ -1143,7 +1149,9 @@ class ChatService(
                 is ChatTarget.Assistant -> {
                     val assistant = currentSettings.getAssistantById(target.assistantId)
                         ?: currentSettings.getCurrentAssistant()
-                    baseConversation.updateCurrentMessages(assistant.presetMessages)
+                    baseConversation.updateCurrentMessages(assistant.presetMessages).copy(
+                        enabledModeIds = assistant.enabledModeIds,
+                    )
                 }
 
                 is ChatTarget.GroupChat -> baseConversation

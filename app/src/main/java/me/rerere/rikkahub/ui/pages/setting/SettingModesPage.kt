@@ -48,6 +48,8 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingToolbarDefaults.ScreenOffset
 import androidx.compose.material3.Icon
@@ -87,6 +89,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.InjectionPosition
 import me.rerere.rikkahub.data.model.Lorebook
 import me.rerere.rikkahub.data.model.Avatar
@@ -96,7 +99,6 @@ import me.rerere.rikkahub.data.model.ModeAttachmentType
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
 import me.rerere.rikkahub.ui.components.ui.FormItem
-import me.rerere.rikkahub.ui.components.ui.HapticSwitch
 import me.rerere.rikkahub.ui.components.ui.ItemPosition
 import me.rerere.rikkahub.ui.components.ui.PhysicsSwipeToDelete
 import me.rerere.rikkahub.ui.components.ui.Select
@@ -105,6 +107,7 @@ import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
+import me.rerere.rikkahub.ui.pages.setting.components.AssistantToggleSheet
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.utils.createChatFilesByContents
@@ -494,18 +497,19 @@ fun SettingModesPage(
     if (showAddDialog || editingMode != null) {
         ModeEditorSheet(
             mode = editingMode,
+            assistants = settings.assistants,
             onDismiss = {
                 showAddDialog = false
                 editingMode = null
             },
-            onSave = { savedMode ->
+            onSave = { savedMode, updatedAssistants ->
                 if (editingMode != null) {
                     val updatedModes = settings.modes.map {
                         if (it.id == savedMode.id) savedMode else it
                     }
-                    vm.updateSettings(settings.copy(modes = updatedModes))
+                    vm.updateSettings(settings.copy(modes = updatedModes, assistants = updatedAssistants))
                 } else {
-                    vm.updateSettings(settings.copy(modes = settings.modes + savedMode))
+                    vm.updateSettings(settings.copy(modes = settings.modes + savedMode, assistants = updatedAssistants))
                 }
                 showAddDialog = false
                 editingMode = null
@@ -580,21 +584,24 @@ private fun ModeCard(
 @Composable
 internal fun ModeEditorSheet(
     mode: Mode?,
+    assistants: List<Assistant>,
     onDismiss: () -> Unit,
-    onSave: (Mode) -> Unit
+    onSave: (Mode, List<Assistant>) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val context = LocalContext.current
+    val draftMode = remember(mode) { mode ?: Mode() }
     
-    var name by remember(mode) { mutableStateOf(mode?.name ?: "") }
-    var icon by remember(mode) { mutableStateOf(mode?.icon) }
-    var prompt by remember(mode) { mutableStateOf(mode?.prompt ?: "") }
-    var defaultEnabled by remember(mode) { mutableStateOf(mode?.defaultEnabled ?: false) }
+    var name by remember(mode) { mutableStateOf(draftMode.name) }
+    var icon by remember(mode) { mutableStateOf(draftMode.icon) }
+    var prompt by remember(mode) { mutableStateOf(draftMode.prompt) }
+    var assistantDrafts by remember(mode, assistants) { mutableStateOf(assistants) }
+    var showAssistantToggleSheet by remember { mutableStateOf(false) }
     var injectionPosition by remember(mode) { 
-        mutableStateOf(mode?.injectionPosition ?: InjectionPosition.AFTER_SYSTEM) 
+        mutableStateOf(draftMode.injectionPosition)
     }
-    var depth by remember(mode) { mutableStateOf(mode?.depth ?: 0) }
-    var attachments by remember(mode) { mutableStateOf(mode?.attachments ?: emptyList()) }
+    var depth by remember(mode) { mutableStateOf(draftMode.depth) }
+    var attachments by remember(mode) { mutableStateOf(draftMode.attachments) }
     
     // Image picker launcher
     val imagePickerLauncher = rememberLauncherForActivityResult(
@@ -833,18 +840,26 @@ internal fun ModeEditorSheet(
                 }
             }
 
-            // Default enabled toggle
-            ListItem(
-                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                headlineContent = { Text(stringResource(R.string.modes_page_default_enabled)) },
-                supportingContent = { Text(stringResource(R.string.modes_page_default_enabled_desc)) },
-                trailingContent = {
-                    HapticSwitch(
-                        checked = defaultEnabled,
-                        onCheckedChange = { defaultEnabled = it }
+            val enabledAssistantCount = assistantDrafts.count { assistant ->
+                assistant.enabledModeIds.contains(draftMode.id)
+            }
+            FilledTonalButton(
+                onClick = { showAssistantToggleSheet = true },
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ),
+                shape = AppShapes.ButtonPill,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = stringResource(
+                        R.string.modes_page_config_default_assistants,
+                        enabledAssistantCount,
+                        assistantDrafts.size
                     )
-                }
-            )
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -857,16 +872,16 @@ internal fun ModeEditorSheet(
                 Spacer(Modifier.width(8.dp))
                 TextButton(
                     onClick = {
-                        val savedMode = (mode ?: Mode()).copy(
+                        val savedMode = draftMode.copy(
                             name = name,
                             icon = icon,
                             prompt = prompt,
-                            defaultEnabled = defaultEnabled,
+                            defaultEnabled = false,
                             injectionPosition = injectionPosition,
                             depth = depth,
                             attachments = attachments
                         )
-                        onSave(savedMode)
+                        onSave(savedMode, assistantDrafts)
                     },
                     enabled = name.isNotBlank() && (prompt.isNotBlank() || attachments.isNotEmpty())
                 ) {
@@ -875,6 +890,42 @@ internal fun ModeEditorSheet(
             }
         }
     }
+
+    if (showAssistantToggleSheet) {
+        AssistantModeToggleSheet(
+            mode = draftMode.copy(name = name),
+            assistants = assistantDrafts,
+            onUpdateAssistant = { updatedAssistant ->
+                assistantDrafts = assistantDrafts.map { assistant ->
+                    if (assistant.id == updatedAssistant.id) updatedAssistant else assistant
+                }
+            },
+            onDismiss = { showAssistantToggleSheet = false }
+        )
+    }
+}
+
+@Composable
+private fun AssistantModeToggleSheet(
+    mode: Mode,
+    assistants: List<Assistant>,
+    onUpdateAssistant: (Assistant) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AssistantToggleSheet(
+        title = mode.name.ifEmpty { stringResource(R.string.modes_page_unnamed) },
+        assistants = assistants,
+        isEnabled = { assistant -> assistant.enabledModeIds.contains(mode.id) },
+        onToggle = { assistant, enabled ->
+            val newIds = if (enabled) {
+                assistant.enabledModeIds + mode.id
+            } else {
+                assistant.enabledModeIds - mode.id
+            }
+            onUpdateAssistant(assistant.copy(enabledModeIds = newIds))
+        },
+        onDismiss = onDismiss,
+    )
 }
 
 @Composable

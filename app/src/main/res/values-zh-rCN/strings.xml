@@ -376,6 +376,7 @@
     <string name="chat_process_reasoning_duration">思考了 %1$s 秒</string>
     <string name="audio">音频</string>
     <string name="modes_page_add_file">文件</string>
+    <string name="modes_page_config_default_assistants">配置默认启用的助手（%1$d/%2$d）</string>
     <string name="video">视频</string>
     <string name="setting_page_web_server">网络访问</string>
     <string name="setting_page_web_server_desc">在您的网络上使用 LastChat</string>

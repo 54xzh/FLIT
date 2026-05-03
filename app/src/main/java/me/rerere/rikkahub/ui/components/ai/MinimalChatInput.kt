@@ -1162,11 +1162,8 @@ private fun MinimalPickerContent(
             }
         }
         
-        // Modes - use enabledModeIds from conversation or default modes
-        val activeModesCount = if (conversation.enabledModeIds.isNotEmpty()) {
-            conversation.enabledModeIds.size
-        } else {
-            settings.modes.count { it.defaultEnabled }
+        val activeModesCount = settings.modes.count { mode ->
+            conversation.enabledModeIds.contains(mode.id)
         }
         val modesActive = activeModesCount > 0
         MinimalPickerItem(

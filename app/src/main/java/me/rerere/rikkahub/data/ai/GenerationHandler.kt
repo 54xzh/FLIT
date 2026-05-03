@@ -844,12 +844,8 @@ class GenerationHandler(
             buildToolResultChunkRagPrompt(results, maxChars = 6_000)
         }
 
-        // Collect enabled modes - use per-conversation enabledModeIds if provided, otherwise fall back to defaultEnabled
-        val enabledModes = if (enabledModeIds.isNotEmpty()) {
-            settings.modes.filter { enabledModeIds.contains(it.id) }
-        } else {
-            settings.modes.filter { it.defaultEnabled }
-        }
+        // New conversations copy defaults from Assistant.enabledModeIds.
+        val enabledModes = settings.modes.filter { enabledModeIds.contains(it.id) }
 
         val usedModes = enabledModes.mapIndexed { index, mode ->
             val reason = if (enabledModeIds.contains(mode.id)) {

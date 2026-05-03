@@ -39,6 +39,7 @@ import me.rerere.rikkahub.data.ai.prompts.DEFAULT_TITLE_PROMPT
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_TRANSLATION_PROMPT
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV1Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV2Migration
+import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV3Migration
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantSearchMode
 import me.rerere.rikkahub.data.model.Avatar
@@ -131,6 +132,7 @@ private val Context.settingsStore by preferencesDataStore(
         listOf(
             PreferenceStoreV1Migration(),
             PreferenceStoreV2Migration(),
+            PreferenceStoreV3Migration(),
         )
     }
 )
@@ -671,7 +673,7 @@ class SettingsStore(
 
         settingsFlow.value = finalSettingsToSave
         dataStore.edit { preferences ->
-            preferences[VERSION] = 2
+            preferences[VERSION] = 3
             preferences[DYNAMIC_COLOR] = finalSettingsToSave.dynamicColor
             preferences[THEME_ID] = finalSettingsToSave.themeId
             preferences[DEVELOPER_MODE] = finalSettingsToSave.developerMode

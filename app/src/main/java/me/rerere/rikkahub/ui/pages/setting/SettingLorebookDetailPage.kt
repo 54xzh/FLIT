@@ -99,6 +99,7 @@ import me.rerere.rikkahub.ui.components.ui.ToastAction
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
+import me.rerere.rikkahub.ui.pages.setting.components.AssistantToggleSheet
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.utils.plus
@@ -1409,110 +1410,18 @@ private fun AssistantLorebookToggleSheet(
     onUpdateAssistant: (me.rerere.rikkahub.data.model.Assistant) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val cornerRadius = 28.dp
-    val smallCorner = 8.dp
-    val isDarkMode = LocalDarkMode.current
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        sheetGesturesEnabled = false,
-        dragHandle = {
-            IconButton(
-                onClick = {
-                    scope.launch {
-                        sheetState.hide()
-                        onDismiss()
-                    }
-                }
-            ) {
-                Icon(Icons.Rounded.KeyboardArrowDown, null)
+    AssistantToggleSheet(
+        title = lorebook.name.ifEmpty { stringResource(R.string.lorebooks_page_unnamed) },
+        assistants = assistants,
+        isEnabled = { assistant -> assistant.enabledLorebookIds.contains(lorebook.id) },
+        onToggle = { assistant, enabled ->
+            val newIds = if (enabled) {
+                assistant.enabledLorebookIds + lorebook.id
+            } else {
+                assistant.enabledLorebookIds - lorebook.id
             }
-        }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                text = lorebook.name.ifEmpty { stringResource(R.string.lorebooks_page_unnamed) },
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            
-            assistants.forEachIndexed { index, assistant ->
-                val isEnabled = assistant.enabledLorebookIds.contains(lorebook.id)
-                
-                // Calculate position for connected card styling
-                val position = when {
-                    assistants.size == 1 -> ItemPosition.ONLY
-                    index == 0 -> ItemPosition.FIRST
-                    index == assistants.lastIndex -> ItemPosition.LAST
-                    else -> ItemPosition.MIDDLE
-                }
-                
-                // Calculate shape based on position (grouped cards)
-                val shape = when (position) {
-                    ItemPosition.ONLY -> androidx.compose.foundation.shape.RoundedCornerShape(cornerRadius)
-                    ItemPosition.FIRST -> androidx.compose.foundation.shape.RoundedCornerShape(
-                        topStart = cornerRadius, topEnd = cornerRadius,
-                        bottomStart = smallCorner, bottomEnd = smallCorner
-                    )
-                    ItemPosition.MIDDLE -> androidx.compose.foundation.shape.RoundedCornerShape(smallCorner)
-                    ItemPosition.LAST -> androidx.compose.foundation.shape.RoundedCornerShape(
-                        topStart = smallCorner, topEnd = smallCorner,
-                        bottomStart = cornerRadius, bottomEnd = cornerRadius
-                    )
-                }
-                
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (LocalDarkMode.current) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
-                    ),
-                    shape = shape
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Assistant avatar
-                        me.rerere.rikkahub.ui.components.ui.UIAvatar(
-                            name = assistant.name,
-                            value = assistant.avatar,
-                            modifier = Modifier.size(40.dp)
-                        )
-
-                        Text(
-                            text = assistant.name.ifEmpty { "Assistant" },
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        HapticSwitch(
-                            checked = isEnabled,
-                            onCheckedChange = { newEnabled ->
-                                val newIds = if (newEnabled) {
-                                    assistant.enabledLorebookIds + lorebook.id
-                                } else {
-                                    assistant.enabledLorebookIds - lorebook.id
-                                }
-                                onUpdateAssistant(assistant.copy(enabledLorebookIds = newIds))
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
+            onUpdateAssistant(assistant.copy(enabledLorebookIds = newIds))
+        },
+        onDismiss = onDismiss,
+    )
 }

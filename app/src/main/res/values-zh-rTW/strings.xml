@@ -1622,6 +1622,7 @@
   <string name="modes_page_add_file">文件</string>
   <string name="modes_page_default_enabled">預設啟用</string>
   <string name="modes_page_default_enabled_desc">新對話中自動啟用</string>
+  <string name="modes_page_config_default_assistants">配置預設啟用的助手（%1$d/%2$d）</string>
   <string name="modes_page_default_off">預設關閉</string>
   <string name="modes_page_default_on">預設開啟</string>
   <string name="injection_position_before_system">系統提示詞之前</string>

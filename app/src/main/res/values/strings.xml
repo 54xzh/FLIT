@@ -1783,6 +1783,7 @@
     <string name="modes_picker_none">No modes configured</string>
     <string name="modes_page_default_enabled">Enable by default</string>
     <string name="modes_page_default_enabled_desc">Automatically enable for new chats</string>
+    <string name="modes_page_config_default_assistants">Configure default-enabled assistants (%1$d/%2$d)</string>
     <string name="lorebook_entry_deleted">Entry %s deleted</string>
 
     <!-- Lorebooks Picker -->
