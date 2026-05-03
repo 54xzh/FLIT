@@ -154,6 +154,7 @@ export default function Markdown({
     const code = String(children).replace(/\n$/, "");
     const isBlock = code.includes("\n");
 
+    // Note: `isIncomplete` check removed — see TODO below
     if (match || isBlock) {
       const language = match?.[1] || "";
       return (
@@ -161,6 +162,9 @@ export default function Markdown({
           language={language}
           code={code}
           autoCollapse={displaySetting?.codeBlockAutoCollapse ?? true}
+          // TODO: `useIsCodeFenceIncomplete` was removed in the streamdown library update.
+          // Hardcoded to false as a temporary workaround. Code blocks during streaming
+          // may not render correctly until this is resolved upstream.
           isIncomplete={false}
           showLineNumbers={displaySetting?.showLineNumbers ?? false}
           wrapLines={displaySetting?.codeBlockAutoWrap ?? false}

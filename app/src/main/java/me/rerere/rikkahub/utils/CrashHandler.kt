@@ -37,7 +37,7 @@ class CrashHandler(private val context: Context) : Thread.UncaughtExceptionHandl
             }
 
             // 2. Save to Cache File (Avoid Intent Size Limit)
-            val crashFile = File(context.cacheDir, "crash_report.txt")
+            val crashFile = File(context.cacheDir, "crash_${System.currentTimeMillis()}.txt")
             crashFile.writeText(report)
 
             // 3. Launch CrashActivity
