@@ -29,3 +29,4 @@ settings.local.json
 /.gradle-user
 /.jdks
 .claude/settings.local.json
+/plans

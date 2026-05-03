@@ -515,4 +515,8 @@
     <string name="quota_group_keep_one_model">组内至少保留一个模型。</string>
     <string name="quota_group_delete">删除限额组</string>
     <string name="quota_group_delete_confirm">删除这个限额组吗？模型会保留各自的单独限额设置。</string>
+    <string name="restart">重新启动</string>
+    <string name="crash_oops">糟糕！出了点问题</string>
+    <string name="crash_desc">应用程序遇到了意外错误，需要重新启动。您可以复制下面的错误详情，以帮助我们修复问题。</string>
+    <string name="crash_details">错误详情</string>
 </resources>

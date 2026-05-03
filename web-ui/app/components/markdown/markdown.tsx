@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { Streamdown, useIsCodeFenceIncomplete } from "streamdown";
+import { Streamdown } from "streamdown";
 import { cjk } from "@streamdown/cjk";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -149,20 +149,19 @@ export default function Markdown({
 
   function MarkdownCode(componentProps: Record<string, unknown> & { children?: React.ReactNode }) {
     const { className, children, ...props } = componentProps;
-    const isIncomplete = useIsCodeFenceIncomplete();
     const codeClassName = typeof className === "string" ? className : "";
     const match = /language-([A-Za-z0-9_-]+)/.exec(codeClassName);
     const code = String(children).replace(/\n$/, "");
     const isBlock = code.includes("\n");
 
-    if (match || isBlock || isIncomplete) {
+    if (match || isBlock) {
       const language = match?.[1] || "";
       return (
         <CodeBlock
           language={language}
           code={code}
           autoCollapse={displaySetting?.codeBlockAutoCollapse ?? true}
-          isIncomplete={isIncomplete}
+          isIncomplete={false}
           showLineNumbers={displaySetting?.showLineNumbers ?? false}
           wrapLines={displaySetting?.codeBlockAutoWrap ?? false}
           onPreview={

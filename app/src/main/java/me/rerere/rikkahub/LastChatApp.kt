@@ -92,6 +92,10 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         instance = this
+
+        // Global Crash Handler
+        me.rerere.rikkahub.utils.CrashHandler.init(this)
+
         startKoin {
             androidLogger()
             androidContext(this@LastChatApp)

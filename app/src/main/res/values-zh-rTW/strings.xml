@@ -2106,4 +2106,8 @@
     <string name="quota_group_delete">刪除限額組</string>
     <string name="quota_group_delete_confirm">刪除這個限額組嗎？模型會保留各自的單獨限額設定。</string>
 
+    <string name="restart">重新啟動</string>
+    <string name="crash_oops">糟糕！出了點問題</string>
+    <string name="crash_desc">應用程式遇到了意外錯誤，需要重新啟動。您可以複製下面的錯誤詳情，以幫助我們修復問題。</string>
+    <string name="crash_details">錯誤詳情</string>
 </resources>

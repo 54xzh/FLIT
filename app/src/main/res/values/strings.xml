@@ -2116,4 +2116,8 @@
     <string name="quota_group_delete">Delete quota group</string>
     <string name="quota_group_delete_confirm">Delete this quota group? Models will keep their single-model quota settings.</string>
 
+    <string name="restart">Restart</string>
+    <string name="crash_oops">Oops! Something went wrong</string>
+    <string name="crash_desc">The application encountered an unexpected error and needs to restart. You can copy the error details below to help us fix the issue.</string>
+    <string name="crash_details">Crash Details</string>
 </resources>
