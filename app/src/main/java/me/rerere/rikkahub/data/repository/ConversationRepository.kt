@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.contentOrNull
 import me.rerere.rikkahub.data.db.dao.ChatSearchResultRow
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
@@ -376,11 +377,7 @@ class ConversationRepository(
             emptyList()
         }
         val summaryBoundaries = normalizeContextSummaryBoundaries(parsedSummaryBoundaries)
-        val sessionMemories = try {
-            JsonInstant.decodeFromString<List<SessionMemory>>(conversationEntity.sessionMemories)
-        } catch (_: Exception) {
-            emptyList()
-        }
+        val sessionMemories = decodeSessionMemories(conversationEntity.sessionMemories)
         return Conversation(
             id = Uuid.parse(conversationEntity.id),
             title = conversationEntity.title,
@@ -403,6 +400,29 @@ class ConversationRepository(
             loadedNodeStartIndex = decodedWindow.startIndex,
             totalMessageNodeCount = decodedWindow.totalCount,
         )
+    }
+
+    private fun decodeSessionMemories(raw: String): List<SessionMemory> {
+        return runCatching {
+            JsonInstant.decodeFromString<List<SessionMemory>>(raw)
+        }.getOrElse {
+            val array = runCatching { JsonInstant.parseToJsonElement(raw) as? JsonArray }
+                .getOrNull()
+                ?: return emptyList()
+            array.mapIndexedNotNull { index, element ->
+                val obj = element as? JsonObject ?: return@mapIndexedNotNull null
+                val content = obj["content"]?.jsonPrimitive?.contentOrNull?.trim()
+                    ?: return@mapIndexedNotNull null
+                if (content.isBlank()) return@mapIndexedNotNull null
+                val createdAt = obj["createdAt"]?.jsonPrimitive?.longOrNull ?: 0L
+                SessionMemory(
+                    id = index + 1,
+                    content = content,
+                    createdAt = createdAt,
+                    updatedAt = obj["updatedAt"]?.jsonPrimitive?.longOrNull ?: createdAt,
+                )
+            }
+        }
     }
 
     suspend fun loadOlderMessageNodeChunk(

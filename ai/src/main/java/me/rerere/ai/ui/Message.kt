@@ -381,7 +381,7 @@ data class UsedMemory(
 
 @Serializable
 data class UsedSessionMemory(
-    val memoryId: String,
+    val memoryId: Int,
     val memoryContent: String,
     val priority: Int = 0,
     val activationReason: String? = null,

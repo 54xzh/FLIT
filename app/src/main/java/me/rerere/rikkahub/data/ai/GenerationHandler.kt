@@ -1654,6 +1654,7 @@ class GenerationHandler(
                     }
                     val now = System.currentTimeMillis()
                     val created = SessionMemory(
+                        id = nextSessionMemoryId(current),
                         content = content,
                         createdAt = now,
                         updatedAt = now,
@@ -1670,7 +1671,7 @@ class GenerationHandler(
                 InputSchema.Obj(
                     properties = buildJsonObject {
                         put("id", buildJsonObject {
-                            put("type", "string")
+                            put("type", "integer")
                             put("description", "ID of the session memory to update.")
                         })
                         put("content", buildJsonObject {
@@ -1683,7 +1684,7 @@ class GenerationHandler(
             },
             execute = { args ->
                 val params = args.jsonObject
-                val id = params["id"]?.jsonPrimitive?.contentOrNull?.trim()
+                val id = params["id"]?.jsonPrimitive?.intOrNull
                     ?: error("id is required")
                 val content = params["content"]?.jsonPrimitive?.contentOrNull?.trim()
                     ?: error("content is required")
@@ -1706,7 +1707,7 @@ class GenerationHandler(
                 InputSchema.Obj(
                     properties = buildJsonObject {
                         put("id", buildJsonObject {
-                            put("type", "string")
+                            put("type", "integer")
                             put("description", "ID of the session memory to delete.")
                         })
                     },
@@ -1714,7 +1715,7 @@ class GenerationHandler(
                 )
             },
             execute = { args ->
-                val id = args.jsonObject["id"]?.jsonPrimitive?.contentOrNull?.trim()
+                val id = args.jsonObject["id"]?.jsonPrimitive?.intOrNull
                     ?: error("id is required")
                 val current = getMemories()
                 val updated = current.filterNot { it.id == id }
@@ -1726,6 +1727,10 @@ class GenerationHandler(
             },
         ),
     )
+
+    private fun nextSessionMemoryId(memories: List<SessionMemory>): Int {
+        return (memories.maxOfOrNull { it.id } ?: 0) + 1
+    }
 
     private fun validateSessionMemoryContent(content: String) {
         if (content.isBlank()) {

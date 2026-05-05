@@ -46,7 +46,7 @@ data class ConversationSummary(
 
 @Serializable
 data class SessionMemory(
-    val id: String = Uuid.random().toString(),
+    val id: Int,
     val content: String,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = createdAt,
