@@ -232,6 +232,8 @@
     <string name="assistant_page_memory">Memory</string>
     <string name="assistant_page_memory_count">Memory: %d</string>
     <string name="assistant_page_memory_desc">When enabled, the model will try to remember information from your conversation for future use. Requires tool support.</string>
+    <string name="assistant_page_session_memory">Session Memory</string>
+    <string name="assistant_page_session_memory_desc">Let the assistant keep important details active only in the current conversation, such as settings, outlines, and requirements.</string>
     <string name="assistant_page_memory_settings_title">Memory Settings</string>
     <string name="assistant_page_message_template">Message Template</string>
     <string name="assistant_page_message_template_desc">Controls message format sent to LLM. Usually doesn\'t need modification.</string>
@@ -1864,11 +1866,13 @@
     <!-- Context Sources -->
     <string name="context_sources_title">Context Sources</string>
     <string name="context_sources_section_modes">Modes</string>
+    <string name="context_sources_section_session_memories">Session Memories</string>
     <string name="context_sources_section_memories">Memories</string>
     <string name="context_sources_section_lorebook_entries">Lorebook Entries</string>
     <string name="context_sources_mode_label">Mode</string>
     <string name="used_lorebooks_title">Lorebook Entries Used</string>
     <string name="memory_type_core">Core Memory</string>
+    <string name="memory_type_session">Session Memory</string>
     <string name="memory_type_recent_chat">Recent Chat</string>
     <string name="memory_type_episodic">Episodic Memory</string>
 

@@ -276,11 +276,23 @@ fun AssistantMemorySettings(
             MemorySettingsItem(
                 title = stringResource(R.string.assistant_page_memory),
                 subtitle = stringResource(R.string.assistant_page_memory_desc),
-                position = if (!assistant.enableMemory) "ONLY" else "FIRST",
+                position = "FIRST",
                 trailing = {
                     HapticSwitch(
                         checked = assistant.enableMemory,
                         onCheckedChange = { onUpdateAssistant(assistant.copy(enableMemory = it)) }
+                    )
+                }
+            )
+
+            MemorySettingsItem(
+                title = stringResource(R.string.assistant_page_session_memory),
+                subtitle = stringResource(R.string.assistant_page_session_memory_desc),
+                position = if (assistant.enableMemory) "MIDDLE" else "LAST",
+                trailing = {
+                    HapticSwitch(
+                        checked = assistant.enableSessionMemory,
+                        onCheckedChange = { onUpdateAssistant(assistant.copy(enableSessionMemory = it)) }
                     )
                 }
             )

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material3.Icon
@@ -39,6 +40,7 @@ import kotlinx.serialization.json.Json
 import me.rerere.ai.ui.UsedLorebookEntry
 import me.rerere.ai.ui.UsedMemory
 import me.rerere.ai.ui.UsedMode
+import me.rerere.ai.ui.UsedSessionMemory
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
@@ -58,6 +60,10 @@ private sealed class ContextStackItem {
     data class Memory(val memory: UsedMemory) : ContextStackItem() {
         override val priority: Int get() = memory.priority
     }
+
+    data class SessionMemory(val memory: UsedSessionMemory) : ContextStackItem() {
+        override val priority: Int get() = memory.priority
+    }
     
     data class Lorebook(val entry: UsedLorebookEntry) : ContextStackItem() {
         override val priority: Int get() = entry.priority
@@ -74,6 +80,7 @@ private sealed class ContextStackItem {
 fun ContextStackIndicator(
     modes: List<UsedMode> = emptyList(),
     memories: List<UsedMemory> = emptyList(),
+    sessionMemories: List<UsedSessionMemory> = emptyList(),
     entries: List<UsedLorebookEntry> = emptyList(),
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -81,9 +88,10 @@ fun ContextStackIndicator(
     val isDarkMode = LocalDarkMode.current
     
     // Combine all items and sort by priority
-    val allItems = remember(modes, memories, entries) {
+    val allItems = remember(modes, memories, sessionMemories, entries) {
         buildList {
             modes.forEach { add(ContextStackItem.Mode(it)) }
+            sessionMemories.forEach { add(ContextStackItem.SessionMemory(it)) }
             memories.forEach { add(ContextStackItem.Memory(it)) }
             entries.forEach { add(ContextStackItem.Lorebook(it)) }
         }.sortedByDescending { it.priority }
@@ -142,6 +150,17 @@ fun ContextStackIndicator(
                 is ContextStackItem.Memory -> {
                     MemoryCover(
                         memory = item.memory,
+                        overlayColor = overlayColor,
+                        overlayAlpha = overlayAlpha,
+                        modifier = Modifier
+                            .offset(x = overlap * index)
+                            .zIndex((displayItems.size - index).toFloat())
+                            .width(bookWidth)
+                            .height(bookHeight)
+                    )
+                }
+                is ContextStackItem.SessionMemory -> {
+                    SessionMemoryCover(
                         overlayColor = overlayColor,
                         overlayAlpha = overlayAlpha,
                         modifier = Modifier
@@ -303,6 +322,38 @@ private fun MemoryCover(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SessionMemoryCover(
+    overlayColor: Color,
+    overlayAlpha: Float,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(6.dp)
+            )
+            .drawWithContent {
+                drawContent()
+                if (overlayAlpha > 0f) {
+                    drawRect(overlayColor.copy(alpha = overlayAlpha))
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Bookmark,
+            contentDescription = stringResource(R.string.memory_type_session),
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

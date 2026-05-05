@@ -17,6 +17,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -43,6 +44,7 @@ import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UsedLorebookEntry
 import me.rerere.ai.ui.UsedMemory
 import me.rerere.ai.ui.UsedMode
+import me.rerere.ai.ui.UsedSessionMemory
 import me.rerere.ai.ui.handleMessageChunk
 import me.rerere.ai.ui.limitContext
 import me.rerere.ai.ui.truncate
@@ -71,6 +73,7 @@ import me.rerere.rikkahub.data.model.LorebookActivationType
 import me.rerere.rikkahub.data.model.LorebookEntry
 import me.rerere.rikkahub.data.model.Mode
 import me.rerere.rikkahub.data.model.ModeAttachmentType
+import me.rerere.rikkahub.data.model.SessionMemory
 import me.rerere.rikkahub.data.model.ToolResultHistoryMode
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.repository.ConversationRepository
@@ -83,6 +86,14 @@ import kotlin.uuid.Uuid
 
 private const val TAG = "GenerationHandler"
 private val MEMORY_TOOL_NAMES = setOf("create_memory", "edit_memory", "delete_memory")
+private val SESSION_MEMORY_TOOL_NAMES = setOf(
+    "create_session_memory",
+    "edit_session_memory",
+    "delete_session_memory",
+)
+private val INTERNAL_MEMORY_TOOL_NAMES = MEMORY_TOOL_NAMES + SESSION_MEMORY_TOOL_NAMES
+private const val SESSION_MEMORY_MAX_COUNT = 20
+private const val SESSION_MEMORY_MAX_CONTENT_CHARS = 1000
 private const val MCP_TOOL_APPROVAL_REJECTED_TEXT = "User declined this call"
 private const val META_ANTHROPIC_TYPE = "anthropic_type"
 private const val TYPE_SERVER_TOOL_USE = "server_tool_use"
@@ -98,6 +109,7 @@ data class BuildMessagesResult(
     val usedLorebookEntries: List<UsedLorebookEntry> = emptyList(),
     val usedModes: List<UsedMode> = emptyList(),
     val usedMemories: List<UsedMemory> = emptyList(),
+    val usedSessionMemories: List<UsedSessionMemory> = emptyList(),
 )
 
 @Serializable
@@ -128,6 +140,9 @@ class GenerationHandler(
         outputTransformers: List<OutputMessageTransformer> = emptyList(),
         assistant: Assistant,
         memories: List<AssistantMemory>? = null,
+        sessionMemories: List<SessionMemory> = emptyList(),
+        enableSessionMemoryTools: Boolean = false,
+        onSessionMemoriesChanged: suspend (List<SessionMemory>) -> Unit = {},
         enableMemoryTools: Boolean = true,
         tools: List<Tool> = emptyList(),
         truncateIndex: Int = -1,
@@ -141,6 +156,7 @@ class GenerationHandler(
         val providerImpl = providerManager.getProviderByType(provider)
 
         var messages: List<UIMessage> = messages
+        var currentSessionMemories = sessionMemories
 
         for (stepIndex in 0 until maxSteps) {
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
@@ -163,6 +179,15 @@ class GenerationHandler(
                         onDelete = { id ->
                             memoryRepo.deleteMemory(id)
                         }
+                    ).let(this::addAll)
+                }
+                if (assistant.enableSessionMemory && enableSessionMemoryTools) {
+                    buildSessionMemoryTools(
+                        getMemories = { currentSessionMemories },
+                        onChange = { updatedMemories ->
+                            currentSessionMemories = updatedMemories
+                            onSessionMemoriesChanged(updatedMemories)
+                        },
                     ).let(this::addAll)
                 }
                 addAll(tools)
@@ -201,6 +226,7 @@ class GenerationHandler(
                 provider = provider,
                 tools = toolsInternal,
                 memories = memories ?: emptyList(),
+                sessionMemories = if (assistant.enableSessionMemory) currentSessionMemories else emptyList(),
                 truncateIndex = truncateIndex,
                 stream = assistant.streamOutput,
                 enabledModeIds = enabledModeIds,
@@ -576,6 +602,7 @@ class GenerationHandler(
         model: Model,
         tools: List<Tool>,
         memories: List<AssistantMemory>,
+        sessionMemories: List<SessionMemory>,
         truncateIndex: Int,
         enabledModeIds: Set<Uuid> = emptySet(),
     ): BuildMessagesResult {
@@ -638,8 +665,8 @@ class GenerationHandler(
                 val isOld = (totalUserTurnCount - turnIndex) > keepUserMessages
                 if (!isOld) return@filterNot false
 
-                val hasExternalToolCall = message.getToolCalls().any { it.toolName !in MEMORY_TOOL_NAMES }
-                val hasExternalToolResult = message.getToolResults().any { it.toolName !in MEMORY_TOOL_NAMES }
+                val hasExternalToolCall = message.getToolCalls().any { it.toolName !in INTERNAL_MEMORY_TOOL_NAMES }
+                val hasExternalToolResult = message.getToolResults().any { it.toolName !in INTERNAL_MEMORY_TOOL_NAMES }
                 hasExternalToolCall || hasExternalToolResult
             }
         } else {
@@ -1196,6 +1223,16 @@ class GenerationHandler(
                     append(contextSummarySection)
                 }
                 val includeMemoryToolInstructions = tools.any { it.name in MEMORY_TOOL_NAMES }
+                val includeSessionMemoryToolInstructions = tools.any { it.name in SESSION_MEMORY_TOOL_NAMES }
+                val sessionMemoryPrompt = buildSessionMemoryPrompt(
+                    model = model,
+                    memories = sessionMemories,
+                    includeToolInstructions = includeSessionMemoryToolInstructions,
+                )
+                if (sessionMemoryPrompt.isNotBlank()) {
+                    appendLine()
+                    append(sessionMemoryPrompt)
+                }
                 val memoryPrompt = buildMemoryPrompt(
                     model = model,
                     memories = selectedMemories,
@@ -1243,12 +1280,21 @@ class GenerationHandler(
                 activationReason = reason,
             )
         }
+        val usedSessionMemories = sessionMemories.mapIndexed { index, memory ->
+            UsedSessionMemory(
+                memoryId = memory.id,
+                memoryContent = memory.content.take(50) + if (memory.content.length > 50) "..." else "",
+                priority = sessionMemories.size - index,
+                activationReason = "Active in this conversation",
+            )
+        }
 
         return BuildMessagesResult(
             messages = builtMessages,
             usedLorebookEntries = usedLorebookEntries,
             usedModes = usedModes,
             usedMemories = usedMemories,
+            usedSessionMemories = usedSessionMemories,
         )
     }
 
@@ -1264,6 +1310,7 @@ class GenerationHandler(
         provider: ProviderSetting,
         tools: List<Tool>,
         memories: List<AssistantMemory>,
+        sessionMemories: List<SessionMemory>,
         truncateIndex: Int,
         stream: Boolean,
         enabledModeIds: Set<Uuid> = emptySet(),
@@ -1277,6 +1324,7 @@ class GenerationHandler(
             model = model,
             tools = tools,
             memories = memories,
+            sessionMemories = sessionMemories,
             truncateIndex = truncateIndex,
             enabledModeIds = enabledModeIds,
         )
@@ -1284,7 +1332,11 @@ class GenerationHandler(
         val usedLorebookEntries = buildResult.usedLorebookEntries
         val usedModes = buildResult.usedModes
         val usedMemories = buildResult.usedMemories
-        val hasContextSources = usedLorebookEntries.isNotEmpty() || usedModes.isNotEmpty() || usedMemories.isNotEmpty()
+        val usedSessionMemories = buildResult.usedSessionMemories
+        val hasContextSources = usedLorebookEntries.isNotEmpty() ||
+            usedModes.isNotEmpty() ||
+            usedMemories.isNotEmpty() ||
+            usedSessionMemories.isNotEmpty()
 
         var messages: List<UIMessage> = messages
         val params = TextGenerationParams(
@@ -1376,6 +1428,7 @@ class GenerationHandler(
                                 usedLorebookEntries = usedLorebookEntries.ifEmpty { null },
                                 usedModes = usedModes.ifEmpty { null },
                                 usedMemories = usedMemories.ifEmpty { null },
+                                usedSessionMemories = usedSessionMemories.ifEmpty { null },
                             )
                         } else {
                             message
@@ -1442,6 +1495,7 @@ class GenerationHandler(
                                         usedLorebookEntries = usedLorebookEntries.ifEmpty { null },
                                         usedModes = usedModes.ifEmpty { null },
                                         usedMemories = usedMemories.ifEmpty { null },
+                                        usedSessionMemories = usedSessionMemories.ifEmpty { null },
                                     )
                                 } else {
                                     message
@@ -1568,6 +1622,120 @@ class GenerationHandler(
         )
     )
 
+    private fun buildSessionMemoryTools(
+        getMemories: () -> List<SessionMemory>,
+        onChange: suspend (List<SessionMemory>) -> Unit,
+    ) = listOf(
+        Tool(
+            name = "create_session_memory",
+            description = "Create a memory that stays active only in the current conversation.",
+            parameters = {
+                InputSchema.Obj(
+                    properties = buildJsonObject {
+                        put("content", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Important detail to keep active in the current conversation.")
+                        })
+                    },
+                    required = listOf("content"),
+                )
+            },
+            execute = { args ->
+                val content = args.jsonObject["content"]?.jsonPrimitive?.contentOrNull?.trim()
+                    ?: error("content is required")
+                validateSessionMemoryContent(content)
+                val current = getMemories()
+                val existing = current.firstOrNull { it.content.equals(content, ignoreCase = true) }
+                if (existing != null) {
+                    json.encodeToJsonElement(SessionMemory.serializer(), existing)
+                } else {
+                    if (current.size >= SESSION_MEMORY_MAX_COUNT) {
+                        error("session memory limit reached; edit an existing memory instead")
+                    }
+                    val now = System.currentTimeMillis()
+                    val created = SessionMemory(
+                        content = content,
+                        createdAt = now,
+                        updatedAt = now,
+                    )
+                    onChange(current + created)
+                    json.encodeToJsonElement(SessionMemory.serializer(), created)
+                }
+            },
+        ),
+        Tool(
+            name = "edit_session_memory",
+            description = "Update an existing memory that applies only to the current conversation.",
+            parameters = {
+                InputSchema.Obj(
+                    properties = buildJsonObject {
+                        put("id", buildJsonObject {
+                            put("type", "string")
+                            put("description", "ID of the session memory to update.")
+                        })
+                        put("content", buildJsonObject {
+                            put("type", "string")
+                            put("description", "New content for the session memory.")
+                        })
+                    },
+                    required = listOf("id", "content"),
+                )
+            },
+            execute = { args ->
+                val params = args.jsonObject
+                val id = params["id"]?.jsonPrimitive?.contentOrNull?.trim()
+                    ?: error("id is required")
+                val content = params["content"]?.jsonPrimitive?.contentOrNull?.trim()
+                    ?: error("content is required")
+                validateSessionMemoryContent(content)
+                val current = getMemories()
+                val existing = current.firstOrNull { it.id == id }
+                    ?: error("session memory not found")
+                val updated = existing.copy(
+                    content = content,
+                    updatedAt = System.currentTimeMillis(),
+                )
+                onChange(current.map { memory -> if (memory.id == id) updated else memory })
+                json.encodeToJsonElement(SessionMemory.serializer(), updated)
+            },
+        ),
+        Tool(
+            name = "delete_session_memory",
+            description = "Delete a memory that no longer applies to the current conversation.",
+            parameters = {
+                InputSchema.Obj(
+                    properties = buildJsonObject {
+                        put("id", buildJsonObject {
+                            put("type", "string")
+                            put("description", "ID of the session memory to delete.")
+                        })
+                    },
+                    required = listOf("id"),
+                )
+            },
+            execute = { args ->
+                val id = args.jsonObject["id"]?.jsonPrimitive?.contentOrNull?.trim()
+                    ?: error("id is required")
+                val current = getMemories()
+                val updated = current.filterNot { it.id == id }
+                if (updated.size == current.size) {
+                    error("session memory not found")
+                }
+                onChange(updated)
+                JsonPrimitive(true)
+            },
+        ),
+    )
+
+    private fun validateSessionMemoryContent(content: String) {
+        if (content.isBlank()) {
+            error("content must not be empty")
+        }
+        if (content.length > SESSION_MEMORY_MAX_CONTENT_CHARS) {
+            error("content is too long; keep it under $SESSION_MEMORY_MAX_CONTENT_CHARS characters")
+        }
+    }
+
     private fun buildToolResultRagPrompt(
         results: List<Pair<ToolResultArchiveEntity, Float>>,
         maxChars: Int,
@@ -1638,6 +1806,44 @@ class GenerationHandler(
         }
 
         return builder.toString().trim().take(hardLimit)
+    }
+
+    private fun buildSessionMemoryPrompt(
+        model: Model,
+        memories: List<SessionMemory>,
+        includeToolInstructions: Boolean,
+    ): String {
+        val shouldIncludeToolInstructions =
+            includeToolInstructions && model.abilities.contains(ModelAbility.TOOL)
+        if (memories.isEmpty() && !shouldIncludeToolInstructions) {
+            return ""
+        }
+
+        return buildString {
+            append("## Session Memories\n")
+            append("Session memories apply only to the current conversation and stay active in future turns of this conversation.\n")
+            if (memories.isNotEmpty()) {
+                memories.forEach { memory ->
+                    append("- [ID: ${memory.id}] ${memory.content}\n")
+                }
+            } else {
+                append("No session memories have been saved yet.\n")
+            }
+
+            if (shouldIncludeToolInstructions) {
+                append(
+                    """
+
+                        ## Session Memory Tool
+                        You can use `create_session_memory`, `edit_session_memory`, and `delete_session_memory` to manage details that should stay active in this conversation only.
+                        Use session memory tools sparingly. Save a detail only when it is important for the rest of this conversation, such as settings, outlines, requirements, constraints, or important decisions.
+                        Do not save ordinary chat history, casual comments, temporary wording, guesses, or details already obvious from the latest user message.
+                        Prefer editing an existing session memory over creating a duplicate. Delete a session memory when it is wrong or no longer useful.
+                        Use long-term memory tools only for information that should help in future conversations. Use session memory tools for details that matter only in this conversation.
+                    """.trimIndent()
+                )
+            }
+        }
     }
 
     private suspend fun buildMemoryPrompt(

@@ -95,7 +95,11 @@ fun ColumnScope.ChatMessageActionButtons(
     val usedEntries = message.usedLorebookEntries ?: emptyList()
     val usedModes = message.usedModes ?: emptyList()
     val usedMemories = message.usedMemories ?: emptyList()
-    val hasContextSources = usedEntries.isNotEmpty() || usedModes.isNotEmpty() || usedMemories.isNotEmpty()
+    val usedSessionMemories = message.usedSessionMemories ?: emptyList()
+    val hasContextSources = usedEntries.isNotEmpty() ||
+        usedModes.isNotEmpty() ||
+        usedMemories.isNotEmpty() ||
+        usedSessionMemories.isNotEmpty()
     val showContextStacks = effectiveDisplay.showContextStacks && hasContextSources
     val regenerateInteractionSource = remember { MutableInteractionSource() }
     val isRegeneratePressed by regenerateInteractionSource.collectIsPressedAsState()
@@ -117,6 +121,7 @@ fun ColumnScope.ChatMessageActionButtons(
         ContextSourcesSheet(
             modes = usedModes,
             memories = usedMemories,
+            sessionMemories = usedSessionMemories,
             entries = usedEntries,
             onModeClick = { mode ->
                 showContextSheet = false
@@ -143,6 +148,7 @@ fun ColumnScope.ChatMessageActionButtons(
             ContextStackIndicator(
                 modes = usedModes,
                 memories = usedMemories,
+                sessionMemories = usedSessionMemories,
                 entries = usedEntries,
                 onClick = { showContextSheet = true },
                 modifier = Modifier.padding(start = 4.dp)

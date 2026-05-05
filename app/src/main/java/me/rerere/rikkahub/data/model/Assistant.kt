@@ -83,6 +83,7 @@ data class Assistant(
     val contextSummaryPrompt: String = "", // Context summarization prompt
     val streamOutput: Boolean = true,
     val enableMemory: Boolean = false,
+    val enableSessionMemory: Boolean = true,
     val useRagMemoryRetrieval: Boolean = true, // If true, use vector-based RAG. If false, inject all memories
     val ragSimilarityThreshold: Float = 0.45f, // Similarity threshold for RAG (0.0 = include all, 1.0 = only perfect matches)
     val ragLimit: Int = 5, // Maximum number of memories to retrieve via RAG

@@ -45,6 +45,14 @@ data class ConversationSummary(
 )
 
 @Serializable
+data class SessionMemory(
+    val id: String = Uuid.random().toString(),
+    val content: String,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = createdAt,
+)
+
+@Serializable
 data class Conversation(
     val id: Uuid = Uuid.Companion.random(),
     val assistantId: Uuid,
@@ -66,6 +74,7 @@ data class Conversation(
     val lastRefreshTime: Long = 0L, // Timestamp of last manual refresh
     val contextSummaryBoundaries: List<Int> = emptyList(), // History of summary boundary indices
     val contextSummaryPendingBoundaryIndex: Int = -1, // In-memory marker for active context compression divider
+    val sessionMemories: List<SessionMemory> = emptyList(), // Memories that only apply to this conversation
     val loadedNodeStartIndex: Int = 0, // Absolute start index of currently loaded node window
     val totalMessageNodeCount: Int = 0, // Total node count stored in DB for this conversation
 ) {

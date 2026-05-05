@@ -38,6 +38,7 @@ import me.rerere.rikkahub.data.db.entity.DailyActivityEntity
 import me.rerere.rikkahub.data.db.entity.MemoryType
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
+import me.rerere.rikkahub.data.model.SessionMemory
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.deleteChatFiles
@@ -217,6 +218,7 @@ class ConversationRepository(
                 lastPruneMessageCount = entity.lastPruneMessageCount,
                 lastRefreshTime = entity.lastRefreshTime,
                 contextSummaryBoundaries = entity.contextSummaryBoundaries,
+                sessionMemories = entity.sessionMemories,
             )
         )
         JsonInstantPretty.encodeToString(payload)
@@ -354,6 +356,7 @@ class ConversationRepository(
             lastPruneMessageCount = conversation.lastPruneMessageCount,
             lastRefreshTime = conversation.lastRefreshTime,
             contextSummaryBoundaries = JsonInstant.encodeToString(normalizedSummaryBoundaries),
+            sessionMemories = JsonInstant.encodeToString(conversation.sessionMemories),
         )
     }
 
@@ -373,6 +376,11 @@ class ConversationRepository(
             emptyList()
         }
         val summaryBoundaries = normalizeContextSummaryBoundaries(parsedSummaryBoundaries)
+        val sessionMemories = try {
+            JsonInstant.decodeFromString<List<SessionMemory>>(conversationEntity.sessionMemories)
+        } catch (_: Exception) {
+            emptyList()
+        }
         return Conversation(
             id = Uuid.parse(conversationEntity.id),
             title = conversationEntity.title,
@@ -391,6 +399,7 @@ class ConversationRepository(
             lastPruneMessageCount = conversationEntity.lastPruneMessageCount,
             lastRefreshTime = conversationEntity.lastRefreshTime,
             contextSummaryBoundaries = summaryBoundaries,
+            sessionMemories = sessionMemories,
             loadedNodeStartIndex = decodedWindow.startIndex,
             totalMessageNodeCount = decodedWindow.totalCount,
         )
@@ -1150,6 +1159,8 @@ private data class RawConversationEntity(
     val lastRefreshTime: Long,
     @SerialName("context_summary_boundaries")
     val contextSummaryBoundaries: String,
+    @SerialName("session_memories")
+    val sessionMemories: String = "[]",
 )
 
 /**

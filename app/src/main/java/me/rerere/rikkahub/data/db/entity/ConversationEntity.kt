@@ -49,4 +49,6 @@ data class ConversationEntity(
     val lastRefreshTime: Long = 0L,
     @ColumnInfo(name = "context_summary_boundaries", defaultValue = "[]")
     val contextSummaryBoundaries: String = "[]",
+    @ColumnInfo(name = "session_memories", defaultValue = "[]")
+    val sessionMemories: String = "[]",
 )

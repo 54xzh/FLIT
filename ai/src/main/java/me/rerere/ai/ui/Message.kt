@@ -32,7 +32,8 @@ data class UIMessage(
     val speakerSeatId: Uuid? = null,
     val usedLorebookEntries: List<UsedLorebookEntry>? = null, // Lorebook entries used in this message
     val usedModes: List<UsedMode>? = null, // Modes used in this message
-    val usedMemories: List<UsedMemory>? = null // Memories used in this message
+    val usedMemories: List<UsedMemory>? = null, // Memories used in this message
+    val usedSessionMemories: List<UsedSessionMemory>? = null // Conversation-scoped memories used in this message
 ) {
     private fun appendChunk(chunk: MessageChunk): UIMessage {
         val choice = chunk.choices.getOrNull(0)
@@ -376,6 +377,14 @@ data class UsedMemory(
     val memoryType: Int,  // 0 = CORE, 1 = EPISODIC
     val priority: Int = 0,
     val activationReason: String? = null  // "Contextually relevant", "Always included", "Recent episode boost"
+)
+
+@Serializable
+data class UsedSessionMemory(
+    val memoryId: String,
+    val memoryContent: String,
+    val priority: Int = 0,
+    val activationReason: String? = null,
 )
 
 

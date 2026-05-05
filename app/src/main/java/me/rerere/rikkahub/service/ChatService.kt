@@ -1827,6 +1827,18 @@ class ChatService(
                     add(templateTransformer)
                 },
                 outputTransformers = outputTransformers,
+                sessionMemories = if (assistant.enableSessionMemory) conversation.sessionMemories else emptyList(),
+                enableSessionMemoryTools = true,
+                onSessionMemoriesChanged = { updatedSessionMemories ->
+                    val current = getConversationFlow(conversationId).value
+                    updateConversation(
+                        conversationId,
+                        current.copy(
+                            sessionMemories = updatedSessionMemories,
+                            updateAt = Instant.now(),
+                        )
+                    )
+                },
                 tools = buildList {
                     // Check if we should use built-in search instead of external tools
                     // Built-in search is used when:
@@ -2484,6 +2496,22 @@ class ChatService(
                 assistant = seatAssistant,
                 memories = seatMemories,
                 enableMemoryTools = false,
+                sessionMemories = if (seatAssistant.enableSessionMemory) {
+                    getConversationFlow(conversationId).value.sessionMemories
+                } else {
+                    emptyList()
+                },
+                enableSessionMemoryTools = true,
+                onSessionMemoriesChanged = { updatedSessionMemories ->
+                    val current = getConversationFlow(conversationId).value
+                    updateConversation(
+                        conversationId,
+                        current.copy(
+                            sessionMemories = updatedSessionMemories,
+                            updateAt = Instant.now(),
+                        )
+                    )
+                },
                 tools = seatTools,
                 inputTransformers = seatInputTransformers,
                 outputTransformers = outputTransformers,

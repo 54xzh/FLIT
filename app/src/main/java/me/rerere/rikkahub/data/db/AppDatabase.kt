@@ -63,7 +63,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         UsageStatsEntity::class,
         ModelQuotaUsageEntity::class,
     ],
-    version = 37,
+    version = 38,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -98,6 +98,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 34->35 is manual migration (MIGRATION_34_35) - adds usage_stats table
         // 35->36 is manual migration (MIGRATION_35_36) - adds visible conversation search text
         // 36->37 is manual migration (MIGRATION_36_37) - adds model_quota_usage table
+        // 37->38 is manual migration (MIGRATION_37_38) - adds session memories
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -296,6 +297,14 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                 """.trimIndent())
                 Log.i(TAG, "migrate: migrate from 36 to 37 success")
+            }
+        }
+
+        val MIGRATION_37_38 = object : Migration(37, 38) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 37 to 38")
+                db.execSQL("ALTER TABLE ConversationEntity ADD COLUMN session_memories TEXT NOT NULL DEFAULT '[]'")
+                Log.i(TAG, "migrate: migrate from 37 to 38 success")
             }
         }
     }
