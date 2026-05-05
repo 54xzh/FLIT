@@ -94,6 +94,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantAffectScope
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
+import me.rerere.rikkahub.data.model.SessionMemory
 import me.rerere.rikkahub.data.model.replaceRegexes
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.components.richtext.ZoomableAsyncImage
@@ -177,6 +178,9 @@ fun ChatMessage(
     onEditLorebookEntry: ((me.rerere.ai.ui.UsedLorebookEntry) -> Unit)? = null,
     onModeClick: ((me.rerere.ai.ui.UsedMode) -> Unit)? = null,
     onMemoryClick: ((me.rerere.ai.ui.UsedMemory) -> Unit)? = null,
+    currentSessionMemories: List<SessionMemory> = emptyList(),
+    onUpdateSessionMemory: ((memoryId: Int, content: String) -> Unit)? = null,
+    onDeleteSessionMemory: ((memoryId: Int) -> Unit)? = null,
 ) {
     val rawMessage = node.messages[node.selectIndex]
     val displayState = remember(rawMessage, leadingProcessParts) {
@@ -322,6 +326,9 @@ fun ChatMessage(
                 onEditLorebookEntry = onEditLorebookEntry,
                 onModeClick = onModeClick,
                 onMemoryClick = onMemoryClick,
+                currentSessionMemories = currentSessionMemories,
+                onUpdateSessionMemory = onUpdateSessionMemory,
+                onDeleteSessionMemory = onDeleteSessionMemory,
             )
         }
     }

@@ -1145,6 +1145,10 @@ private fun ChatPageContent(
                         )
                         vm.saveConversationAsync()
                     },
+                    onUpdateConversation = { updatedConversation ->
+                        vm.updateConversation(updatedConversation)
+                        vm.saveConversationAsync()
+                    },
                     onForkMessage = {
                         scope.launch {
                             val forkedConversation = vm.forkMessage(it)

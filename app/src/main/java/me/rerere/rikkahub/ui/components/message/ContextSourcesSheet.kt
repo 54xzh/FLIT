@@ -22,16 +22,22 @@ import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,9 +60,11 @@ import me.rerere.ai.ui.UsedMode
 import me.rerere.ai.ui.UsedSessionMemory
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.Avatar
+import me.rerere.rikkahub.data.model.SessionMemory
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 
 private val json = Json { ignoreUnknownKeys = true }
+private const val SESSION_MEMORY_EDITOR_MAX_CHARS = 1000
 
 // Corner radius values matching PhysicsSwipeToDelete
 private val groupCornerRadius = 24.dp
@@ -71,19 +79,51 @@ fun ContextSourcesSheet(
     modes: List<UsedMode> = emptyList(),
     memories: List<UsedMemory> = emptyList(),
     sessionMemories: List<UsedSessionMemory> = emptyList(),
+    currentSessionMemories: List<SessionMemory> = emptyList(),
     entries: List<UsedLorebookEntry> = emptyList(),
     onModeClick: ((UsedMode) -> Unit)? = null,
     onMemoryClick: ((UsedMemory) -> Unit)? = null,
+    onSessionMemorySave: ((memoryId: Int, content: String) -> Unit)? = null,
+    onSessionMemoryDelete: ((memoryId: Int) -> Unit)? = null,
     onEntryClick: ((UsedLorebookEntry) -> Unit)? = null,
     onDismissRequest: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
+    var editingSessionMemory by remember { mutableStateOf<UsedSessionMemory?>(null) }
     
     val sortedModes = remember(modes) { modes.sortedByDescending { it.priority } }
-    val sortedSessionMemories = remember(sessionMemories) { sessionMemories.sortedByDescending { it.priority } }
+    val currentSessionMemoryById = remember(currentSessionMemories) {
+        currentSessionMemories.associateBy { it.id }
+    }
+    val sortedSessionMemories = remember(sessionMemories, currentSessionMemoryById) {
+        sessionMemories
+            .map { usedMemory ->
+                currentSessionMemoryById[usedMemory.memoryId]
+                    ?.let { currentMemory -> usedMemory.copy(memoryContent = currentMemory.content) }
+                    ?: usedMemory
+            }
+            .sortedByDescending { it.priority }
+    }
     val sortedMemories = remember(memories) { memories.sortedByDescending { it.priority } }
     val sortedEntries = remember(entries) { entries.sortedByDescending { it.priority } }
+
+    editingSessionMemory?.let { memory ->
+        SessionMemoryEditDialog(
+            memory = memory,
+            canEdit = onSessionMemorySave != null && memory.memoryId in currentSessionMemoryById,
+            canDelete = onSessionMemoryDelete != null && memory.memoryId in currentSessionMemoryById,
+            onDismiss = { editingSessionMemory = null },
+            onSave = { content ->
+                onSessionMemorySave?.invoke(memory.memoryId, content)
+                editingSessionMemory = null
+            },
+            onDelete = {
+                onSessionMemoryDelete?.invoke(memory.memoryId)
+                editingSessionMemory = null
+            }
+        )
+    }
     
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -146,6 +186,7 @@ fun ContextSourcesSheet(
                             shape = shape,
                             isFirst = index == 0,
                             isLast = index == sortedSessionMemories.lastIndex,
+                            onClick = { editingSessionMemory = memory }
                         )
                     }
                     item { Spacer(Modifier.height(12.dp)) }
@@ -302,6 +343,7 @@ private fun SessionMemoryItem(
     shape: RoundedCornerShape,
     isFirst: Boolean,
     isLast: Boolean,
+    onClick: () -> Unit,
 ) {
     val isDarkMode = LocalDarkMode.current
     val opticalRadius = 12.dp
@@ -314,6 +356,7 @@ private fun SessionMemoryItem(
     )
 
     Surface(
+        onClick = onClick,
         shape = shape,
         color = if (isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
@@ -371,6 +414,73 @@ private fun SessionMemoryItem(
             }
         }
     }
+}
+
+@Composable
+private fun SessionMemoryEditDialog(
+    memory: UsedSessionMemory,
+    canEdit: Boolean,
+    canDelete: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var content by remember(memory.memoryId, memory.memoryContent) {
+        mutableStateOf(memory.memoryContent)
+    }
+    val trimmedContent = content.trim()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(text = stringResource(R.string.memory_type_session))
+        },
+        text = {
+            OutlinedTextField(
+                value = content,
+                onValueChange = { content = it.take(SESSION_MEMORY_EDITOR_MAX_CHARS) },
+                modifier = Modifier.fillMaxWidth(),
+                readOnly = !canEdit,
+                minLines = 6,
+                maxLines = 12,
+                label = {
+                    Text(text = stringResource(R.string.memory_type_session))
+                },
+                supportingText = {
+                    Text(
+                        text = "${content.length}/$SESSION_MEMORY_EDITOR_MAX_CHARS",
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.End
+                    )
+                }
+            )
+        },
+        confirmButton = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (canDelete) {
+                    TextButton(onClick = onDelete) {
+                        Text(
+                            text = stringResource(R.string.delete),
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onDismiss) {
+                    Text(text = stringResource(R.string.cancel))
+                }
+                TextButton(
+                    onClick = { onSave(trimmedContent) },
+                    enabled = canEdit && trimmedContent.isNotBlank()
+                ) {
+                    Text(text = stringResource(R.string.save))
+                }
+            }
+        }
+    )
 }
 
 @Composable

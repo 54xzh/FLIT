@@ -164,6 +164,7 @@ fun ChatList(
     onForkMessage: (UIMessage) -> Unit = {},
     onDelete: (UIMessage) -> Unit = {},
     onUpdateMessage: (MessageNode) -> Unit = {},
+    onUpdateConversation: (Conversation) -> Unit = {},
     canLoadOlderHistory: Boolean = false,
     loadingOlderHistory: Boolean = false,
     onLoadOlderHistory: () -> Unit = {},
@@ -203,6 +204,7 @@ fun ChatList(
                     onForkMessage = onForkMessage,
                     onDelete = onDelete,
                     onUpdateMessage = onUpdateMessage,
+                    onUpdateConversation = onUpdateConversation,
                     canLoadOlderHistory = canLoadOlderHistory,
                     loadingOlderHistory = loadingOlderHistory,
                     onLoadOlderHistory = onLoadOlderHistory,
@@ -213,6 +215,82 @@ fun ChatList(
             }
         }
     }
+}
+
+private fun Conversation.updateSessionMemoryContent(
+    memoryId: Int,
+    content: String,
+): Conversation {
+    val trimmedContent = content.trim()
+    if (trimmedContent.isBlank()) return this
+
+    var memoryChanged = false
+    val updatedSessionMemories = sessionMemories.map { memory ->
+        if (memory.id == memoryId && memory.content != trimmedContent) {
+            memoryChanged = true
+            memory.copy(
+                content = trimmedContent,
+                updatedAt = System.currentTimeMillis()
+            )
+        } else {
+            memory
+        }
+    }
+    if (!memoryChanged) return this
+
+    return copy(
+        sessionMemories = updatedSessionMemories,
+        messageNodes = messageNodes.mapUsedSessionMemory(memoryId) { usedMemory ->
+            usedMemory.copy(memoryContent = trimmedContent)
+        }
+    )
+}
+
+private fun Conversation.deleteSessionMemory(memoryId: Int): Conversation {
+    val updatedSessionMemories = sessionMemories.filterNot { it.id == memoryId }
+    if (updatedSessionMemories.size == sessionMemories.size) return this
+
+    return copy(
+        sessionMemories = updatedSessionMemories,
+        messageNodes = messageNodes.mapUsedSessionMemoryList { usedMemories ->
+            usedMemories.filterNot { it.memoryId == memoryId }
+        }
+    )
+}
+
+private fun List<MessageNode>.mapUsedSessionMemory(
+    memoryId: Int,
+    transform: (me.rerere.ai.ui.UsedSessionMemory) -> me.rerere.ai.ui.UsedSessionMemory,
+): List<MessageNode> = mapUsedSessionMemoryList { usedMemories ->
+    usedMemories.map { usedMemory ->
+        if (usedMemory.memoryId == memoryId) transform(usedMemory) else usedMemory
+    }
+}
+
+private fun List<MessageNode>.mapUsedSessionMemoryList(
+    transform: (List<me.rerere.ai.ui.UsedSessionMemory>) -> List<me.rerere.ai.ui.UsedSessionMemory>,
+): List<MessageNode> {
+    var anyNodeChanged = false
+    val updatedNodes = map { node ->
+        var nodeChanged = false
+        val updatedMessages = node.messages.map { message ->
+            val usedMemories = message.usedSessionMemories ?: return@map message
+            val updatedUsedMemories = transform(usedMemories)
+            if (updatedUsedMemories == usedMemories) {
+                message
+            } else {
+                nodeChanged = true
+                message.copy(usedSessionMemories = updatedUsedMemories.ifEmpty { null })
+            }
+        }
+        if (nodeChanged) {
+            anyNodeChanged = true
+            node.copy(messages = updatedMessages)
+        } else {
+            node
+        }
+    }
+    return if (anyNodeChanged) updatedNodes else this
 }
 
 @Composable
@@ -230,6 +308,7 @@ private fun SharedTransitionScope.ChatListNormal(
     onForkMessage: (UIMessage) -> Unit,
     onDelete: (UIMessage) -> Unit,
     onUpdateMessage: (MessageNode) -> Unit,
+    onUpdateConversation: (Conversation) -> Unit,
     canLoadOlderHistory: Boolean,
     loadingOlderHistory: Boolean,
     onLoadOlderHistory: () -> Unit,
@@ -675,6 +754,22 @@ private fun SharedTransitionScope.ChatListNormal(
                                             scrollToMemoryId = memory.memoryId
                                         )
                                     )
+                                },
+                                currentSessionMemories = conversation.sessionMemories,
+                                onUpdateSessionMemory = { memoryId, content ->
+                                    val updatedConversation = conversation.updateSessionMemoryContent(
+                                        memoryId = memoryId,
+                                        content = content
+                                    )
+                                    if (updatedConversation != conversation) {
+                                        onUpdateConversation(updatedConversation)
+                                    }
+                                },
+                                onDeleteSessionMemory = { memoryId ->
+                                    val updatedConversation = conversation.deleteSessionMemory(memoryId)
+                                    if (updatedConversation != conversation) {
+                                        onUpdateConversation(updatedConversation)
+                                    }
                                 },
                             )
                         }
