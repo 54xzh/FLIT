@@ -71,10 +71,18 @@ class LocalTools(
     private val scheduledTaskDao: ScheduledTaskDao,
     private val scheduledTaskScheduler: ScheduledTaskScheduler,
 ) {
+    private val javascriptToolSystemPrompt = """
+        ## tool: eval_javascript
+
+        ### usage
+        - Execute JavaScript code with QuickJS.
+        - When using this tool for math that needs stable decimal output, format numbers explicitly, for example with `toFixed`.
+    """.trimIndent()
+
     val javascriptTool by lazy {
         Tool(
             name = "eval_javascript",
-            description = "Execute JavaScript code with QuickJS. If use this tool to calculate math, better to add `toFixed` to the code.",
+            description = "Execute JavaScript code with QuickJS.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -85,6 +93,7 @@ class LocalTools(
                     },
                 )
             },
+            systemPrompt = { _, _ -> javascriptToolSystemPrompt },
             execute = {
                 QuickJSLoader.init()
                 val jsContext = QuickJSContext.create()
@@ -410,7 +419,7 @@ class LocalTools(
         val scriptableSkillIds = scriptableSkills.map { it.id.toString() }.toSet()
         return Tool(
             name = "read_skill_file",
-            description = "Read a file from an installed Skill package (e.g., SKILL.md or referenced files).",
+            description = "Read a file from an installed Skill package.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {

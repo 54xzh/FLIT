@@ -24,6 +24,17 @@ import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import kotlin.uuid.Uuid
 
 object LorebookTools {
+    private val LOREBOOK_SYSTEM_PROMPT = """
+        ## tool: lorebooks
+
+        ### usage
+        - Lorebook tools can only access lorebooks enabled for the current assistant in the current chat.
+        - If you are unsure which lorebook to use, call `lorebooks_list_enabled` first.
+        - `lorebooks_entry_update` is a patch tool. Only provide fields that should change.
+        - Deleted entries can be recovered with `lorebooks_history_undo`.
+        - Use history tools to inspect recent tool revisions or undo a mistaken change.
+    """.trimIndent()
+
     fun create(
         assistant: Assistant,
         conversationId: Uuid,
@@ -88,10 +99,11 @@ object LorebookTools {
     ): Tool {
         return Tool(
             name = "lorebooks_list_enabled",
-            description = "List lorebooks enabled for this assistant in current chat.",
+            description = "List enabled lorebooks.",
             parameters = {
                 InputSchema.Obj(properties = buildJsonObject { })
             },
+            systemPrompt = { _, _ -> LOREBOOK_SYSTEM_PROMPT },
             execute = {
                 val settings = currentSettings(settingsSnapshot, settingsStore)
                 val enabled = resolveEnabledLorebooks(settings, assistant)
@@ -122,7 +134,7 @@ object LorebookTools {
     ): Tool {
         return Tool(
             name = "lorebooks_entry_list",
-            description = "List entries in a lorebook.",
+            description = "List lorebook entries.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -173,7 +185,7 @@ object LorebookTools {
     ): Tool {
         return Tool(
             name = "lorebooks_entry_create",
-            description = "Create a new entry in an enabled lorebook.",
+            description = "Create a lorebook entry.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -270,7 +282,7 @@ object LorebookTools {
     ): Tool {
         return Tool(
             name = "lorebooks_entry_update",
-            description = "Update an existing entry in an enabled lorebook (patch).",
+            description = "Update a lorebook entry.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -418,7 +430,7 @@ object LorebookTools {
     ): Tool {
         return Tool(
             name = "lorebooks_entry_delete",
-            description = "Delete an entry from an enabled lorebook (recoverable via history undo).",
+            description = "Delete a lorebook entry.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -492,7 +504,7 @@ object LorebookTools {
     ): Tool {
         return Tool(
             name = "lorebooks_history_list",
-            description = "List recent tool revisions for a lorebook.",
+            description = "List lorebook revision history.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -552,7 +564,7 @@ object LorebookTools {
     ): Tool {
         return Tool(
             name = "lorebooks_history_undo",
-            description = "Undo the latest tool revision of a lorebook, or undo a specific revision_id.",
+            description = "Undo a lorebook revision.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {

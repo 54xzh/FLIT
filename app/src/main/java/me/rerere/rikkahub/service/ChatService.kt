@@ -3329,7 +3329,7 @@ class ChatService(
 
         return Tool(
             name = "run_skill_script",
-            description = "Execute a Python script (scripts/*.py) from an installed Skill package. Requires user-authorized workspace folder.",
+            description = "Run a Python script from an installed Skill package.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -3379,6 +3379,7 @@ class ChatService(
                     appendLine("- `skill_name` MUST be a skill marked `[script]` in the skills list (or pass `skill_id`).")
                     appendLine("- `skill_name` is a Skill package name, NOT a workspace path. Do NOT use placeholders like \".\" or \"/\".")
                     appendLine("- The script path must be under `scripts/` and end with `.py`.")
+                    appendLine("- Requires a user-authorized workspace folder.")
                     appendLine("- Scripts run with the working directory set to the current conversation's workspace folder.")
                     appendLine("- Prefer reading SKILL.md / script source via `read_skill_file` before running.")
                     appendLine("- If the script is CLI-style (no run(input)), pass `argv` (e.g., [\"--help\"]) to run it.")
@@ -3722,7 +3723,7 @@ class ChatService(
     ): Tool {
         return Tool(
             name = "eval_python",
-            description = "Execute Python code with Chaquopy in the current conversation workspace directory. Requires user-authorized workspace folder.",
+            description = "Execute Python code with Chaquopy.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -3765,6 +3766,7 @@ class ChatService(
                     appendLine()
                     appendLine("### execution")
                     appendLine("- The Python code runs locally via Chaquopy.")
+                    appendLine("- Requires a user-authorized workspace folder.")
                     appendLine("- The working directory is the current conversation workspace directory.")
                     appendLine("- Prefer a `run(input: dict)` entrypoint and return JSON-serializable data.")
                     appendLine("- Use print() for logs; stdout/stderr will be returned.")
@@ -4054,10 +4056,21 @@ class ChatService(
             ?: error("Workspace work directory is not accessible")
     }
 
+    private val askUserToolSystemPrompt = """
+        ## tool: ask_user
+
+        ### usage
+        - Ask the user instead of guessing when intent is ambiguous, a decision has multiple valid paths, an action is irreversible, or needed information is only known by the user.
+        - Do not proceed on your own when uncertain. Stop and ask.
+        - You can ask multiple questions at once by providing the `questions` array. The user will answer them one by one.
+        - Use the single `question` and `options` fields only when you have one question.
+        - Provide 2 to 4 clear options for each question.
+    """.trimIndent()
+
     private fun createAskUserTool(conversationId: Uuid): Tool {
         return Tool(
             name = "ask_user",
-            description = "ALWAYS use this tool instead of guessing or making assumptions. Call it whenever: the user's intent is ambiguous, a decision has multiple valid paths, an action is irreversible, or you need information only the user has. Do NOT proceed on your own when uncertain — stop and ask. You can ask MULTIPLE questions at once by providing the \"questions\" array, each with its own question text and 2–4 options. The user will answer them one by one in a wizard. If you only have one question, you can still use the single \"question\" + \"options\" format.",
+            description = "Ask the user one or more questions.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -4105,6 +4118,7 @@ class ChatService(
                     required = listOf()
                 )
             },
+            systemPrompt = { _, _ -> askUserToolSystemPrompt },
             execute = {
                 buildJsonObject { put("answer", "") }
             }
@@ -4296,7 +4310,7 @@ class ChatService(
     ): Tool {
         return Tool(
             name = "workspace_list",
-            description = "List files/directories in the current conversation workspace directory.",
+            description = "List workspace files and directories.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -4400,7 +4414,7 @@ class ChatService(
     ): Tool {
         return Tool(
             name = "workspace_read_file",
-            description = "Read a text file (UTF-8) from the current conversation workspace directory.",
+            description = "Read a workspace text file.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -4488,7 +4502,7 @@ class ChatService(
     ): Tool {
         return Tool(
             name = "workspace_write_file",
-            description = "Write a text file (UTF-8) to the current conversation workspace directory.",
+            description = "Write a workspace text file.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -4614,7 +4628,7 @@ class ChatService(
     ): Tool {
         return Tool(
             name = "workspace_mkdir",
-            description = "Create a directory in the current conversation workspace directory.",
+            description = "Create a workspace directory.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -4701,7 +4715,7 @@ class ChatService(
     ): Tool {
         return Tool(
             name = "workspace_delete",
-            description = "Delete a file/directory in the current conversation workspace directory.",
+            description = "Delete a workspace file or directory.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -4781,7 +4795,7 @@ class ChatService(
     ): Tool {
         return Tool(
             name = "workspace_rename",
-            description = "Rename or move a file/directory within the current conversation workspace directory.",
+            description = "Rename or move a workspace file or directory.",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
