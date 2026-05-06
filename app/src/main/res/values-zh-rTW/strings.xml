@@ -1732,7 +1732,7 @@
   <string name="setting_tool_prompts_group_skills">技能</string>
   <string name="setting_tool_prompts_group_workspace">工作區</string>
   <string name="setting_tool_prompts_group_scheduled_tasks">定時任務</string>
-  <string name="setting_tool_prompts_group_lorebooks">知識書</string>
+  <string name="setting_tool_prompts_group_lorebooks">世界書</string>
   <string name="setting_tool_prompts_group_user_interaction">詢問使用者</string>
   <string name="setting_advanced_page_conversation_actions_title">對話操作</string>
   <string name="setting_advanced_page_show_export_conversation_json_title">顯示「匯出對話為 JSON」按鈕</string>

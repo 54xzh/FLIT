@@ -178,7 +178,7 @@
     <string name="setting_tool_prompts_group_skills">技能</string>
     <string name="setting_tool_prompts_group_workspace">工作区</string>
     <string name="setting_tool_prompts_group_scheduled_tasks">定时任务</string>
-    <string name="setting_tool_prompts_group_lorebooks">知识书</string>
+    <string name="setting_tool_prompts_group_lorebooks">世界书</string>
     <string name="setting_tool_prompts_group_user_interaction">询问用户</string>
     <string name="setting_advanced_page_conversation_actions_title">会话操作</string>
     <string name="setting_advanced_page_show_export_conversation_json_title">显示“导出会话为 JSON”按钮</string>

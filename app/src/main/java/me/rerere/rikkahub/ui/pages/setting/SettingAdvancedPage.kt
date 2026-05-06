@@ -6,15 +6,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Build
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -218,7 +214,6 @@ fun SettingAdvancedPage(vm: SettingVM = koinViewModel()) {
                     SettingGroupItem(
                         title = stringResource(R.string.setting_tool_prompts_title),
                         subtitle = stringResource(R.string.setting_tool_prompts_desc),
-                        icon = { Icon(Icons.Rounded.Build, null, modifier = Modifier.size(20.dp)) },
                         onClick = { navController.navigate(Screen.SettingCustomToolPrompts) },
                     )
                 }

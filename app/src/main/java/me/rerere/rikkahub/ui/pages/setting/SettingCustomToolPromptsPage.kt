@@ -17,10 +17,17 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -45,6 +52,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.rikkahub.R
@@ -100,7 +108,7 @@ fun SettingCustomToolPromptsPage(vm: SettingVM = koinViewModel()) {
                                 },
                                 icon = {
                                     Icon(
-                                        imageVector = Icons.Rounded.Build,
+                                        imageVector = definition.group.iconVector(),
                                         contentDescription = null,
                                         modifier = Modifier.size(20.dp),
                                     )
@@ -137,6 +145,19 @@ fun SettingCustomToolPromptsPage(vm: SettingVM = koinViewModel()) {
                 }
             },
         )
+    }
+}
+
+private fun ToolSystemPromptGroup.iconVector(): ImageVector {
+    return when (this) {
+        ToolSystemPromptGroup.Search -> Icons.Rounded.Search
+        ToolSystemPromptGroup.Memory -> Icons.Rounded.Memory
+        ToolSystemPromptGroup.Local -> Icons.Rounded.PhoneAndroid
+        ToolSystemPromptGroup.Skills -> Icons.Rounded.Extension
+        ToolSystemPromptGroup.Workspace -> Icons.Rounded.Folder
+        ToolSystemPromptGroup.ScheduledTasks -> Icons.Rounded.History
+        ToolSystemPromptGroup.Lorebooks -> Icons.Rounded.Bookmark
+        ToolSystemPromptGroup.UserInteraction -> Icons.AutoMirrored.Rounded.Chat
     }
 }
 
