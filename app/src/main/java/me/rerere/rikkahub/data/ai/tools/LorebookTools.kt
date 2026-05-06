@@ -24,17 +24,6 @@ import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import kotlin.uuid.Uuid
 
 object LorebookTools {
-    private val LOREBOOK_SYSTEM_PROMPT = """
-        ## tool: lorebooks
-
-        ### usage
-        - Lorebook tools can only access lorebooks enabled for the current assistant in the current chat.
-        - If you are unsure which lorebook to use, call `lorebooks_list_enabled` first.
-        - `lorebooks_entry_update` is a patch tool. Only provide fields that should change.
-        - Deleted entries can be recovered with `lorebooks_history_undo`.
-        - Use history tools to inspect recent tool revisions or undo a mistaken change.
-    """.trimIndent()
-
     fun create(
         assistant: Assistant,
         conversationId: Uuid,
@@ -103,7 +92,7 @@ object LorebookTools {
             parameters = {
                 InputSchema.Obj(properties = buildJsonObject { })
             },
-            systemPrompt = { _, _ -> LOREBOOK_SYSTEM_PROMPT },
+            systemPrompt = { _, _ -> LOREBOOK_SYSTEM_PROMPT_TEMPLATE },
             execute = {
                 val settings = currentSettings(settingsSnapshot, settingsStore)
                 val enabled = resolveEnabledLorebooks(settings, assistant)

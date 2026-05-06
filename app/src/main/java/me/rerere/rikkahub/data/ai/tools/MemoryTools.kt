@@ -21,20 +21,6 @@ object MemoryTools {
 
     private const val TOOL_DESCRIPTION = "Search this assistant's saved memories."
 
-    private val TOOL_SYSTEM_PROMPT = """
-        ## tool: memory_search
-
-        ### usage
-        - Search saved memories when the user references something not provided in the current context, such as names, dates, or prior decisions.
-        - Use this tool before guessing about saved memories.
-        - Do not use this tool for the current conversation or general knowledge.
-
-        ### query rules
-        - Within one query string, spaces mean AND: every term must match.
-        - Multiple query strings mean OR: any one query can match.
-        - Wrap a phrase with double quotes to keep it as one term.
-    """.trimIndent()
-
     private const val MAX_QUERIES = 8
     private const val MAX_LIMIT = 30
     private const val DEFAULT_LIMIT = 8
@@ -84,7 +70,7 @@ object MemoryTools {
                     required = listOf("queries"),
                 )
             },
-            systemPrompt = { _, _ -> TOOL_SYSTEM_PROMPT },
+            systemPrompt = { _, _ -> MEMORY_SEARCH_SYSTEM_PROMPT_TEMPLATE },
             execute = { args ->
                 executeSearch(args.jsonObject, assistantIdStr, memoryRepository)
             },

@@ -35,31 +35,11 @@ fun createScheduledTaskTools(
     buildDeleteTool(assistantId, taskDao, scheduler),
 )
 
-private val SCHEDULED_TASK_SYSTEM_PROMPT = """
-    ## tool: scheduled tasks
-
-    ### usage
-    - Use scheduled task tools to list, create, update, or delete tasks that belong to the current assistant.
-    - When updating a task, only provide fields that should change.
-
-    ### repeat rules
-    - `repeat_type` values are `once`, `daily`, `weekly`, `monthly`, and `interval`.
-    - For `once`, `daily`, `weekly`, and `monthly`, provide `time_of_day` in `HH:mm`.
-    - For `weekly`, provide `weekly_days` as `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, or `sun`.
-    - For `monthly`, provide `monthly_day` from 1 to 28, or -1 for the last day of month.
-    - For `interval`, provide `interval_value` and `interval_unit` (`hours` or `days`).
-
-    ### prompt template
-    - Write `prompt_template` from the user's perspective, as if the user is sending a message to the assistant.
-    - Good: "Please send me today's weather summary."
-    - Bad: "Send the user a weather summary."
-""".trimIndent()
-
 private fun buildListTool(assistantId: Uuid, taskDao: ScheduledTaskDao) = Tool(
     name = "list_scheduled_tasks",
     description = "List scheduled tasks.",
     parameters = { null },
-    systemPrompt = { _, _ -> SCHEDULED_TASK_SYSTEM_PROMPT },
+    systemPrompt = { _, _ -> SCHEDULED_TASK_SYSTEM_PROMPT_TEMPLATE },
     execute = {
         val ids = withContext(Dispatchers.IO) {
             taskDao.getTaskIdsOfAssistant(assistantId.toString())

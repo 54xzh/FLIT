@@ -50,6 +50,7 @@ import me.rerere.ai.ui.limitContext
 import me.rerere.ai.ui.truncate
 import me.rerere.ai.util.HttpStatusException
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_LEARNING_MODE_PROMPT
+import me.rerere.rikkahub.data.ai.tools.renderConfiguredSystemPrompt
 import me.rerere.rikkahub.data.ai.transformers.InputMessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.DocumentSummaryTransformer
 import me.rerere.rikkahub.data.ai.transformers.OcrTransformer
@@ -1017,7 +1018,13 @@ class GenerationHandler(
 
         tools.forEach { tool ->
             baseSystemPromptBuilder.appendLine()
-            baseSystemPromptBuilder.append(tool.systemPrompt(model, documentArchivedMessages))
+            baseSystemPromptBuilder.append(
+                tool.renderConfiguredSystemPrompt(
+                    settings = settings,
+                    model = model,
+                    messages = documentArchivedMessages,
+                )
+            )
         }
         val baseSystemPrompt = baseSystemPromptBuilder.toString()
         currentTokens += estimateTokens(baseSystemPrompt)

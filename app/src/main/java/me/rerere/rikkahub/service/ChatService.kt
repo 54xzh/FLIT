@@ -85,10 +85,18 @@ import me.rerere.rikkahub.data.ai.AskUserRequest
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_CONTEXT_SUMMARY_PROMPT
 import me.rerere.rikkahub.data.ai.rag.EmbeddingService
+import me.rerere.rikkahub.data.ai.tools.ASK_USER_SYSTEM_PROMPT_TEMPLATE
+import me.rerere.rikkahub.data.ai.tools.EVAL_PYTHON_SYSTEM_PROMPT_TEMPLATE
 import me.rerere.rikkahub.data.ai.tools.LorebookTools
 import me.rerere.rikkahub.data.ai.tools.LocalToolOption
 import me.rerere.rikkahub.data.ai.tools.LocalTools
+import me.rerere.rikkahub.data.ai.tools.RUN_SKILL_SCRIPT_SYSTEM_PROMPT_TEMPLATE
+import me.rerere.rikkahub.data.ai.tools.SCRIPTABLE_SKILL_LIST_VARIABLE
 import me.rerere.rikkahub.data.ai.tools.SkillScriptRunner
+import me.rerere.rikkahub.data.ai.tools.WORKSPACE_COMMON_RULES_PROMPT
+import me.rerere.rikkahub.data.ai.tools.WORKSPACE_COMMON_RULES_VARIABLE
+import me.rerere.rikkahub.data.ai.tools.renderToolSystemPromptTemplate
+import me.rerere.rikkahub.data.ai.tools.workspaceToolSystemPromptTemplate
 import me.rerere.rikkahub.data.ai.transformers.Base64ImageToLocalFileTransformer
 import me.rerere.rikkahub.data.ai.transformers.DocumentAsPromptTransformer
 import me.rerere.rikkahub.data.ai.transformers.OcrTransformer
@@ -3326,6 +3334,20 @@ class ChatService(
         val allowedSkillIds = allowedSkills.map { it.id.toString() }.toSet()
         val allowedSkillsById = allowedSkills.associateBy { it.id.toString() }
         val allowedSkillsByName = allowedSkills.groupBy { it.name.trim().lowercase(Locale.ROOT) }
+        val promptVariables = mapOf(
+            SCRIPTABLE_SKILL_LIST_VARIABLE to allowedSkills.joinToString(separator = "\n") { skill ->
+                buildString {
+                    append("- ")
+                    append(skill.name)
+                    append(" | id: ")
+                    append(skill.id.toString())
+                    if (skill.description.isNotBlank()) {
+                        append(" | desc: ")
+                        append(skill.description.replace('\n', ' ').trim())
+                    }
+                }
+            }
+        )
 
         return Tool(
             name = "run_skill_script",
@@ -3372,19 +3394,12 @@ class ChatService(
             },
             systemPrompt = { _, _ ->
                 if (allowedSkills.isEmpty()) return@Tool ""
-                buildString {
-                    appendLine("## tool: run_skill_script")
-                    appendLine()
-                    appendLine("### rules")
-                    appendLine("- `skill_name` MUST be a skill marked `[script]` in the skills list (or pass `skill_id`).")
-                    appendLine("- `skill_name` is a Skill package name, NOT a workspace path. Do NOT use placeholders like \".\" or \"/\".")
-                    appendLine("- The script path must be under `scripts/` and end with `.py`.")
-                    appendLine("- Requires a user-authorized workspace folder.")
-                    appendLine("- Scripts run with the working directory set to the current conversation's workspace folder.")
-                    appendLine("- Prefer reading SKILL.md / script source via `read_skill_file` before running.")
-                    appendLine("- If the script is CLI-style (no run(input)), pass `argv` (e.g., [\"--help\"]) to run it.")
-                }.trimEnd()
+                renderToolSystemPromptTemplate(
+                    template = RUN_SKILL_SCRIPT_SYSTEM_PROMPT_TEMPLATE,
+                    variables = promptVariables,
+                )
             },
+            systemPromptVariables = { _, _ -> promptVariables },
             execute = { args ->
                 val obj = args.jsonObject
                 val skillNameRaw = parseWorkspaceToolString(obj, "skill_name", "skillName", "skill")
@@ -3757,22 +3772,12 @@ class ChatService(
                 )
             },
             systemPrompt = { _, _ ->
-                buildString {
-                    if (includeCommonRules) {
-                        appendLine(workspaceToolsCommonSystemPrompt())
-                        appendLine()
-                    }
-                    appendLine("## tool: eval_python")
-                    appendLine()
-                    appendLine("### execution")
-                    appendLine("- The Python code runs locally via Chaquopy.")
-                    appendLine("- Requires a user-authorized workspace folder.")
-                    appendLine("- The working directory is the current conversation workspace directory.")
-                    appendLine("- Prefer a `run(input: dict)` entrypoint and return JSON-serializable data.")
-                    appendLine("- Use print() for logs; stdout/stderr will be returned.")
-                    appendLine("- Avoid network access and avoid reading/writing files unless explicitly requested by the user.")
-                }.trimEnd()
+                renderToolSystemPromptTemplate(
+                    template = EVAL_PYTHON_SYSTEM_PROMPT_TEMPLATE,
+                    variables = workspaceToolPromptVariables(includeCommonRules),
+                )
             },
+            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
             requiresUserApproval = workspaceToolsRequireApproval(settingsSnapshot),
             execute = { args ->
                 val obj = args.jsonObject
@@ -4056,17 +4061,6 @@ class ChatService(
             ?: error("Workspace work directory is not accessible")
     }
 
-    private val askUserToolSystemPrompt = """
-        ## tool: ask_user
-
-        ### usage
-        - Ask the user instead of guessing when intent is ambiguous, a decision has multiple valid paths, an action is irreversible, or needed information is only known by the user.
-        - Do not proceed on your own when uncertain. Stop and ask.
-        - You can ask multiple questions at once by providing the `questions` array. The user will answer them one by one.
-        - Use the single `question` and `options` fields only when you have one question.
-        - Provide 2 to 4 clear options for each question.
-    """.trimIndent()
-
     private fun createAskUserTool(conversationId: Uuid): Tool {
         return Tool(
             name = "ask_user",
@@ -4118,7 +4112,7 @@ class ChatService(
                     required = listOf()
                 )
             },
-            systemPrompt = { _, _ -> askUserToolSystemPrompt },
+            systemPrompt = { _, _ -> ASK_USER_SYSTEM_PROMPT_TEMPLATE },
             execute = {
                 buildJsonObject { put("answer", "") }
             }
@@ -4232,76 +4226,36 @@ class ChatService(
     }
 
     private fun workspaceToolsCommonSystemPrompt(): String {
-        return buildString {
-            appendLine("## workspace tools (common rules)")
-            appendLine()
-            appendLine("### scope")
-            appendLine("- Operates only within the current conversation workspace directory under the user-authorized workspace root.")
-            appendLine("- All paths are relative to the conversation workspace directory.")
-            appendLine()
-            appendLine("### path rules")
-            appendLine("- Use relative paths with `/` separators (example: `folder/file.txt`).")
-            appendLine("- Do NOT use absolute paths (no leading `/`) and do NOT use `..`.")
-            appendLine("- Root directory is represented by an empty string \"\" when allowed by the tool (e.g. `workspace_list`).")
-            appendLine()
-            appendLine("### parameter naming")
-            appendLine("- Use the exact parameter keys from the schema (usually snake_case, e.g. `max_entries`, `max_chars`).")
-            appendLine()
-            appendLine("### setup")
-            appendLine("- If you see an error like \"Workspace root is not set\", ask the user to set the default root in Settings -> Skills, or authorize a root folder for this conversation in Work directory settings.")
-        }.trimEnd()
+        return WORKSPACE_COMMON_RULES_PROMPT
+    }
+
+    private fun workspaceToolPromptVariables(includeCommonRules: Boolean): Map<String, String> {
+        return mapOf(
+            WORKSPACE_COMMON_RULES_VARIABLE to if (includeCommonRules) {
+                workspaceToolsCommonSystemPrompt()
+            } else {
+                ""
+            }
+        )
+    }
+
+    private fun workspaceToolCustomPromptVariables(): Map<String, String> {
+        return mapOf(
+            WORKSPACE_COMMON_RULES_VARIABLE to workspaceToolsCommonSystemPrompt()
+        )
     }
 
     private fun workspaceToolSystemPrompt(
         toolName: String,
         includeCommonRules: Boolean,
     ): String {
-        val examples = when (toolName) {
-            "workspace_list" -> """
-                ### examples
-                - List workspace root: {"path":"","recursive":false}
-                - List a folder: {"path":"docs","recursive":true}
-            """.trimIndent()
-
-            "workspace_read_file" -> """
-                ### examples
-                - Read a file: {"path":"README.md"}
-            """.trimIndent()
-
-            "workspace_write_file" -> """
-                ### examples
-                - Write a file: {"path":"notes.txt","content":"hello"}
-            """.trimIndent()
-
-            "workspace_mkdir" -> """
-                ### examples
-                - Create a folder: {"path":"output","parents":true}
-            """.trimIndent()
-
-            "workspace_delete" -> """
-                ### examples
-                - Delete a file: {"path":"output/old.txt","recursive":false}
-            """.trimIndent()
-
-            "workspace_rename" -> """
-                ### examples
-                - Rename/move: {"from":"a.txt","to":"archive/a.txt","create_parents":true}
-            """.trimIndent()
-
-            else -> ""
-        }
-
-        return buildString {
-            if (includeCommonRules) {
-                appendLine(workspaceToolsCommonSystemPrompt())
-                appendLine()
-            }
-            appendLine("## tool: $toolName")
-            if (examples.isNotBlank()) {
-                appendLine()
-                appendLine(examples)
-            }
-        }.trimEnd()
+        return renderToolSystemPromptTemplate(
+            template = workspaceToolSystemPromptTemplate(
+                toolName = toolName,
+                includeCommonRules = includeCommonRules,
+            ),
+            variables = workspaceToolPromptVariables(includeCommonRules),
+        )
     }
 
     private fun createWorkspaceListTool(
@@ -4404,7 +4358,8 @@ class ChatService(
                     toolName = "workspace_list",
                     includeCommonRules = true,
                 )
-            }
+            },
+            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
         )
     }
 
@@ -4492,7 +4447,8 @@ class ChatService(
                     toolName = "workspace_read_file",
                     includeCommonRules = false,
                 )
-            }
+            },
+            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
         )
     }
 
@@ -4618,7 +4574,8 @@ class ChatService(
                     toolName = "workspace_write_file",
                     includeCommonRules = false,
                 )
-            }
+            },
+            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
         )
     }
 
@@ -4705,7 +4662,8 @@ class ChatService(
                     toolName = "workspace_mkdir",
                     includeCommonRules = false,
                 )
-            }
+            },
+            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
         )
     }
 
@@ -4785,7 +4743,8 @@ class ChatService(
                     toolName = "workspace_delete",
                     includeCommonRules = false,
                 )
-            }
+            },
+            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
         )
     }
 
@@ -4936,7 +4895,8 @@ class ChatService(
                     toolName = "workspace_rename",
                     includeCommonRules = false,
                 )
-            }
+            },
+            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
         )
     }
 

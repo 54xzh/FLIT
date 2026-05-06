@@ -13,6 +13,7 @@ data class Tool(
     val description: String,
     val parameters: () -> InputSchema? = { null },
     val systemPrompt: (model: Model, messages: List<UIMessage>) -> String = { _, _ -> "" },
+    val systemPromptVariables: (model: Model, messages: List<UIMessage>) -> Map<String, String> = { _, _ -> emptyMap() },
     val requiresUserApproval: Boolean = false,
     val execute: suspend (JsonElement) -> JsonElement
 )

@@ -71,14 +71,6 @@ class LocalTools(
     private val scheduledTaskDao: ScheduledTaskDao,
     private val scheduledTaskScheduler: ScheduledTaskScheduler,
 ) {
-    private val javascriptToolSystemPrompt = """
-        ## tool: eval_javascript
-
-        ### usage
-        - Execute JavaScript code with QuickJS.
-        - When using this tool for math that needs stable decimal output, format numbers explicitly, for example with `toFixed`.
-    """.trimIndent()
-
     val javascriptTool by lazy {
         Tool(
             name = "eval_javascript",
@@ -93,7 +85,7 @@ class LocalTools(
                     },
                 )
             },
-            systemPrompt = { _, _ -> javascriptToolSystemPrompt },
+            systemPrompt = { _, _ -> JAVASCRIPT_SYSTEM_PROMPT_TEMPLATE },
             execute = {
                 QuickJSLoader.init()
                 val jsContext = QuickJSContext.create()
@@ -417,6 +409,11 @@ class LocalTools(
         val allowedSkillsByName = allowedSkills.groupBy { it.name.trim().lowercase(Locale.ROOT) }
         val duplicatedNameKeys = allowedSkillsByName.filterValues { it.size > 1 }.keys
         val scriptableSkillIds = scriptableSkills.map { it.id.toString() }.toSet()
+        val promptVariables = buildReadSkillFilePromptVariables(
+            allowedSkills = allowedSkills,
+            scriptableSkillIds = scriptableSkillIds,
+            duplicatedNameKeys = duplicatedNameKeys,
+        )
         return Tool(
             name = "read_skill_file",
             description = "Read a file from an installed Skill package.",
@@ -445,48 +442,12 @@ class LocalTools(
             },
             systemPrompt = { _, _ ->
                 if (allowedSkills.isEmpty()) return@Tool ""
-                buildString {
-                    appendLine("## skill tools (skills list)")
-                    appendLine()
-                    appendLine("### skills")
-                    allowedSkills.forEach { skill ->
-                        val name = skill.name
-                        val nameKey = name.trim().lowercase(Locale.ROOT)
-                        val isScriptable = skill.id.toString() in scriptableSkillIds
-
-                        append("- ")
-                        append(name)
-                        if (isScriptable) append(" [script]")
-                        if (nameKey in duplicatedNameKeys) {
-                            append(" | id: ")
-                            append(skill.id.toString())
-                        }
-                        if (skill.description.isNotBlank()) {
-                            append(" | desc: ")
-                            append(skill.description.replace('\n', ' ').trim())
-                        }
-                        appendLine()
-                    }
-
-                    appendLine()
-                    appendLine("### note")
-                    if (duplicatedNameKeys.isEmpty()) {
-                        appendLine("- Skill names are unique; prefer using `skill_name` without `skill_id`.")
-                    } else {
-                        appendLine("- If multiple skills share the same name, pass `skill_id` to disambiguate (ids are shown for duplicated names).")
-                    }
-                    if (scriptableSkillIds.isNotEmpty()) {
-                        appendLine("- Skills marked `[script]` can be executed via `run_skill_script`.")
-                    }
-
-                    appendLine()
-                    appendLine("## tool: read_skill_file")
-                    appendLine()
-                    appendLine("### rules")
-                    appendLine("- Always load a skill's SKILL.md before using it.")
-                    appendLine("- Never invent skill contents; use this tool to read files.")
-                }.trimEnd()
+                renderToolSystemPromptTemplate(
+                    template = READ_SKILL_FILE_SYSTEM_PROMPT_TEMPLATE,
+                    variables = promptVariables,
+                )
             },
+            systemPromptVariables = { _, _ -> promptVariables },
             execute = { args ->
                 val obj = args.jsonObject
                 val skillNameRaw = obj["skill_name"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
@@ -569,6 +530,49 @@ class LocalTools(
                     put("content", content)
                 }
             }
+        )
+    }
+
+    private fun buildReadSkillFilePromptVariables(
+        allowedSkills: List<Skill>,
+        scriptableSkillIds: Set<String>,
+        duplicatedNameKeys: Set<String>,
+    ): Map<String, String> {
+        val skillList = buildString {
+            allowedSkills.forEach { skill ->
+                val name = skill.name
+                val nameKey = name.trim().lowercase(Locale.ROOT)
+                val isScriptable = skill.id.toString() in scriptableSkillIds
+
+                append("- ")
+                append(name)
+                if (isScriptable) append(" [script]")
+                if (nameKey in duplicatedNameKeys) {
+                    append(" | id: ")
+                    append(skill.id.toString())
+                }
+                if (skill.description.isNotBlank()) {
+                    append(" | desc: ")
+                    append(skill.description.replace('\n', ' ').trim())
+                }
+                appendLine()
+            }
+        }.trimEnd()
+
+        val skillNote = buildString {
+            if (duplicatedNameKeys.isEmpty()) {
+                appendLine("- Skill names are unique; prefer using `skill_name` without `skill_id`.")
+            } else {
+                appendLine("- If multiple skills share the same name, pass `skill_id` to disambiguate (ids are shown for duplicated names).")
+            }
+            if (scriptableSkillIds.isNotEmpty()) {
+                appendLine("- Skills marked `[script]` can be executed via `run_skill_script`.")
+            }
+        }.trimEnd()
+
+        return mapOf(
+            SKILL_LIST_VARIABLE to skillList,
+            SKILL_NOTE_VARIABLE to skillNote,
         )
     }
 

@@ -219,6 +219,7 @@ class SettingsStore(
         // Prompt Injections
         val MODES = stringPreferencesKey("modes")
         val LOREBOOKS = stringPreferencesKey("lorebooks")
+        val CUSTOM_TOOL_SYSTEM_PROMPTS = stringPreferencesKey("custom_tool_system_prompts")
 
         // Skills
         val SKILLS = stringPreferencesKey("skills")
@@ -475,6 +476,9 @@ class SettingsStore(
                 lorebooks = preferences[LOREBOOKS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
+                customToolSystemPrompts = preferences[CUSTOM_TOOL_SYSTEM_PROMPTS]?.let {
+                    runCatching { JsonInstant.decodeFromString<Map<String, String>>(it) }.getOrNull()
+                } ?: emptyMap(),
                 skillFolders = preferences[SKILL_FOLDERS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
@@ -735,6 +739,8 @@ class SettingsStore(
 
             preferences[MODES] = JsonInstant.encodeToString(finalSettingsToSave.modes)
             preferences[LOREBOOKS] = JsonInstant.encodeToString(finalSettingsToSave.lorebooks)
+            preferences[CUSTOM_TOOL_SYSTEM_PROMPTS] =
+                JsonInstant.encodeToString(finalSettingsToSave.customToolSystemPrompts)
             preferences[SKILL_FOLDERS] = JsonInstant.encodeToString(finalSettingsToSave.skillFolders)
             preferences[SKILLS] = JsonInstant.encodeToString(finalSettingsToSave.skills)
             preferences[ENABLE_SKILL_SCRIPT_EXECUTION] = finalSettingsToSave.enableSkillScriptExecution
@@ -859,6 +865,7 @@ data class Settings(
     // Prompt Injections
     val modes: List<Mode> = emptyList(),
     val lorebooks: List<Lorebook> = emptyList(),
+    val customToolSystemPrompts: Map<String, String> = emptyMap(),
 
     // Skills (imported from zip; loaded by local tool on demand)
     val skillFolders: List<SkillFolder> = emptyList(),

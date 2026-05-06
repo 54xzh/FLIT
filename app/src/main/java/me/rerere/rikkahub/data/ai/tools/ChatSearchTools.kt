@@ -22,19 +22,6 @@ object ChatSearchTools {
 
     private const val TOOL_DESCRIPTION = "Search the user's past chat conversations."
 
-    private val TOOL_SYSTEM_PROMPT = """
-        ## tool: chat_search
-
-        ### usage
-        - Search past conversations when the user refers to a previous discussion, asks "did we talk about X", or needs context from an older conversation.
-        - Do not use this tool for the current conversation. It is only for past conversations.
-
-        ### query rules
-        - Within one query string, spaces mean AND: every term must match.
-        - Multiple query strings mean OR: any one query can match.
-        - Wrap a phrase with double quotes to keep it as one term.
-    """.trimIndent()
-
     private const val MAX_QUERIES = 8
     private const val MAX_LIMIT = 10
     private const val DEFAULT_LIMIT = 5
@@ -79,7 +66,7 @@ object ChatSearchTools {
                     required = listOf("queries"),
                 )
             },
-            systemPrompt = { _, _ -> TOOL_SYSTEM_PROMPT },
+            systemPrompt = { _, _ -> CHAT_SEARCH_SYSTEM_PROMPT_TEMPLATE },
             execute = { args ->
                 executeSearch(args.jsonObject, assistantId, currentConversationId, conversationRepo)
             },

@@ -6,11 +6,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -32,6 +36,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.DisplaySetting
 import me.rerere.rikkahub.data.datastore.getEmbeddingRetrievalTimeoutSeconds
 import me.rerere.rikkahub.data.datastore.getHttp429MaxRetries
@@ -41,6 +46,7 @@ import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
 import me.rerere.rikkahub.ui.components.ui.Select
+import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
@@ -53,6 +59,7 @@ fun SettingAdvancedPage(vm: SettingVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     var displaySetting by remember(settings) { mutableStateOf(settings.displaySetting) }
     val haptics = rememberPremiumHaptics()
+    val navController = LocalNavController.current
 
     fun updateDisplaySetting(setting: DisplaySetting) {
         displaySetting = setting
@@ -207,6 +214,12 @@ fun SettingAdvancedPage(vm: SettingVM = koinViewModel()) {
                                 }
                             )
                         }
+                    )
+                    SettingGroupItem(
+                        title = stringResource(R.string.setting_tool_prompts_title),
+                        subtitle = stringResource(R.string.setting_tool_prompts_desc),
+                        icon = { Icon(Icons.Rounded.Build, null, modifier = Modifier.size(20.dp)) },
+                        onClick = { navController.navigate(Screen.SettingCustomToolPrompts) },
                     )
                 }
             }
