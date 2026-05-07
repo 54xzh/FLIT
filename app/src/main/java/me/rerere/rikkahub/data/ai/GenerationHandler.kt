@@ -50,6 +50,13 @@ import me.rerere.ai.ui.limitContext
 import me.rerere.ai.ui.truncate
 import me.rerere.ai.util.HttpStatusException
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_LEARNING_MODE_PROMPT
+import me.rerere.rikkahub.data.ai.tools.MEMORY_CONTEXT_VARIABLE
+import me.rerere.rikkahub.data.ai.tools.MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE
+import me.rerere.rikkahub.data.ai.tools.MEMORY_MANAGEMENT_TOOL_NAME
+import me.rerere.rikkahub.data.ai.tools.SESSION_MEMORY_CONTEXT_VARIABLE
+import me.rerere.rikkahub.data.ai.tools.SESSION_MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE
+import me.rerere.rikkahub.data.ai.tools.SESSION_MEMORY_MANAGEMENT_TOOL_NAME
+import me.rerere.rikkahub.data.ai.tools.renderConfiguredToolSystemPrompt
 import me.rerere.rikkahub.data.ai.tools.renderConfiguredSystemPrompt
 import me.rerere.rikkahub.data.ai.transformers.InputMessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.DocumentSummaryTransformer
@@ -1232,6 +1239,7 @@ class GenerationHandler(
                 val includeMemoryToolInstructions = tools.any { it.name in MEMORY_TOOL_NAMES }
                 val includeSessionMemoryToolInstructions = tools.any { it.name in SESSION_MEMORY_TOOL_NAMES }
                 val sessionMemoryPrompt = buildSessionMemoryPrompt(
+                    settings = settings,
                     model = model,
                     memories = sessionMemories,
                     includeToolInstructions = includeSessionMemoryToolInstructions,
@@ -1241,6 +1249,7 @@ class GenerationHandler(
                     append(sessionMemoryPrompt)
                 }
                 val memoryPrompt = buildMemoryPrompt(
+                    settings = settings,
                     model = model,
                     memories = selectedMemories,
                     includeToolInstructions = includeMemoryToolInstructions,
@@ -1821,6 +1830,7 @@ class GenerationHandler(
     }
 
     private fun buildSessionMemoryPrompt(
+        settings: Settings,
         model: Model,
         memories: List<SessionMemory>,
         includeToolInstructions: Boolean,
@@ -1831,8 +1841,24 @@ class GenerationHandler(
             return ""
         }
 
+        val sessionMemoryContext = buildSessionMemoryContext(memories)
+        if (!shouldIncludeToolInstructions) {
+            return buildString {
+                append("## Session Memories\n")
+                append(sessionMemoryContext)
+            }
+        }
+
+        return renderConfiguredToolSystemPrompt(
+            settings = settings,
+            key = SESSION_MEMORY_MANAGEMENT_TOOL_NAME,
+            defaultTemplate = SESSION_MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE,
+            variables = mapOf(SESSION_MEMORY_CONTEXT_VARIABLE to sessionMemoryContext),
+        )
+    }
+
+    private fun buildSessionMemoryContext(memories: List<SessionMemory>): String {
         return buildString {
-            append("## Session Memories\n")
             append("Session memories apply only to the current conversation and stay active in future turns of this conversation.\n")
             if (memories.isNotEmpty()) {
                 memories.forEach { memory ->
@@ -1841,24 +1867,12 @@ class GenerationHandler(
             } else {
                 append("No session memories have been saved yet.\n")
             }
-
-            if (shouldIncludeToolInstructions) {
-                append(
-                    """
-
-                        ## Session Memory Tool
-                        You can use `create_session_memory`, `edit_session_memory`, and `delete_session_memory` to manage details that should stay active in this conversation only.
-                        Use session memory tools sparingly. Save a detail only when it is important for the rest of this conversation, such as settings, outlines, requirements, constraints, or important decisions.
-                        Do not save ordinary chat history, casual comments, temporary wording, guesses, or details already obvious from the latest user message.
-                        Prefer editing an existing session memory over creating a duplicate. Delete a session memory when it is wrong or no longer useful.
-                        Use long-term memory tools only for information that should help in future conversations. Use session memory tools for details that matter only in this conversation.
-                    """.trimIndent()
-                )
-            }
         }
+            .trimEnd()
     }
 
     private suspend fun buildMemoryPrompt(
+        settings: Settings,
         model: Model,
         memories: List<AssistantMemory>,
         includeToolInstructions: Boolean,
@@ -1874,18 +1888,33 @@ class GenerationHandler(
             "buildMemoryPrompt: memories=${memories.size}, includeToolInstructions=$shouldIncludeToolInstructions",
         )
 
+        val memoryContext = buildMemoryContext(memories)
+        if (!shouldIncludeToolInstructions) {
+            return buildString {
+                append("## Memories\n")
+                append(memoryContext)
+            }
+        }
+
+        return renderConfiguredToolSystemPrompt(
+            settings = settings,
+            key = MEMORY_MANAGEMENT_TOOL_NAME,
+            defaultTemplate = MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE,
+            variables = mapOf(MEMORY_CONTEXT_VARIABLE to memoryContext),
+        )
+    }
+
+    private fun buildMemoryContext(memories: List<AssistantMemory>): String {
         val coreMemories = memories.filter { it.type == 0 } // CORE
         val episodicMemories = memories.filter { it.type == 1 } // EPISODIC
-        
+
         return buildString {
             if (memories.isNotEmpty()) {
-                append("## Memories\n")
                 append("These are memories that you can reference in the future conversations.\n")
             } else {
-                append("## Memories\n")
                 append("No memories were injected for this turn (none exist, none matched, or embeddings are unavailable).\n")
             }
-            
+
             if (coreMemories.isNotEmpty()) {
                 append("### Core Memories\n")
                 coreMemories.forEach { memory ->
@@ -1895,16 +1924,16 @@ class GenerationHandler(
 
             if (episodicMemories.isNotEmpty()) {
                 append("### Episodic Memories\n")
-                
+
                 val now = java.time.LocalDate.now()
                 val yesterday = now.minusDays(1)
                 val lastWeek = now.minusWeeks(1)
-                
+
                 val groupedEpisodes = episodicMemories.groupBy { memory ->
                     val date = java.time.Instant.ofEpochMilli(memory.timestamp)
                         .atZone(java.time.ZoneId.systemDefault())
                         .toLocalDate()
-                    
+
                     when {
                         date.isEqual(now) -> "Today"
                         date.isEqual(yesterday) -> "Yesterday"
@@ -1912,7 +1941,7 @@ class GenerationHandler(
                         else -> "Older"
                     }
                 }
-                
+
                 // Order: Today -> Yesterday -> This Week -> Older
                 listOf("Today", "Yesterday", "This Week", "Older").forEach { group ->
                     val memoriesInGroup = groupedEpisodes[group]
@@ -1924,29 +1953,8 @@ class GenerationHandler(
                     }
                 }
             }
-            
-            if (shouldIncludeToolInstructions) {
-                append(
-                    """
-                        
-                        ## Memory Tool
-                        You are a stateless large language model; you **cannot store memories** internally. To remember information, you must use **memory tools**.
-                        Memory tools allow you (the assistant) to store multiple pieces of information (records) to recall details across conversations.
-                        You can use the `create_memory`, `edit_memory`, and `delete_memory` tools to create, update, or delete memories.
-                        - If there is no relevant information in memory, call `create_memory` to create a new record.
-                        - If a relevant record already exists, call `edit_memory` to update it.
-                        - If a memory is outdated or no longer useful, call `delete_memory` to remove it.
-                        **Note:** You can only edit or delete **Core Memories** (which have an ID). Episodic Memories are read-only context.
-                        
-                        **Do not store sensitive information.** Sensitive information includes: ethnicity, religious beliefs, sexual orientation, political views, sexual life, criminal records, etc.
-                        During chats, act like a personal secretary and **proactively** record user-related information, including but not limited to:
-                        - Name/Nickname
-                        - Age/Gender/Hobbies
-                        - Plans/To-do items
-                    """.trimIndent()
-                )
-            }
         }
+            .trimEnd()
     }
 
     private fun shouldRetry429(

@@ -25,6 +25,8 @@ data class ToolSystemPromptDefinition(
     val group: ToolSystemPromptGroup,
     val defaultTemplate: String,
     val variables: List<ToolSystemPromptVariable> = emptyList(),
+    val affectedToolNames: List<String> = listOf(toolName),
+    val injectedByToolName: String? = toolName,
 )
 
 object ToolSystemPromptRegistry {
@@ -39,6 +41,22 @@ object ToolSystemPromptRegistry {
             toolName = "scrape_web",
             group = ToolSystemPromptGroup.Search,
             defaultTemplate = SCRAPE_WEB_SYSTEM_PROMPT_TEMPLATE,
+        ),
+        ToolSystemPromptDefinition(
+            toolName = MEMORY_MANAGEMENT_TOOL_NAME,
+            group = ToolSystemPromptGroup.Memory,
+            defaultTemplate = MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE,
+            variables = listOf(ToolSystemPromptVariable(MEMORY_CONTEXT_VARIABLE)),
+            affectedToolNames = MEMORY_MANAGEMENT_AFFECTED_TOOL_NAMES,
+            injectedByToolName = null,
+        ),
+        ToolSystemPromptDefinition(
+            toolName = SESSION_MEMORY_MANAGEMENT_TOOL_NAME,
+            group = ToolSystemPromptGroup.Memory,
+            defaultTemplate = SESSION_MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE,
+            variables = listOf(ToolSystemPromptVariable(SESSION_MEMORY_CONTEXT_VARIABLE)),
+            affectedToolNames = SESSION_MEMORY_MANAGEMENT_AFFECTED_TOOL_NAMES,
+            injectedByToolName = null,
         ),
         ToolSystemPromptDefinition(
             toolName = "memory_search",
@@ -161,59 +179,18 @@ object ToolSystemPromptRegistry {
             variables = listOf(ToolSystemPromptVariable(WORKSPACE_COMMON_RULES_VARIABLE)),
         ),
         ToolSystemPromptDefinition(
-            toolName = "list_scheduled_tasks",
+            toolName = SCHEDULED_TASKS_MANAGEMENT_TOOL_NAME,
             group = ToolSystemPromptGroup.ScheduledTasks,
             defaultTemplate = SCHEDULED_TASK_SYSTEM_PROMPT_TEMPLATE,
+            affectedToolNames = SCHEDULED_TASKS_MANAGEMENT_AFFECTED_TOOL_NAMES,
+            injectedByToolName = "list_scheduled_tasks",
         ),
         ToolSystemPromptDefinition(
-            toolName = "create_scheduled_task",
-            group = ToolSystemPromptGroup.ScheduledTasks,
-            defaultTemplate = "",
-        ),
-        ToolSystemPromptDefinition(
-            toolName = "update_scheduled_task",
-            group = ToolSystemPromptGroup.ScheduledTasks,
-            defaultTemplate = "",
-        ),
-        ToolSystemPromptDefinition(
-            toolName = "delete_scheduled_task",
-            group = ToolSystemPromptGroup.ScheduledTasks,
-            defaultTemplate = "",
-        ),
-        ToolSystemPromptDefinition(
-            toolName = "lorebooks_list_enabled",
+            toolName = LOREBOOKS_MANAGEMENT_TOOL_NAME,
             group = ToolSystemPromptGroup.Lorebooks,
             defaultTemplate = LOREBOOK_SYSTEM_PROMPT_TEMPLATE,
-        ),
-        ToolSystemPromptDefinition(
-            toolName = "lorebooks_entry_list",
-            group = ToolSystemPromptGroup.Lorebooks,
-            defaultTemplate = "",
-        ),
-        ToolSystemPromptDefinition(
-            toolName = "lorebooks_entry_create",
-            group = ToolSystemPromptGroup.Lorebooks,
-            defaultTemplate = "",
-        ),
-        ToolSystemPromptDefinition(
-            toolName = "lorebooks_entry_update",
-            group = ToolSystemPromptGroup.Lorebooks,
-            defaultTemplate = "",
-        ),
-        ToolSystemPromptDefinition(
-            toolName = "lorebooks_entry_delete",
-            group = ToolSystemPromptGroup.Lorebooks,
-            defaultTemplate = "",
-        ),
-        ToolSystemPromptDefinition(
-            toolName = "lorebooks_history_list",
-            group = ToolSystemPromptGroup.Lorebooks,
-            defaultTemplate = "",
-        ),
-        ToolSystemPromptDefinition(
-            toolName = "lorebooks_history_undo",
-            group = ToolSystemPromptGroup.Lorebooks,
-            defaultTemplate = "",
+            affectedToolNames = LOREBOOKS_MANAGEMENT_AFFECTED_TOOL_NAMES,
+            injectedByToolName = "lorebooks_list_enabled",
         ),
         ToolSystemPromptDefinition(
             toolName = "ask_user",
@@ -223,15 +200,57 @@ object ToolSystemPromptRegistry {
     )
 
     private val definitionsByName = definitions.associateBy { it.toolName }
+    private val definitionsByInjectedToolName = definitions
+        .mapNotNull { definition ->
+            definition.injectedByToolName?.let { toolName -> toolName to definition }
+        }
+        .toMap()
 
     fun get(toolName: String): ToolSystemPromptDefinition? = definitionsByName[toolName]
+
+    fun getInjectedDefinition(toolName: String): ToolSystemPromptDefinition? = definitionsByInjectedToolName[toolName]
 }
 
 const val SEARCH_RESULT_RULES_VARIABLE = "search_result_rules"
+const val MEMORY_MANAGEMENT_TOOL_NAME = "memory_management"
+const val SESSION_MEMORY_MANAGEMENT_TOOL_NAME = "session_memory_management"
+const val SCHEDULED_TASKS_MANAGEMENT_TOOL_NAME = "scheduled_tasks_management"
+const val LOREBOOKS_MANAGEMENT_TOOL_NAME = "lorebooks_management"
+const val MEMORY_CONTEXT_VARIABLE = "memory_context"
+const val SESSION_MEMORY_CONTEXT_VARIABLE = "session_memory_context"
 const val SKILL_LIST_VARIABLE = "skill_list"
 const val SKILL_NOTE_VARIABLE = "skill_note"
 const val SCRIPTABLE_SKILL_LIST_VARIABLE = "scriptable_skill_list"
 const val WORKSPACE_COMMON_RULES_VARIABLE = "workspace_common_rules"
+
+val MEMORY_MANAGEMENT_AFFECTED_TOOL_NAMES = listOf(
+    "create_memory",
+    "edit_memory",
+    "delete_memory",
+)
+
+val SESSION_MEMORY_MANAGEMENT_AFFECTED_TOOL_NAMES = listOf(
+    "create_session_memory",
+    "edit_session_memory",
+    "delete_session_memory",
+)
+
+val SCHEDULED_TASKS_MANAGEMENT_AFFECTED_TOOL_NAMES = listOf(
+    "list_scheduled_tasks",
+    "create_scheduled_task",
+    "update_scheduled_task",
+    "delete_scheduled_task",
+)
+
+val LOREBOOKS_MANAGEMENT_AFFECTED_TOOL_NAMES = listOf(
+    "lorebooks_list_enabled",
+    "lorebooks_entry_list",
+    "lorebooks_entry_create",
+    "lorebooks_entry_update",
+    "lorebooks_entry_delete",
+    "lorebooks_history_list",
+    "lorebooks_history_undo",
+)
 
 fun buildSearchWebPromptVariables(
     messages: List<UIMessage>,
@@ -343,6 +362,38 @@ val SCRAPE_WEB_SYSTEM_PROMPT_TEMPLATE = """
     - You can use the scrape_web tool to scrape url for detailed content.
     - You can perform multiple scrape if needed.
     - For common problems, try not to use this tool unless the user requests it.
+""".trimIndent()
+
+val MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE = """
+    ## Memories
+    {{memory_context}}
+
+    ## Memory Tool
+    You are a stateless large language model; you **cannot store memories** internally. To remember information, you must use **memory tools**.
+    Memory tools allow you (the assistant) to store multiple pieces of information (records) to recall details across conversations.
+    You can use the `create_memory`, `edit_memory`, and `delete_memory` tools to create, update, or delete memories.
+    - If there is no relevant information in memory, call `create_memory` to create a new record.
+    - If a relevant record already exists, call `edit_memory` to update it.
+    - If a memory is outdated or no longer useful, call `delete_memory` to remove it.
+    **Note:** You can only edit or delete **Core Memories** (which have an ID). Episodic Memories are read-only context.
+
+    **Do not store sensitive information.** Sensitive information includes: ethnicity, religious beliefs, sexual orientation, political views, sexual life, criminal records, etc.
+    During chats, act like a personal secretary and **proactively** record user-related information, including but not limited to:
+    - Name/Nickname
+    - Age/Gender/Hobbies
+    - Plans/To-do items
+""".trimIndent()
+
+val SESSION_MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE = """
+    ## Session Memories
+    {{session_memory_context}}
+
+    ## Session Memory Tool
+    You can use `create_session_memory`, `edit_session_memory`, and `delete_session_memory` to manage details that should stay active in this conversation only.
+    Use session memory tools sparingly. Save a detail only when it is important for the rest of this conversation, such as settings, outlines, requirements, constraints, or important decisions.
+    Do not save ordinary chat history, casual comments, temporary wording, guesses, or details already obvious from the latest user message.
+    Prefer editing an existing session memory over creating a duplicate. Delete a session memory when it is wrong or no longer useful.
+    Use long-term memory tools only for information that should help in future conversations. Use session memory tools for details that matter only in this conversation.
 """.trimIndent()
 
 val SCHEDULED_TASK_SYSTEM_PROMPT_TEMPLATE = """
@@ -514,18 +565,43 @@ fun renderToolSystemPromptTemplate(
     return result.trim()
 }
 
+fun renderConfiguredToolSystemPrompt(
+    settings: Settings,
+    key: String,
+    defaultTemplate: String,
+    variables: Map<String, String> = emptyMap(),
+): String {
+    val template = settings.customToolSystemPrompts[key] ?: defaultTemplate
+    return renderToolSystemPromptTemplate(
+        template = template,
+        variables = variables,
+    )
+}
+
 fun Tool.renderConfiguredSystemPrompt(
     settings: Settings,
     model: Model,
     messages: List<UIMessage>,
 ): String {
-    val customTemplate = settings.customToolSystemPrompts[name]
-    return if (customTemplate != null) {
-        renderToolSystemPromptTemplate(
-            template = customTemplate,
+    val injectedDefinition = ToolSystemPromptRegistry.getInjectedDefinition(name)
+    return if (injectedDefinition != null && injectedDefinition.toolName != name) {
+        renderConfiguredToolSystemPrompt(
+            settings = settings,
+            key = injectedDefinition.toolName,
+            defaultTemplate = injectedDefinition.defaultTemplate,
             variables = systemPromptVariables(model, messages),
         )
     } else {
-        systemPrompt(model, messages)
+        val directDefinition = ToolSystemPromptRegistry.get(name)
+        if (directDefinition != null) {
+            renderConfiguredToolSystemPrompt(
+                settings = settings,
+                key = directDefinition.toolName,
+                defaultTemplate = systemPrompt(model, messages),
+                variables = systemPromptVariables(model, messages),
+            )
+        } else {
+            systemPrompt(model, messages)
+        }
     }
 }

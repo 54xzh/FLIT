@@ -221,6 +221,17 @@ private fun ToolPromptEditorSheet(
                 )
             }
 
+            if (definition.affectedToolNames.size > 1) {
+                Text(
+                    text = stringResource(
+                        R.string.setting_tool_prompts_affected_tools,
+                        definition.affectedToolNames.joinToString(", "),
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             if (definition.variables.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(

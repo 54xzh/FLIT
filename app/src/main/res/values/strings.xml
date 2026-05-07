@@ -744,6 +744,7 @@
     <string name="setting_tool_prompts_desc">Edit the system prompt template for each built-in tool.</string>
     <string name="setting_tool_prompts_status_default">Using default</string>
     <string name="setting_tool_prompts_status_custom">Customized</string>
+    <string name="setting_tool_prompts_affected_tools">Affects tools: %1$s</string>
     <string name="setting_tool_prompts_variables">Tool variables</string>
     <string name="setting_tool_prompts_prompt_label">System prompt template</string>
     <string name="setting_tool_prompts_reset_default">Restore default</string>

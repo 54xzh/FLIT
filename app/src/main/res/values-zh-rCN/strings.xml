@@ -167,6 +167,7 @@
     <string name="setting_tool_prompts_desc">编辑每个内置工具的系统提示词模板。</string>
     <string name="setting_tool_prompts_status_default">使用默认</string>
     <string name="setting_tool_prompts_status_custom">已自定义</string>
+    <string name="setting_tool_prompts_affected_tools">涉及工具：%1$s</string>
     <string name="setting_tool_prompts_variables">工具变量</string>
     <string name="setting_tool_prompts_prompt_label">系统提示词模板</string>
     <string name="setting_tool_prompts_reset_default">还原默认</string>
