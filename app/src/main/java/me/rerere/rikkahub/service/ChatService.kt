@@ -90,6 +90,7 @@ import me.rerere.rikkahub.data.ai.tools.EVAL_PYTHON_SYSTEM_PROMPT_TEMPLATE
 import me.rerere.rikkahub.data.ai.tools.LorebookTools
 import me.rerere.rikkahub.data.ai.tools.LocalToolOption
 import me.rerere.rikkahub.data.ai.tools.LocalTools
+import me.rerere.rikkahub.data.ai.tools.applyCustomPrompt
 import me.rerere.rikkahub.data.ai.tools.RUN_SKILL_SCRIPT_SYSTEM_PROMPT_TEMPLATE
 import me.rerere.rikkahub.data.ai.tools.SCRIPTABLE_SKILL_LIST_VARIABLE
 import me.rerere.rikkahub.data.ai.tools.SkillScriptRunner
@@ -1867,7 +1868,8 @@ class ChatService(
                     addAll(localTools.getTools(
                         options = assistant.localTools,
                         assistantId = assistant.id,
-                        conversationId = conversation.id
+                        conversationId = conversation.id,
+                        customPrompts = assistant.localToolCustomPrompts
                     ))
                     if (assistant.localTools.contains(LocalToolOption.MemorySearch)) {
                         addAll(
@@ -1938,7 +1940,8 @@ class ChatService(
                         )
                     }
                     if (assistant.localTools.contains(LocalToolOption.AskUser)) {
-                        add(createAskUserTool(conversationId = conversation.id))
+                        add(createAskUserTool(conversationId = conversation.id)
+                            .applyCustomPrompt(assistant.localToolCustomPrompts["ask_user"]))
                     }
                 },
                 truncateIndex = conversation.truncateIndex,

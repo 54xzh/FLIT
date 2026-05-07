@@ -21,11 +21,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -50,6 +56,56 @@ import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
 import kotlin.uuid.Uuid
 
 /**
+ * Map LocalToolOption to the actual tool name used in Tool.description.
+ * Used as the key for localToolCustomPrompts.
+ */
+private fun LocalToolOption.toolName(): String? = when (this) {
+    LocalToolOption.JavascriptEngine -> "eval_javascript"
+    LocalToolOption.AskUser -> "ask_user"
+    LocalToolOption.DeviceControl -> null // multiple tools, not supported
+    LocalToolOption.WorkspaceFiles -> null // multiple tools, not supported
+    LocalToolOption.LorebooksEditor -> null
+    LocalToolOption.ScheduledTaskManager -> null // multiple tools
+    LocalToolOption.MemorySearch -> null
+    LocalToolOption.ChatSearch -> null
+    LocalToolOption.PythonEngine -> null
+}
+
+@Composable
+private fun CustomPromptDialog(
+    toolTitle: String,
+    currentValue: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var text by remember(currentValue) { mutableStateOf(currentValue) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Custom Prompt") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("Additional instructions for $toolTitle") },
+                placeholder = { Text("e.g. Only use this tool when absolutely necessary") },
+                modifier = Modifier.fillMaxSize(),
+                maxLines = 6
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(text.trim()) }) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+/**
  * Tools tab - Local tools and MCP settings.
  * Designed with cohesive SettingsGroup pattern.
  */
@@ -65,6 +121,7 @@ fun AssistantToolsSubPage(
 
     var expandedFolderIds by remember { mutableStateOf<Set<Uuid>>(emptySet()) }
     var ungroupedExpanded by remember { mutableStateOf(false) }
+    var editingToolName by remember { mutableStateOf<String?>(null) }
     
     Column(
         modifier = Modifier
@@ -89,17 +146,24 @@ fun AssistantToolsSubPage(
                 title = stringResource(R.string.assistant_page_local_tools_javascript_engine_title),
                 subtitle = stringResource(R.string.assistant_page_local_tools_javascript_engine_desc),
                 trailing = {
-                    HapticSwitch(
-                        checked = assistant.localTools.contains(LocalToolOption.JavascriptEngine),
-                        onCheckedChange = { enabled ->
-                            val newLocalTools = if (enabled) {
-                                assistant.localTools + LocalToolOption.JavascriptEngine
-                            } else {
-                                assistant.localTools - LocalToolOption.JavascriptEngine
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (assistant.localTools.contains(LocalToolOption.JavascriptEngine)) {
+                            FilledTonalIconButton(onClick = { editingToolName = "eval_javascript" }) {
+                                Icon(Icons.Rounded.Edit, contentDescription = "Edit custom prompt", modifier = Modifier.size(18.dp))
                             }
-                            onUpdate(assistant.copy(localTools = newLocalTools))
                         }
-                    )
+                        HapticSwitch(
+                            checked = assistant.localTools.contains(LocalToolOption.JavascriptEngine),
+                            onCheckedChange = { enabled ->
+                                val newLocalTools = if (enabled) {
+                                    assistant.localTools + LocalToolOption.JavascriptEngine
+                                } else {
+                                    assistant.localTools - LocalToolOption.JavascriptEngine
+                                }
+                                onUpdate(assistant.copy(localTools = newLocalTools))
+                            }
+                        )
+                    }
                 }
             )
 
@@ -222,17 +286,24 @@ fun AssistantToolsSubPage(
                 title = stringResource(R.string.assistant_page_local_tools_ask_user_title),
                 subtitle = stringResource(R.string.assistant_page_local_tools_ask_user_desc),
                 trailing = {
-                    HapticSwitch(
-                        checked = assistant.localTools.contains(LocalToolOption.AskUser),
-                        onCheckedChange = { enabled ->
-                            val newLocalTools = if (enabled) {
-                                assistant.localTools + LocalToolOption.AskUser
-                            } else {
-                                assistant.localTools - LocalToolOption.AskUser
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (assistant.localTools.contains(LocalToolOption.AskUser)) {
+                            FilledTonalIconButton(onClick = { editingToolName = "ask_user" }) {
+                                Icon(Icons.Rounded.Edit, contentDescription = "Edit custom prompt", modifier = Modifier.size(18.dp))
                             }
-                            onUpdate(assistant.copy(localTools = newLocalTools))
                         }
-                    )
+                        HapticSwitch(
+                            checked = assistant.localTools.contains(LocalToolOption.AskUser),
+                            onCheckedChange = { enabled ->
+                                val newLocalTools = if (enabled) {
+                                    assistant.localTools + LocalToolOption.AskUser
+                                } else {
+                                    assistant.localTools - LocalToolOption.AskUser
+                                }
+                                onUpdate(assistant.copy(localTools = newLocalTools))
+                            }
+                        )
+                    }
                 }
             )
 
@@ -495,5 +566,24 @@ fun AssistantToolsSubPage(
                 )
             }
         }
+    }
+
+    // Custom prompt edit dialog
+    editingToolName?.let { toolName ->
+        val currentPrompt = assistant.localToolCustomPrompts[toolName].orEmpty()
+        CustomPromptDialog(
+            toolTitle = toolName,
+            currentValue = currentPrompt,
+            onDismiss = { editingToolName = null },
+            onSave = { newPrompt ->
+                val updatedPrompts = if (newPrompt.isBlank()) {
+                    assistant.localToolCustomPrompts - toolName
+                } else {
+                    assistant.localToolCustomPrompts + (toolName to newPrompt)
+                }
+                onUpdate(assistant.copy(localToolCustomPrompts = updatedPrompts))
+                editingToolName = null
+            }
+        )
     }
 }

@@ -587,19 +587,32 @@ class LocalTools(
         }.getOrNull()
     }
 
-    fun getTools(options: List<LocalToolOption>, assistantId: Uuid, conversationId: Uuid): List<Tool> {
+    fun getTools(
+        options: List<LocalToolOption>,
+        assistantId: Uuid,
+        conversationId: Uuid,
+        customPrompts: Map<String, String> = emptyMap(),
+    ): List<Tool> {
         val tools = mutableListOf<Tool>()
         if (options.contains(LocalToolOption.JavascriptEngine)) {
-            tools.add(javascriptTool)
+            tools.add(javascriptTool.applyCustomPrompt(customPrompts["eval_javascript"]))
         }
         if (options.contains(LocalToolOption.DeviceControl)) {
-            tools.addAll(getDeviceControlTools(assistantId, conversationId))
+            tools.addAll(
+                getDeviceControlTools(assistantId, conversationId)
+                    .map { it.applyCustomPrompt(customPrompts[it.name]) }
+            )
         }
         if (options.contains(LocalToolOption.ScheduledTaskManager)) {
-            tools.addAll(createScheduledTaskTools(assistantId, scheduledTaskDao, scheduledTaskScheduler))
+            tools.addAll(
+                createScheduledTaskTools(assistantId, scheduledTaskDao, scheduledTaskScheduler)
+                    .map { it.applyCustomPrompt(customPrompts[it.name]) }
+            )
         }
         return tools
     }
+
+    companion object
 }
 
 internal fun buildJavascriptToolResult(result: Any?, consoleOutput: String): JsonObject = buildJsonObject {
@@ -614,4 +627,19 @@ internal fun buildJavascriptToolResult(result: Any?, consoleOutput: String): Jso
     if (consoleOutput.isNotEmpty()) {
         put("console_output", JsonPrimitive(consoleOutput.trimEnd()))
     }
+}
+
+/**
+ * Append a user-provided custom prompt to a tool's description.
+ * Returns the original tool unchanged if the custom prompt is blank.
+ */
+internal fun Tool.applyCustomPrompt(customPrompt: String?): Tool {
+    if (customPrompt.isNullOrBlank()) return this
+    return copy(
+        description = buildString {
+            append(description)
+            append("\n\nUser instructions: ")
+            append(customPrompt.trim())
+        }
+    )
 }

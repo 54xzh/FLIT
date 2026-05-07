@@ -114,6 +114,7 @@ data class Assistant(
     val customBodies: List<CustomBody> = emptyList(),
     val mcpServers: Set<Uuid> = emptySet(),
     val localTools: List<LocalToolOption> = emptyList(),
+    val localToolCustomPrompts: Map<String, String> = emptyMap(), // key: tool name (e.g. "ask_user"), value: custom prompt appended to tool description
     val enabledSkillIds: Set<Uuid> = emptySet(), // Skills enabled for this assistant
     val enabledModeIds: Set<Uuid> = emptySet(), // Modes enabled by default for new chats of this assistant
     val background: String? = null,
