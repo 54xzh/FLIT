@@ -1108,7 +1108,7 @@ data class DisplaySetting(
     val showModelIcon: Boolean = true,
     val showModelName: Boolean = true,
     val showTokenUsage: Boolean = false,
-    val messageInputStyle: MessageInputStyle = MessageInputStyle.STANDARD,
+    val messageInputStyle: MessageInputStyle = MessageInputStyle.MINIMAL,
     val showFullscreenInputButton: Boolean = false,
     val autoCloseThinking: Boolean = true,
     val showUpdates: Boolean = false,
