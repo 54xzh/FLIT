@@ -1106,7 +1106,7 @@ private fun MinimalPickerContent(
             }
 
             // Search picker - show selected provider if enabled
-            val searchService = settings.searchServices.getOrNull(settings.searchServiceSelected)
+            val searchService = settings.searchServices.getOrNull(effectiveProviderIndex)
             val searchProviderName = if (searchService != null) {
                 SearchServiceOptions.TYPES[searchService::class]
             } else null
