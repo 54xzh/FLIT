@@ -18,6 +18,7 @@ import me.rerere.rikkahub.data.repository.AssistantChatCleanupMode
 import me.rerere.rikkahub.data.repository.AssistantAttachmentStats
 import me.rerere.rikkahub.data.repository.AssistantFileEntry
 import me.rerere.rikkahub.data.repository.AssistantImageEntry
+import me.rerere.rikkahub.data.repository.CacheTopLevelUsage
 import me.rerere.rikkahub.data.repository.ChatRecordsMonthEntry
 import me.rerere.rikkahub.data.repository.DeleteResult
 import me.rerere.rikkahub.data.repository.LightConversationEntity
@@ -114,6 +115,9 @@ class StorageCategoryVM(
     private val _orphanScan = MutableStateFlow<UiState<OrphanScanResult>>(UiState.Idle)
     val orphanScan: StateFlow<UiState<OrphanScanResult>> = _orphanScan.asStateFlow()
 
+    private val _cacheTopLevelUsage = MutableStateFlow<UiState<List<CacheTopLevelUsage>>>(UiState.Idle)
+    val cacheTopLevelUsage: StateFlow<UiState<List<CacheTopLevelUsage>>> = _cacheTopLevelUsage.asStateFlow()
+
     private val _action = MutableStateFlow<UiState<DeleteResult>>(UiState.Idle)
     val action: StateFlow<UiState<DeleteResult>> = _action.asStateFlow()
 
@@ -159,6 +163,8 @@ class StorageCategoryVM(
                 }
             }
 
+            StorageCategoryKey.CACHE -> refreshCacheTopLevelUsage()
+
             else -> Unit
         }
     }
@@ -180,6 +186,19 @@ class StorageCategoryVM(
                 onSuccess = { UiState.Success(it) },
                 onFailure = { UiState.Error(it) },
             )
+        }
+    }
+
+    private fun refreshCacheTopLevelUsage() {
+        if (category != StorageCategoryKey.CACHE) return
+
+        viewModelScope.launch {
+            _cacheTopLevelUsage.value = UiState.Loading
+            _cacheTopLevelUsage.value = runCatching { storageRepo.getCacheTopLevelUsage() }
+                .fold(
+                    onSuccess = { UiState.Success(it) },
+                    onFailure = { UiState.Error(it) },
+                )
         }
     }
 
@@ -665,6 +684,7 @@ class StorageCategoryVM(
                     onFailure = { UiState.Error(it) },
                 )
             refreshUsage()
+            refreshCacheTopLevelUsage()
         }
     }
 

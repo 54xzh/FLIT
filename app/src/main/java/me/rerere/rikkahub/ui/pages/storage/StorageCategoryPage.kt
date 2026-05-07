@@ -49,6 +49,7 @@ fun StorageCategoryPage(
     val assistantImagesState by vm.assistantImages.collectAsStateWithLifecycle()
     val assistantFilesState by vm.assistantFiles.collectAsStateWithLifecycle()
     val orphanScanState by vm.orphanScan.collectAsStateWithLifecycle()
+    val cacheTopLevelUsageState by vm.cacheTopLevelUsage.collectAsStateWithLifecycle()
     val actionState by vm.action.collectAsStateWithLifecycle()
 
     LaunchedEffect(actionState) {
@@ -102,6 +103,7 @@ fun StorageCategoryPage(
             assistantImagesState = assistantImagesState,
             assistantFilesState = assistantFilesState,
             chatRecordMonthsState = chatRecordMonthsState,
+            cacheTopLevelUsageState = cacheTopLevelUsageState,
             onDeleteImages = { assistantId, absolutePaths -> vm.deleteImages(assistantId, absolutePaths) },
             onDeleteFiles = { assistantId, absolutePaths -> vm.deleteFiles(assistantId, absolutePaths) },
             onClearAssistantFiles = { assistantId -> vm.clearAssistantFiles(assistantId) },

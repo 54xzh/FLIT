@@ -734,6 +734,10 @@
 
   <string name="storage_cache_title">快取</string>
   <string name="storage_cache_desc">清理臨時快取檔案（之後可能會重新生成）。</string>
+  <string name="storage_cache_top_level_title">頂層項目</string>
+  <string name="storage_cache_top_level_empty">未發現快取檔案</string>
+  <string name="storage_cache_top_level_directory_subtitle">%1$d 個檔案</string>
+  <string name="storage_cache_top_level_file_subtitle">檔案</string>
   <string name="storage_confirm_clear_cache_title">清理快取？</string>
   <string name="storage_confirm_clear_cache_desc">將刪除快取檔案。</string>
 

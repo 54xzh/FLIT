@@ -37,6 +37,13 @@ data class StorageCategoryUsage(
     val fileCount: Int,
 )
 
+data class CacheTopLevelUsage(
+    val name: String,
+    val bytes: Long,
+    val fileCount: Int,
+    val isDirectory: Boolean,
+)
+
 data class StorageOverview(
     val totalBytes: Long,
     val categories: List<StorageCategoryUsage>,
@@ -252,6 +259,28 @@ class StorageManagerRepository(
             bytes = usage.bytes,
             fileCount = usage.count,
         )
+    }
+
+    suspend fun getCacheTopLevelUsage(): List<CacheTopLevelUsage> = withContext(Dispatchers.IO) {
+        context.cacheDir
+            .listFiles()
+            .orEmpty()
+            .asSequence()
+            .filter { it.exists() }
+            .map { entry ->
+                val usage = countDirUsage(entry)
+                CacheTopLevelUsage(
+                    name = entry.name.ifBlank { entry.absolutePath },
+                    bytes = usage.bytes,
+                    fileCount = usage.count,
+                    isDirectory = entry.isDirectory,
+                )
+            }
+            .sortedWith(
+                compareByDescending<CacheTopLevelUsage> { it.bytes }
+                    .thenBy { it.name.lowercase() }
+            )
+            .toList()
     }
 
     suspend fun getChatRecordsUsage(): StorageCategoryUsage = withContext(Dispatchers.IO) {

@@ -983,6 +983,10 @@
 
     <string name="storage_cache_title">Cache</string>
     <string name="storage_cache_desc">Clear temporary cache files. The app may rebuild them later.</string>
+    <string name="storage_cache_top_level_title">Top-level entries</string>
+    <string name="storage_cache_top_level_empty">No cache files found</string>
+    <string name="storage_cache_top_level_directory_subtitle">%1$d files</string>
+    <string name="storage_cache_top_level_file_subtitle">File</string>
     <string name="storage_confirm_clear_cache_title">Clear cache?</string>
     <string name="storage_confirm_clear_cache_desc">This will delete cache files.</string>
 

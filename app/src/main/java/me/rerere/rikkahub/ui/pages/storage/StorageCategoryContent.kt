@@ -19,6 +19,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.repository.AssistantAttachmentStats
 import me.rerere.rikkahub.data.repository.AssistantFileEntry
 import me.rerere.rikkahub.data.repository.AssistantImageEntry
+import me.rerere.rikkahub.data.repository.CacheTopLevelUsage
 import me.rerere.rikkahub.data.repository.ChatRecordsMonthEntry
 import me.rerere.rikkahub.data.repository.LightConversationEntity
 import me.rerere.rikkahub.data.repository.OrphanScanResult
@@ -43,6 +44,7 @@ fun StorageCategoryScaffoldContent(
     assistantImagesState: UiState<AttachmentListState<AssistantImageEntry>>,
     assistantFilesState: UiState<AttachmentListState<AssistantFileEntry>>,
     chatRecordMonthsState: UiState<List<ChatRecordsMonthEntry>>,
+    cacheTopLevelUsageState: UiState<List<CacheTopLevelUsage>>,
     onDeleteImages: (Uuid?, List<String>) -> Unit,
     onDeleteFiles: (Uuid?, List<String>) -> Unit,
     onClearAssistantFiles: (Uuid) -> Unit,
@@ -125,6 +127,7 @@ fun StorageCategoryScaffoldContent(
                 item(key = "cache") {
                     StorageCacheCard(
                         usageState = usageState,
+                        topLevelUsageState = cacheTopLevelUsageState,
                         onClearCache = onClearCache,
                     )
                 }
