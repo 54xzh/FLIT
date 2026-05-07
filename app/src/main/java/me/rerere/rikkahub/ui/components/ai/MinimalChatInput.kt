@@ -18,6 +18,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Spacer
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.search.SearchServiceOptions
+import me.rerere.search.displayName
 import coil3.compose.AsyncImage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.utils.deleteChatFiles
@@ -1107,17 +1108,18 @@ private fun MinimalPickerContent(
 
             // Search picker - show selected provider if enabled
             val searchService = settings.searchServices.getOrNull(effectiveProviderIndex)
-            val searchProviderName = if (searchService != null) {
+            val searchProviderTypeName = if (searchService != null) {
                 SearchServiceOptions.TYPES[searchService::class]
             } else null
+            val searchProviderName = searchService?.displayName
 
             // Show provider icon when search is enabled and a provider is configured
             MinimalPickerItem(
                 icon = {
                     // Only show provider icon when search is actually enabled
-                    if (enableSearch && searchProviderName != null) {
+                    if (enableSearch && searchProviderTypeName != null) {
                         AutoAIIcon(
-                            name = searchProviderName,
+                            name = searchProviderTypeName,
                             modifier = Modifier.size(24.dp)
                         )
                     } else {

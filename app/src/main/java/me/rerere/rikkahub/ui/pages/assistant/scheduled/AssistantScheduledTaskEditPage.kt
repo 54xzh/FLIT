@@ -70,7 +70,7 @@ import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
 import me.rerere.rikkahub.ui.pages.setting.components.SettingsGroup
-import me.rerere.search.SearchServiceOptions
+import me.rerere.search.displayName
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
@@ -533,7 +533,7 @@ private fun SearchProviderPicker(
     val providerName = effectiveProviderIndex
         .takeIf { it >= 0 }
         ?.let { index -> settings.searchServices.getOrNull(index) }
-        ?.let { service -> SearchServiceOptions.TYPES[service::class] }
+        ?.displayName
         ?.ifBlank { null }
         ?: if (effectiveProviderIndex >= 0) {
             "Provider ${effectiveProviderIndex + 1}"
