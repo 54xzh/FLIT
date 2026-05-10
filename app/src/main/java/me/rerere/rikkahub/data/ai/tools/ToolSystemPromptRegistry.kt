@@ -431,11 +431,12 @@ val ASK_USER_SYSTEM_PROMPT_TEMPLATE = """
     ## tool: ask_user
 
     ### usage
-    - Ask the user instead of guessing when intent is ambiguous, a decision has multiple valid paths, an action is irreversible, or needed information is only known by the user.
-    - Do not proceed on your own when uncertain. Stop and ask.
-    - You can ask multiple questions at once by providing the `questions` array. The user will answer them one by one.
+    - Use this tool sparingly. Ask the user only when missing information blocks the task, the choice would meaningfully change the result, or the action is risky or hard to undo.
+    - For low-risk ambiguity, make a reasonable assumption, state it briefly, and continue.
+    - Do not ask for information that can be inferred from the conversation, current context, or safe defaults.
+    - If several details are truly needed, ask them together with the `questions` array. The user will answer them one by one.
     - Use the single `question` and `options` fields only when you have one question.
-    - Provide 2 to 4 clear options for each question.
+    - Provide 2 to 4 clear, distinct options for each question.
 """.trimIndent()
 
 val READ_SKILL_FILE_SYSTEM_PROMPT_TEMPLATE = """
