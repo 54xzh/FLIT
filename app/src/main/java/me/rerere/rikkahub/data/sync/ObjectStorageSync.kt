@@ -123,6 +123,9 @@ class ObjectStorageSync(
         config: ObjectStorageConfig,
         subfolder: String,
     ): BackupRemoteResult = withContext(Dispatchers.IO) {
+        webdavSync.cleanupStaleBackupTempFiles()
+        testConnection(config)
+
         val backupFile = webdavSync.prepareBackupFile(
             webDavConfig = WebDavConfig(items = config.items)
         )

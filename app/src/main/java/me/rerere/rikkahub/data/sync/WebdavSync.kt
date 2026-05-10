@@ -33,6 +33,10 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 private const val TAG = "DataSync"
+private const val BACKUP_FILE_PREFIX = "LastChat_backup_"
+private const val BACKUP_FILE_SUFFIX = ".zip"
+private const val DATABASE_SNAPSHOT_PREFIX = "rikka_hub_snapshot_"
+private val STALE_BACKUP_TEMP_MAX_AGE_MS = TimeUnit.HOURS.toMillis(24)
 
 class WebdavSync(
     private val settingsStore: SettingsStore,
@@ -75,13 +79,15 @@ class WebdavSync(
         webDavConfig: WebDavConfig,
         subfolder: String,
     ): BackupRemoteResult = withContext(Dispatchers.IO) {
+        cleanupStaleBackupTempFilesNow()
+
+        // Check the remote destination before creating a potentially large local backup.
+        webDavConfig.requireCollection().ensureCollectionExists()
+        val autoConfig = webDavConfig.copy(path = joinPath(webDavConfig.path, subfolder))
+        autoConfig.requireCollection().ensureCollectionExists()
+
         val file = prepareBackupFile(webDavConfig)
         try {
-            // Ensure base folder exists first, then ensure the subfolder exists.
-            webDavConfig.requireCollection().ensureCollectionExists()
-            val autoConfig = webDavConfig.copy(path = joinPath(webDavConfig.path, subfolder))
-            autoConfig.requireCollection().ensureCollectionExists()
-
             val target = autoConfig.requireCollection(file.name)
             target.put(
                 body = file.asRequestBody(),
@@ -216,10 +222,12 @@ class WebdavSync(
         }
 
     suspend fun prepareBackupFile(webDavConfig: WebDavConfig): File = withContext(Dispatchers.IO) {
+        cleanupStaleBackupTempFilesNow()
+
         val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"))
         val backupFile = File(
             context.cacheDir,
-            "LastChat_backup_$timestamp.zip"
+            "$BACKUP_FILE_PREFIX$timestamp$BACKUP_FILE_SUFFIX"
         )
         if (backupFile.exists()) {
             backupFile.delete()
@@ -353,6 +361,36 @@ class WebdavSync(
         }
 
         backupFile
+    }
+
+    suspend fun cleanupStaleBackupTempFiles(
+        maxAgeMs: Long = STALE_BACKUP_TEMP_MAX_AGE_MS,
+    ) = withContext(Dispatchers.IO) {
+        cleanupStaleBackupTempFilesNow(maxAgeMs = maxAgeMs)
+    }
+
+    private fun cleanupStaleBackupTempFilesNow(
+        maxAgeMs: Long = STALE_BACKUP_TEMP_MAX_AGE_MS,
+    ) {
+        val cutoff = System.currentTimeMillis() - maxAgeMs.coerceAtLeast(0L)
+        context.cacheDir
+            .listFiles()
+            .orEmpty()
+            .asSequence()
+            .filter { entry ->
+                entry.exists() &&
+                    entry.lastModified() < cutoff &&
+                    (entry.isBackupZipTempFile() || entry.name.startsWith(DATABASE_SNAPSHOT_PREFIX))
+            }
+            .forEach { entry ->
+                runCatching {
+                    if (entry.isDirectory) entry.deleteRecursively() else entry.delete()
+                }.onSuccess { deleted ->
+                    if (deleted) Log.i(TAG, "cleanupStaleBackupTempFiles: deleted ${entry.name}")
+                }.onFailure { err ->
+                    Log.w(TAG, "cleanupStaleBackupTempFiles: failed to delete ${entry.name}", err)
+                }
+            }
     }
 
     private fun exportDatabaseSnapshot(targetFile: File) {
@@ -678,6 +716,10 @@ private fun joinPath(base: String, child: String): String {
         childTrimmed.isBlank() -> baseTrimmed
         else -> "$baseTrimmed/$childTrimmed"
     }
+}
+
+private fun File.isBackupZipTempFile(): Boolean {
+    return name.startsWith(BACKUP_FILE_PREFIX) && name.endsWith(BACKUP_FILE_SUFFIX)
 }
 
 private suspend fun DavCollection.ensureCollectionExists() = withContext(Dispatchers.IO) {
