@@ -1054,8 +1054,9 @@ class GenerationHandler(
                 val recentConversations = conversationRepo.getRecentConversations(
                     assistantId = assistant.id,
                     limit = 3,
-                ).filter { 
-                    java.time.LocalDateTime.ofInstant(it.updateAt, java.time.ZoneId.systemDefault()).toLocalDate() == today 
+                ).filter {
+                    java.time.LocalDateTime.ofInstant(it.updateAt, java.time.ZoneId.systemDefault()).toLocalDate() == today
+                        && it.id != conversationId
                 }
                 recentConversations.map { conversation ->
                     AssistantMemory(
