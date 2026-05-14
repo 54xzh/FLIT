@@ -69,7 +69,8 @@ import me.rerere.rikkahub.data.ai.transformers.visualTransforms
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
-import me.rerere.rikkahub.data.datastore.getHttp429MaxRetries
+import me.rerere.rikkahub.data.datastore.getHttpRetryDelaySeconds
+import me.rerere.rikkahub.data.datastore.getHttpRetryMaxRetries
 import me.rerere.rikkahub.data.ai.rag.EmbeddingService
 import me.rerere.rikkahub.data.db.entity.ToolResultArchiveEntity
 import me.rerere.rikkahub.data.db.entity.ToolResultArchiveChunkEntity
@@ -89,6 +90,7 @@ import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
 import me.rerere.rikkahub.utils.applyPlaceholders
 import me.rerere.rikkahub.R
+import java.io.IOException
 import java.util.Locale
 import kotlin.uuid.Uuid
 
@@ -108,6 +110,7 @@ private const val TYPE_SERVER_TOOL_USE = "server_tool_use"
 private const val CLAUDE_WEB_SEARCH_TOOL_NAME = "web_search"
 private const val GROK_WEB_SEARCH_TOOL_NAME = "web_search"
 private const val GROK_X_SEARCH_TOOL_NAME = "x_search"
+private val RETRYABLE_HTTP_STATUS_CODES = setOf(408, 429, 500, 502, 503, 504)
 
 /**
  * Result of building messages, includes both the messages and info about activated context sources.
@@ -126,6 +129,66 @@ sealed interface GenerationChunk {
         val messages: List<UIMessage>,
         val finishReasons: Set<String> = emptySet(),
     ) : GenerationChunk
+}
+
+internal fun shouldRetryHttpRequest(
+    throwable: Throwable,
+    attempt: Int,
+    maxRetries: Int,
+    emittedAnyChunk: Boolean = false,
+): Boolean {
+    if (throwable.hasCancellationException()) return false
+    if (maxRetries <= 0) return false
+    if (emittedAnyChunk) return false
+    if (!throwable.isRetryableHttpOrNetworkError()) return false
+    return attempt <= maxRetries
+}
+
+internal fun computeHttpRetryDelayMs(retryDelaySeconds: Int): Long {
+    return retryDelaySeconds.coerceIn(1, 30) * 1_000L
+}
+
+private fun Throwable.isRetryableHttpOrNetworkError(): Boolean {
+    return hasRetryableHttpStatusCode() || hasRetryableNetworkError()
+}
+
+private fun Throwable.hasCancellationException(): Boolean {
+    val visited = HashSet<Throwable>()
+    var current: Throwable? = this
+    while (current != null && visited.add(current)) {
+        if (current is CancellationException) return true
+        current = current.cause
+    }
+    return false
+}
+
+private fun Throwable.hasRetryableHttpStatusCode(): Boolean {
+    val visited = HashSet<Throwable>()
+    var current: Throwable? = this
+    while (current != null && visited.add(current)) {
+        if (current is HttpStatusException && current.statusCode in RETRYABLE_HTTP_STATUS_CODES) {
+            return true
+        }
+        current = current.cause
+    }
+    return false
+}
+
+private fun Throwable.hasRetryableNetworkError(): Boolean {
+    val visited = HashSet<Throwable>()
+    var current: Throwable? = this
+    while (current != null && visited.add(current)) {
+        if (current is IOException && !current.isCanceledIOException()) {
+            return true
+        }
+        current = current.cause
+    }
+    return false
+}
+
+private fun IOException.isCanceledIOException(): Boolean {
+    val normalizedMessage = message?.lowercase().orEmpty()
+    return normalizedMessage == "canceled" || normalizedMessage == "cancelled"
 }
 
 class GenerationHandler(
@@ -1382,7 +1445,8 @@ class GenerationHandler(
             var firstChunkAt: Long? = null
             var failure: Throwable? = null
             val rawResponseText = StringBuilder()
-            val max429Retries = settings.getHttp429MaxRetries()
+            val maxHttpRetries = settings.getHttpRetryMaxRetries()
+            val httpRetryDelayMs = computeHttpRetryDelayMs(settings.getHttpRetryDelaySeconds())
             var streamAttempt = 0
             try {
                 while (true) {
@@ -1423,17 +1487,16 @@ class GenerationHandler(
                         }
                         break
                     } catch (t: Throwable) {
-                        if (!shouldRetry429(t, attempt = streamAttempt, maxRetries = max429Retries, emittedAnyChunk = emittedAnyChunk)) {
+                        if (!shouldRetryHttpRequest(t, attempt = streamAttempt, maxRetries = maxHttpRetries, emittedAnyChunk = emittedAnyChunk)) {
                             throw t
                         }
 
-                        val delayMs = compute429RetryDelayMs(attempt = streamAttempt)
                         Log.w(
                             TAG,
-                            "generateInternal(stream): got HTTP 429, retry ${streamAttempt}/$max429Retries in ${delayMs}ms",
+                            "generateInternal(stream): got retryable HTTP/network error, retry ${streamAttempt}/$maxHttpRetries in ${httpRetryDelayMs}ms",
                             t,
                         )
-                        delay(delayMs)
+                        delay(httpRetryDelayMs)
                     }
                 }
 
@@ -1479,7 +1542,8 @@ class GenerationHandler(
             val startAt = System.currentTimeMillis()
             var failure: Throwable? = null
             var rawResponseText = ""
-            val max429Retries = settings.getHttp429MaxRetries()
+            val maxHttpRetries = settings.getHttpRetryMaxRetries()
+            val httpRetryDelayMs = computeHttpRetryDelayMs(settings.getHttpRetryDelaySeconds())
             var nonStreamAttempt = 0
             try {
                 while (true) {
@@ -1528,17 +1592,16 @@ class GenerationHandler(
                         onUpdateMessages(messages, finishReasons)
                         break
                     } catch (t: Throwable) {
-                        if (!shouldRetry429(t, attempt = nonStreamAttempt, maxRetries = max429Retries)) {
+                        if (!shouldRetryHttpRequest(t, attempt = nonStreamAttempt, maxRetries = maxHttpRetries)) {
                             throw t
                         }
 
-                        val delayMs = compute429RetryDelayMs(attempt = nonStreamAttempt)
                         Log.w(
                             TAG,
-                            "generateInternal(non-stream): got HTTP 429, retry ${nonStreamAttempt}/$max429Retries in ${delayMs}ms",
+                            "generateInternal(non-stream): got retryable HTTP/network error, retry ${nonStreamAttempt}/$maxHttpRetries in ${httpRetryDelayMs}ms",
                             t,
                         )
-                        delay(delayMs)
+                        delay(httpRetryDelayMs)
                     }
                 }
             } catch (t: Throwable) {
@@ -1957,36 +2020,6 @@ class GenerationHandler(
             .trimEnd()
     }
 
-    private fun shouldRetry429(
-        throwable: Throwable,
-        attempt: Int,
-        maxRetries: Int,
-        emittedAnyChunk: Boolean = false,
-    ): Boolean {
-        if (throwable is CancellationException) return false
-        if (maxRetries <= 0) return false
-        if (emittedAnyChunk) return false
-        if (!throwable.hasHttpStatusCode(429)) return false
-        return attempt <= maxRetries
-    }
-
-    private fun compute429RetryDelayMs(attempt: Int): Long {
-        val exponent = (attempt - 1).coerceIn(0, 3)
-        return 1_000L shl exponent
-    }
-
-    private fun Throwable.hasHttpStatusCode(targetCode: Int): Boolean {
-        val visited = HashSet<Throwable>()
-        var current: Throwable? = this
-        while (current != null && visited.add(current)) {
-            if (current is HttpStatusException && current.statusCode == targetCode) {
-                return true
-            }
-            current = current.cause
-        }
-        return false
-    }
-
     fun translateText(
         settings: Settings,
         sourceText: String,
@@ -2019,7 +2052,8 @@ class GenerationHandler(
             var firstChunkAt: Long? = null
             var failure: Throwable? = null
             val rawResponseText = StringBuilder()
-            val max429Retries = settings.getHttp429MaxRetries()
+            val maxHttpRetries = settings.getHttpRetryMaxRetries()
+            val httpRetryDelayMs = computeHttpRetryDelayMs(settings.getHttpRetryDelaySeconds())
             var streamAttempt = 0
             try {
                 while (true) {
@@ -2049,17 +2083,16 @@ class GenerationHandler(
                         }
                         break
                     } catch (t: Throwable) {
-                        if (!shouldRetry429(t, attempt = streamAttempt, maxRetries = max429Retries, emittedAnyChunk = emittedAnyChunk)) {
+                        if (!shouldRetryHttpRequest(t, attempt = streamAttempt, maxRetries = maxHttpRetries, emittedAnyChunk = emittedAnyChunk)) {
                             throw t
                         }
 
-                        val delayMs = compute429RetryDelayMs(attempt = streamAttempt)
                         Log.w(
                             TAG,
-                            "translateText(stream): got HTTP 429, retry ${streamAttempt}/$max429Retries in ${delayMs}ms",
+                            "translateText(stream): got retryable HTTP/network error, retry ${streamAttempt}/$maxHttpRetries in ${httpRetryDelayMs}ms",
                             t,
                         )
-                        delay(delayMs)
+                        delay(httpRetryDelayMs)
                     }
                 }
             } catch (t: Throwable) {
@@ -2103,7 +2136,8 @@ class GenerationHandler(
             var failure: Throwable? = null
             var translatedText = ""
             var rawResponseText = ""
-            val max429Retries = settings.getHttp429MaxRetries()
+            val maxHttpRetries = settings.getHttpRetryMaxRetries()
+            val httpRetryDelayMs = computeHttpRetryDelayMs(settings.getHttpRetryDelaySeconds())
             var nonStreamAttempt = 0
             try {
                 while (true) {
@@ -2118,17 +2152,16 @@ class GenerationHandler(
                         translatedText = response.choices.firstOrNull()?.message?.toContentText() ?: ""
                         break
                     } catch (t: Throwable) {
-                        if (!shouldRetry429(t, attempt = nonStreamAttempt, maxRetries = max429Retries)) {
+                        if (!shouldRetryHttpRequest(t, attempt = nonStreamAttempt, maxRetries = maxHttpRetries)) {
                             throw t
                         }
 
-                        val delayMs = compute429RetryDelayMs(attempt = nonStreamAttempt)
                         Log.w(
                             TAG,
-                            "translateText(non-stream): got HTTP 429, retry ${nonStreamAttempt}/$max429Retries in ${delayMs}ms",
+                            "translateText(non-stream): got retryable HTTP/network error, retry ${nonStreamAttempt}/$maxHttpRetries in ${httpRetryDelayMs}ms",
                             t,
                         )
-                        delay(delayMs)
+                        delay(httpRetryDelayMs)
                     }
                 }
             } catch (t: Throwable) {

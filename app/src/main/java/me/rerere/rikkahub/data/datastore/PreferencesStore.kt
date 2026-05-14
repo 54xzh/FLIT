@@ -21,8 +21,10 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.booleanOrNull
 import me.rerere.rikkahub.R
 import me.rerere.ai.provider.Model
@@ -193,7 +195,9 @@ class SettingsStore(
         // MCP
         val MCP_SERVERS = stringPreferencesKey("mcp_servers")
         val MCP_TOOL_CALL_TIMEOUT_SECONDS = intPreferencesKey("mcp_tool_call_timeout_seconds")
-        val HTTP_429_MAX_RETRIES = intPreferencesKey("http_429_max_retries")
+        val HTTP_RETRY_MAX_RETRIES = intPreferencesKey("http_retry_max_retries")
+        val HTTP_RETRY_DELAY_SECONDS = intPreferencesKey("http_retry_delay_seconds")
+        val HTTP_429_MAX_RETRIES = intPreferencesKey("http_429_max_retries") // Legacy key
 
         // WebDAV
         val WEBDAV_CONFIG = stringPreferencesKey("webdav_config")
@@ -448,7 +452,12 @@ class SettingsStore(
                 } ?: SearchCommonOptions(),
                 searchServiceSelected = preferences[SEARCH_SELECTED] ?: 0,
                 mcpToolCallTimeoutSeconds = (preferences[MCP_TOOL_CALL_TIMEOUT_SECONDS] ?: 60).coerceAtLeast(1),
-                http429MaxRetries = (preferences[HTTP_429_MAX_RETRIES] ?: 0).coerceIn(0, 10),
+                httpRetryMaxRetries = (
+                    preferences[HTTP_RETRY_MAX_RETRIES]
+                        ?: preferences[HTTP_429_MAX_RETRIES]
+                        ?: 0
+                    ).coerceIn(0, 10),
+                httpRetryDelaySeconds = (preferences[HTTP_RETRY_DELAY_SECONDS] ?: 1).coerceIn(1, 30),
                 mcpServers = preferences[MCP_SERVERS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
@@ -669,7 +678,8 @@ class SettingsStore(
                 },
 	            displaySetting = settingsToSaveWithReboundSearchIndices.displaySetting.coerceForConflicts(),
                 mcpToolCallTimeoutSeconds = settingsToSaveWithReboundSearchIndices.mcpToolCallTimeoutSeconds.coerceAtLeast(1),
-                http429MaxRetries = settingsToSaveWithReboundSearchIndices.http429MaxRetries.coerceIn(0, 10),
+                httpRetryMaxRetries = settingsToSaveWithReboundSearchIndices.httpRetryMaxRetries.coerceIn(0, 10),
+                httpRetryDelaySeconds = settingsToSaveWithReboundSearchIndices.httpRetryDelaySeconds.coerceIn(1, 30),
                 webServerPort = settingsToSaveWithReboundSearchIndices.webServerPort.coerceIn(1024, 65535),
                 webServerJwtEnabled = settingsToSaveWithReboundSearchIndices.webServerJwtEnabled &&
                     settingsToSaveWithReboundSearchIndices.webServerAccessPassword.isNotBlank(),
@@ -720,7 +730,8 @@ class SettingsStore(
 
             preferences[MCP_SERVERS] = JsonInstant.encodeToString(finalSettingsToSave.mcpServers)
             preferences[MCP_TOOL_CALL_TIMEOUT_SECONDS] = finalSettingsToSave.mcpToolCallTimeoutSeconds.coerceAtLeast(1)
-            preferences[HTTP_429_MAX_RETRIES] = finalSettingsToSave.http429MaxRetries.coerceIn(0, 10)
+            preferences[HTTP_RETRY_MAX_RETRIES] = finalSettingsToSave.httpRetryMaxRetries.coerceIn(0, 10)
+            preferences[HTTP_RETRY_DELAY_SECONDS] = finalSettingsToSave.httpRetryDelaySeconds.coerceIn(1, 30)
             preferences[WEBDAV_CONFIG] = JsonInstant.encodeToString(finalSettingsToSave.webDavConfig)
             preferences[OBJECT_STORAGE_CONFIG] = JsonInstant.encodeToString(finalSettingsToSave.objectStorageConfig)
             preferences[TTS_PROVIDERS] = JsonInstant.encodeToString(finalSettingsToSave.ttsProviders)
@@ -846,7 +857,10 @@ data class Settings(
     val searchCommonOptions: SearchCommonOptions = SearchCommonOptions(),
     val searchServiceSelected: Int = 0,
     val mcpToolCallTimeoutSeconds: Int = 60,
-    val http429MaxRetries: Int = 0,
+    @OptIn(ExperimentalSerializationApi::class)
+    @JsonNames("http429MaxRetries")
+    val httpRetryMaxRetries: Int = 0,
+    val httpRetryDelaySeconds: Int = 1,
     val mcpServers: List<McpServerConfig> = emptyList(),
     val webDavConfig: WebDavConfig = WebDavConfig(),
     val objectStorageConfig: ObjectStorageConfig = ObjectStorageConfig(),
@@ -1412,8 +1426,12 @@ fun Settings.getEmbeddingRetrievalTimeoutSeconds(): Int {
     return displaySetting.embeddingRetrievalTimeoutSeconds.coerceAtLeast(1)
 }
 
-fun Settings.getHttp429MaxRetries(): Int {
-    return http429MaxRetries.coerceIn(0, 10)
+fun Settings.getHttpRetryMaxRetries(): Int {
+    return httpRetryMaxRetries.coerceIn(0, 10)
+}
+
+fun Settings.getHttpRetryDelaySeconds(): Int {
+    return httpRetryDelaySeconds.coerceIn(1, 30)
 }
 
 /**

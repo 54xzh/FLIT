@@ -188,8 +188,13 @@
     <string name="setting_advanced_page_conversation_actions_title">会话操作</string>
     <string name="setting_advanced_page_show_export_conversation_json_title">显示“导出会话为 JSON”按钮</string>
     <string name="setting_advanced_page_show_export_conversation_json_desc">在会话长按菜单中显示“导出 JSON”。</string>
-    <string name="setting_display_page_http_429_retry_max_title">HTTP 429 最大重试次数</string>
-    <string name="setting_display_page_http_429_retry_max_desc">当服务器返回 429（请求过多）时自动重试。0 = 不重试</string>
+    <string name="setting_display_page_http_retry_max_title">HTTP 最大重试次数</string>
+    <string name="setting_display_page_http_retry_max_desc">遇到临时服务或网络错误时自动重试</string>
+    <string name="setting_display_page_http_retry_max_value">%d 次</string>
+    <string name="setting_display_page_http_retry_off">关闭</string>
+    <string name="setting_display_page_http_retry_delay_title">重试等待时间</string>
+    <string name="setting_display_page_http_retry_delay_desc">每次重试前等待这段时间</string>
+    <string name="setting_display_page_http_retry_delay_value">%d 秒</string>
     <string name="setting_display_page_merge_providers_in_model_selector_title">模型选择按首个标签合并提供商</string>
     <string name="setting_display_page_merge_providers_in_model_selector_desc">当多个提供商的第一个标签相同，在模型选择中合并显示</string>
     <string name="setting_page_advanced_settings">高级设置</string>

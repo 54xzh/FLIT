@@ -35,7 +35,8 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.DisplaySetting
 import me.rerere.rikkahub.data.datastore.getEmbeddingRetrievalTimeoutSeconds
-import me.rerere.rikkahub.data.datastore.getHttp429MaxRetries
+import me.rerere.rikkahub.data.datastore.getHttpRetryDelaySeconds
+import me.rerere.rikkahub.data.datastore.getHttpRetryMaxRetries
 import me.rerere.rikkahub.data.datastore.getMcpToolCallTimeoutSeconds
 import me.rerere.rikkahub.data.model.ToolResultHistoryMode
 import me.rerere.rikkahub.ui.components.nav.BackButton
@@ -49,6 +50,7 @@ import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
 import me.rerere.rikkahub.ui.pages.setting.components.SettingsGroup
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import org.koin.androidx.compose.koinViewModel
+import kotlin.math.roundToInt
 
 @Composable
 fun SettingAdvancedPage(vm: SettingVM = koinViewModel()) {
@@ -160,34 +162,44 @@ fun SettingAdvancedPage(vm: SettingVM = koinViewModel()) {
                             )
                         }
                     )
-                    SettingGroupItem(
-                        title = stringResource(R.string.setting_display_page_http_429_retry_max_title),
-                        subtitle = stringResource(R.string.setting_display_page_http_429_retry_max_desc),
-                        trailing = {
-                            var retryText by remember(settings.getHttp429MaxRetries()) {
-                                mutableStateOf(settings.getHttp429MaxRetries().toString())
-                            }
-
-                            OutlinedTextField(
-                                value = retryText,
-                                onValueChange = { value ->
-                                    val filtered = value.filter { it.isDigit() }
-                                    val parsed = filtered.toIntOrNull()
-                                    val safe = parsed?.coerceIn(0, 10)
-
-                                    retryText = (safe ?: filtered).toString()
-
-                                    if (safe != null) {
-                                        vm.updateSettings { current ->
-                                            if (current.http429MaxRetries == safe) current
-                                            else current.copy(http429MaxRetries = safe)
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.widthIn(min = 80.dp, max = 120.dp),
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    val retryMaxRetries = settings.getHttpRetryMaxRetries()
+                    IntegerSliderSettingItem(
+                        title = stringResource(R.string.setting_display_page_http_retry_max_title),
+                        subtitle = stringResource(R.string.setting_display_page_http_retry_max_desc),
+                        value = retryMaxRetries,
+                        valueText = if (retryMaxRetries == 0) {
+                            stringResource(R.string.setting_display_page_http_retry_off)
+                        } else {
+                            stringResource(
+                                R.string.setting_display_page_http_retry_max_value,
+                                retryMaxRetries,
                             )
+                        },
+                        valueRange = 0..10,
+                        onValueChange = { retries ->
+                            haptics.perform(HapticPattern.Pop)
+                            vm.updateSettings { current ->
+                                if (current.httpRetryMaxRetries == retries) current
+                                else current.copy(httpRetryMaxRetries = retries)
+                            }
+                        }
+                    )
+                    val retryDelaySeconds = settings.getHttpRetryDelaySeconds()
+                    IntegerSliderSettingItem(
+                        title = stringResource(R.string.setting_display_page_http_retry_delay_title),
+                        subtitle = stringResource(R.string.setting_display_page_http_retry_delay_desc),
+                        value = retryDelaySeconds,
+                        valueText = stringResource(
+                            R.string.setting_display_page_http_retry_delay_value,
+                            retryDelaySeconds,
+                        ),
+                        valueRange = 1..30,
+                        onValueChange = { delaySeconds ->
+                            haptics.perform(HapticPattern.Pop)
+                            vm.updateSettings { current ->
+                                if (current.httpRetryDelaySeconds == delaySeconds) current
+                                else current.copy(httpRetryDelaySeconds = delaySeconds)
+                            }
                         }
                     )
                 }
@@ -372,6 +384,78 @@ fun SettingAdvancedPage(vm: SettingVM = koinViewModel()) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun IntegerSliderSettingItem(
+    title: String,
+    subtitle: String,
+    value: Int,
+    valueText: String,
+    valueRange: IntRange,
+    onValueChange: (Int) -> Unit,
+) {
+    val safeValue = value.coerceIn(valueRange.first, valueRange.last)
+    var sliderValue by remember(safeValue, valueRange.first, valueRange.last) {
+        mutableFloatStateOf(safeValue.toFloat())
+    }
+    Surface(
+        color = if (LocalDarkMode.current) {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        shape = RoundedCornerShape(10.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    text = valueText,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Slider(
+                value = sliderValue,
+                onValueChange = { newValue ->
+                    val roundedValue = newValue
+                        .roundToInt()
+                        .coerceIn(valueRange.first, valueRange.last)
+                    if (roundedValue != sliderValue.roundToInt()) {
+                        onValueChange(roundedValue)
+                    }
+                    sliderValue = roundedValue.toFloat()
+                },
+                valueRange = valueRange.first.toFloat()..valueRange.last.toFloat(),
+                steps = (valueRange.last - valueRange.first - 1).coerceAtLeast(0),
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

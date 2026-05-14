@@ -1744,8 +1744,13 @@
   <string name="setting_advanced_page_show_export_conversation_json_desc">在對話長按選單中顯示「匯出 JSON」。</string>
   <string name="setting_display_page_mcp_tool_call_timeout_title">MCP工具調用逾時時間</string>
   <string name="setting_display_page_mcp_tool_call_timeout_desc">單位：秒</string>
-  <string name="setting_display_page_http_429_retry_max_title">HTTP 429 最大重試次數</string>
-  <string name="setting_display_page_http_429_retry_max_desc">當伺服器回傳 429（請求過多）時自動重試。0 = 不重試</string>
+  <string name="setting_display_page_http_retry_max_title">HTTP 最大重試次數</string>
+  <string name="setting_display_page_http_retry_max_desc">遇到暫時性服務或網路錯誤時自動重試</string>
+  <string name="setting_display_page_http_retry_max_value">%d 次</string>
+  <string name="setting_display_page_http_retry_off">關閉</string>
+  <string name="setting_display_page_http_retry_delay_title">重試等待時間</string>
+  <string name="setting_display_page_http_retry_delay_desc">每次重試前等待這段時間</string>
+  <string name="setting_display_page_http_retry_delay_value">%d 秒</string>
   <string name="setting_display_page_show_assistant_avatar_title">顯示助手頭像</string>
   <string name="setting_display_page_show_assistant_avatar_desc">在消息前顯示助手的頭像</string>
 

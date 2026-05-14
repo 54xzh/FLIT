@@ -62,13 +62,24 @@ class PreferencesStoreReadPositionTest {
     }
 
     @Test
-    fun getHttp429MaxRetries_clampsToRange() {
-        val below = Settings(http429MaxRetries = -3)
-        val normal = Settings(http429MaxRetries = 2)
-        val above = Settings(http429MaxRetries = 99)
+    fun getHttpRetryMaxRetries_clampsToRange() {
+        val below = Settings(httpRetryMaxRetries = -3)
+        val normal = Settings(httpRetryMaxRetries = 2)
+        val above = Settings(httpRetryMaxRetries = 99)
 
-        assertEquals(0, below.getHttp429MaxRetries())
-        assertEquals(2, normal.getHttp429MaxRetries())
-        assertEquals(10, above.getHttp429MaxRetries())
+        assertEquals(0, below.getHttpRetryMaxRetries())
+        assertEquals(2, normal.getHttpRetryMaxRetries())
+        assertEquals(10, above.getHttpRetryMaxRetries())
+    }
+
+    @Test
+    fun getHttpRetryDelaySeconds_clampsToRange() {
+        val below = Settings(httpRetryDelaySeconds = -3)
+        val normal = Settings(httpRetryDelaySeconds = 12)
+        val above = Settings(httpRetryDelaySeconds = 99)
+
+        assertEquals(1, below.getHttpRetryDelaySeconds())
+        assertEquals(12, normal.getHttpRetryDelaySeconds())
+        assertEquals(30, above.getHttpRetryDelaySeconds())
     }
 }

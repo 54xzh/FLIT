@@ -763,8 +763,13 @@
     <string name="setting_advanced_page_show_export_conversation_json_desc">Show the \"Export JSON\" action in conversation long-press menu.</string>
     <string name="setting_display_page_mcp_tool_call_timeout_title">MCP Tool Call Timeout</string>
     <string name="setting_display_page_mcp_tool_call_timeout_desc">Unit: seconds</string>
-    <string name="setting_display_page_http_429_retry_max_title">HTTP 429 Max Retries</string>
-    <string name="setting_display_page_http_429_retry_max_desc">Auto-retry when server returns 429 (Too Many Requests). 0 = no retry</string>
+    <string name="setting_display_page_http_retry_max_title">Max HTTP Retries</string>
+    <string name="setting_display_page_http_retry_max_desc">Retry temporary server or network errors automatically</string>
+    <string name="setting_display_page_http_retry_max_value">%d times</string>
+    <string name="setting_display_page_http_retry_off">Off</string>
+    <string name="setting_display_page_http_retry_delay_title">Retry Wait Time</string>
+    <string name="setting_display_page_http_retry_delay_desc">Wait this long before each retry</string>
+    <string name="setting_display_page_http_retry_delay_value">%d s</string>
     <string name="setting_display_page_show_updates_desc">Show app update notifications</string>
     <string name="setting_display_page_show_updates_title">Show Updates</string>
     <string name="setting_display_page_show_user_avatar_desc">Show user avatar in chat messages</string>
