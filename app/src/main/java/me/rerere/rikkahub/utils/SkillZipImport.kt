@@ -113,12 +113,12 @@ object SkillZipImport {
         return withoutZip.ifBlank { null }
     }
 
-    private data class SkillFrontMatter(
+    internal data class SkillFrontMatter(
         val name: String?,
         val description: String?,
     )
 
-    private fun parseFrontMatter(text: String): SkillFrontMatter {
+    internal fun parseFrontMatter(text: String): SkillFrontMatter {
         val lines = text.lineSequence().toList()
         if (lines.isEmpty() || lines.first().trim() != "---") return SkillFrontMatter(null, null)
 
@@ -129,14 +129,33 @@ object SkillZipImport {
         var name: String? = null
         var description: String? = null
 
-        frontMatterLines.forEach { line ->
+        var index = 0
+        while (index < frontMatterLines.size) {
+            val line = frontMatterLines[index]
             val trimmed = line.trim()
-            if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEach
+            if (trimmed.isEmpty() || trimmed.startsWith("#") || line.leadingSpaces() > 0) {
+                index++
+                continue
+            }
+
             val colonIndex = trimmed.indexOf(':')
-            if (colonIndex <= 0) return@forEach
+            if (colonIndex <= 0) {
+                index++
+                continue
+            }
 
             val key = trimmed.substring(0, colonIndex).trim()
-            val value = trimmed.substring(colonIndex + 1).trim().trim('"', '\'')
+            val rawValue = trimmed.substring(colonIndex + 1).trim()
+            val blockHeader = rawValue.toBlockScalarHeader()
+            val value = if (blockHeader != null) {
+                val block = readBlockScalar(frontMatterLines, startIndex = index + 1, header = blockHeader)
+                index = block.nextIndex
+                block.value
+            } else {
+                index++
+                rawValue.toYamlScalar()
+            }
+
             when (key) {
                 "name" -> name = value
                 "description" -> description = value
@@ -145,6 +164,131 @@ object SkillZipImport {
 
         return SkillFrontMatter(name = name, description = description)
     }
+
+    private data class BlockScalarHeader(
+        val style: Char,
+        val chomp: Char?,
+    )
+
+    private data class BlockScalar(
+        val value: String,
+        val nextIndex: Int,
+    )
+
+    private fun String.toBlockScalarHeader(): BlockScalarHeader? {
+        val style = firstOrNull()?.takeIf { it == '>' || it == '|' } ?: return null
+        val header = drop(1).substringBefore('#').trim()
+        if (header.any { it !in "+-0123456789" }) return null
+        return BlockScalarHeader(
+            style = style,
+            chomp = header.firstOrNull { it == '-' || it == '+' },
+        )
+    }
+
+    private fun readBlockScalar(
+        lines: List<String>,
+        startIndex: Int,
+        header: BlockScalarHeader,
+    ): BlockScalar {
+        val rawBlockLines = mutableListOf<String>()
+        var index = startIndex
+        while (index < lines.size) {
+            val line = lines[index]
+            if (line.isNotBlank() && line.leadingSpaces() == 0) break
+            rawBlockLines += line
+            index++
+        }
+
+        val contentIndent = rawBlockLines
+            .filter { it.isNotBlank() }
+            .minOfOrNull { it.leadingSpaces() }
+            ?: 0
+
+        val blockLines = rawBlockLines.map { line ->
+            if (line.length >= contentIndent) line.drop(contentIndent) else ""
+        }
+        val value = when (header.style) {
+            '>' -> blockLines.toFoldedYamlText()
+            else -> blockLines.joinToString("\n") { it.trimEnd() }
+        }.applyYamlChomp(header.chomp)
+
+        return BlockScalar(value = value, nextIndex = index)
+    }
+
+    private fun List<String>.toFoldedYamlText(): String {
+        val builder = StringBuilder()
+        var previousBlank = false
+
+        forEach { rawLine ->
+            val line = rawLine.trimEnd()
+            if (line.isBlank()) {
+                if (builder.isNotEmpty() && !builder.endsWith("\n")) {
+                    builder.append('\n')
+                }
+                previousBlank = true
+            } else {
+                if (builder.isNotEmpty()) {
+                    if (previousBlank || builder.endsWith("\n")) {
+                        if (!builder.endsWith("\n")) builder.append('\n')
+                    } else {
+                        builder.append(' ')
+                    }
+                }
+                builder.append(line)
+                previousBlank = false
+            }
+        }
+
+        return builder.toString()
+    }
+
+    private fun String.applyYamlChomp(chomp: Char?): String = when (chomp) {
+        '-' -> trimEnd('\n')
+        '+' -> this
+        else -> trimEnd('\n')
+    }
+
+    private fun String.toYamlScalar(): String {
+        val value = stripYamlComment().trim()
+        if (value.length >= 2) {
+            val first = value.first()
+            val last = value.last()
+            if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+                return value.substring(1, value.lastIndex)
+            }
+        }
+        return value
+    }
+
+    private fun String.stripYamlComment(): String {
+        var quote: Char? = null
+        var escaped = false
+        for (index in indices) {
+            val char = this[index]
+            if (quote != null) {
+                if (quote == '"' && char == '\\' && !escaped) {
+                    escaped = true
+                    continue
+                }
+                if (char == quote && !escaped) {
+                    quote = null
+                }
+                escaped = false
+                continue
+            }
+
+            if (char == '"' || char == '\'') {
+                quote = char
+                continue
+            }
+            if (char == '#' && (index == 0 || this[index - 1].isWhitespace())) {
+                return substring(0, index)
+            }
+        }
+        return this
+    }
+
+    private fun String.leadingSpaces(): Int = takeWhile { it == ' ' }.length
 
     private fun safeResolve(rootDir: File, entryName: String): File? {
         val normalized = entryName.replace('\\', '/')
