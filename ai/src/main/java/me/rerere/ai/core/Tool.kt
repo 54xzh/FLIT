@@ -18,6 +18,10 @@ data class Tool(
     val execute: suspend (JsonElement) -> JsonElement
 )
 
+fun Tool.parametersOrEmptyObject(): InputSchema {
+    return parameters() ?: InputSchema.Obj(properties = JsonObject(emptyMap()))
+}
+
 @Serializable
 sealed class InputSchema {
     @Serializable

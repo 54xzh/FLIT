@@ -23,6 +23,7 @@ import kotlinx.serialization.json.putJsonArray
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.TokenUsage
+import me.rerere.ai.core.parametersOrEmptyObject
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.ImageGenerationParams
 import me.rerere.ai.provider.Model
@@ -408,7 +409,7 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                         add(buildJsonObject {
                             put("name", tool.name)
                             put("description", tool.description)
-                            put("input_schema", json.encodeToJsonElement(tool.parameters()))
+                            put("input_schema", json.encodeToJsonElement(tool.parametersOrEmptyObject()))
                         })
                     }
                     builtInTools.forEach { add(it) }

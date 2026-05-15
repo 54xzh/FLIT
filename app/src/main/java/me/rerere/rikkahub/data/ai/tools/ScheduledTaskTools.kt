@@ -38,7 +38,9 @@ fun createScheduledTaskTools(
 private fun buildListTool(assistantId: Uuid, taskDao: ScheduledTaskDao) = Tool(
     name = "list_scheduled_tasks",
     description = "List scheduled tasks.",
-    parameters = { null },
+    parameters = {
+        InputSchema.Obj(properties = buildJsonObject { })
+    },
     systemPrompt = { _, _ -> SCHEDULED_TASK_SYSTEM_PROMPT_TEMPLATE },
     execute = {
         val ids = withContext(Dispatchers.IO) {
