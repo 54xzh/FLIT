@@ -555,6 +555,8 @@
   <string name="setting_display_page_notification_message_generated_desc">當應用程式不在前景時，若產生新訊息則顯示通知</string>
   <string name="setting_display_page_hide_suggestions_overlap_title">遮擋訊息時自動隱藏建議</string>
   <string name="setting_display_page_hide_suggestions_overlap_desc">當聊天建議覆蓋到訊息文字時淡出</string>
+  <string name="setting_display_page_auto_scroll_generation_title">生成時自動跟隨捲動</string>
+  <string name="setting_display_page_auto_scroll_generation_desc">訊息生成時跟隨新內容捲動。關閉後會保留目前閱讀位置。</string>
   <string name="setting_display_page_show_message_jumper_desc">在捲動聊天列表時，在右側顯示快速跳轉按鈕</string>
   <string name="setting_display_page_show_message_jumper_title">消息導航按鈕</string>
   <string name="setting_display_page_show_model_name_desc">在消息前顯示助手名稱和時間</string>

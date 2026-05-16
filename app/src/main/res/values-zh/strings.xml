@@ -548,6 +548,8 @@
   <string name="setting_display_page_font_size_title">聊天字体大小</string>
   <string name="setting_display_page_notification_message_generated">生成消息后启用通知</string>
   <string name="setting_display_page_notification_message_generated_desc">当应用不在前台时，若生成消息则显示通知</string>
+  <string name="setting_display_page_auto_scroll_generation_title">生成时自动跟随滚动</string>
+  <string name="setting_display_page_auto_scroll_generation_desc">消息生成时跟随新内容滚动。关闭后会保留当前阅读位置。</string>
   <string name="setting_display_page_notification_live_update">Live Update 模式</string>
   <string name="setting_display_page_notification_live_update_desc">开启后，生成消息期间将推送通知。如不生效，请选择兼容模式。</string>
   <string name="setting_live_update_mode_off">关闭</string>

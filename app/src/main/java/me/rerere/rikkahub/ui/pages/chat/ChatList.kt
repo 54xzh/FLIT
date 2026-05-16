@@ -146,6 +146,13 @@ private data class VisibleMessageNeighbors(
     val nextVisibleIndexByIndex: IntArray,
 )
 
+private data class AutoFollowScrollSample(
+    val scrolling: Boolean,
+    val index: Int,
+    val offset: Int,
+    val atBottom: Boolean,
+)
+
 @Composable
 fun ChatList(
     modifier: Modifier = Modifier,
@@ -321,6 +328,7 @@ private fun SharedTransitionScope.ChatListNormal(
     val loadingOlderState by rememberUpdatedState(loadingOlderHistory)
     var isRecentScroll by remember { mutableStateOf(false) }
     var userScrolledAway by remember(conversation.id) { mutableStateOf(false) }
+    var shouldAutoFollowGeneration by remember(conversation.id) { mutableStateOf(false) }
     val conversationUpdated by rememberUpdatedState(conversation)
     val context = LocalContext.current
     val navController = LocalNavController.current
@@ -467,12 +475,14 @@ private fun SharedTransitionScope.ChatListNormal(
         }
     }
 
-    fun List<LazyListItemInfo>.isAtBottom(): Boolean {
+    fun List<LazyListItemInfo>.isCloseToBottom(): Boolean {
         val lastItem = lastOrNull() ?: return false
-        if (lastItem.key == LoadingIndicatorKey || lastItem.key == ScrollBottomKey) {
-            return true
-        }
-        return lastItem.key == conversation.messageNodes.lastOrNull()?.id && (lastItem.offset + lastItem.size <= state.layoutInfo.viewportEndOffset + lastItem.size * 0.15 + 32)
+        val lastMessageId = conversationUpdated.messageNodes.lastOrNull()?.id
+        val isBottomItem = lastItem.key == ScrollBottomKey ||
+            lastItem.key == LoadingIndicatorKey ||
+            lastItem.key == lastMessageId
+        if (!isBottomItem) return false
+        return lastItem.offset + lastItem.size <= state.layoutInfo.viewportEndOffset + 32
     }
 
     // 聊天选择
@@ -489,37 +499,73 @@ private fun SharedTransitionScope.ChatListNormal(
     ) {
         // Empty chat state removed - assistant icon now shown in TopBar
 
-        // 当 loading 状态变化时重置用户滚动标记
-        LaunchedEffect(loading) {
-            userScrolledAway = false
+        LaunchedEffect(loading, effectiveDisplay.autoScrollOnMessageGeneration, conversation.id) {
+            if (!loading || !effectiveDisplay.autoScrollOnMessageGeneration) {
+                userScrolledAway = false
+                shouldAutoFollowGeneration = false
+                return@LaunchedEffect
+            }
+
+            val atBottom = state.layoutInfo.visibleItemsInfo.isCloseToBottom()
+            userScrolledAway = !atBottom
+            shouldAutoFollowGeneration = atBottom
         }
 
-        // 检测用户主动滚动离开底部的意图
-        LaunchedEffect(state) {
-            var wasScrollInProgress = false
-            snapshotFlow { state.isScrollInProgress }.collect { scrolling ->
-                if (wasScrollInProgress && !scrolling) {
-                    // 用户主动滚动刚刚结束（触摸/惯性完成）
-                    val atBottom = state.layoutInfo.visibleItemsInfo.isAtBottom()
-                    if (atBottom) {
-                        userScrolledAway = false
-                    } else if (loadingState) {
+        LaunchedEffect(state, effectiveDisplay.autoScrollOnMessageGeneration) {
+            if (!effectiveDisplay.autoScrollOnMessageGeneration) return@LaunchedEffect
+
+            var lastIndex = state.firstVisibleItemIndex
+            var lastOffset = state.firstVisibleItemScrollOffset
+            snapshotFlow {
+                val currentIndex = state.firstVisibleItemIndex
+                val currentOffset = state.firstVisibleItemScrollOffset
+                val atBottom = state.layoutInfo.visibleItemsInfo.isCloseToBottom()
+                AutoFollowScrollSample(
+                    scrolling = state.isScrollInProgress,
+                    index = currentIndex,
+                    offset = currentOffset,
+                    atBottom = atBottom,
+                )
+            }.collect { sample ->
+                if (!loadingState) return@collect
+
+                val movingAwayFromBottom = sample.index < lastIndex ||
+                    (sample.index == lastIndex && sample.offset < lastOffset)
+                lastIndex = sample.index
+                lastOffset = sample.offset
+
+                when {
+                    sample.scrolling && movingAwayFromBottom -> {
                         userScrolledAway = true
+                        shouldAutoFollowGeneration = false
+                    }
+
+                    sample.atBottom -> {
+                        userScrolledAway = false
+                        shouldAutoFollowGeneration = true
+                    }
+
+                    sample.scrolling -> {
+                        userScrolledAway = true
+                        shouldAutoFollowGeneration = false
                     }
                 }
-                wasScrollInProgress = scrolling
             }
         }
 
-        // 自动滚动到底部
-        LaunchedEffect(state) {
+        LaunchedEffect(state, effectiveDisplay.autoScrollOnMessageGeneration) {
+            if (!effectiveDisplay.autoScrollOnMessageGeneration) return@LaunchedEffect
+
             snapshotFlow { state.layoutInfo.visibleItemsInfo }.collect { visibleItemsInfo ->
-                // println("is bottom = ${visibleItemsInfo.isAtBottom()}, scroll = ${state.isScrollInProgress}, can_scroll = ${state.canScrollForward}, loading = $loading")
-                if (!state.isScrollInProgress && loadingState && !userScrolledAway) {
-                    if (visibleItemsInfo.isAtBottom()) {
-                        state.requestScrollToItem(conversationUpdated.messageNodes.lastIndex + 10)
-                        // Log.i(TAG, "ChatList: scroll to ${conversationUpdated.messageNodes.lastIndex}")
-                    }
+                if (
+                    !state.isScrollInProgress &&
+                    loadingState &&
+                    shouldAutoFollowGeneration &&
+                    !userScrolledAway &&
+                    visibleItemsInfo.isNotEmpty()
+                ) {
+                    val targetIndex = (state.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                    state.requestScrollToItem(targetIndex)
                 }
             }
         }

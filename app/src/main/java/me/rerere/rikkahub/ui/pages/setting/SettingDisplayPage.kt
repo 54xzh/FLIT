@@ -366,6 +366,18 @@ fun SettingDisplayPage(vm: SettingVM = koinViewModel()) {
                         }
                     )
                     SettingGroupItem(
+                        title = stringResource(R.string.setting_display_page_auto_scroll_generation_title),
+                        subtitle = stringResource(R.string.setting_display_page_auto_scroll_generation_desc),
+                        trailing = {
+                            HapticSwitch(
+                                checked = displaySetting.autoScrollOnMessageGeneration,
+                                onCheckedChange = {
+                                    updateDisplaySetting(displaySetting.copy(autoScrollOnMessageGeneration = it))
+                                }
+                            )
+                        }
+                    )
+                    SettingGroupItem(
                         title = stringResource(R.string.setting_display_page_show_fullscreen_input_button_title),
                         subtitle = stringResource(R.string.setting_display_page_show_fullscreen_input_button_desc),
                         trailing = {
