@@ -997,6 +997,16 @@ private fun ChatPageContent(
                 var autoSendHandled by rememberSaveable(conversation.id, autoSend) {
                     mutableStateOf(!autoSend)
                 }
+                var nextSendScrollRequestId by rememberSaveable(conversation.id) { mutableStateOf(0L) }
+                var sendScrollRequest by remember(conversation.id) { mutableStateOf<ChatSendScrollRequest?>(null) }
+
+                fun requestSendScrollForNextUserMessage() {
+                    nextSendScrollRequestId += 1
+                    sendScrollRequest = ChatSendScrollRequest(
+                        id = nextSendScrollRequestId,
+                        expectedMessageIndex = conversation.messageNodes.size,
+                    )
+                }
 
                 fun dispatchInput(
                     answer: Boolean = true,
@@ -1019,7 +1029,7 @@ private fun ChatPageContent(
 
                     val content = inputState.getContents()
                     val groupTemplate = groupChatTemplate
-                    if (isGroupChatTemplate && groupTemplate != null) {
+                    if (groupTemplate != null) {
                         val userText = content
                             .filterIsInstance<UIMessagePart.Text>()
                             .joinToString("\n") { it.text }
@@ -1043,14 +1053,14 @@ private fun ChatPageContent(
                         }
                     }
 
+                    if (answer) {
+                        requestSendScrollForNextUserMessage()
+                    }
                     vm.handleMessageSend(
                         content = content,
                         answer = answer,
                         isTemporaryChat = isTemporaryChat,
                     )
-                    scope.launch {
-                        chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
-                    }
                     inputState.clearInput()
                     return true
                 }
@@ -1181,6 +1191,12 @@ private fun ChatPageContent(
                         if (!conversation.contextSummary.isNullOrBlank()) {
                             contextSummaryDraft = conversation.contextSummary.orEmpty()
                             showContextSummaryEditDialog = true
+                        }
+                    },
+                    sendScrollRequest = sendScrollRequest,
+                    onSendScrollRequestHandled = { requestId ->
+                        if (sendScrollRequest?.id == requestId) {
+                            sendScrollRequest = null
                         }
                     },
                 )
@@ -1364,13 +1380,11 @@ private fun ChatPageContent(
                         chatSuggestions = conversation.chatSuggestions,
                         onClickSuggestion = { suggestion ->
                             if (currentChatModel != null) {
+                                requestSendScrollForNextUserMessage()
                                 vm.handleMessageSend(
                                     listOf(me.rerere.ai.ui.UIMessagePart.Text(suggestion)),
                                     isTemporaryChat = isTemporaryChat
                                 )
-                                scope.launch {
-                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
-                                }
                             } else {
                                 toaster.show("Please select a model first", type = ToastType.Error)
                             }
@@ -1457,13 +1471,11 @@ private fun ChatPageContent(
                         chatSuggestions = conversation.chatSuggestions,
                         onClickSuggestion = { suggestion ->
                             if (currentChatModel != null) {
+                                requestSendScrollForNextUserMessage()
                                 vm.handleMessageSend(
                                     listOf(me.rerere.ai.ui.UIMessagePart.Text(suggestion)),
                                     isTemporaryChat = isTemporaryChat
                                 )
-                                scope.launch {
-                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
-                                }
                             } else {
                                 toaster.show("Please select a model first", type = ToastType.Error)
                             }
@@ -1567,14 +1579,12 @@ private fun ChatPageContent(
                                 return@GroupChatMentionDisambiguationSheet
                             }
 
+                            requestSendScrollForNextUserMessage()
                             vm.handleMessageSend(
                                 content = disambiguationState.pendingContent,
                                 isTemporaryChat = disambiguationState.isTemporaryChat,
                                 groupChatSpeakerSeatIdsOverride = speakerSeatIds,
                             )
-                            scope.launch {
-                                chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
-                            }
                             inputState.clearInput()
                             mentionDisambiguationState = null
                         },
