@@ -96,7 +96,10 @@ import androidx.compose.material.icons.rounded.KeyboardDoubleArrowUp
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.TouchApp
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.provider.Model
@@ -131,10 +134,13 @@ import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.utils.openUrl
+import kotlin.math.abs
 
 private const val TAG = "ChatList"
 private const val LoadingIndicatorKey = "LoadingIndicator"
 private const val ScrollBottomKey = "ScrollBottomKey"
+private const val SendScrollMaxAnimationRetryCount = 20
+private const val SendScrollAnimationRetryDelayMs = 40L
 private val ChatListItemSpacing = 4.dp
 private val ScrollBottomBaseHeight = 5.dp
 
@@ -157,6 +163,26 @@ private data class AutoFollowScrollSample(
     val offset: Int,
     val atBottom: Boolean,
 )
+
+private suspend fun LazyListState.tryAnimateSendScrollToItem(
+    index: Int,
+    scrollOffset: Int,
+): Boolean {
+    return try {
+        animateScrollToItem(
+            index = index,
+            scrollOffset = scrollOffset,
+        )
+        true
+    } catch (error: CancellationException) {
+        if (!currentCoroutineContext().isActive) {
+            throw error
+        }
+        false
+    } catch (_: Exception) {
+        false
+    }
+}
 
 @Composable
 internal fun ChatList(
@@ -345,6 +371,7 @@ private fun SharedTransitionScope.ChatListNormal(
     var shouldAutoFollowGeneration by remember(conversation.id) { mutableStateOf(false) }
     var activeSendScrollAnchor by remember(conversation.id) { mutableStateOf<ChatSendScrollAnchor?>(null) }
     var animatedSendScrollRequestId by remember(conversation.id) { mutableStateOf<Long?>(null) }
+    var sendScrollAnimationRetryCount by remember(conversation.id) { mutableStateOf(0) }
     var loadingIndicatorHeightPx by remember(conversation.id) { mutableStateOf(0) }
     val messageItemHeightsPx = remember(conversation.id) { mutableStateMapOf<Uuid, Int>() }
     val conversationUpdated by rememberUpdatedState(conversation)
@@ -518,6 +545,7 @@ private fun SharedTransitionScope.ChatListNormal(
             nodeId = node.id,
         )
         animatedSendScrollRequestId = null
+        sendScrollAnimationRetryCount = 0
         onSendScrollRequestHandled(request.id)
     }
 
@@ -531,10 +559,13 @@ private fun SharedTransitionScope.ChatListNormal(
         if (sendScrollAnchor != null && sendScrollAnchorIndex < 0) {
             activeSendScrollAnchor = null
             animatedSendScrollRequestId = null
+            sendScrollAnimationRetryCount = 0
         }
     }
 
     val sendScrollLayoutInfo = state.layoutInfo
+    val sendScrollTotalItemsCount = sendScrollLayoutInfo.totalItemsCount
+    val sendScrollViewportHeightPx = sendScrollLayoutInfo.viewportSize.height
     val sendScrollMessageHeightsPx = conversation.messageNodes.map { node ->
         messageItemHeightsPx[node.id] ?: 0
     }
@@ -551,10 +582,10 @@ private fun SharedTransitionScope.ChatListNormal(
         sendScrollAnchor != null &&
         sendScrollAnchorIndex >= 0 &&
         sendScrollUserMessageHeightPx > 0 &&
-        sendScrollLayoutInfo.viewportSize.height > 0
+        sendScrollViewportHeightPx > 0
     ) {
         resolveSendScrollLayout(
-            viewportHeightPx = sendScrollLayoutInfo.viewportSize.height,
+            viewportHeightPx = sendScrollViewportHeightPx,
             userMessageHeightPx = sendScrollUserMessageHeightPx,
             trailingContentHeightPx = sendScrollTrailingContentHeightPx,
             afterContentPaddingPx = sendScrollLayoutInfo.afterContentPadding,
@@ -567,37 +598,87 @@ private fun SharedTransitionScope.ChatListNormal(
     }
     val sendScrollInitialAnimationDone = sendScrollAnchor != null &&
         animatedSendScrollRequestId == sendScrollAnchor.requestId
-    val sendScrollLocksBottom = sendScrollAnchor != null &&
-        (!sendScrollInitialAnimationDone || sendScrollLayout?.replyAreaOverflowing != true)
+    val sendScrollLocksBottom = shouldLockSendScrollPosition(
+        hasPendingRequest = sendScrollRequest != null,
+        hasActiveAnchor = sendScrollAnchor != null,
+        initialAnimationDone = sendScrollInitialAnimationDone,
+        replyAreaOverflowing = sendScrollLayout?.replyAreaOverflowing,
+    )
 
     LaunchedEffect(
         sendScrollAnchor?.requestId,
         sendScrollAnchorIndex,
         sendScrollUserMessageHeightPx,
         sendScrollLayout?.userMessageScrollOffsetPx,
+        sendScrollTotalItemsCount,
+        sendScrollViewportHeightPx,
+        sendScrollAnimationRetryCount,
     ) {
         val anchor = sendScrollAnchor ?: return@LaunchedEffect
         if (sendScrollAnchorIndex < 0) return@LaunchedEffect
         if (animatedSendScrollRequestId == anchor.requestId) return@LaunchedEffect
 
         repeat(2) { withFrameNanos { } }
-        val scrollOffset = sendScrollLayout?.userMessageScrollOffsetPx
-        if (scrollOffset == null) {
-            runCatching {
-                state.animateScrollToItem(
-                    index = sendScrollAnchorIndex,
-                    scrollOffset = 0,
-                )
+        if (
+            sendScrollTotalItemsCount <= sendScrollAnchorIndex ||
+            sendScrollViewportHeightPx <= 0
+        ) {
+            if (sendScrollAnimationRetryCount < SendScrollMaxAnimationRetryCount) {
+                delay(SendScrollAnimationRetryDelayMs)
+                sendScrollAnimationRetryCount += 1
+            } else {
+                activeSendScrollAnchor = null
+                animatedSendScrollRequestId = null
+                sendScrollAnimationRetryCount = 0
             }
             return@LaunchedEffect
         }
 
-        runCatching {
-            state.animateScrollToItem(
-                index = sendScrollAnchorIndex,
-                scrollOffset = scrollOffset,
-            )
+        val scrollOffset = sendScrollLayout?.userMessageScrollOffsetPx
+        val targetOffset = scrollOffset ?: 0
+        val animated = state.tryAnimateSendScrollToItem(
+            index = sendScrollAnchorIndex,
+            scrollOffset = targetOffset,
+        )
+        if (!animated) {
+            if (sendScrollAnimationRetryCount < SendScrollMaxAnimationRetryCount) {
+                delay(SendScrollAnimationRetryDelayMs)
+                sendScrollAnimationRetryCount += 1
+            } else {
+                activeSendScrollAnchor = null
+                animatedSendScrollRequestId = null
+                sendScrollAnimationRetryCount = 0
+            }
+            return@LaunchedEffect
         }
+
+        if (scrollOffset == null) {
+            if (sendScrollAnimationRetryCount < SendScrollMaxAnimationRetryCount) {
+                delay(SendScrollAnimationRetryDelayMs)
+                sendScrollAnimationRetryCount += 1
+            } else {
+                activeSendScrollAnchor = null
+                animatedSendScrollRequestId = null
+                sendScrollAnimationRetryCount = 0
+            }
+            return@LaunchedEffect
+        }
+
+        val reachedTarget = state.firstVisibleItemIndex == sendScrollAnchorIndex &&
+            abs(state.firstVisibleItemScrollOffset - scrollOffset) <= 2
+        if (!reachedTarget) {
+            if (sendScrollAnimationRetryCount < SendScrollMaxAnimationRetryCount) {
+                delay(SendScrollAnimationRetryDelayMs)
+                sendScrollAnimationRetryCount += 1
+            } else {
+                activeSendScrollAnchor = null
+                animatedSendScrollRequestId = null
+                sendScrollAnimationRetryCount = 0
+            }
+            return@LaunchedEffect
+        }
+
+        sendScrollAnimationRetryCount = 0
         animatedSendScrollRequestId = anchor.requestId
     }
 
@@ -626,7 +707,10 @@ private fun SharedTransitionScope.ChatListNormal(
     var showExportSheet by remember { mutableStateOf(false) }
 
     // 自动跟随键盘滚动
-    ImeLazyListAutoScroller(lazyListState = state)
+    ImeLazyListAutoScroller(
+        lazyListState = state,
+        enabled = !sendScrollLocksBottom,
+    )
 
     Box(
         modifier = Modifier

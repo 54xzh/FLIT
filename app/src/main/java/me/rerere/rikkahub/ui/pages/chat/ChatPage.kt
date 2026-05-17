@@ -1001,6 +1001,7 @@ private fun ChatPageContent(
                 var sendScrollRequest by remember(conversation.id) { mutableStateOf<ChatSendScrollRequest?>(null) }
 
                 fun requestSendScrollForNextUserMessage() {
+                    initialEntryHandled = true
                     nextSendScrollRequestId += 1
                     sendScrollRequest = ChatSendScrollRequest(
                         id = nextSendScrollRequestId,

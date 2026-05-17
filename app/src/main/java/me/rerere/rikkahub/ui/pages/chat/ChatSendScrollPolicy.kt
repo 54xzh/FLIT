@@ -19,6 +19,16 @@ internal data class ChatSendScrollLayout(
     val replyAreaOverflowing: Boolean,
 )
 
+internal fun shouldLockSendScrollPosition(
+    hasPendingRequest: Boolean,
+    hasActiveAnchor: Boolean,
+    initialAnimationDone: Boolean,
+    replyAreaOverflowing: Boolean?,
+): Boolean {
+    return hasPendingRequest ||
+        (hasActiveAnchor && (!initialAnimationDone || replyAreaOverflowing != true))
+}
+
 internal fun resolveSendScrollLayout(
     viewportHeightPx: Int,
     userMessageHeightPx: Int,

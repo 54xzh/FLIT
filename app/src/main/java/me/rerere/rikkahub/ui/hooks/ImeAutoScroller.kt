@@ -9,6 +9,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalDensity
@@ -17,19 +18,23 @@ import kotlinx.coroutines.flow.collect
 @Composable
 fun ImeLazyListAutoScroller(
     lazyListState: LazyListState,
+    enabled: Boolean = true,
 ) {
     val ime = WindowInsets.ime
     val localDensity = LocalDensity.current
+    val latestEnabled by rememberUpdatedState(enabled)
     var imeHeight by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(lazyListState) {
         snapshotFlow {
             ime.getBottom(localDensity)
         }.collect { currentImeHeight ->
             val diff = currentImeHeight - imeHeight
             imeHeight = currentImeHeight
 
-            lazyListState.scrollBy(diff.toFloat())
+            if (latestEnabled && diff != 0) {
+                lazyListState.scrollBy(diff.toFloat())
+            }
         }
     }
 }

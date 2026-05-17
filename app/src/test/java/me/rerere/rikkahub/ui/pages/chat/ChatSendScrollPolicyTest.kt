@@ -101,4 +101,36 @@ class ChatSendScrollPolicyTest {
 
         assertEquals(293, trailingHeight)
     }
+
+    @Test
+    fun shouldLockSendScrollPosition_locksWhileRequestIsPending() {
+        assertTrue(
+            shouldLockSendScrollPosition(
+                hasPendingRequest = true,
+                hasActiveAnchor = false,
+                initialAnimationDone = false,
+                replyAreaOverflowing = null,
+            )
+        )
+    }
+
+    @Test
+    fun shouldLockSendScrollPosition_unlocksOnlyAfterOverflow() {
+        assertTrue(
+            shouldLockSendScrollPosition(
+                hasPendingRequest = false,
+                hasActiveAnchor = true,
+                initialAnimationDone = true,
+                replyAreaOverflowing = false,
+            )
+        )
+        assertFalse(
+            shouldLockSendScrollPosition(
+                hasPendingRequest = false,
+                hasActiveAnchor = true,
+                initialAnimationDone = true,
+                replyAreaOverflowing = true,
+            )
+        )
+    }
 }
