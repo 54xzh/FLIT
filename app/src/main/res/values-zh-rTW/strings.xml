@@ -1487,10 +1487,16 @@
   <string name="setting_search_page_output_type_desc">searchResults：多來源結果；sourcedAnswer：綜合答案</string>
   <string name="setting_search_page_grok_model_desc">使用支援網路搜尋的 xAI 模型</string>
   <string name="setting_search_page_grok_enable_custom">啟用自訂</string>
-  <string name="setting_search_page_grok_enable_custom_desc">自訂 API 端點與系統提示詞</string>
+  <string name="setting_search_page_grok_enable_custom_desc">自訂 Base URL、介面類型與系統提示詞</string>
   <string name="setting_search_page_grok_base_url">Base URL</string>
   <string name="setting_search_page_grok_path">路徑</string>
+  <string name="setting_search_page_grok_api_type">介面類型</string>
+  <string name="setting_search_page_grok_api_type_desc">選擇相符的請求格式</string>
+  <string name="setting_search_page_grok_api_responses">Responses</string>
+  <string name="setting_search_page_grok_api_chat_completions">Chat Completions</string>
   <string name="setting_search_page_grok_system_prompt">系統提示詞</string>
+  <string name="setting_search_page_grok_stream">串流輸出</string>
+  <string name="setting_search_page_grok_stream_desc">如果非串流請求報錯，可以開啟這個選項</string>
   <string name="setting_search_page_password">密碼</string>
   <string name="setting_search_page_search_depth">搜索深度</string>
   <string name="setting_search_page_search_depth_desc">標準更快/更便宜，深度更全面</string>

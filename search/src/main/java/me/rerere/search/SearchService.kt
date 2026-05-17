@@ -86,6 +86,15 @@ enum class MultiSearchStrategy {
 }
 
 @Serializable
+enum class GrokSearchApiType(val path: String) {
+    @SerialName("responses")
+    RESPONSES("/responses"),
+
+    @SerialName("chat_completions")
+    CHAT_COMPLETIONS("/chat/completions"),
+}
+
+@Serializable
 data class SearchCommonOptions(
     val resultSize: Int = 5,
     val multiSearchStrategy: MultiSearchStrategy = MultiSearchStrategy.PARALLEL,
@@ -280,11 +289,30 @@ sealed class SearchServiceOptions {
         val model: String = "grok-4.20-0309-non-reasoning",
         val enableCustom: Boolean = false,
         val customBaseUrl: String = "https://api.x.ai/v1",
-        val customPath: String = "/responses",
+        val apiType: GrokSearchApiType = GrokSearchApiType.RESPONSES,
+        @SerialName("customPath")
+        val legacyCustomPath: String = GrokSearchApiType.RESPONSES.path,
         val customSystemPrompt: String = "You are a helpful search assistant. Search the web to find accurate and up-to-date information for the user's query. Provide a comprehensive answer with citations.",
         val enableStream: Boolean = false,
         val alias: String = "",
     ) : SearchServiceOptions()
+}
+
+val SearchServiceOptions.GrokOptions.resolvedApiType: GrokSearchApiType
+    get() = if (
+        apiType == GrokSearchApiType.RESPONSES &&
+        legacyCustomPath.trim().trimEnd('/').endsWith("/chat/completions", ignoreCase = true)
+    ) {
+        GrokSearchApiType.CHAT_COMPLETIONS
+    } else {
+        apiType
+    }
+
+fun SearchServiceOptions.GrokOptions.withApiType(apiType: GrokSearchApiType): SearchServiceOptions.GrokOptions {
+    return copy(
+        apiType = apiType,
+        legacyCustomPath = apiType.path,
+    )
 }
 
 val SearchServiceOptions.rawAlias: String

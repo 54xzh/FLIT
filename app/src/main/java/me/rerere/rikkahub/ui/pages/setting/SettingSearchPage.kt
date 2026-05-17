@@ -109,12 +109,15 @@ import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.plus
+import me.rerere.search.GrokSearchApiType
 import me.rerere.search.MultiSearchStrategy
 import me.rerere.search.SearchCommonOptions
 import me.rerere.search.SearchService
 import me.rerere.search.SearchServiceOptions
 import me.rerere.search.displayName
 import me.rerere.search.rawAlias
+import me.rerere.search.resolvedApiType
+import me.rerere.search.withApiType
 import me.rerere.search.withAlias
 import org.koin.androidx.compose.koinViewModel
 import sh.calvin.reorderable.ReorderableItem
@@ -1531,13 +1534,35 @@ private fun GrokOptions(
                     placeholder = { Text("https://api.x.ai/v1") }
                 )
             }
-            FormItem(label = { Text(stringResource(R.string.setting_search_page_grok_path)) }) {
-                OutlinedTextField(
-                    value = options.customPath,
-                    onValueChange = { onUpdateOptions(options.copy(customPath = it)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("/responses") }
+            FormItem(
+                label = { Text(stringResource(R.string.setting_search_page_grok_api_type)) },
+                description = { Text(stringResource(R.string.setting_search_page_grok_api_type_desc)) }
+            ) {
+                val apiTypes = listOf(
+                    GrokSearchApiType.RESPONSES,
+                    GrokSearchApiType.CHAT_COMPLETIONS,
                 )
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    apiTypes.forEachIndexed { index, apiType ->
+                        SegmentedButton(
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = apiTypes.size),
+                            onClick = {
+                                onUpdateOptions(options.withApiType(apiType))
+                            },
+                            selected = options.resolvedApiType == apiType
+                        ) {
+                            Text(
+                                when (apiType) {
+                                    GrokSearchApiType.RESPONSES ->
+                                        stringResource(R.string.setting_search_page_grok_api_responses)
+
+                                    GrokSearchApiType.CHAT_COMPLETIONS ->
+                                        stringResource(R.string.setting_search_page_grok_api_chat_completions)
+                                }
+                            )
+                        }
+                    }
+                }
             }
             FormItem(label = { Text(stringResource(R.string.setting_search_page_grok_system_prompt)) }) {
                 OutlinedTextField(
@@ -1549,8 +1574,8 @@ private fun GrokOptions(
                 )
             }
             FormItem(
-                label = { Text("流式输出") },
-                description = { Text("如果使用非流式出现错误可尝试打开") },
+                label = { Text(stringResource(R.string.setting_search_page_grok_stream)) },
+                description = { Text(stringResource(R.string.setting_search_page_grok_stream_desc)) },
                 tail = {
                     HapticSwitch(
                         checked = options.enableStream,
