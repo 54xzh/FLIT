@@ -127,7 +127,6 @@ import me.rerere.rikkahub.data.model.GroupChatSeat
 import me.rerere.rikkahub.data.model.GroupChatSeatOverrides
 import me.rerere.rikkahub.data.model.GroupChatTemplate
 import me.rerere.rikkahub.data.model.Skill
-import me.rerere.rikkahub.data.model.ToolResultHistoryMode
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.data.model.id
 import me.rerere.rikkahub.data.model.toMessageNode
@@ -1631,7 +1630,7 @@ class ChatService(
                     conversationId = id.toString(),
                     assistantId = conversation.assistantId.toString(),
                     messages = baseMessages,
-                    enableRagIndexing = settings.displaySetting.toolResultHistoryMode == ToolResultHistoryMode.RAG,
+                    enableRagIndexing = false,
                 )
             }
             val welcomePhraseForAppContext = pendingUiWelcomePhraseForAppContext[conversationId]

@@ -72,11 +72,19 @@ import kotlin.uuid.Uuid
 private const val TAG = "PreferencesStore"
 private const val DEFAULT_CONTEXT_HISTORY_LIMIT = 10
 
+private fun DisplaySetting.normalizeToolResultHistoryMode(): DisplaySetting {
+    return if (toolResultHistoryMode == ToolResultHistoryMode.RAG) {
+        copy(toolResultHistoryMode = ToolResultHistoryMode.DISCARD)
+    } else {
+        this
+    }
+}
+
 private fun decodeDisplaySettingCompat(raw: String?): DisplaySetting {
-    if (raw.isNullOrBlank()) return DisplaySetting()
+    if (raw.isNullOrBlank()) return DisplaySetting().normalizeToolResultHistoryMode()
 
     val decoded = runCatching { JsonInstant.decodeFromString<DisplaySetting>(raw) }
-        .getOrElse { return DisplaySetting() }
+        .getOrElse { return DisplaySetting().normalizeToolResultHistoryMode() }
 
     val legacyKeepAll = runCatching {
         (JsonInstant.parseToJsonElement(raw) as? JsonObject)
@@ -90,10 +98,10 @@ private fun decodeDisplaySettingCompat(raw: String?): DisplaySetting {
     }
 
     if (legacyKeepAll == false && decoded.toolResultHistoryMode == ToolResultHistoryMode.KEEP_ALL) {
-        return decoded.copy(toolResultHistoryMode = ToolResultHistoryMode.RAG)
+        return decoded.copy(toolResultHistoryMode = ToolResultHistoryMode.DISCARD)
     }
 
-    return decoded
+    return decoded.normalizeToolResultHistoryMode()
 }
 
 private fun Assistant.normalizeContextManagementFlags(
@@ -676,7 +684,9 @@ class SettingsStore(
                 providers = settingsToSaveWithReboundSearchIndices.providers.map { provider ->
                     provider.normalizeProviderApiKeys().syncEnabledApiKeysToLegacyField()
                 },
-	            displaySetting = settingsToSaveWithReboundSearchIndices.displaySetting.coerceForConflicts(),
+	            displaySetting = settingsToSaveWithReboundSearchIndices.displaySetting
+                    .normalizeToolResultHistoryMode()
+                    .coerceForConflicts(),
                 mcpToolCallTimeoutSeconds = settingsToSaveWithReboundSearchIndices.mcpToolCallTimeoutSeconds.coerceAtLeast(1),
                 httpRetryMaxRetries = settingsToSaveWithReboundSearchIndices.httpRetryMaxRetries.coerceIn(0, 10),
                 httpRetryDelaySeconds = settingsToSaveWithReboundSearchIndices.httpRetryDelaySeconds.coerceIn(1, 30),

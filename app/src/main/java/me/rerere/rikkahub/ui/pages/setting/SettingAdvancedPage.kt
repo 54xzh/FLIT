@@ -273,14 +273,14 @@ fun SettingAdvancedPage(vm: SettingVM = koinViewModel()) {
                             title = stringResource(R.string.assistant_page_tool_results_mode_discard),
                             subtitle = stringResource(R.string.assistant_page_tool_results_mode_discard_desc),
                         ),
-                        ModeOption(
-                            mode = ToolResultHistoryMode.RAG,
-                            title = stringResource(R.string.assistant_page_tool_results_mode_rag),
-                            subtitle = stringResource(R.string.assistant_page_tool_results_mode_rag_desc),
-                        ),
                     )
 
-                    val selectedMode = modeOptions.firstOrNull { it.mode == displaySetting.toolResultHistoryMode }
+                    val selectedHistoryMode = if (displaySetting.toolResultHistoryMode == ToolResultHistoryMode.RAG) {
+                        ToolResultHistoryMode.DISCARD
+                    } else {
+                        displaySetting.toolResultHistoryMode
+                    }
+                    val selectedMode = modeOptions.firstOrNull { it.mode == selectedHistoryMode }
                         ?: modeOptions.first()
 
                     SettingGroupItem(
@@ -328,60 +328,6 @@ fun SettingAdvancedPage(vm: SettingVM = koinViewModel()) {
                         )
                     }
 
-                    if (displaySetting.toolResultHistoryMode == ToolResultHistoryMode.RAG) {
-                        Surface(
-                            color = if (LocalDarkMode.current) {
-                                MaterialTheme.colorScheme.surfaceContainerLow
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHigh
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.assistant_page_tool_results_similarity_threshold),
-                                    style = MaterialTheme.typography.titleSmall,
-                                )
-                                var threshold by remember(displaySetting.toolResultRagSimilarityThreshold) {
-                                    mutableFloatStateOf(displaySetting.toolResultRagSimilarityThreshold.coerceIn(0f, 1f))
-                                }
-                                val currentThreshold = String.format("%.2f", threshold)
-                                Text(
-                                    text = stringResource(
-                                        R.string.assistant_page_tool_results_similarity_threshold_desc,
-                                        currentThreshold,
-                                    ),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Slider(
-                                    value = threshold,
-                                    onValueChange = { newValue ->
-                                        threshold = newValue
-                                        updateDisplaySetting(displaySetting.copy(toolResultRagSimilarityThreshold = newValue))
-                                    },
-                                    valueRange = 0f..1f,
-                                    steps = 19,
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Text(
-                                        stringResource(R.string.assistant_page_rag_similarity_all),
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                    Text(
-                                        stringResource(R.string.assistant_page_rag_similarity_exact),
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
