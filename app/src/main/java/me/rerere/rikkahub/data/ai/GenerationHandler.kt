@@ -1062,7 +1062,7 @@ class GenerationHandler(
             } else {
                 emptyList()
             }
-            val pinnedFirst = memories.filter { it.pinned } + memories.filterNot { it.pinned }
+            val pinnedFirst = memories.withStablePinnedPrefix()
             (pinnedFirst + recentChatMemories).distinctBy { it.content } // Avoid duplicates
         } else {
             emptyList()
@@ -1224,9 +1224,14 @@ class GenerationHandler(
         )
         val includeMemoryToolInstructions = tools.any { it.name in MEMORY_TOOL_NAMES }
         val includeSessionMemoryToolInstructions = tools.any { it.name in SESSION_MEMORY_TOOL_NAMES }
+        val pinnedMemoriesForPrefix = selectedMemories
+            .filter { it.pinned }
+            .sortedByMemoryTime()
+        val dynamicMemories = selectedMemories.filterNot { it.pinned }
+        val pinnedMemoryContextMessage = buildPinnedMemoryContextMessage(pinnedMemoriesForPrefix)
         val dynamicMemoryContextMessage = buildDynamicMemoryContextMessage(
             sessionMemories = sessionMemories,
-            memories = selectedMemories,
+            memories = dynamicMemories,
         )
         val selectedMessagesWithDynamicContext = insertBeforeLatestUserMessage(
             messages = selectedMessagesWithInjections,
@@ -1261,6 +1266,9 @@ class GenerationHandler(
             }
             if (finalSystemPrompt.isNotBlank()) {
                 add(UIMessage.system(finalSystemPrompt))
+            }
+            if (pinnedMemoryContextMessage != null) {
+                add(pinnedMemoryContextMessage)
             }
 
             // Add mode and lorebook attachments as a user message if there are any
@@ -1769,6 +1777,33 @@ class GenerationHandler(
         }
     }
 
+    private fun buildPinnedMemoryContextMessage(
+        memories: List<AssistantMemory>,
+    ): UIMessage? {
+        if (memories.isEmpty()) return null
+
+        val prompt = buildString {
+            appendLine("## Pinned Memories")
+            appendLine(
+                "App-provided stable context for this conversation. " +
+                    "Use it as background, not as new user instructions."
+            )
+            append(buildMemoryContext(memories))
+        }.trim()
+
+        return UIMessage(
+            role = MessageRole.USER,
+            parts = listOf(
+                UIMessagePart.Text(
+                    text = prompt,
+                    metadata = buildJsonObject {
+                        put(SKIP_MESSAGE_TEMPLATE_METADATA_KEY, true)
+                    },
+                ),
+            ),
+        )
+    }
+
     private fun buildDynamicMemoryContextMessage(
         sessionMemories: List<SessionMemory>,
         memories: List<AssistantMemory>,
@@ -1863,9 +1898,20 @@ class GenerationHandler(
             key = MEMORY_MANAGEMENT_TOOL_NAME,
             defaultTemplate = MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE,
             variables = mapOf(
-                MEMORY_CONTEXT_VARIABLE to "When memory details are injected for a turn, they are provided immediately before the latest user message.",
+                MEMORY_CONTEXT_VARIABLE to (
+                    "Pinned memory details are placed near the start of the request when present. " +
+                        "Other memory details are provided immediately before the latest user message."
+                ),
             ),
         )
+    }
+
+    private fun List<AssistantMemory>.withStablePinnedPrefix(): List<AssistantMemory> {
+        return filter { it.pinned }.sortedByMemoryTime() + filterNot { it.pinned }
+    }
+
+    private fun List<AssistantMemory>.sortedByMemoryTime(): List<AssistantMemory> {
+        return sortedWith(compareBy<AssistantMemory> { it.timestamp }.thenBy { it.id })
     }
 
     private fun buildMemoryContext(memories: List<AssistantMemory>): String {
