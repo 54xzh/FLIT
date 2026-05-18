@@ -548,6 +548,8 @@
   <string name="setting_display_page_font_size_title">聊天字体大小</string>
   <string name="setting_display_page_notification_message_generated">生成消息后启用通知</string>
   <string name="setting_display_page_notification_message_generated_desc">当应用不在前台时，若生成消息则显示通知</string>
+  <string name="setting_display_page_auto_scroll_generation_title">生成时自动跟随滚动</string>
+  <string name="setting_display_page_auto_scroll_generation_desc">消息生成时跟随新内容滚动。关闭后会保留当前阅读位置。</string>
   <string name="setting_display_page_notification_live_update">Live Update 模式</string>
   <string name="setting_display_page_notification_live_update_desc">开启后，生成消息期间将推送通知。如不生效，请选择兼容模式。</string>
   <string name="setting_live_update_mode_off">关闭</string>
@@ -1438,10 +1440,16 @@
     <string name="setting_search_page_output_type_desc">searchResults：多来源结果；sourcedAnswer：综合答案</string>
     <string name="setting_search_page_grok_model_desc">使用支持网络搜索的 xAI 模型</string>
     <string name="setting_search_page_grok_enable_custom">启用自定义</string>
-    <string name="setting_search_page_grok_enable_custom_desc">自定义 API 端点和系统提示词</string>
+    <string name="setting_search_page_grok_enable_custom_desc">自定义 Base URL、接口类型和系统提示词</string>
     <string name="setting_search_page_grok_base_url">Base URL</string>
     <string name="setting_search_page_grok_path">路径</string>
+    <string name="setting_search_page_grok_api_type">接口类型</string>
+    <string name="setting_search_page_grok_api_type_desc">选择匹配的请求格式</string>
+    <string name="setting_search_page_grok_api_responses">Responses</string>
+    <string name="setting_search_page_grok_api_chat_completions">Chat Completions</string>
     <string name="setting_search_page_grok_system_prompt">系统提示词</string>
+    <string name="setting_search_page_grok_stream">流式输出</string>
+    <string name="setting_search_page_grok_stream_desc">如果非流式请求报错，可以打开这个选项</string>
     <string name="setting_search_page_password">密码</string>
     <string name="setting_search_page_search_depth">搜索深度</string>
     <string name="setting_search_page_search_depth_desc">标准更快/更便宜，深度更全面</string>

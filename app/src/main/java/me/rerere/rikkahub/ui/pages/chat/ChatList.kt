@@ -67,12 +67,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalScrollCaptureInProgress
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -93,7 +96,10 @@ import androidx.compose.material.icons.rounded.KeyboardDoubleArrowUp
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.TouchApp
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.provider.Model
@@ -128,10 +134,15 @@ import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.utils.openUrl
+import kotlin.math.abs
 
 private const val TAG = "ChatList"
 private const val LoadingIndicatorKey = "LoadingIndicator"
 private const val ScrollBottomKey = "ScrollBottomKey"
+private const val SendScrollMaxAnimationRetryCount = 20
+private const val SendScrollAnimationRetryDelayMs = 40L
+private val ChatListItemSpacing = 4.dp
+private val ScrollBottomBaseHeight = 5.dp
 
 private data class AssistantDisplayIdentity(
     val seatId: Uuid?,
@@ -146,8 +157,35 @@ private data class VisibleMessageNeighbors(
     val nextVisibleIndexByIndex: IntArray,
 )
 
+private data class AutoFollowScrollSample(
+    val scrolling: Boolean,
+    val index: Int,
+    val offset: Int,
+    val atBottom: Boolean,
+)
+
+private suspend fun LazyListState.tryAnimateSendScrollToItem(
+    index: Int,
+    scrollOffset: Int,
+): Boolean {
+    return try {
+        animateScrollToItem(
+            index = index,
+            scrollOffset = scrollOffset,
+        )
+        true
+    } catch (error: CancellationException) {
+        if (!currentCoroutineContext().isActive) {
+            throw error
+        }
+        false
+    } catch (_: Exception) {
+        false
+    }
+}
+
 @Composable
-fun ChatList(
+internal fun ChatList(
     modifier: Modifier = Modifier,
     innerPadding: PaddingValues,
     conversation: Conversation,
@@ -171,6 +209,8 @@ fun ChatList(
     onJumpToMessage: (Uuid) -> Unit = {},
     onReadPositionSample: (nodeId: Uuid, offset: Int) -> Unit = { _, _ -> },
     onEditContextSummary: () -> Unit = {},
+    sendScrollRequest: ChatSendScrollRequest? = null,
+    onSendScrollRequestHandled: (Long) -> Unit = {},
 ) {
     SharedTransitionLayout(modifier = modifier) {
         AnimatedContent(
@@ -210,6 +250,8 @@ fun ChatList(
                     onLoadOlderHistory = onLoadOlderHistory,
                     onReadPositionSample = onReadPositionSample,
                     onEditContextSummary = onEditContextSummary,
+                    sendScrollRequest = sendScrollRequest,
+                    onSendScrollRequestHandled = onSendScrollRequestHandled,
                     animatedVisibilityScope = this@AnimatedContent,
                 )
             }
@@ -314,13 +356,24 @@ private fun SharedTransitionScope.ChatListNormal(
     onLoadOlderHistory: () -> Unit,
     onReadPositionSample: (nodeId: Uuid, offset: Int) -> Unit,
     onEditContextSummary: () -> Unit,
+    sendScrollRequest: ChatSendScrollRequest?,
+    onSendScrollRequestHandled: (Long) -> Unit,
     animatedVisibilityScope: AnimatedVisibilityScope,
 ) {
     val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val listItemSpacingPx = with(density) { ChatListItemSpacing.roundToPx() }
+    val bottomMarkerHeightPx = with(density) { ScrollBottomBaseHeight.roundToPx() }
     val loadingState by rememberUpdatedState(loading)
     val loadingOlderState by rememberUpdatedState(loadingOlderHistory)
     var isRecentScroll by remember { mutableStateOf(false) }
     var userScrolledAway by remember(conversation.id) { mutableStateOf(false) }
+    var shouldAutoFollowGeneration by remember(conversation.id) { mutableStateOf(false) }
+    var activeSendScrollAnchor by remember(conversation.id) { mutableStateOf<ChatSendScrollAnchor?>(null) }
+    var animatedSendScrollRequestId by remember(conversation.id) { mutableStateOf<Long?>(null) }
+    var sendScrollAnimationRetryCount by remember(conversation.id) { mutableStateOf(0) }
+    var loadingIndicatorHeightPx by remember(conversation.id) { mutableStateOf(0) }
+    val messageItemHeightsPx = remember(conversation.id) { mutableStateMapOf<Uuid, Int>() }
     val conversationUpdated by rememberUpdatedState(conversation)
     val context = LocalContext.current
     val navController = LocalNavController.current
@@ -467,12 +520,185 @@ private fun SharedTransitionScope.ChatListNormal(
         }
     }
 
-    fun List<LazyListItemInfo>.isAtBottom(): Boolean {
+    fun List<LazyListItemInfo>.isCloseToBottom(): Boolean {
         val lastItem = lastOrNull() ?: return false
-        if (lastItem.key == LoadingIndicatorKey || lastItem.key == ScrollBottomKey) {
-            return true
+        val lastMessageId = conversationUpdated.messageNodes.lastOrNull()?.id
+        val isBottomItem = lastItem.key == ScrollBottomKey ||
+            lastItem.key == LoadingIndicatorKey ||
+            lastItem.key == lastMessageId
+        if (!isBottomItem) return false
+        return lastItem.offset + lastItem.size <= state.layoutInfo.viewportEndOffset + 32
+    }
+
+    LaunchedEffect(sendScrollRequest, conversation.messageNodes) {
+        val request = sendScrollRequest ?: return@LaunchedEffect
+        val node = conversation.messageNodes
+            .getOrNull(request.expectedMessageIndex)
+            ?.takeIf { it.role == MessageRole.USER }
+            ?: conversation.messageNodes
+                .drop(request.expectedMessageIndex.coerceAtLeast(0))
+                .firstOrNull { it.role == MessageRole.USER }
+            ?: return@LaunchedEffect
+
+        activeSendScrollAnchor = ChatSendScrollAnchor(
+            requestId = request.id,
+            nodeId = node.id,
+        )
+        animatedSendScrollRequestId = null
+        sendScrollAnimationRetryCount = 0
+        onSendScrollRequestHandled(request.id)
+    }
+
+    val sendScrollAnchor = activeSendScrollAnchor
+    val sendScrollAnchorIndex = sendScrollAnchor
+        ?.nodeId
+        ?.let { nodeId -> conversation.messageNodes.indexOfFirst { it.id == nodeId } }
+        ?: -1
+
+    LaunchedEffect(sendScrollAnchor?.nodeId, sendScrollAnchorIndex) {
+        if (sendScrollAnchor != null && sendScrollAnchorIndex < 0) {
+            activeSendScrollAnchor = null
+            animatedSendScrollRequestId = null
+            sendScrollAnimationRetryCount = 0
         }
-        return lastItem.key == conversation.messageNodes.lastOrNull()?.id && (lastItem.offset + lastItem.size <= state.layoutInfo.viewportEndOffset + lastItem.size * 0.15 + 32)
+    }
+
+    val sendScrollLayoutInfo = state.layoutInfo
+    val sendScrollTotalItemsCount = sendScrollLayoutInfo.totalItemsCount
+    val sendScrollViewportHeightPx = sendScrollLayoutInfo.viewportSize.height
+    val sendScrollMessageHeightsPx = conversation.messageNodes.map { node ->
+        messageItemHeightsPx[node.id] ?: 0
+    }
+    val sendScrollUserMessageHeightPx = sendScrollMessageHeightsPx.getOrElse(sendScrollAnchorIndex) { 0 }
+    val sendScrollTrailingContentHeightPx = resolveSendScrollTrailingContentHeightPx(
+        anchorIndex = sendScrollAnchorIndex,
+        messageItemHeightsPx = sendScrollMessageHeightsPx,
+        loading = loading,
+        loadingIndicatorHeightPx = loadingIndicatorHeightPx,
+        bottomMarkerHeightPx = bottomMarkerHeightPx,
+        itemSpacingPx = listItemSpacingPx,
+    )
+    val sendScrollLayout = if (
+        sendScrollAnchor != null &&
+        sendScrollAnchorIndex >= 0 &&
+        sendScrollUserMessageHeightPx > 0 &&
+        sendScrollViewportHeightPx > 0
+    ) {
+        resolveSendScrollLayout(
+            viewportHeightPx = sendScrollViewportHeightPx,
+            userMessageHeightPx = sendScrollUserMessageHeightPx,
+            trailingContentHeightPx = sendScrollTrailingContentHeightPx,
+            afterContentPaddingPx = sendScrollLayoutInfo.afterContentPadding,
+        )
+    } else {
+        null
+    }
+    val sendScrollDynamicSpacerHeight = with(density) {
+        (sendScrollLayout?.dynamicSpacerHeightPx ?: 0).toDp()
+    }
+    val sendScrollInitialAnimationDone = sendScrollAnchor != null &&
+        animatedSendScrollRequestId == sendScrollAnchor.requestId
+    val sendScrollLocksBottom = shouldLockSendScrollPosition(
+        hasPendingRequest = sendScrollRequest != null,
+        hasActiveAnchor = sendScrollAnchor != null,
+        initialAnimationDone = sendScrollInitialAnimationDone,
+        replyAreaOverflowing = sendScrollLayout?.replyAreaOverflowing,
+    )
+
+    LaunchedEffect(
+        sendScrollAnchor?.requestId,
+        sendScrollAnchorIndex,
+        sendScrollUserMessageHeightPx,
+        sendScrollLayout?.userMessageScrollOffsetPx,
+        sendScrollTotalItemsCount,
+        sendScrollViewportHeightPx,
+        sendScrollAnimationRetryCount,
+    ) {
+        val anchor = sendScrollAnchor ?: return@LaunchedEffect
+        if (sendScrollAnchorIndex < 0) return@LaunchedEffect
+        if (animatedSendScrollRequestId == anchor.requestId) return@LaunchedEffect
+
+        repeat(2) { withFrameNanos { } }
+        if (
+            sendScrollTotalItemsCount <= sendScrollAnchorIndex ||
+            sendScrollViewportHeightPx <= 0
+        ) {
+            if (sendScrollAnimationRetryCount < SendScrollMaxAnimationRetryCount) {
+                delay(SendScrollAnimationRetryDelayMs)
+                sendScrollAnimationRetryCount += 1
+            } else {
+                activeSendScrollAnchor = null
+                animatedSendScrollRequestId = null
+                sendScrollAnimationRetryCount = 0
+            }
+            return@LaunchedEffect
+        }
+
+        val scrollOffset = sendScrollLayout?.userMessageScrollOffsetPx
+        val targetOffset = scrollOffset ?: 0
+        val animated = state.tryAnimateSendScrollToItem(
+            index = sendScrollAnchorIndex,
+            scrollOffset = targetOffset,
+        )
+        if (!animated) {
+            if (sendScrollAnimationRetryCount < SendScrollMaxAnimationRetryCount) {
+                delay(SendScrollAnimationRetryDelayMs)
+                sendScrollAnimationRetryCount += 1
+            } else {
+                activeSendScrollAnchor = null
+                animatedSendScrollRequestId = null
+                sendScrollAnimationRetryCount = 0
+            }
+            return@LaunchedEffect
+        }
+
+        if (scrollOffset == null) {
+            if (sendScrollAnimationRetryCount < SendScrollMaxAnimationRetryCount) {
+                delay(SendScrollAnimationRetryDelayMs)
+                sendScrollAnimationRetryCount += 1
+            } else {
+                activeSendScrollAnchor = null
+                animatedSendScrollRequestId = null
+                sendScrollAnimationRetryCount = 0
+            }
+            return@LaunchedEffect
+        }
+
+        val reachedTarget = state.firstVisibleItemIndex == sendScrollAnchorIndex &&
+            abs(state.firstVisibleItemScrollOffset - scrollOffset) <= 2
+        if (!reachedTarget) {
+            if (sendScrollAnimationRetryCount < SendScrollMaxAnimationRetryCount) {
+                delay(SendScrollAnimationRetryDelayMs)
+                sendScrollAnimationRetryCount += 1
+            } else {
+                activeSendScrollAnchor = null
+                animatedSendScrollRequestId = null
+                sendScrollAnimationRetryCount = 0
+            }
+            return@LaunchedEffect
+        }
+
+        sendScrollAnimationRetryCount = 0
+        animatedSendScrollRequestId = anchor.requestId
+    }
+
+    LaunchedEffect(
+        sendScrollAnchor?.requestId,
+        sendScrollInitialAnimationDone,
+        sendScrollLayout?.replyAreaOverflowing,
+        loading,
+        effectiveDisplay.autoScrollOnMessageGeneration,
+    ) {
+        if (
+            sendScrollAnchor != null &&
+            sendScrollInitialAnimationDone &&
+            sendScrollLayout?.replyAreaOverflowing == true &&
+            loading &&
+            effectiveDisplay.autoScrollOnMessageGeneration
+        ) {
+            userScrolledAway = false
+            shouldAutoFollowGeneration = true
+        }
     }
 
     // 聊天选择
@@ -481,7 +707,10 @@ private fun SharedTransitionScope.ChatListNormal(
     var showExportSheet by remember { mutableStateOf(false) }
 
     // 自动跟随键盘滚动
-    ImeLazyListAutoScroller(lazyListState = state)
+    ImeLazyListAutoScroller(
+        lazyListState = state,
+        enabled = !sendScrollLocksBottom,
+    )
 
     Box(
         modifier = Modifier
@@ -489,37 +718,79 @@ private fun SharedTransitionScope.ChatListNormal(
     ) {
         // Empty chat state removed - assistant icon now shown in TopBar
 
-        // 当 loading 状态变化时重置用户滚动标记
-        LaunchedEffect(loading) {
-            userScrolledAway = false
+        LaunchedEffect(loading, effectiveDisplay.autoScrollOnMessageGeneration, conversation.id, sendScrollLocksBottom) {
+            if (sendScrollLocksBottom) {
+                userScrolledAway = true
+                shouldAutoFollowGeneration = false
+                return@LaunchedEffect
+            }
+
+            if (!loading || !effectiveDisplay.autoScrollOnMessageGeneration) {
+                userScrolledAway = false
+                shouldAutoFollowGeneration = false
+                return@LaunchedEffect
+            }
+
+            val atBottom = state.layoutInfo.visibleItemsInfo.isCloseToBottom()
+            userScrolledAway = !atBottom
+            shouldAutoFollowGeneration = atBottom
         }
 
-        // 检测用户主动滚动离开底部的意图
-        LaunchedEffect(state) {
-            var wasScrollInProgress = false
-            snapshotFlow { state.isScrollInProgress }.collect { scrolling ->
-                if (wasScrollInProgress && !scrolling) {
-                    // 用户主动滚动刚刚结束（触摸/惯性完成）
-                    val atBottom = state.layoutInfo.visibleItemsInfo.isAtBottom()
-                    if (atBottom) {
-                        userScrolledAway = false
-                    } else if (loadingState) {
+        LaunchedEffect(state, effectiveDisplay.autoScrollOnMessageGeneration, sendScrollLocksBottom) {
+            if (!effectiveDisplay.autoScrollOnMessageGeneration || sendScrollLocksBottom) return@LaunchedEffect
+
+            var lastIndex = state.firstVisibleItemIndex
+            var lastOffset = state.firstVisibleItemScrollOffset
+            snapshotFlow {
+                val currentIndex = state.firstVisibleItemIndex
+                val currentOffset = state.firstVisibleItemScrollOffset
+                val atBottom = state.layoutInfo.visibleItemsInfo.isCloseToBottom()
+                AutoFollowScrollSample(
+                    scrolling = state.isScrollInProgress,
+                    index = currentIndex,
+                    offset = currentOffset,
+                    atBottom = atBottom,
+                )
+            }.collect { sample ->
+                if (!loadingState) return@collect
+
+                val movingAwayFromBottom = sample.index < lastIndex ||
+                    (sample.index == lastIndex && sample.offset < lastOffset)
+                lastIndex = sample.index
+                lastOffset = sample.offset
+
+                when {
+                    sample.scrolling && movingAwayFromBottom -> {
                         userScrolledAway = true
+                        shouldAutoFollowGeneration = false
+                    }
+
+                    sample.atBottom -> {
+                        userScrolledAway = false
+                        shouldAutoFollowGeneration = true
+                    }
+
+                    sample.scrolling -> {
+                        userScrolledAway = true
+                        shouldAutoFollowGeneration = false
                     }
                 }
-                wasScrollInProgress = scrolling
             }
         }
 
-        // 自动滚动到底部
-        LaunchedEffect(state) {
+        LaunchedEffect(state, effectiveDisplay.autoScrollOnMessageGeneration, sendScrollLocksBottom) {
+            if (!effectiveDisplay.autoScrollOnMessageGeneration || sendScrollLocksBottom) return@LaunchedEffect
+
             snapshotFlow { state.layoutInfo.visibleItemsInfo }.collect { visibleItemsInfo ->
-                // println("is bottom = ${visibleItemsInfo.isAtBottom()}, scroll = ${state.isScrollInProgress}, can_scroll = ${state.canScrollForward}, loading = $loading")
-                if (!state.isScrollInProgress && loadingState && !userScrolledAway) {
-                    if (visibleItemsInfo.isAtBottom()) {
-                        state.requestScrollToItem(conversationUpdated.messageNodes.lastIndex + 10)
-                        // Log.i(TAG, "ChatList: scroll to ${conversationUpdated.messageNodes.lastIndex}")
-                    }
+                if (
+                    !state.isScrollInProgress &&
+                    loadingState &&
+                    shouldAutoFollowGeneration &&
+                    !userScrolledAway &&
+                    visibleItemsInfo.isNotEmpty()
+                ) {
+                    val targetIndex = (state.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                    state.requestScrollToItem(targetIndex)
                 }
             }
         }
@@ -555,7 +826,7 @@ private fun SharedTransitionScope.ChatListNormal(
             state = state,
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 16.dp) + PaddingValues(bottom = 32.dp) + innerPadding + androidx.compose.foundation.layout.WindowInsets.ime.asPaddingValues(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(ChatListItemSpacing),
             modifier = Modifier
                 .sharedBounds(
                     sharedContentState = rememberSharedContentState(key = "conversation_list"),
@@ -567,7 +838,11 @@ private fun SharedTransitionScope.ChatListNormal(
                 items = conversation.messageNodes,
                 key = { index, item -> item.id },
             ) { index, node ->
-                Column {
+                Column(
+                    modifier = Modifier.onSizeChanged { size ->
+                        messageItemHeightsPx[node.id] = size.height
+                    }
+                ) {
                     val message = node.currentMessage
                     val standaloneProcessParts = processDisplayPlan
                         .standaloneProcessPartsByIndex[index]
@@ -809,7 +1084,13 @@ private fun SharedTransitionScope.ChatListNormal(
 
             if (loading) {
                 item(LoadingIndicatorKey) {
-                    LoadingIndicator()
+                    Box(
+                        modifier = Modifier.onSizeChanged { size ->
+                            loadingIndicatorHeightPx = size.height
+                        }
+                    ) {
+                        LoadingIndicator()
+                    }
                 }
             }
 
@@ -818,7 +1099,7 @@ private fun SharedTransitionScope.ChatListNormal(
                 Spacer(
                     Modifier
                         .fillMaxWidth()
-                        .height(5.dp)
+                        .height(ScrollBottomBaseHeight + sendScrollDynamicSpacerHeight)
                 )
             }
         }

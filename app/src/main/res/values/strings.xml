@@ -708,6 +708,8 @@
     <string name="setting_display_page_notification_message_generated_desc">Show notification when message generation completes in background</string>
     <string name="setting_display_page_hide_suggestions_overlap_title">Auto-hide suggestions on overlap</string>
     <string name="setting_display_page_hide_suggestions_overlap_desc">Fade out chat suggestions when they cover message text</string>
+    <string name="setting_display_page_auto_scroll_generation_title">Auto-scroll while generating</string>
+    <string name="setting_display_page_auto_scroll_generation_desc">Follow new output while a message is generating. Turn this off to keep your reading position.</string>
     <string name="setting_display_page_notification_live_update">Live Update Mode</string>
     <string name="setting_display_page_notification_live_update_desc">Notifications will be pushed during message generation after enabling. If it does not take effect, please select Compatibility Mode.</string>
     <string name="setting_live_update_mode_off">Off</string>
@@ -1640,10 +1642,16 @@
     <string name="setting_search_page_output_type_desc">searchResults: multiple sources, sourcedAnswer: synthesized answer</string>
     <string name="setting_search_page_grok_model_desc">Use an xAI model that supports web search</string>
     <string name="setting_search_page_grok_enable_custom">Enable Custom</string>
-    <string name="setting_search_page_grok_enable_custom_desc">Customize the API endpoint and system prompt</string>
+    <string name="setting_search_page_grok_enable_custom_desc">Customize the base URL, API type, and system prompt</string>
     <string name="setting_search_page_grok_base_url">Base URL</string>
     <string name="setting_search_page_grok_path">Path</string>
+    <string name="setting_search_page_grok_api_type">API Type</string>
+    <string name="setting_search_page_grok_api_type_desc">Choose the matching request format</string>
+    <string name="setting_search_page_grok_api_responses">Responses</string>
+    <string name="setting_search_page_grok_api_chat_completions">Chat Completions</string>
     <string name="setting_search_page_grok_system_prompt">System Prompt</string>
+    <string name="setting_search_page_grok_stream">Streaming</string>
+    <string name="setting_search_page_grok_stream_desc">Turn this on if non-streaming requests fail</string>
     <string name="setting_search_page_password">Password</string>
     <string name="setting_search_page_search_depth">Search Depth</string>
     <string name="setting_search_page_search_depth_desc">Standard is faster/cheaper, Deep is more comprehensive</string>

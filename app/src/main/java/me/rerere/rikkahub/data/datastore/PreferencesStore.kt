@@ -1124,6 +1124,7 @@ data class DisplaySetting(
     val showTokenUsage: Boolean = false,
     val messageInputStyle: MessageInputStyle = MessageInputStyle.MINIMAL,
     val showFullscreenInputButton: Boolean = false,
+    val autoScrollOnMessageGeneration: Boolean = false,
     val autoCloseThinking: Boolean = true,
     val showUpdates: Boolean = false,
     val checkForUpdates: Boolean = true, // Check GitHub for app updates

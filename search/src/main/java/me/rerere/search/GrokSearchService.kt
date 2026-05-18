@@ -12,11 +12,13 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -32,6 +34,9 @@ import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 
 private const val TAG = "GrokSearchService"
+private const val DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1"
+private const val DEFAULT_GROK_SYSTEM_PROMPT =
+    "You are a helpful search assistant. Search the web to find accurate and up-to-date information for the user's query. Provide a comprehensive answer with citations."
 
 object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
     override val name: String = "Grok"
@@ -71,43 +76,29 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
                 error("Grok API key is required")
             }
 
-            val query = params["query"]?.jsonPrimitive?.content
+            val query = (params["query"] as? JsonPrimitive)?.contentOrNull
                 ?: error("query is required")
 
-            val endpoint = if (serviceOptions.enableCustom) {
-                serviceOptions.customBaseUrl.trimEnd('/') + serviceOptions.customPath
+            val apiType = serviceOptions.resolvedApiType
+            val baseUrl = if (serviceOptions.enableCustom) {
+                serviceOptions.customBaseUrl.ifBlank { DEFAULT_GROK_BASE_URL }.trimEnd('/')
             } else {
-                "https://api.x.ai/v1/responses"
+                DEFAULT_GROK_BASE_URL
             }
+            val endpoint = baseUrl + apiType.path
             val systemPrompt = if (serviceOptions.enableCustom && serviceOptions.customSystemPrompt.isNotBlank()) {
                 serviceOptions.customSystemPrompt
             } else {
-                "You are a helpful search assistant. Search the web to find accurate and up-to-date information for the user's query. Provide a comprehensive answer with citations."
+                DEFAULT_GROK_SYSTEM_PROMPT
             }
 
-            val body = buildJsonObject {
-                put("model", JsonPrimitive(serviceOptions.model))
-                put("stream", JsonPrimitive(serviceOptions.enableStream))
-                put("input", buildJsonArray {
-                    add(buildJsonObject {
-                        put("role", JsonPrimitive("system"))
-                        put("content", JsonPrimitive(systemPrompt))
-                    })
-                    add(buildJsonObject {
-                        put("role", JsonPrimitive("user"))
-                        put("content", JsonPrimitive(query))
-                    })
-                })
-                put("tools", buildJsonArray {
-                    add(buildJsonObject {
-                        put("type", JsonPrimitive("web_search"))
-                    })
-                    add(buildJsonObject {
-                        put("type", JsonPrimitive("x_search"))
-                    })
-                })
-                put("store", JsonPrimitive(false))
-            }
+            val body = buildRequestBody(
+                query = query,
+                commonOptions = commonOptions,
+                serviceOptions = serviceOptions,
+                systemPrompt = systemPrompt,
+                apiType = apiType,
+            )
 
             Log.i(TAG, "search: $query")
 
@@ -118,15 +109,113 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
                 .addHeader("Content-Type", "application/json")
                 .build()
 
-            if (serviceOptions.enableStream) {
-                searchWithStreaming(request, commonOptions)
-            } else {
-                searchWithoutStreaming(request, commonOptions)
+            when (apiType) {
+                GrokSearchApiType.RESPONSES -> {
+                    if (serviceOptions.enableStream) {
+                        searchResponsesWithStreaming(request, commonOptions)
+                    } else {
+                        searchResponsesWithoutStreaming(request, commonOptions)
+                    }
+                }
+
+                GrokSearchApiType.CHAT_COMPLETIONS -> {
+                    if (serviceOptions.enableStream) {
+                        searchChatCompletionsWithStreaming(request, commonOptions)
+                    } else {
+                        searchChatCompletionsWithoutStreaming(request, commonOptions)
+                    }
+                }
             }
         }
     }
 
-    private suspend fun searchWithoutStreaming(
+    internal fun buildRequestBody(
+        query: String,
+        commonOptions: SearchCommonOptions,
+        serviceOptions: SearchServiceOptions.GrokOptions,
+        systemPrompt: String,
+        apiType: GrokSearchApiType = serviceOptions.resolvedApiType,
+    ): JsonObject {
+        return when (apiType) {
+            GrokSearchApiType.RESPONSES -> buildResponsesRequestBody(
+                query = query,
+                serviceOptions = serviceOptions,
+                systemPrompt = systemPrompt,
+            )
+
+            GrokSearchApiType.CHAT_COMPLETIONS -> buildChatCompletionsRequestBody(
+                query = query,
+                commonOptions = commonOptions,
+                serviceOptions = serviceOptions,
+                systemPrompt = systemPrompt,
+            )
+        }
+    }
+
+    private fun buildResponsesRequestBody(
+        query: String,
+        serviceOptions: SearchServiceOptions.GrokOptions,
+        systemPrompt: String,
+    ): JsonObject = buildJsonObject {
+        put("model", JsonPrimitive(serviceOptions.model))
+        put("stream", JsonPrimitive(serviceOptions.enableStream))
+        put("input", buildJsonArray {
+            add(buildJsonObject {
+                put("role", JsonPrimitive("system"))
+                put("content", JsonPrimitive(systemPrompt))
+            })
+            add(buildJsonObject {
+                put("role", JsonPrimitive("user"))
+                put("content", JsonPrimitive(query))
+            })
+        })
+        put("tools", buildJsonArray {
+            add(buildJsonObject {
+                put("type", JsonPrimitive("web_search"))
+            })
+            add(buildJsonObject {
+                put("type", JsonPrimitive("x_search"))
+            })
+        })
+        put("store", JsonPrimitive(false))
+    }
+
+    private fun buildChatCompletionsRequestBody(
+        query: String,
+        commonOptions: SearchCommonOptions,
+        serviceOptions: SearchServiceOptions.GrokOptions,
+        systemPrompt: String,
+    ): JsonObject = buildJsonObject {
+        put("model", JsonPrimitive(serviceOptions.model))
+        put("stream", JsonPrimitive(serviceOptions.enableStream))
+        put("messages", buildJsonArray {
+            add(buildJsonObject {
+                put("role", JsonPrimitive("system"))
+                put("content", JsonPrimitive(systemPrompt))
+            })
+            add(buildJsonObject {
+                put("role", JsonPrimitive("user"))
+                put("content", JsonPrimitive(query))
+            })
+        })
+        put("search_parameters", buildJsonObject {
+            put("mode", JsonPrimitive("on"))
+            put("return_citations", JsonPrimitive(true))
+            if (commonOptions.resultSize > 0) {
+                put("max_search_results", JsonPrimitive(commonOptions.resultSize))
+            }
+            put("sources", buildJsonArray {
+                add(buildJsonObject {
+                    put("type", JsonPrimitive("web"))
+                })
+                add(buildJsonObject {
+                    put("type", JsonPrimitive("x"))
+                })
+            })
+        })
+    }
+
+    private suspend fun searchResponsesWithoutStreaming(
         request: Request,
         commonOptions: SearchCommonOptions
     ): SearchResult {
@@ -142,7 +231,7 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
         return parseGrokResponse(responseBody, commonOptions)
     }
 
-    private suspend fun searchWithStreaming(
+    private suspend fun searchResponsesWithStreaming(
         request: Request,
         commonOptions: SearchCommonOptions
     ): SearchResult {
@@ -189,9 +278,7 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
             }
         }.collect {}
 
-        if (streamError != null) {
-            throw streamError!!
-        }
+        streamError?.let { throw it }
 
         val result = completedResponse
             ?: throw Exception("Stream completed without response")
@@ -200,6 +287,96 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
             ?: error("response not found in completed event")
 
         return parseGrokResponseFromJson(responseObject, commonOptions)
+    }
+
+    private suspend fun searchChatCompletionsWithoutStreaming(
+        request: Request,
+        commonOptions: SearchCommonOptions
+    ): SearchResult {
+        val response = httpClient.newCall(request).await()
+        if (!response.isSuccessful) {
+            error("response failed #${response.code}: ${response.body?.string()}")
+        }
+
+        val responseObject = response.body.string().let {
+            json.parseToJsonElement(it) as? JsonObject
+        } ?: error("response is not a JSON object")
+
+        return parseChatCompletionsResponse(responseObject, commonOptions)
+    }
+
+    private suspend fun searchChatCompletionsWithStreaming(
+        request: Request,
+        commonOptions: SearchCommonOptions
+    ): SearchResult {
+        val answerBuilder = StringBuilder()
+        var citations = emptyList<GrokCitation>()
+        var streamError: Throwable? = null
+
+        callbackFlow<Unit> {
+            val listener = object : EventSourceListener() {
+                override fun onEvent(
+                    eventSource: EventSource,
+                    id: String?,
+                    type: String?,
+                    data: String
+                ) {
+                    Log.d(TAG, "onEvent: $id/$type $data")
+                    if (data == "[DONE]") {
+                        close()
+                        return
+                    }
+
+                    val eventData = runCatching {
+                        json.parseToJsonElement(data) as? JsonObject
+                    }.getOrNull() ?: return
+
+                    eventData["error"]?.let { errorBody ->
+                        streamError = Exception(errorBody.toString())
+                        close(streamError)
+                        return
+                    }
+
+                    val choice = eventData.arrayAt("choices")?.firstObject()
+                    val delta = choice?.objectAt("delta")
+                    delta?.stringAt("content")?.let { answerBuilder.append(it) }
+
+                    val chunkCitations = extractChatCompletionsCitations(eventData, delta)
+                    if (chunkCitations.isNotEmpty()) {
+                        citations = chunkCitations
+                    }
+
+                    if (!choice?.stringAt("finish_reason").isNullOrBlank()) {
+                        close()
+                    }
+                }
+
+                override fun onFailure(eventSource: EventSource, t: Throwable?, response: okhttp3.Response?) {
+                    val statusCode = response?.code ?: -1
+                    val body = runCatching { response?.body?.string() }.getOrNull().orEmpty()
+                    streamError = Exception("Stream failed #$statusCode: $body", t)
+                    close(streamError)
+                }
+
+                override fun onClosed(eventSource: EventSource) {
+                    close()
+                }
+            }
+
+            val eventSource = EventSources.createFactory(httpClient)
+                .newEventSource(request, listener)
+
+            awaitClose {
+                eventSource.cancel()
+            }
+        }.collect {}
+
+        streamError?.let { throw it }
+
+        return SearchResult(
+            answer = answerBuilder.toString().takeIf { it.isNotBlank() },
+            items = citations.toResultItems(commonOptions),
+        )
     }
 
     private fun parseGrokResponse(responseBody: GrokResponse, commonOptions: SearchCommonOptions): SearchResult {
@@ -275,6 +452,42 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
         return SearchResult(answer = answer, items = items)
     }
 
+    private fun parseChatCompletionsResponse(
+        responseObject: JsonObject,
+        commonOptions: SearchCommonOptions
+    ): SearchResult {
+        val message = responseObject
+            .arrayAt("choices")
+            ?.firstObject()
+            ?.objectAt("message")
+
+        val answer = message?.stringAt("content")
+        val citations = extractChatCompletionsCitations(responseObject, message)
+
+        return SearchResult(
+            answer = answer,
+            items = citations.toResultItems(commonOptions),
+        )
+    }
+
+    private fun extractChatCompletionsCitations(
+        responseObject: JsonObject,
+        messageObject: JsonObject?,
+    ): List<GrokCitation> {
+        val topLevelCitations = responseObject.arrayAt("citations")
+            .orEmpty()
+            .mapNotNull { it.toCitation() }
+
+        val messageCitations = messageObject
+            ?.arrayAt("annotations")
+            .orEmpty()
+            .mapNotNull { it.toCitation() }
+
+        return (topLevelCitations + messageCitations)
+            .filter { it.url.isNotBlank() }
+            .distinctBy { it.url }
+    }
+
     override suspend fun scrape(
         params: JsonObject,
         commonOptions: SearchCommonOptions,
@@ -310,4 +523,58 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
         @SerialName("start_index") val startIndex: Int? = null,
         @SerialName("end_index") val endIndex: Int? = null,
     )
+
+    private data class GrokCitation(
+        val title: String?,
+        val url: String,
+    )
+
+    private fun List<GrokCitation>.toResultItems(commonOptions: SearchCommonOptions): List<SearchResultItem> {
+        return distinctBy { it.url }
+            .take(commonOptions.resultSize)
+            .map { citation ->
+                SearchResultItem(
+                    title = citation.title?.takeIf { it.isNotBlank() } ?: citation.url,
+                    url = citation.url,
+                    text = "",
+                )
+            }
+    }
+
+    private fun JsonObject.arrayAt(key: String): JsonArray? {
+        return this[key] as? JsonArray
+    }
+
+    private fun JsonObject.objectAt(key: String): JsonObject? {
+        return this[key] as? JsonObject
+    }
+
+    private fun JsonObject.stringAt(key: String): String? {
+        return (this[key] as? JsonPrimitive)?.contentOrNull
+    }
+
+    private fun JsonArray.firstObject(): JsonObject? {
+        return firstOrNull() as? JsonObject
+    }
+
+    private fun kotlinx.serialization.json.JsonElement.toCitation(): GrokCitation? {
+        return when (this) {
+            is JsonPrimitive -> {
+                contentOrNull
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { GrokCitation(title = null, url = it) }
+            }
+
+            is JsonObject -> {
+                val citationObject = objectAt("url_citation")
+                val url = citationObject?.stringAt("url") ?: stringAt("url")
+                val title = citationObject?.stringAt("title") ?: stringAt("title")
+                url
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { GrokCitation(title = title, url = it) }
+            }
+
+            else -> null
+        }
+    }
 }
