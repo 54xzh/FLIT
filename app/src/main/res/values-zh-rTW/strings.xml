@@ -1333,10 +1333,10 @@
   <string name="assistant_page_tool_results_mode_title">歷史工具結果</string>
   <string name="assistant_page_tool_results_mode_rag">RAG 檢索</string>
   <string name="assistant_page_tool_results_mode_rag_desc">超過 N 條使用者訊息後不傳送給模型，並透過 RAG 召回相關結果。</string>
-  <string name="assistant_page_tool_results_mode_discard">丟棄</string>
-  <string name="assistant_page_tool_results_mode_discard_desc">超過 N 條使用者訊息後不傳送給模型（仍會保存在本機）。</string>
+  <string name="assistant_page_tool_results_mode_discard">丟棄歷史工具結果</string>
+  <string name="assistant_page_tool_results_mode_discard_desc">超過 %d 條使用者訊息的工具結果將被丟棄。</string>
   <string name="assistant_page_tool_results_keep_title">保留範圍</string>
-  <string name="assistant_page_tool_results_keep_desc">超過 %d 條使用者訊息的結果將不傳送給模型。</string>
+  <string name="assistant_page_tool_results_keep_desc">保留最近 %d 條使用者訊息內的工具結果。</string>
   <string name="assistant_page_tool_results_similarity_threshold">相似度閾值</string>
   <string name="assistant_page_tool_results_similarity_threshold_desc">最小相似度（0.0=包含全部，1.0=僅完美匹配）。值越低召回的工具結果越多。當前：%1$s</string>
   <string name="assistant_page_search_mode">搜索模式</string>

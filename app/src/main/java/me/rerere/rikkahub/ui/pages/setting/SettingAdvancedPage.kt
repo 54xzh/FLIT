@@ -34,15 +34,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.DisplaySetting
+import me.rerere.rikkahub.data.datastore.TOOL_RESULT_KEEP_USER_MESSAGES_MAX
+import me.rerere.rikkahub.data.datastore.TOOL_RESULT_KEEP_USER_MESSAGES_MIN
 import me.rerere.rikkahub.data.datastore.getEmbeddingRetrievalTimeoutSeconds
 import me.rerere.rikkahub.data.datastore.getHttpRetryDelaySeconds
 import me.rerere.rikkahub.data.datastore.getHttpRetryMaxRetries
 import me.rerere.rikkahub.data.datastore.getMcpToolCallTimeoutSeconds
+import me.rerere.rikkahub.data.datastore.getToolResultKeepUserMessages
 import me.rerere.rikkahub.data.model.ToolResultHistoryMode
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
-import me.rerere.rikkahub.ui.components.ui.Select
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
@@ -256,74 +258,46 @@ fun SettingAdvancedPage(vm: SettingVM = koinViewModel()) {
                 SettingsGroup(
                     title = stringResource(R.string.assistant_page_tool_results_group_title)
                 ) {
-                    data class ModeOption(
-                        val mode: ToolResultHistoryMode,
-                        val title: String,
-                        val subtitle: String,
-                    )
-
-                    val modeOptions = listOf(
-                        ModeOption(
-                            mode = ToolResultHistoryMode.KEEP_ALL,
-                            title = stringResource(R.string.assistant_page_tool_results_mode_keep_all),
-                            subtitle = stringResource(R.string.assistant_page_tool_results_mode_keep_all_desc),
-                        ),
-                        ModeOption(
-                            mode = ToolResultHistoryMode.DISCARD,
-                            title = stringResource(R.string.assistant_page_tool_results_mode_discard),
-                            subtitle = stringResource(R.string.assistant_page_tool_results_mode_discard_desc),
-                        ),
-                    )
-
-                    val selectedHistoryMode = if (displaySetting.toolResultHistoryMode == ToolResultHistoryMode.RAG) {
-                        ToolResultHistoryMode.DISCARD
-                    } else {
-                        displaySetting.toolResultHistoryMode
-                    }
-                    val selectedMode = modeOptions.firstOrNull { it.mode == selectedHistoryMode }
-                        ?: modeOptions.first()
+                    val keepUserMessages = displaySetting.getToolResultKeepUserMessages()
+                    val discardOldToolResults = displaySetting.toolResultHistoryMode != ToolResultHistoryMode.KEEP_ALL
 
                     SettingGroupItem(
-                        title = stringResource(R.string.assistant_page_tool_results_mode_title),
-                        subtitle = selectedMode.subtitle,
+                        title = stringResource(R.string.assistant_page_tool_results_mode_discard),
+                        subtitle = stringResource(
+                            R.string.assistant_page_tool_results_mode_discard_desc,
+                            keepUserMessages,
+                        ),
                         trailing = {
-                            Select(
-                                options = modeOptions,
-                                selectedOption = selectedMode,
-                                onOptionSelected = { option ->
-                                    haptics.perform(HapticPattern.Pop)
-                                    updateDisplaySetting(displaySetting.copy(toolResultHistoryMode = option.mode))
-                                },
-                                optionToString = { it.title },
-                                modifier = Modifier.widthIn(min = 110.dp, max = 130.dp)
+                            HapticSwitch(
+                                checked = discardOldToolResults,
+                                onCheckedChange = { enabled ->
+                                    updateDisplaySetting(
+                                        displaySetting.copy(
+                                            toolResultHistoryMode = if (enabled) {
+                                                ToolResultHistoryMode.DISCARD
+                                            } else {
+                                                ToolResultHistoryMode.KEEP_ALL
+                                            }
+                                        )
+                                    )
+                                }
                             )
                         }
                     )
 
-                    if (displaySetting.toolResultHistoryMode != ToolResultHistoryMode.KEEP_ALL) {
-                        data class KeepOption(val value: Int)
-                        val keepOptions = (1..20).map { KeepOption(it) }
-                        val keepUserMessages = displaySetting.toolResultKeepUserMessages.coerceIn(1, 20)
-                        val selectedKeep = keepOptions.firstOrNull { it.value == keepUserMessages }
-                            ?: KeepOption(keepUserMessages)
-
-                        SettingGroupItem(
+                    if (discardOldToolResults) {
+                        IntegerSliderSettingItem(
                             title = stringResource(R.string.assistant_page_tool_results_keep_title),
                             subtitle = stringResource(
                                 R.string.assistant_page_tool_results_keep_desc,
                                 keepUserMessages,
                             ),
-                            trailing = {
-                                Select(
-                                    options = keepOptions,
-                                    selectedOption = selectedKeep,
-                                    onOptionSelected = { option ->
-                                        haptics.perform(HapticPattern.Pop)
-                                        updateDisplaySetting(displaySetting.copy(toolResultKeepUserMessages = option.value))
-                                    },
-                                    optionToString = { it.value.toString() },
-                                    modifier = Modifier.widthIn(min = 80.dp, max = 120.dp)
-                                )
+                            value = keepUserMessages,
+                            valueText = keepUserMessages.toString(),
+                            valueRange = TOOL_RESULT_KEEP_USER_MESSAGES_MIN..TOOL_RESULT_KEEP_USER_MESSAGES_MAX,
+                            onValueChange = { value ->
+                                haptics.perform(HapticPattern.Pop)
+                                updateDisplaySetting(displaySetting.copy(toolResultKeepUserMessages = value))
                             }
                         )
                     }

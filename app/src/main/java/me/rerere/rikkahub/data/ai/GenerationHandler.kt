@@ -72,6 +72,7 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getHttpRetryDelaySeconds
 import me.rerere.rikkahub.data.datastore.getHttpRetryMaxRetries
+import me.rerere.rikkahub.data.datastore.getToolResultKeepUserMessages
 import me.rerere.rikkahub.data.ai.rag.EmbeddingService
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
@@ -720,7 +721,7 @@ class GenerationHandler(
         }
 
         val toolResultHistoryMode = settings.displaySetting.toolResultHistoryMode
-        val keepUserMessages = settings.displaySetting.toolResultKeepUserMessages.coerceAtLeast(0)
+        val keepUserMessages = settings.getToolResultKeepUserMessages()
         val contextMessages = if (
             conversationId != null &&
             toolResultHistoryMode != ToolResultHistoryMode.KEEP_ALL

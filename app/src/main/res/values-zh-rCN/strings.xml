@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="assistant_page_tool_results_mode_discard">丢弃历史工具结果</string>
+    <string name="assistant_page_tool_results_mode_discard_desc">超过 %d 条用户消息的工具结果将被丢弃。</string>
+    <string name="assistant_page_tool_results_keep_title">保留范围</string>
+    <string name="assistant_page_tool_results_keep_desc">保留最近 %d 条用户消息内的工具结果。</string>
+
     <string name="setting_provider_page_manage_multi_keys_with_count">管理 Key（已启用 %1$d/%2$d）</string>
     <string name="setting_provider_page_multi_key_add">添加 Key</string>
     <string name="setting_provider_page_multi_key_alias">别名</string>
