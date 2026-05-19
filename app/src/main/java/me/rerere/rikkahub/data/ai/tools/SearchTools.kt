@@ -72,25 +72,13 @@ object SearchTools {
                                         }
                                     })
                                 }
-                                JsonObject(map)
+                                JsonObject(map).withSearchResultGuidance(includeProviderErrors = false)
                             }
                         results
                     },
-                    systemPrompt = { model, messages ->
+                    systemPrompt = { model, _ ->
                         if (model.tools.isNotEmpty()) return@Tool ""
-                        renderToolSystemPromptTemplate(
-                            template = SEARCH_WEB_SYSTEM_PROMPT_TEMPLATE,
-                            variables = buildSearchWebPromptVariables(
-                                messages = messages,
-                                includeProviderErrors = false,
-                            ),
-                        )
-                    },
-                    systemPromptVariables = { _, messages ->
-                        buildSearchWebPromptVariables(
-                            messages = messages,
-                            includeProviderErrors = false,
-                        )
+                        SEARCH_WEB_SYSTEM_PROMPT_TEMPLATE
                     },
                 )
             )
@@ -248,26 +236,14 @@ object SearchTools {
                                     }
                                 })
                             }
-                            JsonObject(newMap)
+                            JsonObject(newMap).withSearchResultGuidance(includeProviderErrors = true)
                         }
 
                         results
                     },
-                    systemPrompt = { model, messages ->
+                    systemPrompt = { model, _ ->
                         if (model.tools.isNotEmpty()) return@Tool ""
-                        renderToolSystemPromptTemplate(
-                            template = SEARCH_WEB_SYSTEM_PROMPT_TEMPLATE,
-                            variables = buildSearchWebPromptVariables(
-                                messages = messages,
-                                includeProviderErrors = true,
-                            ),
-                        )
-                    },
-                    systemPromptVariables = { _, messages ->
-                        buildSearchWebPromptVariables(
-                            messages = messages,
-                            includeProviderErrors = true,
-                        )
+                        SEARCH_WEB_SYSTEM_PROMPT_TEMPLATE
                     },
                 )
             )
@@ -319,6 +295,14 @@ object SearchTools {
             },
             onFailure = { Result.failure(it) }
         )
+
+    private fun JsonObject.withSearchResultGuidance(includeProviderErrors: Boolean): JsonObject {
+        val map = toMutableMap()
+        map["citation_rules"] = JsonPrimitive(
+            searchWebToolResultGuidance(includeProviderErrors = includeProviderErrors)
+        )
+        return JsonObject(map)
+    }
 
     internal fun mergeProviderSearchOutcomes(outcomes: List<ProviderSearchOutcome>): MergedSearchResult {
         var mergedAnswer: String? = null

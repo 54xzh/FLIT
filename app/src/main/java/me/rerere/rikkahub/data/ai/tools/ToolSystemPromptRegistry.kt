@@ -35,7 +35,6 @@ object ToolSystemPromptRegistry {
             toolName = "search_web",
             group = ToolSystemPromptGroup.Search,
             defaultTemplate = SEARCH_WEB_SYSTEM_PROMPT_TEMPLATE,
-            variables = listOf(ToolSystemPromptVariable(SEARCH_RESULT_RULES_VARIABLE)),
         ),
         ToolSystemPromptDefinition(
             toolName = "scrape_web",
@@ -211,7 +210,6 @@ object ToolSystemPromptRegistry {
     fun getInjectedDefinition(toolName: String): ToolSystemPromptDefinition? = definitionsByInjectedToolName[toolName]
 }
 
-const val SEARCH_RESULT_RULES_VARIABLE = "search_result_rules"
 const val MEMORY_MANAGEMENT_TOOL_NAME = "memory_management"
 const val SESSION_MEMORY_MANAGEMENT_TOOL_NAME = "session_memory_management"
 const val SCHEDULED_TASKS_MANAGEMENT_TOOL_NAME = "scheduled_tasks_management"
@@ -252,60 +250,19 @@ val LOREBOOKS_MANAGEMENT_AFFECTED_TOOL_NAMES = listOf(
     "lorebooks_history_undo",
 )
 
-fun buildSearchWebPromptVariables(
-    messages: List<UIMessage>,
-    includeProviderErrors: Boolean,
-): Map<String, String> {
-    val hasToolCall = messages.any { message ->
-        message.getToolCalls().any { toolCall -> toolCall.toolName == "search_web" }
-    }
-    return mapOf(
-        SEARCH_RESULT_RULES_VARIABLE to if (hasToolCall) {
-            searchWebResultRules(includeProviderErrors)
-        } else {
-            ""
-        }
-    )
-}
-
-private fun searchWebResultRules(includeProviderErrors: Boolean): String {
-    val errorsExample = if (includeProviderErrors) {
-        """,
-            "errors": [
-                { "provider": "Tavily", "message": "error message" }
-            ]"""
+fun searchWebToolResultGuidance(includeProviderErrors: Boolean): String {
+    val errorsNote = if (includeProviderErrors) {
+        " The `errors` field lists providers that failed; do not cite provider errors as sources."
     } else {
         ""
     }
 
-    return """
-        ### result example
-        ```json
-        {
-            "items": [
-                {
-                    "id": "random id in 6 characters",
-                    "title": "Title",
-                    "url": "https://example.com",
-                    "text": "Some relevant snippets"
-                }
-            ]$errorsExample
-        }
-        ```
-
-        ### citation
-        After using the search tool, when replying to users, you need to add a reference format to the referenced search terms in the content.
-        When citing facts or data from search results, you need to add a citation marker after the sentence: `[citation,domain](id of the search result)`.
-
-        For example:
-        ```
-        The capital of France is Paris. [citation,example.com](id of the search result)
-
-        The population of Paris is about 2.1 million. [citation,example.com](id of the search result) [citation,example2.com](id of the search result)
-        ```
-
-        If no search results are cited, you do not need to add a citation marker.
-    """.trimIndent()
+    return (
+        "When citing facts or data from search results, add a citation marker after the sentence: " +
+            "`[citation,domain](id)`, where `id` is the result item's id field. " +
+            "If no search results are cited, do not add citation markers." +
+            errorsNote
+        )
 }
 
 val JAVASCRIPT_SYSTEM_PROMPT_TEMPLATE = """
@@ -350,9 +307,6 @@ val SEARCH_WEB_SYSTEM_PROMPT_TEMPLATE = """
     - You can use the search_web tool to search the internet for the latest news or to confirm some facts.
     - You can perform multiple search if needed
     - Generate keywords based on the user's question
-    - Today is {{cur_date}}
-
-    {{search_result_rules}}
 """.trimIndent()
 
 val SCRAPE_WEB_SYSTEM_PROMPT_TEMPLATE = """

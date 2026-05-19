@@ -95,6 +95,7 @@ import java.util.Locale
 import kotlin.uuid.Uuid
 
 private const val TAG = "GenerationHandler"
+private const val SEARCH_WEB_TOOL_NAME = "search_web"
 private val MEMORY_TOOL_NAMES = setOf("create_memory", "edit_memory", "delete_memory")
 private val SESSION_MEMORY_TOOL_NAMES = setOf(
     "create_session_memory",
@@ -262,7 +263,7 @@ class GenerationHandler(
                     ).let(this::addAll)
                 }
                 addAll(tools)
-            }
+            }.sortedWith(compareBy<Tool> { it.name }.thenBy { it.description })
 
             generateInternal(
                 assistant = assistant,
@@ -790,6 +791,9 @@ class GenerationHandler(
 
         val maxTokens = assistant.maxTokenUsage
         var currentTokens = 0
+        val searchCurrentDateContextMessage = buildSearchCurrentDateContextMessage(
+            include = tools.any { it.name == SEARCH_WEB_TOOL_NAME },
+        )
 
         // Cosine similarity for RAG matching
         fun cosineSimilarity(a: List<Float>, b: List<Float>): Float {
@@ -1031,6 +1035,9 @@ class GenerationHandler(
         if (contextSummarySection.isNotBlank()) {
             currentTokens += estimateTokens(contextSummarySection)
         }
+        searchCurrentDateContextMessage?.let {
+            currentTokens += estimateTokens(it)
+        }
         currentTokens += inChatInjections.sumOf { estimateTokens(it.prompt) }
 
         // 2. Prepare Candidates
@@ -1233,18 +1240,19 @@ class GenerationHandler(
             sessionMemories = sessionMemories,
             memories = dynamicMemories,
         )
-        val selectedMessagesWithDynamicContext = insertBeforeLatestUserMessage(
+        val contextSummaryContextMessage = buildContextSummaryContextMessage(contextSummarySection)
+        val selectedMessagesWithSearchDate = insertBeforeLatestUserMessage(
             messages = selectedMessagesWithInjections,
+            contextMessage = searchCurrentDateContextMessage,
+        )
+        val selectedMessagesWithDynamicContext = insertBeforeLatestUserMessage(
+            messages = selectedMessagesWithSearchDate,
             contextMessage = dynamicMemoryContextMessage,
         )
 
         val builtMessages = buildList {
             val finalSystemPrompt = buildString {
                 append(baseSystemPrompt)
-                if (contextSummarySection.isNotBlank()) {
-                    appendLine()
-                    append(contextSummarySection)
-                }
                 val sessionMemoryPrompt = buildSessionMemorySystemPrompt(
                     settings = settings,
                     model = model,
@@ -1269,6 +1277,9 @@ class GenerationHandler(
             }
             if (pinnedMemoryContextMessage != null) {
                 add(pinnedMemoryContextMessage)
+            }
+            if (contextSummaryContextMessage != null) {
+                add(contextSummaryContextMessage)
             }
 
             // Add mode and lorebook attachments as a user message if there are any
@@ -1777,6 +1788,38 @@ class GenerationHandler(
         }
     }
 
+    private fun buildSearchCurrentDateContextMessage(include: Boolean): UIMessage? {
+        if (!include) return null
+
+        val prompt = buildString {
+            appendLine("## Current Date")
+            append("App-provided context for this turn. Use this date when judging recency for web search: ")
+            append(java.time.LocalDate.now())
+        }.trim()
+
+        return buildAppContextMessage(prompt)
+    }
+
+    private fun buildContextSummaryContextMessage(summary: String): UIMessage? {
+        val prompt = summary.trim()
+        if (prompt.isBlank()) return null
+        return buildAppContextMessage(prompt)
+    }
+
+    private fun buildAppContextMessage(prompt: String): UIMessage {
+        return UIMessage(
+            role = MessageRole.USER,
+            parts = listOf(
+                UIMessagePart.Text(
+                    text = prompt,
+                    metadata = buildJsonObject {
+                        put(SKIP_MESSAGE_TEMPLATE_METADATA_KEY, true)
+                    },
+                ),
+            ),
+        )
+    }
+
     private fun buildPinnedMemoryContextMessage(
         memories: List<AssistantMemory>,
     ): UIMessage? {
@@ -1791,17 +1834,7 @@ class GenerationHandler(
             append(buildMemoryContext(memories))
         }.trim()
 
-        return UIMessage(
-            role = MessageRole.USER,
-            parts = listOf(
-                UIMessagePart.Text(
-                    text = prompt,
-                    metadata = buildJsonObject {
-                        put(SKIP_MESSAGE_TEMPLATE_METADATA_KEY, true)
-                    },
-                ),
-            ),
-        )
+        return buildAppContextMessage(prompt)
     }
 
     private fun buildDynamicMemoryContextMessage(
@@ -1834,17 +1867,7 @@ class GenerationHandler(
         }.trim()
 
         if (prompt.isBlank()) return null
-        return UIMessage(
-            role = MessageRole.USER,
-            parts = listOf(
-                UIMessagePart.Text(
-                    text = prompt,
-                    metadata = buildJsonObject {
-                        put(SKIP_MESSAGE_TEMPLATE_METADATA_KEY, true)
-                    },
-                ),
-            ),
-        )
+        return buildAppContextMessage(prompt)
     }
 
     private fun buildSessionMemorySystemPrompt(
@@ -1934,33 +1957,8 @@ class GenerationHandler(
 
             if (episodicMemories.isNotEmpty()) {
                 append("### Episodic Memories\n")
-
-                val now = java.time.LocalDate.now()
-                val yesterday = now.minusDays(1)
-                val lastWeek = now.minusWeeks(1)
-
-                val groupedEpisodes = episodicMemories.groupBy { memory ->
-                    val date = java.time.Instant.ofEpochMilli(memory.timestamp)
-                        .atZone(java.time.ZoneId.systemDefault())
-                        .toLocalDate()
-
-                    when {
-                        date.isEqual(now) -> "Today"
-                        date.isEqual(yesterday) -> "Yesterday"
-                        date.isAfter(lastWeek) -> "This Week"
-                        else -> "Older"
-                    }
-                }
-
-                // Order: Today -> Yesterday -> This Week -> Older
-                listOf("Today", "Yesterday", "This Week", "Older").forEach { group ->
-                    val memoriesInGroup = groupedEpisodes[group]
-                    if (!memoriesInGroup.isNullOrEmpty()) {
-                        append("#### $group\n")
-                        memoriesInGroup.sortedByDescending { it.timestamp }.forEach { memory ->
-                            append("- ${memory.content}\n")
-                        }
-                    }
+                episodicMemories.sortedByMemoryTime().forEach { memory ->
+                    append("- ${memory.content}\n")
                 }
             }
         }
