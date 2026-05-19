@@ -878,6 +878,7 @@ private fun me.rerere.search.SearchServiceOptions.toWebSearchServiceDto(): WebSe
         is me.rerere.search.SearchServiceOptions.BochaOptions -> "bocha"
         is me.rerere.search.SearchServiceOptions.NanoGPTOptions -> "nanogpt"
         is me.rerere.search.SearchServiceOptions.GrokOptions -> "grok"
+        is me.rerere.search.SearchServiceOptions.SerperOptions -> "serper"
     }
     return WebSearchServiceDto(
         id = id.toString(),

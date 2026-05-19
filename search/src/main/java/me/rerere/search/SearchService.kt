@@ -58,6 +58,7 @@ interface SearchService<T : SearchServiceOptions> {
                 is SearchServiceOptions.BochaOptions -> BochaSearchService
                 is SearchServiceOptions.NanoGPTOptions -> NanoGPTSearchService
                 is SearchServiceOptions.GrokOptions -> GrokSearchService
+                is SearchServiceOptions.SerperOptions -> SerperSearchService
             } as SearchService<T>
         }
 
@@ -155,6 +156,7 @@ sealed class SearchServiceOptions {
             BochaOptions::class to "博查",
             NanoGPTOptions::class to "NanoGPT",
             GrokOptions::class to "Grok",
+            SerperOptions::class to "Serper",
         )
     }
 
@@ -296,6 +298,15 @@ sealed class SearchServiceOptions {
         val enableStream: Boolean = false,
         val alias: String = "",
     ) : SearchServiceOptions()
+
+    @Serializable
+    @SerialName("serper")
+    data class SerperOptions(
+        override val id: Uuid = Uuid.random(),
+        val apiKey: String = "",
+        val hl: String = "zh-cn",
+        val alias: String = "",
+    ) : SearchServiceOptions()
 }
 
 val SearchServiceOptions.GrokOptions.resolvedApiType: GrokSearchApiType
@@ -332,6 +343,7 @@ val SearchServiceOptions.rawAlias: String
         is SearchServiceOptions.BochaOptions -> alias
         is SearchServiceOptions.NanoGPTOptions -> alias
         is SearchServiceOptions.GrokOptions -> alias
+        is SearchServiceOptions.SerperOptions -> alias
     }
 
 val SearchServiceOptions.displayName: String
@@ -352,6 +364,7 @@ val SearchServiceOptions.displayName: String
             is SearchServiceOptions.BochaOptions -> alias
             is SearchServiceOptions.NanoGPTOptions -> alias
             is SearchServiceOptions.GrokOptions -> alias
+            is SearchServiceOptions.SerperOptions -> alias
         }
         return alias.ifBlank { SearchServiceOptions.TYPES[this::class] ?: "Unknown" }
     }
@@ -372,6 +385,7 @@ fun SearchServiceOptions.withAlias(newAlias: String): SearchServiceOptions = whe
     is SearchServiceOptions.BochaOptions -> copy(alias = newAlias)
     is SearchServiceOptions.NanoGPTOptions -> copy(alias = newAlias)
     is SearchServiceOptions.GrokOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.SerperOptions -> copy(alias = newAlias)
 }
 
 internal suspend fun Call.await(): Response {

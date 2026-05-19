@@ -449,6 +449,7 @@
     <string name="notification_web_server_running">本地浏览器访问正在运行</string>
     <string name="notification_web_server_error">网络服务器出现故障</string>
     <string name="setting_search_page_alias">别名（可选）</string>
+    <string name="setting_search_page_language">语言</string>
     <string name="setting_search_page_grok_enable_custom">启用自定义</string>
     <string name="setting_search_page_grok_enable_custom_desc">自定义 Base URL、接口类型和系统提示词</string>
     <string name="setting_search_page_grok_base_url">Base URL</string>
@@ -460,6 +461,7 @@
     <string name="setting_search_page_grok_system_prompt">系统提示词</string>
     <string name="setting_search_page_grok_stream">流式输出</string>
     <string name="setting_search_page_grok_stream_desc">如果非流式请求报错，可以打开这个选项</string>
+    <string name="setting_search_preset_serper_desc">通过 Serper API 使用 Google 搜索结果</string>
     <string name="setting_page_search_multi_strategy">多选策略</string>
     <string name="setting_page_search_multi_strategy_parallel">并行搜索</string>
     <string name="setting_page_search_multi_strategy_sequential">顺序回退</string>
