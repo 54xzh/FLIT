@@ -5116,10 +5116,12 @@ class ChatService(
                     )
                 ),
             )
+            var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
                 temperature = 0.3f,
                 thinkingBudget = 0,
+                onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()
             var failure: Throwable? = null
@@ -5142,6 +5144,7 @@ class ChatService(
                     providerSetting = provider,
                     params = params,
                     requestMessages = requestMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = titleText,
                     responseRawText = rawResponseText,
                     stream = false,
@@ -5319,10 +5322,12 @@ class ChatService(
                     ),
                 )
             )
+            var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
                 temperature = 1.0f,
                 thinkingBudget = 0,
+                onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()
             var failure: Throwable? = null
@@ -5348,6 +5353,7 @@ class ChatService(
                     providerSetting = provider,
                     params = params,
                     requestMessages = requestMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = rawSuggestions,
                     responseRawText = rawResponseText,
                     stream = false,
@@ -5667,9 +5673,11 @@ class ChatService(
             // Call the model
             val providerHandler = providerManager.getProviderByType(provider)
             val requestMessages = listOf(UIMessage.user(prompt))
+            var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
-                temperature = 0.3f
+                temperature = 0.3f,
+                onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()
             var failure: Throwable? = null
@@ -5692,6 +5700,7 @@ class ChatService(
                     providerSetting = provider,
                     params = params,
                     requestMessages = requestMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = summary,
                     responseRawText = rawResponseText,
                     stream = false,

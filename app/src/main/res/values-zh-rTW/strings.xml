@@ -1780,7 +1780,7 @@
   <string name="request_log_section_basic">基礎資訊</string>
   <string name="request_log_section_error">錯誤資訊</string>
   <string name="request_log_section_params">參數</string>
-  <string name="request_log_section_request_messages">請求消息</string>
+  <string name="request_log_section_request_messages">請求內容</string>
   <string name="request_log_section_response">回應內容</string>
   <string name="request_log_section_response_raw">原始回應 JSON</string>
   <string name="request_log_section_response_filtered">過濾後內容</string>

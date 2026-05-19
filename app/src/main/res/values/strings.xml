@@ -49,7 +49,7 @@
     <string name="request_log_section_basic">Basic</string>
     <string name="request_log_section_error">Error</string>
     <string name="request_log_section_params">Params</string>
-    <string name="request_log_section_request_messages">Request Messages</string>
+    <string name="request_log_section_request_messages">Request Body</string>
     <string name="request_log_section_response">Response Text</string>
     <string name="request_log_section_response_raw">Raw Response JSON</string>
     <string name="request_log_section_response_filtered">Filtered Content</string>

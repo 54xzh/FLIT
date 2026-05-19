@@ -275,15 +275,7 @@ class OpenAIProvider(
         callTimeoutSeconds: Long?,
     ): List<List<Float>> = withContext(Dispatchers.IO) {
         val key = keyRoulette.next(providerSetting)
-        val requestBody = json.encodeToString(
-            buildJsonObject {
-                put("model", model.modelId)
-                put(
-                    "input",
-                    kotlinx.serialization.json.JsonArray(input.map { kotlinx.serialization.json.JsonPrimitive(it) })
-                )
-            }
-        )
+        val requestBody = json.encodeToString(buildEmbeddingRequestBody(input = input, model = model))
 
         val request = Request.Builder()
             .url("${providerSetting.baseUrl}/embeddings")
@@ -309,5 +301,21 @@ class OpenAIProvider(
             item.jsonObject["embedding"]?.jsonArray?.map { it.jsonPrimitive.content.toFloat() }
                 ?: error("No embedding in response")
         }
+    }
+
+    override fun buildEmbeddingRequestBodyForLog(
+        providerSetting: ProviderSetting.OpenAI,
+        input: List<String>,
+        model: Model,
+    ): String {
+        return json.encodeToString(buildEmbeddingRequestBody(input = input, model = model))
+    }
+
+    private fun buildEmbeddingRequestBody(input: List<String>, model: Model) = buildJsonObject {
+        put("model", model.modelId)
+        put(
+            "input",
+            kotlinx.serialization.json.JsonArray(input.map { kotlinx.serialization.json.JsonPrimitive(it) })
+        )
     }
 }

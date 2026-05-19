@@ -100,6 +100,7 @@ class AIRequestLogManager(
         providerSetting: ProviderSetting,
         params: TextGenerationParams,
         requestMessages: List<UIMessage>,
+        requestBodyJson: String? = null,
         responseText: String,
         responseRawText: String = "",
         stream: Boolean,
@@ -114,6 +115,10 @@ class AIRequestLogManager(
                 serializer = ListSerializer(UIMessage.serializer()),
                 value = sanitizeRequestMessagesForLog(requestMessages)
             )
+            val requestPayloadJson = requestBodyJson
+                ?.takeIf { it.isNotBlank() }
+                ?.sanitizeRequestBodyJsonForLog()
+                ?: requestMessagesJson.truncateTo(REQUEST_LOG_MAX_JSON_CHARS)
 
             val requestPreview = buildRequestPreview(requestMessages)
             val normalizedResponseText = responseText.trim()
@@ -140,7 +145,7 @@ class AIRequestLogManager(
                     modelDisplayName = params.model.displayName,
                     stream = stream,
                     paramsJson = paramsJson,
-                    requestMessagesJson = requestMessagesJson,
+                    requestMessagesJson = requestPayloadJson,
                     requestUrl = requestUrl,
                     requestPreview = requestPreview,
                     responsePreview = responsePreview,
@@ -160,6 +165,7 @@ class AIRequestLogManager(
         providerSetting: ProviderSetting,
         model: Model,
         inputs: List<String>,
+        requestBodyJson: String? = null,
         embeddingCount: Int?,
         dimensions: Int?,
         durationMs: Long?,
@@ -173,6 +179,10 @@ class AIRequestLogManager(
                 serializer = ListSerializer(String.serializer()),
                 value = safeInputs,
             ).truncateTo(REQUEST_LOG_MAX_JSON_CHARS)
+            val requestPayloadJson = requestBodyJson
+                ?.takeIf { it.isNotBlank() }
+                ?.sanitizeRequestBodyJsonForLog()
+                ?: requestMessagesJson
 
             val paramsJson = JsonInstant.encodeToString(
                 EmbeddingParamsLog.serializer(),
@@ -220,7 +230,7 @@ class AIRequestLogManager(
                     modelDisplayName = model.displayName,
                     stream = false,
                     paramsJson = paramsJson,
-                    requestMessagesJson = requestMessagesJson,
+                    requestMessagesJson = requestPayloadJson,
                     requestUrl = requestUrl,
                     requestPreview = requestPreview,
                     responsePreview = responsePreview,
@@ -520,6 +530,17 @@ private fun Throwable?.extractRawResponseText(): String {
         current = current.cause
     }
     return ""
+}
+
+private fun String.sanitizeRequestBodyJsonForLog(): String {
+    val raw = trim()
+    if (raw.isBlank()) return ""
+    return runCatching {
+        val masked = JsonInstant.parseToJsonElement(raw).maskSensitiveValues()
+        JsonInstant.encodeToString(JsonElement.serializer(), masked)
+    }.getOrElse {
+        raw
+    }.truncateTo(REQUEST_LOG_MAX_JSON_CHARS)
 }
 
 private fun String.truncateTo(maxChars: Int): String {

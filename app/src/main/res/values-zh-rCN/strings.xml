@@ -141,6 +141,7 @@
 
     <string name="request_logs_export_empty">暂无可导出的日志</string>
     <string name="request_logs_export_failed">导出失败：%1$s</string>
+    <string name="request_log_section_request_messages">请求体</string>
     <string name="request_log_section_response_raw">原始响应 JSON</string>
     <string name="request_log_section_response_filtered">过滤后内容</string>
 

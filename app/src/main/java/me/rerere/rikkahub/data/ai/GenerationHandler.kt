@@ -1370,6 +1370,7 @@ class GenerationHandler(
             usedSessionMemories.isNotEmpty()
 
         var messages: List<UIMessage> = messages
+        var requestBodyJson: String? = null
         val params = TextGenerationParams(
             model = model,
             temperature = assistant.temperature,
@@ -1384,11 +1385,12 @@ class GenerationHandler(
             customBody = buildList {
                 addAll(assistant.customBodies)
                 addAll(model.customBodies)
-            }
+            },
+            onRequestBody = { requestBodyJson = it },
         )
         if (stream) {
             aiLoggingManager.addLog(AILogging.Generation(
-                params = params,
+                params = params.copy(onRequestBody = null),
                 messages = messages,
                 providerSetting = provider,
                 stream = true
@@ -1476,6 +1478,7 @@ class GenerationHandler(
                     providerSetting = provider,
                     params = params,
                     requestMessages = internalMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = messages.lastOrNull()?.toContentText().orEmpty(),
                     responseRawText = rawResponseText.toString(),
                     stream = true,
@@ -1486,7 +1489,7 @@ class GenerationHandler(
             }
         } else {
             aiLoggingManager.addLog(AILogging.Generation(
-                params = params,
+                params = params.copy(onRequestBody = null),
                 messages = messages,
                 providerSetting = provider,
                 stream = false
@@ -1565,6 +1568,7 @@ class GenerationHandler(
                     providerSetting = provider,
                     params = params,
                     requestMessages = internalMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = messages.lastOrNull()?.toContentText().orEmpty(),
                     responseRawText = rawResponseText,
                     stream = false,
@@ -1988,9 +1992,11 @@ class GenerationHandler(
             var messages = listOf(UIMessage.user(prompt))
             var translatedText = ""
 
+            var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
                 temperature = 0.3f,
+                onRequestBody = { requestBodyJson = it },
             )
             val requestMessages = messages
             val startAt = System.currentTimeMillis()
@@ -2049,6 +2055,7 @@ class GenerationHandler(
                     providerSetting = provider,
                     params = params,
                     requestMessages = requestMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = translatedText,
                     responseRawText = rawResponseText.toString(),
                     stream = true,
@@ -2060,6 +2067,7 @@ class GenerationHandler(
         } else {
             // Use Qwen MT model with special translation options
             val messages = listOf(UIMessage.user(sourceText))
+            var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
                 temperature = 0.3f,
@@ -2075,7 +2083,8 @@ class GenerationHandler(
                             )
                         }
                     )
-                )
+                ),
+                onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()
             var failure: Throwable? = null
@@ -2118,6 +2127,7 @@ class GenerationHandler(
                     providerSetting = provider,
                     params = params,
                     requestMessages = messages,
+                    requestBodyJson = requestBodyJson,
                     responseText = translatedText,
                     responseRawText = rawResponseText,
                     stream = false,

@@ -91,7 +91,11 @@ object OcrTransformer : InputMessageTransformer, KoinComponent {
                 parts = listOf(UIMessagePart.Image(part.url))
             )
         )
-        val params = TextGenerationParams(model = model)
+        var requestBodyJson: String? = null
+        val params = TextGenerationParams(
+            model = model,
+            onRequestBody = { requestBodyJson = it },
+        )
         val startAt = System.currentTimeMillis()
         var failure: Throwable? = null
         var content = ""
@@ -114,6 +118,7 @@ object OcrTransformer : InputMessageTransformer, KoinComponent {
                 providerSetting = providerSetting,
                 params = params,
                 requestMessages = requestMessages,
+                requestBodyJson = requestBodyJson,
                 responseText = content,
                 responseRawText = rawResponseText,
                 stream = false,
