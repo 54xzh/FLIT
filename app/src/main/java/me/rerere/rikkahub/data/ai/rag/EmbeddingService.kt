@@ -74,6 +74,11 @@ class EmbeddingService(
             AIRequestSource.TOOL_RESULT_RAG -> settings.getEmbeddingRetrievalTimeoutSeconds().toLong()
             else -> null
         }
+        val requestBodyJson = provider.buildEmbeddingRequestBodyForLog(
+            providerSetting = providerSetting,
+            input = texts,
+            model = model,
+        )
         
         val startAt = System.currentTimeMillis()
         var failure: Throwable? = null
@@ -94,6 +99,7 @@ class EmbeddingService(
                 providerSetting = providerSetting,
                 model = model,
                 inputs = texts,
+                requestBodyJson = requestBodyJson,
                 embeddingCount = embeddingResult.size.takeIf { it > 0 },
                 dimensions = embeddingResult.firstOrNull()?.size,
                 durationMs = System.currentTimeMillis() - startAt,
@@ -102,4 +108,3 @@ class EmbeddingService(
         }
     }
 }
-

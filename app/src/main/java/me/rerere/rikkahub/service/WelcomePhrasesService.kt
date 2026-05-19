@@ -260,10 +260,12 @@ class WelcomePhrasesService(
             )
         }
 
+        var requestBodyJson: String? = null
         val params = TextGenerationParams(
             model = pending.model,
             temperature = 0.9f,
             thinkingBudget = 0,
+            onRequestBody = { requestBodyJson = it },
         )
         val startAt = System.currentTimeMillis()
         var failure: Throwable? = null
@@ -287,6 +289,7 @@ class WelcomePhrasesService(
                     providerSetting = pending.provider,
                     params = params,
                     requestMessages = messages,
+                    requestBodyJson = requestBodyJson,
                     responseText = raw,
                     responseRawText = rawResponseText,
                     stream = false,

@@ -2,6 +2,7 @@ package me.rerere.ai.provider
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonElement
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.ImageAspectRatio
@@ -44,6 +45,14 @@ interface Provider<T : ProviderSetting> {
     ): List<List<Float>> {
         return emptyList()
     }
+
+    fun buildEmbeddingRequestBodyForLog(
+        providerSetting: T,
+        input: List<String>,
+        model: Model,
+    ): String? {
+        return null
+    }
 }
 
 @Serializable
@@ -56,6 +65,8 @@ data class TextGenerationParams(
     val thinkingBudget: Int? = null,
     val customHeaders: List<CustomHeader> = emptyList(),
     val customBody: List<CustomBody> = emptyList(),
+    @Transient
+    val onRequestBody: ((String) -> Unit)? = null,
 )
 
 @Serializable

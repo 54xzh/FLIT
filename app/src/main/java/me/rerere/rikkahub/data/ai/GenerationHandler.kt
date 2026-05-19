@@ -63,6 +63,7 @@ import me.rerere.rikkahub.data.ai.transformers.DocumentSummaryTransformer
 import me.rerere.rikkahub.data.ai.transformers.OcrTransformer
 import me.rerere.rikkahub.data.ai.transformers.MessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.OutputMessageTransformer
+import me.rerere.rikkahub.data.ai.transformers.SKIP_MESSAGE_TEMPLATE_METADATA_KEY
 import me.rerere.rikkahub.data.ai.transformers.onGenerationFinish
 import me.rerere.rikkahub.data.ai.transformers.transforms
 import me.rerere.rikkahub.data.ai.transformers.visualTransforms
@@ -71,9 +72,8 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getHttpRetryDelaySeconds
 import me.rerere.rikkahub.data.datastore.getHttpRetryMaxRetries
+import me.rerere.rikkahub.data.datastore.getToolResultKeepUserMessages
 import me.rerere.rikkahub.data.ai.rag.EmbeddingService
-import me.rerere.rikkahub.data.db.entity.ToolResultArchiveEntity
-import me.rerere.rikkahub.data.db.entity.ToolResultArchiveChunkEntity
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.InjectionPosition
@@ -95,6 +95,7 @@ import java.util.Locale
 import kotlin.uuid.Uuid
 
 private const val TAG = "GenerationHandler"
+private const val SEARCH_WEB_TOOL_NAME = "search_web"
 private val MEMORY_TOOL_NAMES = setOf("create_memory", "edit_memory", "delete_memory")
 private val SESSION_MEMORY_TOOL_NAMES = setOf(
     "create_session_memory",
@@ -262,7 +263,7 @@ class GenerationHandler(
                     ).let(this::addAll)
                 }
                 addAll(tools)
-            }
+            }.sortedWith(compareBy<Tool> { it.name }.thenBy { it.description })
 
             generateInternal(
                 assistant = assistant,
@@ -643,7 +644,7 @@ class GenerationHandler(
                         assistantId = assistant.id.toString(),
                         userTurnIndex = userTurnIndex,
                         results = results,
-                        enableRagIndexing = settings.displaySetting.toolResultHistoryMode == ToolResultHistoryMode.RAG,
+                        enableRagIndexing = false,
                     )
                 }
             }
@@ -721,15 +722,10 @@ class GenerationHandler(
         }
 
         val toolResultHistoryMode = settings.displaySetting.toolResultHistoryMode
-        val keepUserMessages = settings.displaySetting.toolResultKeepUserMessages.coerceAtLeast(0)
-        val toolResultRagSimilarityThreshold = settings.displaySetting.toolResultRagSimilarityThreshold
-            .takeIf { it.isFinite() }
-            ?.coerceIn(0f, 1f)
-            ?: 0.45f
+        val keepUserMessages = settings.getToolResultKeepUserMessages()
         val contextMessages = if (
             conversationId != null &&
-            (toolResultHistoryMode == ToolResultHistoryMode.RAG ||
-                toolResultHistoryMode == ToolResultHistoryMode.DISCARD)
+            toolResultHistoryMode != ToolResultHistoryMode.KEEP_ALL
         ) {
             rawContextMessages.filterNot { message ->
                 val turnIndex = userTurnIndexByMessageId[message.id] ?: totalUserTurnCount
@@ -795,6 +791,9 @@ class GenerationHandler(
 
         val maxTokens = assistant.maxTokenUsage
         var currentTokens = 0
+        val searchCurrentDateContextMessage = buildSearchCurrentDateContextMessage(
+            include = tools.any { it.name == SEARCH_WEB_TOOL_NAME },
+        )
 
         // Cosine similarity for RAG matching
         fun cosineSimilarity(a: List<Float>, b: List<Float>): Float {
@@ -876,71 +875,6 @@ class GenerationHandler(
 
         // Get recent message text for lorebook keyword scanning
         val recentMessagesForScan = documentArchivedMessages.takeLast(10).map { it.toText() }
-
-        val toolResultRagPrompt = run {
-            if (toolResultHistoryMode != ToolResultHistoryMode.RAG) return@run ""
-            val id = conversationId ?: run {
-                Log.w(TAG, "Tool result RAG enabled but conversationId is null; skipping archived retrieval (temporary chat?)")
-                return@run ""
-            }
-
-            val maxUserTurnIndexExclusive = (totalUserTurnCount - keepUserMessages).coerceAtLeast(0)
-            if (maxUserTurnIndexExclusive <= 0) return@run ""
-
-            val queryText = documentArchivedMessages.asReversed()
-                .asSequence()
-                .filter { it.role == MessageRole.USER }
-                .take(3)
-                .toList()
-                .asReversed()
-                .joinToString(separator = "\n") { it.toContentText() }
-                .trim()
-            if (queryText.isBlank()) return@run ""
-
-            val results = toolResultArchiveRepository.retrieveRelevantToolResultChunksWithScores(
-                conversationId = id.toString(),
-                assistantId = assistant.id.toString(),
-                query = queryText,
-                maxUserTurnIndexExclusive = maxUserTurnIndexExclusive,
-                limit = 6,
-                similarityThreshold = toolResultRagSimilarityThreshold,
-            )
-            if (results.isEmpty()) {
-                val fallback = toolResultArchiveRepository.retrieveRelevantToolResultsWithScores(
-                    conversationId = id.toString(),
-                    assistantId = assistant.id.toString(),
-                    query = queryText,
-                    maxUserTurnIndexExclusive = maxUserTurnIndexExclusive,
-                    limit = 6,
-                    similarityThreshold = toolResultRagSimilarityThreshold,
-                )
-                if (fallback.isEmpty()) {
-                    Log.w(
-                        TAG,
-                        "Tool result RAG retrieved nothing (chunks=0, tools=0) beforeTurn<$maxUserTurnIndexExclusive>",
-                    )
-                    return@run ""
-                }
-                return@run buildToolResultRagPrompt(fallback, maxChars = 6_000)
-            }
-
-            if (settings.enableRagLogging) {
-                Log.d(
-                    "ToolRAG",
-                    "Retrieved ${results.size} chunks (beforeTurn<$maxUserTurnIndexExclusive threshold=$toolResultRagSimilarityThreshold) for query='${queryText.take(120)}'"
-                )
-                results.forEach { (chunk, score) ->
-                    Log.d(
-                        "ToolRAG",
-                        " - tool=${chunk.toolName} call=${chunk.toolCallId} chunk=${chunk.chunkIndex} score=${
-                            String.format(Locale.US, "%.3f", score)
-                        } text='${chunk.chunkText.trim().take(120)}'"
-                    )
-                }
-            }
-
-            buildToolResultChunkRagPrompt(results, maxChars = 6_000)
-        }
 
         // New conversations copy defaults from Assistant.enabledModeIds.
         val enabledModes = settings.modes.filter { enabledModeIds.contains(it.id) }
@@ -1101,6 +1035,9 @@ class GenerationHandler(
         if (contextSummarySection.isNotBlank()) {
             currentTokens += estimateTokens(contextSummarySection)
         }
+        searchCurrentDateContextMessage?.let {
+            currentTokens += estimateTokens(it)
+        }
         currentTokens += inChatInjections.sumOf { estimateTokens(it.prompt) }
 
         // 2. Prepare Candidates
@@ -1132,7 +1069,7 @@ class GenerationHandler(
             } else {
                 emptyList()
             }
-            val pinnedFirst = memories.filter { it.pinned } + memories.filterNot { it.pinned }
+            val pinnedFirst = memories.withStablePinnedPrefix()
             (pinnedFirst + recentChatMemories).distinctBy { it.content } // Avoid duplicates
         } else {
             emptyList()
@@ -1292,43 +1229,57 @@ class GenerationHandler(
             baseMessages = selectedMessagesByHistoryOrder,
             injections = inChatInjections,
         )
+        val includeMemoryToolInstructions = tools.any { it.name in MEMORY_TOOL_NAMES }
+        val includeSessionMemoryToolInstructions = tools.any { it.name in SESSION_MEMORY_TOOL_NAMES }
+        val pinnedMemoriesForPrefix = selectedMemories
+            .filter { it.pinned }
+            .sortedByMemoryTime()
+        val dynamicMemories = selectedMemories.filterNot { it.pinned }
+        val pinnedMemoryContextMessage = buildPinnedMemoryContextMessage(pinnedMemoriesForPrefix)
+        val dynamicMemoryContextMessage = buildDynamicMemoryContextMessage(
+            sessionMemories = sessionMemories,
+            memories = dynamicMemories,
+        )
+        val contextSummaryContextMessage = buildContextSummaryContextMessage(contextSummarySection)
+        val selectedMessagesWithSearchDate = insertBeforeLatestUserMessage(
+            messages = selectedMessagesWithInjections,
+            contextMessage = searchCurrentDateContextMessage,
+        )
+        val selectedMessagesWithDynamicContext = insertBeforeLatestUserMessage(
+            messages = selectedMessagesWithSearchDate,
+            contextMessage = dynamicMemoryContextMessage,
+        )
 
         val builtMessages = buildList {
             val finalSystemPrompt = buildString {
                 append(baseSystemPrompt)
-                if (contextSummarySection.isNotBlank()) {
-                    appendLine()
-                    append(contextSummarySection)
-                }
-                val includeMemoryToolInstructions = tools.any { it.name in MEMORY_TOOL_NAMES }
-                val includeSessionMemoryToolInstructions = tools.any { it.name in SESSION_MEMORY_TOOL_NAMES }
-                val sessionMemoryPrompt = buildSessionMemoryPrompt(
+                val sessionMemoryPrompt = buildSessionMemorySystemPrompt(
                     settings = settings,
                     model = model,
-                    memories = sessionMemories,
                     includeToolInstructions = includeSessionMemoryToolInstructions,
                 )
                 if (sessionMemoryPrompt.isNotBlank()) {
                     appendLine()
                     append(sessionMemoryPrompt)
                 }
-                val memoryPrompt = buildMemoryPrompt(
+                val memoryPrompt = buildMemorySystemPrompt(
                     settings = settings,
                     model = model,
-                    memories = selectedMemories,
                     includeToolInstructions = includeMemoryToolInstructions,
                 )
                 if (memoryPrompt.isNotBlank()) {
                     appendLine()
                     append(memoryPrompt)
                 }
-                if (toolResultRagPrompt.isNotBlank()) {
-                    appendLine()
-                    append(toolResultRagPrompt)
-                }
             }
             if (finalSystemPrompt.isNotBlank()) {
                 add(UIMessage.system(finalSystemPrompt))
+            }
+            if (pinnedMemoryContextMessage != null) {
+                add(pinnedMemoryContextMessage)
+            }
+            if (contextSummaryContextMessage != null) {
+                add(contextSummaryContextMessage)
             }
 
             // Add mode and lorebook attachments as a user message if there are any
@@ -1342,7 +1293,7 @@ class GenerationHandler(
             }
 
             // Restore chat history order
-            addAll(selectedMessagesWithInjections)
+            addAll(selectedMessagesWithDynamicContext)
         }
 
         val usedMemories = selectedMemories.mapIndexed { index, memory ->
@@ -1419,6 +1370,7 @@ class GenerationHandler(
             usedSessionMemories.isNotEmpty()
 
         var messages: List<UIMessage> = messages
+        var requestBodyJson: String? = null
         val params = TextGenerationParams(
             model = model,
             temperature = assistant.temperature,
@@ -1433,11 +1385,12 @@ class GenerationHandler(
             customBody = buildList {
                 addAll(assistant.customBodies)
                 addAll(model.customBodies)
-            }
+            },
+            onRequestBody = { requestBodyJson = it },
         )
         if (stream) {
             aiLoggingManager.addLog(AILogging.Generation(
-                params = params,
+                params = params.copy(onRequestBody = null),
                 messages = messages,
                 providerSetting = provider,
                 stream = true
@@ -1525,6 +1478,7 @@ class GenerationHandler(
                     providerSetting = provider,
                     params = params,
                     requestMessages = internalMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = messages.lastOrNull()?.toContentText().orEmpty(),
                     responseRawText = rawResponseText.toString(),
                     stream = true,
@@ -1535,7 +1489,7 @@ class GenerationHandler(
             }
         } else {
             aiLoggingManager.addLog(AILogging.Generation(
-                params = params,
+                params = params.copy(onRequestBody = null),
                 messages = messages,
                 providerSetting = provider,
                 stream = false
@@ -1614,6 +1568,7 @@ class GenerationHandler(
                     providerSetting = provider,
                     params = params,
                     requestMessages = internalMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = messages.lastOrNull()?.toContentText().orEmpty(),
                     responseRawText = rawResponseText,
                     stream = false,
@@ -1821,103 +1776,122 @@ class GenerationHandler(
         }
     }
 
-    private fun buildToolResultRagPrompt(
-        results: List<Pair<ToolResultArchiveEntity, Float>>,
-        maxChars: Int,
-    ): String {
-        if (results.isEmpty()) return ""
-        val hardLimit = maxChars.coerceAtLeast(0)
-        if (hardLimit == 0) return ""
+    private fun insertBeforeLatestUserMessage(
+        messages: List<UIMessage>,
+        contextMessage: UIMessage?,
+    ): List<UIMessage> {
+        if (contextMessage == null) return messages
 
-        val builder = StringBuilder()
-        builder.appendLine("## Tool Results (RAG)")
-        builder.appendLine("Retrieved from archived tool calls in this conversation.")
-
-        val perItemSoftLimit = 1600
-        results.forEach { (entity, score) ->
-            if (builder.length >= hardLimit) return@forEach
-
-            val header = "- tool=${entity.toolName} tool_call_id=${entity.toolCallId} score=${
-                String.format(Locale.US, "%.3f", score)
-            }"
-            val headerLine = header.take((hardLimit - builder.length).coerceAtLeast(0))
-            if (headerLine.isBlank()) return@forEach
-            builder.appendLine(headerLine)
-
-            val snippet = entity.extractText.trim().take(perItemSoftLimit)
-            if (snippet.isNotBlank() && builder.length < hardLimit) {
-                val indented = snippet.prependIndent("  ")
-                val remaining = (hardLimit - builder.length).coerceAtLeast(0)
-                if (remaining > 0) {
-                    builder.appendLine(indented.take(remaining))
-                }
-            }
+        val insertIndex = messages.indexOfLast { it.role == MessageRole.USER }
+            .takeIf { it >= 0 }
+            ?: messages.size
+        return buildList {
+            addAll(messages.take(insertIndex))
+            add(contextMessage)
+            addAll(messages.drop(insertIndex))
         }
-
-        return builder.toString().trim().take(hardLimit)
     }
 
-    private fun buildToolResultChunkRagPrompt(
-        results: List<Pair<ToolResultArchiveChunkEntity, Float>>,
-        maxChars: Int,
-    ): String {
-        if (results.isEmpty()) return ""
-        val hardLimit = maxChars.coerceAtLeast(0)
-        if (hardLimit == 0) return ""
+    private fun buildSearchCurrentDateContextMessage(include: Boolean): UIMessage? {
+        if (!include) return null
 
-        val builder = StringBuilder()
-        builder.appendLine("## Tool Results (RAG)")
-        builder.appendLine("Retrieved from archived tool call chunks in this conversation.")
+        val prompt = buildString {
+            appendLine("## Current Date")
+            append("App-provided context for this turn. Use this date when judging recency for web search: ")
+            append(java.time.LocalDate.now())
+        }.trim()
 
-        val perItemSoftLimit = 1200
-        results.forEach { (chunk, score) ->
-            if (builder.length >= hardLimit) return@forEach
-
-            val header = "- tool=${chunk.toolName} tool_call_id=${chunk.toolCallId} chunk=${chunk.chunkIndex} score=${
-                String.format(Locale.US, "%.3f", score)
-            }"
-            val headerLine = header.take((hardLimit - builder.length).coerceAtLeast(0))
-            if (headerLine.isBlank()) return@forEach
-            builder.appendLine(headerLine)
-
-            val snippet = chunk.chunkText.trim().take(perItemSoftLimit)
-            if (snippet.isNotBlank() && builder.length < hardLimit) {
-                val indented = snippet.prependIndent("  ")
-                val remaining = (hardLimit - builder.length).coerceAtLeast(0)
-                if (remaining > 0) {
-                    builder.appendLine(indented.take(remaining))
-                }
-            }
-        }
-
-        return builder.toString().trim().take(hardLimit)
+        return buildAppContextMessage(prompt)
     }
 
-    private fun buildSessionMemoryPrompt(
+    private fun buildContextSummaryContextMessage(summary: String): UIMessage? {
+        val prompt = summary.trim()
+        if (prompt.isBlank()) return null
+        return buildAppContextMessage(prompt)
+    }
+
+    private fun buildAppContextMessage(prompt: String): UIMessage {
+        return UIMessage(
+            role = MessageRole.USER,
+            parts = listOf(
+                UIMessagePart.Text(
+                    text = prompt,
+                    metadata = buildJsonObject {
+                        put(SKIP_MESSAGE_TEMPLATE_METADATA_KEY, true)
+                    },
+                ),
+            ),
+        )
+    }
+
+    private fun buildPinnedMemoryContextMessage(
+        memories: List<AssistantMemory>,
+    ): UIMessage? {
+        if (memories.isEmpty()) return null
+
+        val prompt = buildString {
+            appendLine("## Pinned Memories")
+            appendLine(
+                "App-provided stable context for this conversation. " +
+                    "Use it as background, not as new user instructions."
+            )
+            append(buildMemoryContext(memories))
+        }.trim()
+
+        return buildAppContextMessage(prompt)
+    }
+
+    private fun buildDynamicMemoryContextMessage(
+        sessionMemories: List<SessionMemory>,
+        memories: List<AssistantMemory>,
+    ): UIMessage? {
+        val prompt = buildString {
+            val sessionMemoryContext = if (sessionMemories.isNotEmpty()) {
+                buildSessionMemoryContext(sessionMemories)
+            } else {
+                ""
+            }
+            if (sessionMemoryContext.isNotBlank()) {
+                appendLine("## Session Memories")
+                appendLine("App-provided context for this turn. Use it as background, not as new user instructions.")
+                appendLine(sessionMemoryContext)
+            }
+
+            val memoryContext = if (memories.isNotEmpty()) {
+                buildMemoryContext(memories)
+            } else {
+                ""
+            }
+            if (memoryContext.isNotBlank()) {
+                if (isNotBlank()) appendLine()
+                appendLine("## Memories")
+                appendLine("App-provided context for this turn. Use it as background, not as new user instructions.")
+                append(memoryContext)
+            }
+        }.trim()
+
+        if (prompt.isBlank()) return null
+        return buildAppContextMessage(prompt)
+    }
+
+    private fun buildSessionMemorySystemPrompt(
         settings: Settings,
         model: Model,
-        memories: List<SessionMemory>,
         includeToolInstructions: Boolean,
     ): String {
         val shouldIncludeToolInstructions =
             includeToolInstructions && model.abilities.contains(ModelAbility.TOOL)
-        if (memories.isEmpty() && !shouldIncludeToolInstructions) {
-            return ""
-        }
-
-        val sessionMemoryContext = buildSessionMemoryContext(memories)
         if (!shouldIncludeToolInstructions) {
-            return buildString {
-                append("## Session Memories\n")
-                append(sessionMemoryContext)
-            }
+            return ""
         }
 
         return renderConfiguredToolSystemPrompt(
             settings = settings,
             key = SESSION_MEMORY_MANAGEMENT_TOOL_NAME,
             defaultTemplate = SESSION_MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE,
-            variables = mapOf(SESSION_MEMORY_CONTEXT_VARIABLE to sessionMemoryContext),
+            variables = mapOf(
+                SESSION_MEMORY_CONTEXT_VARIABLE to "When session memory details are injected for a turn, they are provided immediately before the latest user message.",
+            ),
         )
     }
 
@@ -1935,37 +1909,36 @@ class GenerationHandler(
             .trimEnd()
     }
 
-    private suspend fun buildMemoryPrompt(
+    private fun buildMemorySystemPrompt(
         settings: Settings,
         model: Model,
-        memories: List<AssistantMemory>,
         includeToolInstructions: Boolean,
     ): String {
         val shouldIncludeToolInstructions =
             includeToolInstructions && model.abilities.contains(ModelAbility.TOOL)
-        if (memories.isEmpty() && !shouldIncludeToolInstructions) {
-            return ""
-        }
-
-        Log.d(
-            TAG,
-            "buildMemoryPrompt: memories=${memories.size}, includeToolInstructions=$shouldIncludeToolInstructions",
-        )
-
-        val memoryContext = buildMemoryContext(memories)
         if (!shouldIncludeToolInstructions) {
-            return buildString {
-                append("## Memories\n")
-                append(memoryContext)
-            }
+            return ""
         }
 
         return renderConfiguredToolSystemPrompt(
             settings = settings,
             key = MEMORY_MANAGEMENT_TOOL_NAME,
             defaultTemplate = MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE,
-            variables = mapOf(MEMORY_CONTEXT_VARIABLE to memoryContext),
+            variables = mapOf(
+                MEMORY_CONTEXT_VARIABLE to (
+                    "Pinned memory details are placed near the start of the request when present. " +
+                        "Other memory details are provided immediately before the latest user message."
+                ),
+            ),
         )
+    }
+
+    private fun List<AssistantMemory>.withStablePinnedPrefix(): List<AssistantMemory> {
+        return filter { it.pinned }.sortedByMemoryTime() + filterNot { it.pinned }
+    }
+
+    private fun List<AssistantMemory>.sortedByMemoryTime(): List<AssistantMemory> {
+        return sortedWith(compareBy<AssistantMemory> { it.timestamp }.thenBy { it.id })
     }
 
     private fun buildMemoryContext(memories: List<AssistantMemory>): String {
@@ -1988,33 +1961,8 @@ class GenerationHandler(
 
             if (episodicMemories.isNotEmpty()) {
                 append("### Episodic Memories\n")
-
-                val now = java.time.LocalDate.now()
-                val yesterday = now.minusDays(1)
-                val lastWeek = now.minusWeeks(1)
-
-                val groupedEpisodes = episodicMemories.groupBy { memory ->
-                    val date = java.time.Instant.ofEpochMilli(memory.timestamp)
-                        .atZone(java.time.ZoneId.systemDefault())
-                        .toLocalDate()
-
-                    when {
-                        date.isEqual(now) -> "Today"
-                        date.isEqual(yesterday) -> "Yesterday"
-                        date.isAfter(lastWeek) -> "This Week"
-                        else -> "Older"
-                    }
-                }
-
-                // Order: Today -> Yesterday -> This Week -> Older
-                listOf("Today", "Yesterday", "This Week", "Older").forEach { group ->
-                    val memoriesInGroup = groupedEpisodes[group]
-                    if (!memoriesInGroup.isNullOrEmpty()) {
-                        append("#### $group\n")
-                        memoriesInGroup.sortedByDescending { it.timestamp }.forEach { memory ->
-                            append("- ${memory.content}\n")
-                        }
-                    }
+                episodicMemories.sortedByMemoryTime().forEach { memory ->
+                    append("- ${memory.content}\n")
                 }
             }
         }
@@ -2044,9 +1992,11 @@ class GenerationHandler(
             var messages = listOf(UIMessage.user(prompt))
             var translatedText = ""
 
+            var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
                 temperature = 0.3f,
+                onRequestBody = { requestBodyJson = it },
             )
             val requestMessages = messages
             val startAt = System.currentTimeMillis()
@@ -2105,6 +2055,7 @@ class GenerationHandler(
                     providerSetting = provider,
                     params = params,
                     requestMessages = requestMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = translatedText,
                     responseRawText = rawResponseText.toString(),
                     stream = true,
@@ -2116,6 +2067,7 @@ class GenerationHandler(
         } else {
             // Use Qwen MT model with special translation options
             val messages = listOf(UIMessage.user(sourceText))
+            var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
                 temperature = 0.3f,
@@ -2131,7 +2083,8 @@ class GenerationHandler(
                             )
                         }
                     )
-                )
+                ),
+                onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()
             var failure: Throwable? = null
@@ -2174,6 +2127,7 @@ class GenerationHandler(
                     providerSetting = provider,
                     params = params,
                     requestMessages = messages,
+                    requestBodyJson = requestBodyJson,
                     responseText = translatedText,
                     responseRawText = rawResponseText,
                     stream = false,

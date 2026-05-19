@@ -44,6 +44,7 @@ const SEARCH_SERVICE_LABELS: Record<string, string> = {
   firecrawl: "Firecrawl",
   jina: "Jina",
   bocha: "博查",
+  serper: "Serper",
 };
 
 export interface SearchPickerButtonProps {

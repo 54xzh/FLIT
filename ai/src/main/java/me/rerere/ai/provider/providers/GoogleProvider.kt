@@ -154,6 +154,8 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         params: TextGenerationParams,
     ): MessageChunk = withContext(Dispatchers.IO) {
         val requestBody = buildCompletionRequestBody(messages, params)
+        val requestBodyJson = json.encodeToString(requestBody)
+        params.onRequestBody?.invoke(requestBodyJson)
 
         val url = buildUrl(
             providerSetting = providerSetting,
@@ -170,7 +172,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 .url(url)
                 .headers(params.customHeaders.toHeaders())
                 .post(
-                    json.encodeToString(requestBody).toRequestBody("application/json".toMediaType())
+                    requestBodyJson.toRequestBody("application/json".toMediaType())
                 )
                 .configureReferHeaders(providerSetting.baseUrl)
                 .build()
@@ -237,6 +239,8 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         params: TextGenerationParams,
     ): Flow<MessageChunk> = callbackFlow {
         val requestBody = buildCompletionRequestBody(messages, params)
+        val requestBodyJson = json.encodeToString(requestBody)
+        params.onRequestBody?.invoke(requestBodyJson)
 
         val url = buildUrl(
             providerSetting = providerSetting,
@@ -253,13 +257,13 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 .url(url)
                 .headers(params.customHeaders.toHeaders())
                 .post(
-                    json.encodeToString(requestBody).toRequestBody("application/json".toMediaType())
+                    requestBodyJson.toRequestBody("application/json".toMediaType())
                 )
                 .configureReferHeaders(providerSetting.baseUrl)
                 .build()
         )
 
-        Log.i(TAG, "streamText: ${json.encodeToString(requestBody)}")
+        Log.i(TAG, "streamText: $requestBodyJson")
         val rawEventBuffer = StringBuilder()
 
         val listener = object : EventSourceListener() {
@@ -862,16 +866,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         // For single input, use embedContent endpoint
         // For multiple inputs, use batchEmbedContents endpoint
         if (input.size == 1) {
-            val requestBody = buildJsonObject {
-                put("model", "models/${model.modelId}")
-                put("content", buildJsonObject {
-                    putJsonArray("parts") {
-                        add(buildJsonObject {
-                            put("text", input.first())
-                        })
-                    }
-                })
-            }
+            val requestBody = buildEmbeddingRequestBody(input = input, model = model)
 
             val url = buildUrl(
                 providerSetting = providerSetting,
@@ -917,22 +912,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             listOf(values.map { it.jsonPrimitive.content.toFloat() })
         } else {
             // Batch embedding
-            val requestBody = buildJsonObject {
-                putJsonArray("requests") {
-                    input.forEach { text ->
-                        add(buildJsonObject {
-                            put("model", "models/${model.modelId}")
-                            put("content", buildJsonObject {
-                                putJsonArray("parts") {
-                                    add(buildJsonObject {
-                                        put("text", text)
-                                    })
-                                }
-                            })
-                        })
-                    }
-                }
-            }
+            val requestBody = buildEmbeddingRequestBody(input = input, model = model)
 
             val url = buildUrl(
                 providerSetting = providerSetting,
@@ -975,6 +955,47 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 val values = embeddingObj.jsonObject["values"]?.jsonArray
                     ?: error("No values in embedding")
                 values.map { it.jsonPrimitive.content.toFloat() }
+            }
+        }
+    }
+
+    override fun buildEmbeddingRequestBodyForLog(
+        providerSetting: ProviderSetting.Google,
+        input: List<String>,
+        model: Model,
+    ): String? {
+        if (input.isEmpty()) return null
+        return json.encodeToString(buildEmbeddingRequestBody(input = input, model = model))
+    }
+
+    private fun buildEmbeddingRequestBody(input: List<String>, model: Model): JsonObject {
+        return if (input.size == 1) {
+            buildJsonObject {
+                put("model", "models/${model.modelId}")
+                put("content", buildJsonObject {
+                    putJsonArray("parts") {
+                        add(buildJsonObject {
+                            put("text", input.first())
+                        })
+                    }
+                })
+            }
+        } else {
+            buildJsonObject {
+                putJsonArray("requests") {
+                    input.forEach { text ->
+                        add(buildJsonObject {
+                            put("model", "models/${model.modelId}")
+                            put("content", buildJsonObject {
+                                putJsonArray("parts") {
+                                    add(buildJsonObject {
+                                        put("text", text)
+                                    })
+                                }
+                            })
+                        })
+                    }
+                }
             }
         }
     }

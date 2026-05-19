@@ -148,6 +148,8 @@ private val GROK_SEARCH_MODELS = listOf(
     "grok-4-1-fast-non-reasoning",
 )
 
+private val SERPER_SEARCH_LANGUAGES = listOf("zh-cn", "zh-tw", "en", "ja")
+
 /**
  * List of search service presets
  */
@@ -193,6 +195,12 @@ val SEARCH_SERVICE_PRESETS = listOf(
         description = "AI-optimized search with scraping support",
         optionsClass = SearchServiceOptions.TavilyOptions::class,
         hasScraping = true
+    ),
+    SearchServicePreset(
+        name = "Serper",
+        descriptionRes = R.string.setting_search_preset_serper_desc,
+        optionsClass = SearchServiceOptions.SerperOptions::class,
+        hasScraping = false
     ),
     SearchServicePreset(
         name = "Exa",
@@ -554,6 +562,11 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
                             }
                             is SearchServiceOptions.ExaOptions -> {
                                 ExaOptions(currentService as SearchServiceOptions.ExaOptions) {
+                                    currentService = it
+                                }
+                            }
+                            is SearchServiceOptions.SerperOptions -> {
+                                SerperOptions(currentService as SearchServiceOptions.SerperOptions) {
                                     currentService = it
                                 }
                             }
@@ -1044,6 +1057,56 @@ private fun ExaOptions(
             },
             modifier = Modifier.fillMaxWidth()
         )
+    }
+}
+
+@Composable
+private fun SerperOptions(
+    options: SearchServiceOptions.SerperOptions,
+    onUpdateOptions: (SearchServiceOptions.SerperOptions) -> Unit
+) {
+    FormItem(
+        label = {
+            Text(stringResource(R.string.setting_search_page_api_key))
+        }
+    ) {
+        OutlinedTextField(
+            value = options.apiKey,
+            onValueChange = {
+                onUpdateOptions(
+                    options.copy(
+                        apiKey = it
+                    )
+                )
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+
+    FormItem(
+        label = {
+            Text(stringResource(R.string.setting_search_page_language))
+        }
+    ) {
+        SingleChoiceSegmentedButtonRow(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            SERPER_SEARCH_LANGUAGES.forEachIndexed { index, language ->
+                SegmentedButton(
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = SERPER_SEARCH_LANGUAGES.size),
+                    onClick = {
+                        onUpdateOptions(
+                            options.copy(
+                                hl = language
+                            )
+                        )
+                    },
+                    selected = options.hl == language
+                ) {
+                    Text(language)
+                }
+            }
+        }
     }
 }
 

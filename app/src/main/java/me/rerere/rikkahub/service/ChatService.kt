@@ -127,7 +127,6 @@ import me.rerere.rikkahub.data.model.GroupChatSeat
 import me.rerere.rikkahub.data.model.GroupChatSeatOverrides
 import me.rerere.rikkahub.data.model.GroupChatTemplate
 import me.rerere.rikkahub.data.model.Skill
-import me.rerere.rikkahub.data.model.ToolResultHistoryMode
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.data.model.id
 import me.rerere.rikkahub.data.model.toMessageNode
@@ -1631,7 +1630,7 @@ class ChatService(
                     conversationId = id.toString(),
                     assistantId = conversation.assistantId.toString(),
                     messages = baseMessages,
-                    enableRagIndexing = settings.displaySetting.toolResultHistoryMode == ToolResultHistoryMode.RAG,
+                    enableRagIndexing = false,
                 )
             }
             val welcomePhraseForAppContext = pendingUiWelcomePhraseForAppContext[conversationId]
@@ -4942,58 +4941,28 @@ class ChatService(
                                         }
                                     })
                                 }
-                                JsonObject(map)
+                                JsonObject(map.toMutableMap().apply {
+                                    put(
+                                        "citation_rules",
+                                        JsonPrimitive(
+                                            me.rerere.rikkahub.data.ai.tools.searchWebToolResultGuidance(
+                                                includeProviderErrors = false,
+                                            )
+                                        ),
+                                    )
+                                })
                             }
                         results
-                    }, systemPrompt = { model, messages ->
+                    }, systemPrompt = { model, _ ->
                         if (model.tools.isNotEmpty()) return@Tool ""
-                        val hasToolCall =
-                            messages.any { it.getToolCalls().any { toolCall -> toolCall.toolName == "search_web" } }
-                        val prompt = StringBuilder()
-                        prompt.append(
-                            """
+                        """
                     ## tool: search_web
 
                     ### usage
                     - You can use the search_web tool to search the internet for the latest news or to confirm some facts.
                     - You can perform multiple search if needed
                     - Generate keywords based on the user's question
-                    - Today is {{cur_date}}
                     """.trimIndent()
-                        )
-                        if (hasToolCall) {
-                            prompt.append(
-                                """
-                        ### result example
-                        ```json
-                        {
-                            "items": [
-                                {
-                                    "id": "random id in 6 characters",
-                                    "title": "Title",
-                                    "url": "https://example.com",
-                                    "text": "Some relevant snippets"
-                                }
-                            ]
-                        }
-                        ```
-
-                        ### citation
-                        After using the search tool, when replying to users, you need to add a reference format to the referenced search terms in the content.
-                        When citing facts or data from search results, you need to add a citation marker after the sentence: `[citation,domain](id of the search result)`.
-
-                        For example:
-                        ```
-                        The capital of France is Paris. [citation,example.com](id of the search result)
-
-                        The population of Paris is about 2.1 million. [citation,example.com](id of the search result) [citation,example2.com](id of the search result)
-                        ```
-
-                        If no search results are cited, you do not need to add a citation marker.
-                        """.trimIndent()
-                            )
-                        }
-                        prompt.toString()
                     }
                 )
             )
@@ -5147,10 +5116,12 @@ class ChatService(
                     )
                 ),
             )
+            var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
                 temperature = 0.3f,
                 thinkingBudget = 0,
+                onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()
             var failure: Throwable? = null
@@ -5173,6 +5144,7 @@ class ChatService(
                     providerSetting = provider,
                     params = params,
                     requestMessages = requestMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = titleText,
                     responseRawText = rawResponseText,
                     stream = false,
@@ -5350,10 +5322,12 @@ class ChatService(
                     ),
                 )
             )
+            var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
                 temperature = 1.0f,
                 thinkingBudget = 0,
+                onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()
             var failure: Throwable? = null
@@ -5379,6 +5353,7 @@ class ChatService(
                     providerSetting = provider,
                     params = params,
                     requestMessages = requestMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = rawSuggestions,
                     responseRawText = rawResponseText,
                     stream = false,
@@ -5698,9 +5673,11 @@ class ChatService(
             // Call the model
             val providerHandler = providerManager.getProviderByType(provider)
             val requestMessages = listOf(UIMessage.user(prompt))
+            var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
-                temperature = 0.3f
+                temperature = 0.3f,
+                onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()
             var failure: Throwable? = null
@@ -5723,6 +5700,7 @@ class ChatService(
                     providerSetting = provider,
                     params = params,
                     requestMessages = requestMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = summary,
                     responseRawText = rawResponseText,
                     stream = false,

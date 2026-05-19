@@ -33,7 +33,7 @@ interface MemoryDAO {
     @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId")
     suspend fun getMemoriesOfAssistant(assistantId: String): List<MemoryEntity>
 
-    @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId AND pinned = 1")
+    @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId AND pinned = 1 ORDER BY created_at ASC, id ASC")
     suspend fun getPinnedMemoriesOfAssistant(assistantId: String): List<MemoryEntity>
 
     @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId ORDER BY created_at DESC LIMIT :limit")
@@ -80,9 +80,12 @@ interface MemoryDAO {
         WHERE (:memoryType < 0 OR type = :memoryType)
           AND (:searchQuery = '' OR content LIKE '%' || :searchQuery || '%')
         ORDER BY
-            CASE WHEN :sortOrder = 0 THEN timestamp END DESC,
-            CASE WHEN :sortOrder = 1 THEN timestamp END ASC,
-            CASE WHEN :sortOrder = 2 THEN content END COLLATE NOCASE ASC
+            pinned DESC,
+            CASE WHEN pinned = 1 THEN timestamp END ASC,
+            CASE WHEN pinned = 1 THEN id END ASC,
+            CASE WHEN pinned = 0 AND :sortOrder = 0 THEN timestamp END DESC,
+            CASE WHEN pinned = 0 AND :sortOrder = 1 THEN timestamp END ASC,
+            CASE WHEN pinned = 0 AND :sortOrder = 2 THEN content END COLLATE NOCASE ASC
         """
     )
     fun getAssistantMemoriesPaging(

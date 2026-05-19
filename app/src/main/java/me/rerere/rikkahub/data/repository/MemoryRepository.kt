@@ -648,8 +648,26 @@ class MemoryRepository(
             mergedByKey.putIfAbsent(candidate.key, candidate)
         }
 
+        fun ScoredCandidate.timestampForSort(): Long = if (isMemory) {
+            (item as MemoryEntity).createdAt
+        } else {
+            (item as ChatEpisodeEntity).startTime
+        }
+
+        fun ScoredCandidate.idForSort(): Int = if (isMemory) {
+            (item as MemoryEntity).id
+        } else {
+            (item as ChatEpisodeEntity).id
+        }
+
         val finalCandidates = mergedByKey.values
-            .sortedWith(compareByDescending<ScoredCandidate> { it.isPinned }.thenByDescending { it.score })
+            .sortedWith { left, right ->
+                when {
+                    left.isPinned != right.isPinned -> if (left.isPinned) -1 else 1
+                    left.isPinned -> compareValuesBy(left, right, { it.timestampForSort() }, { it.idForSort() })
+                    else -> compareValuesBy(right, left, { it.score }, { it.timestampForSort() }, { it.idForSort() })
+                }
+            }
 
         // Update lastAccessedAt for included items (pinned + top-k)
         finalCandidates.forEach { candidate ->
@@ -829,8 +847,26 @@ class MemoryRepository(
             mergedByKey.putIfAbsent(candidate.key, candidate)
         }
 
+        fun ScoredCandidate.timestampForSort(): Long = if (isMemory) {
+            (item as MemoryEntity).createdAt
+        } else {
+            (item as ChatEpisodeEntity).startTime
+        }
+
+        fun ScoredCandidate.idForSort(): Int = if (isMemory) {
+            (item as MemoryEntity).id
+        } else {
+            (item as ChatEpisodeEntity).id
+        }
+
         val finalCandidates = mergedByKey.values
-            .sortedWith(compareByDescending<ScoredCandidate> { it.isPinned }.thenByDescending { it.score })
+            .sortedWith { left, right ->
+                when {
+                    left.isPinned != right.isPinned -> if (left.isPinned) -1 else 1
+                    left.isPinned -> compareValuesBy(left, right, { it.timestampForSort() }, { it.idForSort() })
+                    else -> compareValuesBy(right, left, { it.score }, { it.timestampForSort() }, { it.idForSort() })
+                }
+            }
 
         // Update lastAccessedAt for included items (pinned + top-k)
         finalCandidates.forEach { candidate ->

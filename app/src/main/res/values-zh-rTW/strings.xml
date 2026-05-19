@@ -1333,10 +1333,10 @@
   <string name="assistant_page_tool_results_mode_title">歷史工具結果</string>
   <string name="assistant_page_tool_results_mode_rag">RAG 檢索</string>
   <string name="assistant_page_tool_results_mode_rag_desc">超過 N 條使用者訊息後不傳送給模型，並透過 RAG 召回相關結果。</string>
-  <string name="assistant_page_tool_results_mode_discard">丟棄</string>
-  <string name="assistant_page_tool_results_mode_discard_desc">超過 N 條使用者訊息後不傳送給模型（仍會保存在本機）。</string>
+  <string name="assistant_page_tool_results_mode_discard">丟棄歷史工具結果</string>
+  <string name="assistant_page_tool_results_mode_discard_desc">超過 %d 條使用者訊息的工具結果將被丟棄。</string>
   <string name="assistant_page_tool_results_keep_title">保留範圍</string>
-  <string name="assistant_page_tool_results_keep_desc">超過 %d 條使用者訊息的結果將不傳送給模型。</string>
+  <string name="assistant_page_tool_results_keep_desc">保留最近 %d 條使用者訊息內的工具結果。</string>
   <string name="assistant_page_tool_results_similarity_threshold">相似度閾值</string>
   <string name="assistant_page_tool_results_similarity_threshold_desc">最小相似度（0.0=包含全部，1.0=僅完美匹配）。值越低召回的工具結果越多。當前：%1$s</string>
   <string name="assistant_page_search_mode">搜索模式</string>
@@ -1501,6 +1501,7 @@
   <string name="setting_search_page_search_depth">搜索深度</string>
   <string name="setting_search_page_search_depth_desc">標準更快/更便宜，深度更全面</string>
   <string name="setting_search_preset_grok_desc">xAI 網路搜尋並引用答案</string>
+  <string name="setting_search_preset_serper_desc">通過 Serper API 使用 Google 搜尋結果</string>
   <string name="setting_search_page_bing_no_config">Bing 搜索無需任何配置。</string>
   <string name="setting_search_page_edit_service_title">編輯 %1$s</string>
   <string name="setting_search_page_service_fallback_name">搜索服務</string>
@@ -1780,7 +1781,7 @@
   <string name="request_log_section_basic">基礎資訊</string>
   <string name="request_log_section_error">錯誤資訊</string>
   <string name="request_log_section_params">參數</string>
-  <string name="request_log_section_request_messages">請求消息</string>
+  <string name="request_log_section_request_messages">請求內容</string>
   <string name="request_log_section_response">回應內容</string>
   <string name="request_log_section_response_raw">原始回應 JSON</string>
   <string name="request_log_section_response_filtered">過濾後內容</string>

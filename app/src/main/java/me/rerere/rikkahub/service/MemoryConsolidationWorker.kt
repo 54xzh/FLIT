@@ -220,8 +220,13 @@ class MemoryConsolidationWorker(
                 "messages_text" to messagesText,
             )
             
-            val params = TextGenerationParams(model = model, temperature = 0.5f)
             val requestMessages = listOf(UIMessage.user(prompt))
+            var requestBodyJson: String? = null
+            val params = TextGenerationParams(
+                model = model,
+                temperature = 0.5f,
+                onRequestBody = { requestBodyJson = it },
+            )
             val startAt = System.currentTimeMillis()
             var responseText = ""
             var rawResponseText = ""
@@ -314,6 +319,7 @@ class MemoryConsolidationWorker(
                     providerSetting = provider,
                     params = params,
                     requestMessages = requestMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = responseText,
                     responseRawText = rawResponseText,
                     stream = false,
@@ -505,11 +511,16 @@ class MemoryConsolidationWorker(
                 }
             """.trimIndent()
 
-            val params = TextGenerationParams(model = model, temperature = 0.5f)
-            val requestMessages = listOf(UIMessage.user(prompt))
-            val startAt = System.currentTimeMillis()
-            var responseText = ""
-            var rawResponseText = ""
+                val requestMessages = listOf(UIMessage.user(prompt))
+                var requestBodyJson: String? = null
+                val params = TextGenerationParams(
+                    model = model,
+                    temperature = 0.5f,
+                    onRequestBody = { requestBodyJson = it },
+                )
+                val startAt = System.currentTimeMillis()
+                var responseText = ""
+                var rawResponseText = ""
             var failure: Throwable? = null
 
             try {
@@ -605,6 +616,7 @@ class MemoryConsolidationWorker(
                     providerSetting = provider,
                     params = params,
                     requestMessages = requestMessages,
+                    requestBodyJson = requestBodyJson,
                     responseText = responseText,
                     responseRawText = rawResponseText,
                     stream = false,

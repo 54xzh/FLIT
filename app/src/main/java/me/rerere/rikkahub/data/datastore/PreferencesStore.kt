@@ -71,12 +71,46 @@ import kotlin.uuid.Uuid
 
 private const val TAG = "PreferencesStore"
 private const val DEFAULT_CONTEXT_HISTORY_LIMIT = 10
+const val TOOL_RESULT_KEEP_USER_MESSAGES_MIN = 1
+const val TOOL_RESULT_KEEP_USER_MESSAGES_MAX = 50
 
-private fun decodeDisplaySettingCompat(raw: String?): DisplaySetting {
-    if (raw.isNullOrBlank()) return DisplaySetting()
+fun DisplaySetting.getToolResultKeepUserMessages(): Int {
+    return toolResultKeepUserMessages.coerceIn(
+        TOOL_RESULT_KEEP_USER_MESSAGES_MIN,
+        TOOL_RESULT_KEEP_USER_MESSAGES_MAX,
+    )
+}
+
+fun Settings.getToolResultKeepUserMessages(): Int {
+    return displaySetting.getToolResultKeepUserMessages()
+}
+
+private fun DisplaySetting.normalizeToolResultSettings(): DisplaySetting {
+    val normalizedMode = if (toolResultHistoryMode == ToolResultHistoryMode.RAG) {
+        ToolResultHistoryMode.DISCARD
+    } else {
+        toolResultHistoryMode
+    }
+    val normalizedKeepUserMessages = getToolResultKeepUserMessages()
+
+    return if (
+        normalizedMode == toolResultHistoryMode &&
+        normalizedKeepUserMessages == toolResultKeepUserMessages
+    ) {
+        this
+    } else {
+        copy(
+            toolResultHistoryMode = normalizedMode,
+            toolResultKeepUserMessages = normalizedKeepUserMessages,
+        )
+    }
+}
+
+internal fun decodeDisplaySettingCompat(raw: String?): DisplaySetting {
+    if (raw.isNullOrBlank()) return DisplaySetting().normalizeToolResultSettings()
 
     val decoded = runCatching { JsonInstant.decodeFromString<DisplaySetting>(raw) }
-        .getOrElse { return DisplaySetting() }
+        .getOrElse { return DisplaySetting().normalizeToolResultSettings() }
 
     val legacyKeepAll = runCatching {
         (JsonInstant.parseToJsonElement(raw) as? JsonObject)
@@ -85,15 +119,15 @@ private fun decodeDisplaySettingCompat(raw: String?): DisplaySetting {
             ?.booleanOrNull
     }.getOrNull()
 
-    if (legacyKeepAll == true) {
-        return decoded.copy(toolResultHistoryMode = ToolResultHistoryMode.KEEP_ALL)
+    val migrated = when {
+        legacyKeepAll == true -> decoded.copy(toolResultHistoryMode = ToolResultHistoryMode.KEEP_ALL)
+        legacyKeepAll == false && decoded.toolResultHistoryMode == ToolResultHistoryMode.KEEP_ALL -> {
+            decoded.copy(toolResultHistoryMode = ToolResultHistoryMode.DISCARD)
+        }
+        else -> decoded
     }
 
-    if (legacyKeepAll == false && decoded.toolResultHistoryMode == ToolResultHistoryMode.KEEP_ALL) {
-        return decoded.copy(toolResultHistoryMode = ToolResultHistoryMode.RAG)
-    }
-
-    return decoded
+    return migrated.normalizeToolResultSettings()
 }
 
 private fun Assistant.normalizeContextManagementFlags(
@@ -676,7 +710,9 @@ class SettingsStore(
                 providers = settingsToSaveWithReboundSearchIndices.providers.map { provider ->
                     provider.normalizeProviderApiKeys().syncEnabledApiKeysToLegacyField()
                 },
-	            displaySetting = settingsToSaveWithReboundSearchIndices.displaySetting.coerceForConflicts(),
+	            displaySetting = settingsToSaveWithReboundSearchIndices.displaySetting
+                    .normalizeToolResultSettings()
+                    .coerceForConflicts(),
                 mcpToolCallTimeoutSeconds = settingsToSaveWithReboundSearchIndices.mcpToolCallTimeoutSeconds.coerceAtLeast(1),
                 httpRetryMaxRetries = settingsToSaveWithReboundSearchIndices.httpRetryMaxRetries.coerceIn(0, 10),
                 httpRetryDelaySeconds = settingsToSaveWithReboundSearchIndices.httpRetryDelaySeconds.coerceIn(1, 30),

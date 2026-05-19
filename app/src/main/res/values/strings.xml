@@ -49,7 +49,7 @@
     <string name="request_log_section_basic">Basic</string>
     <string name="request_log_section_error">Error</string>
     <string name="request_log_section_params">Params</string>
-    <string name="request_log_section_request_messages">Request Messages</string>
+    <string name="request_log_section_request_messages">Request Body</string>
     <string name="request_log_section_response">Response Text</string>
     <string name="request_log_section_response_raw">Raw Response JSON</string>
     <string name="request_log_section_response_filtered">Filtered Content</string>
@@ -1480,10 +1480,10 @@
     <string name="assistant_page_tool_results_mode_keep_all_desc">Keep complete tool results in prompt context (no optimization).</string>
     <string name="assistant_page_tool_results_mode_rag">RAG retrieval</string>
     <string name="assistant_page_tool_results_mode_rag_desc">Drop from prompt after N user messages, and retrieve relevant results via RAG.</string>
-    <string name="assistant_page_tool_results_mode_discard">Discard</string>
-    <string name="assistant_page_tool_results_mode_discard_desc">Drop from prompt after N user messages (still stored locally).</string>
+    <string name="assistant_page_tool_results_mode_discard">Discard old tool results</string>
+    <string name="assistant_page_tool_results_mode_discard_desc">Tool results older than %d user messages will be discarded.</string>
     <string name="assistant_page_tool_results_keep_title">Keep range</string>
-    <string name="assistant_page_tool_results_keep_desc">Results older than %d user messages won\'t be sent to the model.</string>
+    <string name="assistant_page_tool_results_keep_desc">Keep tool results within the latest %d user messages.</string>
     <string name="assistant_page_tool_results_similarity_threshold">Similarity Threshold</string>
     <string name="assistant_page_tool_results_similarity_threshold_desc">Minimum similarity score (0.0 = include all, 1.0 = only perfect matches). Lower values include more tool results. Current: %1$s</string>
     <string name="assistant_page_search_mode">Search Mode</string>
@@ -1656,6 +1656,7 @@
     <string name="setting_search_page_search_depth">Search Depth</string>
     <string name="setting_search_page_search_depth_desc">Standard is faster/cheaper, Deep is more comprehensive</string>
     <string name="setting_search_preset_grok_desc">xAI web search with cited answers</string>
+    <string name="setting_search_preset_serper_desc">Google search results through Serper API</string>
     <string name="setting_search_page_bing_no_config">Bing search does not require any configuration.</string>
     <string name="setting_search_page_edit_service_title">Edit %1$s</string>
     <string name="setting_search_page_service_fallback_name">Search Service</string>

@@ -137,7 +137,11 @@ ${rawContent.take(MAX_CONTENT_FOR_SUMMARY)}"""
                 parts = listOf(UIMessagePart.Text(userPrompt))
             )
         )
-        val params = TextGenerationParams(model = model)
+        var requestBodyJson: String? = null
+        val params = TextGenerationParams(
+            model = model,
+            onRequestBody = { requestBodyJson = it },
+        )
 
         val startAt = System.currentTimeMillis()
         var failure: Throwable? = null
@@ -161,6 +165,7 @@ ${rawContent.take(MAX_CONTENT_FOR_SUMMARY)}"""
                 providerSetting = providerSetting,
                 params = params,
                 requestMessages = requestMessages,
+                requestBodyJson = requestBodyJson,
                 responseText = content,
                 responseRawText = rawResponseText,
                 stream = false,

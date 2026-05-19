@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="assistant_page_tool_results_mode_discard">丢弃历史工具结果</string>
+    <string name="assistant_page_tool_results_mode_discard_desc">超过 %d 条用户消息的工具结果将被丢弃。</string>
+    <string name="assistant_page_tool_results_keep_title">保留范围</string>
+    <string name="assistant_page_tool_results_keep_desc">保留最近 %d 条用户消息内的工具结果。</string>
+
     <string name="setting_provider_page_manage_multi_keys_with_count">管理 Key（已启用 %1$d/%2$d）</string>
     <string name="setting_provider_page_multi_key_add">添加 Key</string>
     <string name="setting_provider_page_multi_key_alias">别名</string>
@@ -136,6 +141,7 @@
 
     <string name="request_logs_export_empty">暂无可导出的日志</string>
     <string name="request_logs_export_failed">导出失败：%1$s</string>
+    <string name="request_log_section_request_messages">请求体</string>
     <string name="request_log_section_response_raw">原始响应 JSON</string>
     <string name="request_log_section_response_filtered">过滤后内容</string>
 
@@ -443,6 +449,7 @@
     <string name="notification_web_server_running">本地浏览器访问正在运行</string>
     <string name="notification_web_server_error">网络服务器出现故障</string>
     <string name="setting_search_page_alias">别名（可选）</string>
+    <string name="setting_search_page_language">语言</string>
     <string name="setting_search_page_grok_enable_custom">启用自定义</string>
     <string name="setting_search_page_grok_enable_custom_desc">自定义 Base URL、接口类型和系统提示词</string>
     <string name="setting_search_page_grok_base_url">Base URL</string>
@@ -454,6 +461,7 @@
     <string name="setting_search_page_grok_system_prompt">系统提示词</string>
     <string name="setting_search_page_grok_stream">流式输出</string>
     <string name="setting_search_page_grok_stream_desc">如果非流式请求报错，可以打开这个选项</string>
+    <string name="setting_search_preset_serper_desc">通过 Serper API 使用 Google 搜索结果</string>
     <string name="setting_page_search_multi_strategy">多选策略</string>
     <string name="setting_page_search_multi_strategy_parallel">并行搜索</string>
     <string name="setting_page_search_multi_strategy_sequential">顺序回退</string>

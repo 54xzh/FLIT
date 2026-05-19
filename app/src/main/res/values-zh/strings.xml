@@ -1283,10 +1283,10 @@
     <string name="assistant_page_tool_results_mode_title">历史工具结果</string>
     <string name="assistant_page_tool_results_mode_rag">RAG 检索</string>
     <string name="assistant_page_tool_results_mode_rag_desc">超过 N 条用户消息后不发送给模型，并通过 RAG 召回相关结果。</string>
-    <string name="assistant_page_tool_results_mode_discard">丢弃</string>
-    <string name="assistant_page_tool_results_mode_discard_desc">超过 N 条用户消息后不发送给模型（仍保存在本地）。</string>
+    <string name="assistant_page_tool_results_mode_discard">丢弃历史工具结果</string>
+    <string name="assistant_page_tool_results_mode_discard_desc">超过 %d 条用户消息的工具结果将被丢弃。</string>
     <string name="assistant_page_tool_results_keep_title">保留范围</string>
-    <string name="assistant_page_tool_results_keep_desc">超过 %d 条用户消息的结果将不发送给模型。</string>
+    <string name="assistant_page_tool_results_keep_desc">保留最近 %d 条用户消息内的工具结果。</string>
     <string name="assistant_page_tool_results_similarity_threshold">相似度阈值</string>
     <string name="assistant_page_tool_results_similarity_threshold_desc">最小相似度（0.0=包含全部，1.0=仅完美匹配）。值越低召回的工具结果越多。当前：%1$s</string>
     <string name="assistant_page_search_mode">搜索模式</string>
@@ -1556,7 +1556,7 @@
   <string name="request_log_section_basic">基础信息</string>
   <string name="request_log_section_error">错误信息</string>
   <string name="request_log_section_params">参数</string>
-  <string name="request_log_section_request_messages">请求消息</string>
+  <string name="request_log_section_request_messages">请求体</string>
   <string name="request_log_section_response">响应内容</string>
   <string name="request_log_section_response_raw">原始响应 JSON</string>
   <string name="request_log_section_response_filtered">过滤后内容</string>

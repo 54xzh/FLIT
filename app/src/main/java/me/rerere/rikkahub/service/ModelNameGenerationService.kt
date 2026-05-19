@@ -31,9 +31,11 @@ class ModelNameGenerationService(
         val prompt = settings.modelNameGenerationPrompt
             .applyPlaceholders("model_id" to modelIdTrimmed)
         val requestMessages = listOf(UIMessage.user(prompt))
+        var requestBodyJson: String? = null
         val params = TextGenerationParams(
             model = model,
-            thinkingBudget = -1
+            thinkingBudget = -1,
+            onRequestBody = { requestBodyJson = it },
         )
         val startAt = System.currentTimeMillis()
         var failure: Throwable? = null
@@ -59,6 +61,7 @@ class ModelNameGenerationService(
                 providerSetting = provider,
                 params = params,
                 requestMessages = requestMessages,
+                requestBodyJson = requestBodyJson,
                 responseText = responseText,
                 responseRawText = rawResponseText,
                 stream = false,
