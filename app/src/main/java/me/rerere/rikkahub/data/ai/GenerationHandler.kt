@@ -103,8 +103,8 @@ private val SESSION_MEMORY_TOOL_NAMES = setOf(
     "delete_session_memory",
 )
 private val INTERNAL_MEMORY_TOOL_NAMES = MEMORY_TOOL_NAMES + SESSION_MEMORY_TOOL_NAMES
-private const val SESSION_MEMORY_MAX_COUNT = 20
-private const val SESSION_MEMORY_MAX_CONTENT_CHARS = 1000
+private const val SESSION_MEMORY_MAX_COUNT = 50
+private const val SESSION_MEMORY_MAX_CONTENT_CHARS = 3000
 private const val MCP_TOOL_APPROVAL_REJECTED_TEXT = "User declined this call"
 private const val META_ANTHROPIC_TYPE = "anthropic_type"
 private const val TYPE_SERVER_TOOL_USE = "server_tool_use"
