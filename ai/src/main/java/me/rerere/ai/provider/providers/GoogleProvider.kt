@@ -673,95 +673,102 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         return buildJsonArray {
             messages
                 .filter { it.role != MessageRole.SYSTEM && it.isValidToUpload() }
-                .forEachIndexed { index, message ->
-                    add(buildJsonObject {
-                        put("role", commonRoleToGoogleRole(message.role))
-                        putJsonArray("parts") {
-                            for (part in message.parts) {
-                                when (part) {
-                                    is UIMessagePart.Text -> {
+                .forEach { message ->
+                    val parts = buildJsonArray {
+                        for (part in message.parts) {
+                            when (part) {
+                                is UIMessagePart.Text -> {
+                                    if (part.text.isBlank()) continue
+                                    add(buildJsonObject {
+                                        put("text", part.text)
+                                        part.metadata?.get("thoughtSignature")?.let {
+                                            put("thoughtSignature", it)
+                                        }
+                                    })
+                                }
+
+                                is UIMessagePart.Image -> {
+                                    part.encodeBase64(false).onSuccess { base64Data ->
                                         add(buildJsonObject {
-                                            put("text", part.text)
-                                            part.metadata?.get("thoughtSignature")?.let {
-                                                put("thoughtSignature", it)
-                                            }
-                                        })
-                                    }
-
-                                    is UIMessagePart.Image -> {
-                                        part.encodeBase64(false).onSuccess { base64Data ->
-                                            add(buildJsonObject {
-                                                put("inline_data", buildJsonObject {
-                                                    put("mime_type", "image/png")
-                                                    put("data", base64Data)
-                                                })
-                                                part.metadata?.get("thoughtSignature")?.let {
-                                                    put("thoughtSignature", it)
-                                                }
-                                            })
-                                        }
-                                    }
-
-                                    is UIMessagePart.Video -> {
-                                        part.encodeBase64(false).onSuccess { base64Data ->
-                                            add(buildJsonObject {
-                                                put("inline_data", buildJsonObject {
-                                                    put("mime_type", "video/mp4")
-                                                    put("data", base64Data)
-                                                })
-                                                part.metadata?.get("thoughtSignature")?.let {
-                                                    put("thoughtSignature", it)
-                                                }
-                                            })
-                                        }
-                                    }
-
-                                    is UIMessagePart.Audio -> {
-                                        part.encodeBase64(false).onSuccess { base64Data ->
-                                            add(buildJsonObject {
-                                                put("inline_data", buildJsonObject {
-                                                    put("mime_type", "audio/mp3")
-                                                    put("data", base64Data)
-                                                })
-                                                part.metadata?.get("thoughtSignature")?.let {
-                                                    put("thoughtSignature", it)
-                                                }
-                                            })
-                                        }
-                                    }
-
-                                    is UIMessagePart.ToolCall -> {
-                                        add(buildJsonObject {
-                                            put("functionCall", buildJsonObject {
-                                                put("name", part.toolName)
-                                                put("args", json.parseToJsonElement(part.arguments))
+                                            put("inlineData", buildJsonObject {
+                                                put("mimeType", "image/png")
+                                                put("data", base64Data.toGoogleInlineDataPayload())
                                             })
                                             part.metadata?.get("thoughtSignature")?.let {
                                                 put("thoughtSignature", it)
                                             }
                                         })
                                     }
+                                }
 
-                                    is UIMessagePart.ToolResult -> {
+                                is UIMessagePart.Video -> {
+                                    part.encodeBase64(false).onSuccess { base64Data ->
                                         add(buildJsonObject {
-                                            put("functionResponse", buildJsonObject {
-                                                put("name", part.toolName)
-                                                put("response", buildJsonObject {
-                                                    put("result", part.content)
-                                                })
+                                            put("inlineData", buildJsonObject {
+                                                put("mimeType", "video/mp4")
+                                                put("data", base64Data.toGoogleInlineDataPayload())
                                             })
+                                            part.metadata?.get("thoughtSignature")?.let {
+                                                put("thoughtSignature", it)
+                                            }
                                         })
                                     }
+                                }
 
-                                    else -> {
-                                        // Unsupported part type
+                                is UIMessagePart.Audio -> {
+                                    part.encodeBase64(false).onSuccess { base64Data ->
+                                        add(buildJsonObject {
+                                            put("inlineData", buildJsonObject {
+                                                put("mimeType", "audio/mp3")
+                                                put("data", base64Data.toGoogleInlineDataPayload())
+                                            })
+                                            part.metadata?.get("thoughtSignature")?.let {
+                                                put("thoughtSignature", it)
+                                            }
+                                        })
                                     }
+                                }
+
+                                is UIMessagePart.ToolCall -> {
+                                    add(buildJsonObject {
+                                        put("functionCall", buildJsonObject {
+                                            put("name", part.toolName)
+                                            put("args", json.parseToJsonElement(part.arguments))
+                                        })
+                                        part.metadata?.get("thoughtSignature")?.let {
+                                            put("thoughtSignature", it)
+                                        }
+                                    })
+                                }
+
+                                is UIMessagePart.ToolResult -> {
+                                    add(buildJsonObject {
+                                        put("functionResponse", buildJsonObject {
+                                            put("name", part.toolName)
+                                            put("response", buildJsonObject {
+                                                put("result", part.content)
+                                            })
+                                        })
+                                    })
+                                }
+
+                                else -> {
+                                    // Unsupported part type
                                 }
                             }
                         }
+                    }
+                    if (parts.isEmpty()) return@forEach
+                    add(buildJsonObject {
+                        put("role", commonRoleToGoogleRole(message.role))
+                        put("parts", parts)
                     })
                 }
         }
+    }
+
+    private fun String.toGoogleInlineDataPayload(): String {
+        return substringAfter("base64,", this)
     }
 
     private fun parseUsageMeta(jsonObject: JsonObject?): TokenUsage? {
