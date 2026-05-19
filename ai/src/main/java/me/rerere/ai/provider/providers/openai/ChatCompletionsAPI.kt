@@ -468,10 +468,12 @@ class ChatCompletionsAPI(
     ) = buildJsonArray {
         val lastUserMessageIndex = messages.indexOfLast { it.role == MessageRole.USER }
         val requireReasoningContentForToolCalls =
-            modelId.contains("deepseek", ignoreCase = true) || modelId.contains("kimi", ignoreCase = true)
+            modelId.contains("deepseek", ignoreCase = true) ||
+                modelId.contains("kimi", ignoreCase = true) ||
+                modelId.contains("mimo", ignoreCase = true)
 
         // Identify indices belonging to turns (between user messages) that contain tool calls.
-        // DeepSeek/Kimi require reasoning_content from ALL assistant messages in such turns
+        // DeepSeek/Kimi/MiMo require reasoning_content from ALL assistant messages in such turns
         // to be passed back in subsequent requests, not just the current turn.
         val toolCallTurnIndices = if (requireReasoningContentForToolCalls) {
             val indices = mutableSetOf<Int>()
