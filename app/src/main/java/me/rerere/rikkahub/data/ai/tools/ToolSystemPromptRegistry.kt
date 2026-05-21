@@ -344,6 +344,11 @@ val SESSION_MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE = """
 
     ## Session Memory Tool
     You can use `create_session_memory`, `edit_session_memory`, and `delete_session_memory` to manage details that should stay active in this conversation only.
+    `create_session_memory` requires a `placement` value:
+    - `SYSTEM_PROMPT_AFTER`: for stable session memories that are long, important, and unlikely to change often.
+    - `BEFORE_LATEST_MESSAGE`: for short, temporary, frequently changing, or uncertain memories.
+    When unsure, choose `BEFORE_LATEST_MESSAGE`.
+    When editing a session memory, keep its current placement unless the updated memory clearly fits the other position better.
     Use session memory tools sparingly. Save a detail only when it is important for the rest of this conversation, such as settings, outlines, requirements, constraints, or important decisions.
     Do not save ordinary chat history, casual comments, temporary wording, guesses, or details already obvious from the latest user message.
     Prefer editing an existing session memory over creating a duplicate. Delete a session memory when it is wrong or no longer useful.

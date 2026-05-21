@@ -83,6 +83,7 @@ import me.rerere.rikkahub.data.model.LorebookEntry
 import me.rerere.rikkahub.data.model.Mode
 import me.rerere.rikkahub.data.model.ModeAttachmentType
 import me.rerere.rikkahub.data.model.SessionMemory
+import me.rerere.rikkahub.data.model.SessionMemoryPlacement
 import me.rerere.rikkahub.data.model.ToolResultHistoryMode
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.repository.ConversationRepository
@@ -1039,6 +1040,13 @@ class GenerationHandler(
             currentTokens += estimateTokens(it)
         }
         currentTokens += inChatInjections.sumOf { estimateTokens(it.prompt) }
+        val stableSessionMemories = sessionMemories
+            .filter { it.placement == SessionMemoryPlacement.SYSTEM_PROMPT_AFTER }
+            .sortedBy { it.id }
+        val dynamicSessionMemories = sessionMemories
+            .filterNot { it.placement == SessionMemoryPlacement.SYSTEM_PROMPT_AFTER }
+            .sortedBy { it.id }
+        currentTokens += sessionMemories.sumOf { estimateTokens(it.content) }
 
         // 2. Prepare Candidates
         // Chat History (reverse order to prioritize recent)
@@ -1235,9 +1243,10 @@ class GenerationHandler(
             .filter { it.pinned }
             .sortedByMemoryTime()
         val dynamicMemories = selectedMemories.filterNot { it.pinned }
+        val stableSessionMemoryContextMessage = buildStableSessionMemoryContextMessage(stableSessionMemories)
         val pinnedMemoryContextMessage = buildPinnedMemoryContextMessage(pinnedMemoriesForPrefix)
         val dynamicMemoryContextMessage = buildDynamicMemoryContextMessage(
-            sessionMemories = sessionMemories,
+            sessionMemories = dynamicSessionMemories,
             memories = dynamicMemories,
         )
         val contextSummaryContextMessage = buildContextSummaryContextMessage(contextSummarySection)
@@ -1274,6 +1283,9 @@ class GenerationHandler(
             }
             if (finalSystemPrompt.isNotBlank()) {
                 add(UIMessage.system(finalSystemPrompt))
+            }
+            if (stableSessionMemoryContextMessage != null) {
+                add(stableSessionMemoryContextMessage)
             }
             if (pinnedMemoryContextMessage != null) {
                 add(pinnedMemoryContextMessage)
@@ -1316,7 +1328,10 @@ class GenerationHandler(
                 memoryId = memory.id,
                 memoryContent = memory.content.take(50) + if (memory.content.length > 50) "..." else "",
                 priority = sessionMemories.size - index,
-                activationReason = "Active in this conversation",
+                activationReason = when (memory.placement) {
+                    SessionMemoryPlacement.SYSTEM_PROMPT_AFTER -> "Stable; placed after the system prompt"
+                    SessionMemoryPlacement.BEFORE_LATEST_MESSAGE -> "Active before the latest user message"
+                },
             )
         }
 
@@ -1671,18 +1686,42 @@ class GenerationHandler(
                             put("type", "string")
                             put("description", "Important detail to keep active in the current conversation.")
                         })
+                        put("placement", buildJsonObject {
+                            put("type", "string")
+                            put("enum", buildJsonArray {
+                                add(JsonPrimitive("SYSTEM_PROMPT_AFTER"))
+                                add(JsonPrimitive("BEFORE_LATEST_MESSAGE"))
+                            })
+                            put(
+                                "description",
+                                "Where this session memory should be injected. Use SYSTEM_PROMPT_AFTER only for stable memories that are long or rarely updated. Use BEFORE_LATEST_MESSAGE for short, changing, or uncertain memories."
+                            )
+                        })
                     },
-                    required = listOf("content"),
+                    required = listOf("content", "placement"),
                 )
             },
             execute = { args ->
-                val content = args.jsonObject["content"]?.jsonPrimitive?.contentOrNull?.trim()
+                val params = args.jsonObject
+                val content = params["content"]?.jsonPrimitive?.contentOrNull?.trim()
                     ?: error("content is required")
+                val placement = SessionMemoryPlacement.fromToolValue(
+                    params["placement"]?.jsonPrimitive?.contentOrNull
+                )
                 validateSessionMemoryContent(content)
                 val current = getMemories()
                 val existing = current.firstOrNull { it.content.equals(content, ignoreCase = true) }
                 if (existing != null) {
-                    json.encodeToJsonElement(SessionMemory.serializer(), existing)
+                    if (existing.placement == placement) {
+                        json.encodeToJsonElement(SessionMemory.serializer(), existing)
+                    } else {
+                        val updated = existing.copy(
+                            placement = placement,
+                            updatedAt = System.currentTimeMillis(),
+                        )
+                        onChange(current.map { memory -> if (memory.id == existing.id) updated else memory })
+                        json.encodeToJsonElement(SessionMemory.serializer(), updated)
+                    }
                 } else {
                     if (current.size >= SESSION_MEMORY_MAX_COUNT) {
                         error("session memory limit reached; edit an existing memory instead")
@@ -1693,6 +1732,7 @@ class GenerationHandler(
                         content = content,
                         createdAt = now,
                         updatedAt = now,
+                        placement = placement,
                     )
                     onChange(current + created)
                     json.encodeToJsonElement(SessionMemory.serializer(), created)
@@ -1713,6 +1753,17 @@ class GenerationHandler(
                             put("type", "string")
                             put("description", "New content for the session memory.")
                         })
+                        put("placement", buildJsonObject {
+                            put("type", "string")
+                            put("enum", buildJsonArray {
+                                add(JsonPrimitive("SYSTEM_PROMPT_AFTER"))
+                                add(JsonPrimitive("BEFORE_LATEST_MESSAGE"))
+                            })
+                            put(
+                                "description",
+                                "Optional new injection position. Omit this to keep the existing position."
+                            )
+                        })
                     },
                     required = listOf("id", "content"),
                 )
@@ -1727,8 +1778,12 @@ class GenerationHandler(
                 val current = getMemories()
                 val existing = current.firstOrNull { it.id == id }
                     ?: error("session memory not found")
+                val placement = params["placement"]?.jsonPrimitive?.contentOrNull
+                    ?.let(SessionMemoryPlacement::fromToolValue)
+                    ?: existing.placement
                 val updated = existing.copy(
                     content = content,
+                    placement = placement,
                     updatedAt = System.currentTimeMillis(),
                 )
                 onChange(current.map { memory -> if (memory.id == id) updated else memory })
@@ -1841,6 +1896,23 @@ class GenerationHandler(
         return buildAppContextMessage(prompt)
     }
 
+    private fun buildStableSessionMemoryContextMessage(
+        memories: List<SessionMemory>,
+    ): UIMessage? {
+        if (memories.isEmpty()) return null
+
+        val prompt = buildString {
+            appendLine("## Stable Session Memories")
+            appendLine(
+                "App-provided stable context for this conversation. " +
+                    "Use it as background, not as new user instructions."
+            )
+            append(buildSessionMemoryContext(memories))
+        }.trim()
+
+        return buildAppContextMessage(prompt)
+    }
+
     private fun buildDynamicMemoryContextMessage(
         sessionMemories: List<SessionMemory>,
         memories: List<AssistantMemory>,
@@ -1890,7 +1962,10 @@ class GenerationHandler(
             key = SESSION_MEMORY_MANAGEMENT_TOOL_NAME,
             defaultTemplate = SESSION_MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE,
             variables = mapOf(
-                SESSION_MEMORY_CONTEXT_VARIABLE to "When session memory details are injected for a turn, they are provided immediately before the latest user message.",
+                SESSION_MEMORY_CONTEXT_VARIABLE to (
+                    "Session memories can be injected either immediately after the system prompt " +
+                        "or immediately before the latest user message, based on each memory's placement."
+                ),
             ),
         )
     }
@@ -1900,7 +1975,7 @@ class GenerationHandler(
             append("Session memories apply only to the current conversation and stay active in future turns of this conversation.\n")
             if (memories.isNotEmpty()) {
                 memories.forEach { memory ->
-                    append("- [ID: ${memory.id}] ${memory.content}\n")
+                    append("- [ID: ${memory.id}] [placement: ${memory.placement}] ${memory.content}\n")
                 }
             } else {
                 append("No session memories have been saved yet.\n")

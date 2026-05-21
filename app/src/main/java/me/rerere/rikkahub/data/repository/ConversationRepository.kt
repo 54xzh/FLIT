@@ -40,6 +40,7 @@ import me.rerere.rikkahub.data.db.entity.MemoryType
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.data.model.SessionMemory
+import me.rerere.rikkahub.data.model.SessionMemoryPlacement
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.deleteChatFiles
@@ -420,6 +421,9 @@ class ConversationRepository(
                     content = content,
                     createdAt = createdAt,
                     updatedAt = obj["updatedAt"]?.jsonPrimitive?.longOrNull ?: createdAt,
+                    placement = SessionMemoryPlacement.fromToolValue(
+                        obj["placement"]?.jsonPrimitive?.contentOrNull
+                    ),
                 )
             }
         }
