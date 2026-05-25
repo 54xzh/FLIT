@@ -41,10 +41,12 @@ import me.rerere.ai.util.configureClientWithProxy
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.encodeBase64
 import me.rerere.ai.util.HttpStatusException
+import me.rerere.ai.util.isLikelySsePayload
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.parseErrorDetail
 import me.rerere.ai.util.RawResponseException
+import me.rerere.ai.util.SSEEventSource
 import me.rerere.ai.util.stringSafe
 import me.rerere.ai.util.toHeaders
 import me.rerere.common.http.await
@@ -58,7 +60,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
-import okhttp3.sse.EventSources
 import kotlin.time.Clock
 
 private const val TAG = "ChatCompletionsAPI"
@@ -193,19 +194,18 @@ class ChatCompletionsAPI(
                 type: String?,
                 data: String
             ) {
-                if (data == "[DONE]") {
-                    println("[onEvent] (done) 结束流: $data")
-                    close()
-                    return
-                }
+                val eventLines = data
+                    .trim()
+                    .split("\n")
+                    .map { it.trim().removePrefix("data:").trim() }
+                    .filter { it.isNotBlank() }
+                val hasDoneEvent = eventLines.any { it == "[DONE]" }
                 Log.d(TAG, "onEvent: $data")
                 if (rawEventBuffer.isNotEmpty()) rawEventBuffer.append("\n")
                 rawEventBuffer.append(data)
                 val payloads = runCatching {
-                    data
-                        .trim()
-                        .split("\n")
-                        .filter { it.isNotBlank() }
+                    eventLines
+                        .filter { it != "[DONE]" }
                         .map { json.parseToJsonElement(it).jsonObject }
                 }.getOrElse { throwable ->
                     close(
@@ -215,6 +215,11 @@ class ChatCompletionsAPI(
                             cause = throwable,
                         )
                     )
+                    return
+                }
+                if (payloads.isEmpty() && hasDoneEvent) {
+                    println("[onEvent] (done) 结束流: $data")
+                    close()
                     return
                 }
 
@@ -270,6 +275,10 @@ class ChatCompletionsAPI(
                     }
                     trySend(messageChunk)
                 }
+                if (hasDoneEvent) {
+                    println("[onEvent] (done) 结束流: $data")
+                    close()
+                }
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
@@ -283,15 +292,18 @@ class ChatCompletionsAPI(
                 rawFailureResponse = bodyRaw.orEmpty()
                 try {
                     if (!bodyRaw.isNullOrBlank()) {
-                        val bodyElement = Json.parseToJsonElement(bodyRaw)
-                        println(bodyElement)
-                        exception = bodyElement.parseErrorDetail()
-                        Log.i(TAG, "onFailure: $exception")
+                        if (bodyRaw.isLikelySsePayload()) {
+                            Log.w(TAG, "onFailure: skipped JSON error parse for SSE response")
+                        } else {
+                            val bodyElement = Json.parseToJsonElement(bodyRaw)
+                            println(bodyElement)
+                            exception = bodyElement.parseErrorDetail()
+                            Log.i(TAG, "onFailure: $exception")
+                        }
                     }
                 } catch (e: Throwable) {
-                    Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
+                    Log.w(TAG, "onFailure: failed to parse from $bodyRaw", e)
                     e.printStackTrace()
-                    exception = e
                 } finally {
                     val exceptionWithStatus = response?.let { resp ->
                         HttpStatusException(
@@ -315,7 +327,7 @@ class ChatCompletionsAPI(
             }
         }
 
-        val eventSource = EventSources.createFactory(proxyClient).newEventSource(request, listener)
+        val eventSource = SSEEventSource.factory(proxyClient).newEventSource(request, listener)
 
         awaitClose {
             println("[awaitClose] 关闭eventSource ")

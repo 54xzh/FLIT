@@ -86,7 +86,8 @@ class SSEEventSource(
 
     private fun ResponseBody.isEventStream(): Boolean {
         val contentType = contentType() ?: return false
-        return contentType.type == "text" && contentType.subtype == "event-stream"
+        return contentType.type == "text" &&
+            (contentType.subtype == "event-stream" || contentType.subtype == "plain")
     }
 
     override fun onFailure(

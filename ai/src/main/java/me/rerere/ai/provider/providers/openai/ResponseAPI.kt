@@ -35,11 +35,13 @@ import me.rerere.ai.util.configureClientWithProxy
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.encodeBase64
 import me.rerere.ai.util.HttpStatusException
+import me.rerere.ai.util.isLikelySsePayload
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.parseErrorDetail
 import me.rerere.ai.util.RawResponseException
+import me.rerere.ai.util.SSEEventSource
 import me.rerere.ai.util.stringSafe
 import me.rerere.ai.util.toHeaders
 import me.rerere.common.http.await
@@ -51,7 +53,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
-import okhttp3.sse.EventSources
 import kotlin.time.Clock
 
 private const val TAG = "ResponseAPI"
@@ -149,7 +150,12 @@ class ResponseAPI(
                 Log.d(TAG, "onEvent: $id/$type $data")
                 if (rawEventBuffer.isNotEmpty()) rawEventBuffer.append("\n")
                 rawEventBuffer.append(data)
-                val json = runCatching { json.parseToJsonElement(data).jsonObject }
+                val eventData = data.trim().removePrefix("data:").trim()
+                if (eventData == "[DONE]") {
+                    close()
+                    return
+                }
+                val json = runCatching { json.parseToJsonElement(eventData).jsonObject }
                     .getOrElse { throwable ->
                         close(
                             RawResponseException(
@@ -181,9 +187,9 @@ class ResponseAPI(
                             )
                         )
                         return
-                    }
+                }
                 if (chunk != null) {
-                    trySend(chunk.copy(rawResponse = data))
+                    trySend(chunk.copy(rawResponse = eventData))
                 }
                 if (type == "response.completed") {
                     close()
@@ -201,15 +207,18 @@ class ResponseAPI(
                 rawFailureResponse = bodyRaw.orEmpty()
                 try {
                     if (!bodyRaw.isNullOrBlank()) {
-                        val bodyElement = Json.parseToJsonElement(bodyRaw)
-                        println(bodyElement)
-                        exception = bodyElement.parseErrorDetail()
-                        Log.i(TAG, "onFailure: $exception")
+                        if (bodyRaw.isLikelySsePayload()) {
+                            Log.w(TAG, "onFailure: skipped JSON error parse for SSE response")
+                        } else {
+                            val bodyElement = Json.parseToJsonElement(bodyRaw)
+                            println(bodyElement)
+                            exception = bodyElement.parseErrorDetail()
+                            Log.i(TAG, "onFailure: $exception")
+                        }
                     }
                 } catch (e: Throwable) {
-                    Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
+                    Log.w(TAG, "onFailure: failed to parse from $bodyRaw", e)
                     e.printStackTrace()
-                    exception = e
                 } finally {
                     val exceptionWithStatus = response?.let { resp ->
                         HttpStatusException(
@@ -234,7 +243,7 @@ class ResponseAPI(
         }
 
         val eventSource =
-            EventSources.createFactory(client.configureClientWithProxy(providerSetting.proxy))
+            SSEEventSource.factory(client.configureClientWithProxy(providerSetting.proxy))
                 .newEventSource(request, listener)
 
         awaitClose {

@@ -35,6 +35,13 @@ fun JsonElement.parseErrorDetail(): Exception {
     } ?: HttpException(detail.message)
 }
 
+fun String.isLikelySsePayload(): Boolean {
+    return lineSequence()
+        .map { it.trimStart() }
+        .firstOrNull { it.isNotBlank() }
+        ?.startsWith("data:") == true
+}
+
 private fun JsonElement.extractErrorDetail(): ParsedErrorDetail {
     return when (this) {
         is JsonObject -> extractErrorDetailFromObject()
