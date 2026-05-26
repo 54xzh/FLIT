@@ -27,6 +27,7 @@ settings.local.json
 /.android-sdk
 /.android-user
 /.gradle-user
+/.mindfs
 /.jdks
 .claude/settings.local.json
 .alma-snapshots

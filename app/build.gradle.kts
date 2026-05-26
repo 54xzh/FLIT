@@ -24,6 +24,10 @@ private data class LocalBuildMeta(
     val buildNumber: Int,
 )
 
+private val isGithubActionsBuild = System.getenv("GITHUB_ACTIONS") == "true"
+private val localBuildAbis = listOf("arm64-v8a")
+private val githubActionsBuildAbis = listOf("arm64-v8a", "x86_64")
+
 private fun shouldBumpLocalBuildNumber(taskNames: List<String>): Boolean {
     if (taskNames.isEmpty()) return false
 
@@ -79,8 +83,7 @@ android {
         targetSdk = 36
         versionCode = ((System.currentTimeMillis() - 1577808000000) / 60000).toInt() // 基于 2020-01-01 00:00:00 UTC 的分钟数
         val baseVersionName = "1.4.4"
-        val isGithubActions = System.getenv("GITHUB_ACTIONS") == "true"
-        versionName = if (isGithubActions) {
+        versionName = if (isGithubActionsBuild) {
             baseVersionName
         } else {
             val localBuildMeta = resolveLocalBuildMeta(
@@ -95,7 +98,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += if (isGithubActionsBuild) githubActionsBuildAbis else localBuildAbis
         }
     }
 
@@ -122,8 +125,9 @@ android {
             val isBuildingBundle = gradle.startParameter.taskNames.any { it.lowercase().contains("bundle") }
             isEnable = !isBuildingBundle
             reset()
-            include("arm64-v8a", "x86_64")
-            isUniversalApk = true
+            val buildAbis = if (isGithubActionsBuild) githubActionsBuildAbis else localBuildAbis
+            include(*buildAbis.toTypedArray())
+            isUniversalApk = isGithubActionsBuild
         }
     }
 
