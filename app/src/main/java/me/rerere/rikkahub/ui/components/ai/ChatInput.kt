@@ -52,7 +52,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -71,20 +70,18 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalAbsoluteTonalElevation
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
 import androidx.compose.material3.LinearWavyProgressIndicator
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -148,6 +145,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Book
 import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.ui.draw.rotate
@@ -176,6 +174,7 @@ import me.rerere.rikkahub.data.datastore.rememberWorkspaceForNewChatsIfEnabled
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.GroupChatTemplate
+import me.rerere.rikkahub.data.model.Skill
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.ui.components.ui.KeepScreenOn
 import me.rerere.rikkahub.ui.components.ui.UIAvatar
@@ -342,6 +341,139 @@ internal fun filterGroupChatMentionSuggestions(
     }
 
     return startsWith + contains
+}
+
+@Composable
+internal fun ExplicitSkillsPickerSheet(
+    skills: List<Skill>,
+    selectedSkillIds: Set<Uuid>,
+    onSelectedSkillIdsChange: (Set<Uuid>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val haptics = rememberPremiumHaptics()
+    val amoledMode by rememberAmoledDarkMode()
+    val isDarkMode = LocalDarkMode.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    var localSelectedIds by remember(skills, selectedSkillIds) {
+        mutableStateOf(selectedSkillIds.filter { skillId -> skills.any { it.id == skillId } }.toSet())
+    }
+    val cornerRadius = 28.dp
+    val smallCorner = 8.dp
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
+        dragHandle = {
+            IconButton(
+                onClick = {
+                    scope.launch {
+                        sheetState.hide()
+                        onDismiss()
+                    }
+                }
+            ) {
+                Icon(Icons.Rounded.KeyboardArrowDown, null)
+            }
+        },
+        containerColor = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.explicit_skills_picker_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            Text(
+                text = stringResource(R.string.explicit_skills_picker_desc),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+
+            skills.forEachIndexed { index, skill ->
+                val isEnabled = skill.id in localSelectedIds
+                val shape = when {
+                    skills.size == 1 -> RoundedCornerShape(cornerRadius)
+                    index == 0 -> RoundedCornerShape(
+                        topStart = cornerRadius,
+                        topEnd = cornerRadius,
+                        bottomStart = smallCorner,
+                        bottomEnd = smallCorner,
+                    )
+                    index == skills.lastIndex -> RoundedCornerShape(
+                        topStart = smallCorner,
+                        topEnd = smallCorner,
+                        bottomStart = cornerRadius,
+                        bottomEnd = cornerRadius,
+                    )
+                    else -> RoundedCornerShape(smallCorner)
+                }
+
+                CompositionLocalProvider(LocalAbsoluteTonalElevation provides if (amoledMode && isDarkMode) 0.dp else LocalAbsoluteTonalElevation.current) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh,
+                        ),
+                        shape = shape,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 80.dp)
+                                .clickable {
+                                    haptics.perform(HapticPattern.Pop)
+                                    val nextIds = if (isEnabled) {
+                                        localSelectedIds - skill.id
+                                    } else {
+                                        localSelectedIds + skill.id
+                                    }
+                                    localSelectedIds = nextIds
+                                    onSelectedSkillIdsChange(nextIds)
+                                }
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Extension,
+                                contentDescription = null,
+                                tint = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = skill.name.ifBlank { stringResource(R.string.skills_unnamed) },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = skill.description.trim().ifBlank { stringResource(R.string.skills_no_description) },
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            androidx.compose.material3.Switch(
+                                checked = isEnabled,
+                                onCheckedChange = null,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -1474,9 +1606,22 @@ private fun FilesPicker(
     val enabledMcpServersCount = remember(mcpServers, assistant.mcpServers) {
         mcpServers.count { it.commonOptions.enable && it.id in assistant.mcpServers }
     }
+    val enabledSkills = remember(settings.skills, assistant.enabledSkillIds) {
+        settings.skills.filter { skill -> skill.id in assistant.enabledSkillIds }
+    }
+    val activeExplicitSkillIds = remember(
+        conversation.explicitSkillContextIds,
+        assistant.enabledSkillIds,
+        enabledSkills,
+    ) {
+        conversation.explicitSkillContextIds.filter { skillId ->
+            skillId in assistant.enabledSkillIds && enabledSkills.any { skill -> skill.id == skillId }
+        }.toSet()
+    }
     val mcpSyncStatus by mcpManager.syncingStatus.collectAsStateWithLifecycle()
     val mcpLoading = mcpSyncStatus.values.any { it == McpStatus.Connecting }
     var showMcpPicker by remember { mutableStateOf(false) }
+    var showSkillsPicker by remember { mutableStateOf(false) }
 
     val isDarkMode = LocalDarkMode.current
     val isKeyboardVisible = WindowInsets.isImeVisible
@@ -1890,6 +2035,66 @@ private fun FilesPicker(
                     },
                 )
             }
+
+            if (uiMode == ChatInputUiMode.Normal && enabledSkills.isNotEmpty()) {
+                val skillsInteractionSource = remember { MutableInteractionSource() }
+                val isSkillsPressed by skillsInteractionSource.collectIsPressedAsState()
+                val skillsScale by animateFloatAsState(
+                    targetValue = if (isSkillsPressed) 0.98f else 1f,
+                    animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                    label = "explicit_skills_item_scale",
+                )
+                val activeSkillCount = activeExplicitSkillIds.size
+                ListItem(
+                    modifier = Modifier
+                        .graphicsLayer {
+                            scaleX = skillsScale
+                            scaleY = skillsScale
+                        }
+                        .clip(RoundedCornerShape(24.dp))
+                        .clickable(
+                            interactionSource = skillsInteractionSource,
+                            indication = LocalIndication.current,
+                        ) {
+                            haptics.perform(HapticPattern.Pop)
+                            showSkillsPicker = true
+                        },
+                    colors = ListItemDefaults.colors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    ),
+                    leadingContent = {
+                        BadgedBox(
+                            badge = {
+                                if (activeSkillCount > 0) {
+                                    Badge(containerColor = MaterialTheme.colorScheme.tertiaryContainer) {
+                                        Text(text = activeSkillCount.toString())
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Extension,
+                                contentDescription = stringResource(R.string.explicit_skills_picker_title),
+                                tint = if (activeSkillCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    headlineContent = {
+                        Text(stringResource(R.string.explicit_skills_picker_title))
+                    },
+                    supportingContent = {
+                        Text(stringResource(R.string.explicit_skills_picker_desc))
+                    },
+                    trailingContent = {
+                        Text(
+                            text = "$activeSkillCount/${enabledSkills.size}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                            maxLines = 1,
+                        )
+                    },
+                )
+            }
         }
     }
 
@@ -1943,6 +2148,17 @@ private fun FilesPicker(
                 onNavigateToLorebook(lorebookId)
             },
             onDismiss = { showLorebooksPicker = false },
+        )
+    }
+
+    if (uiMode == ChatInputUiMode.Normal && showSkillsPicker) {
+        ExplicitSkillsPickerSheet(
+            skills = enabledSkills,
+            selectedSkillIds = activeExplicitSkillIds,
+            onSelectedSkillIdsChange = { nextIds ->
+                onUpdateConversation(conversation.copy(explicitSkillContextIds = nextIds))
+            },
+            onDismiss = { showSkillsPicker = false },
         )
     }
 

@@ -2145,5 +2145,8 @@
     <string name="quota_group_keep_one_model">組內至少保留一個模型。</string>
     <string name="quota_group_delete">刪除限額組</string>
     <string name="quota_group_delete_confirm">刪除這個限額組嗎？模型會保留各自的單獨限額設定。</string>
+    <string name="explicit_skills_picker_title">技能</string>
+    <string name="explicit_skills_picker_desc">把選中的 SKILL.md 注入目前對話。</string>
+    <string name="explicit_skills_picker_count">已注入 %1$d/%2$d</string>
 
 </resources>

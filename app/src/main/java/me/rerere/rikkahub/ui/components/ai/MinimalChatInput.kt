@@ -63,6 +63,7 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Book
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Fullscreen
@@ -757,6 +758,7 @@ private fun MinimalPickerContent(
     var showLorebooksPicker by remember { mutableStateOf(false) }
     var showSearchPicker by remember { mutableStateOf(false) }
     var showMcpPicker by remember { mutableStateOf(false) }
+    var showSkillsPicker by remember { mutableStateOf(false) }
     var showAttachmentMenu by remember { mutableStateOf(false) }
     val currentChatModel = settings.getCurrentChatModel()
     val showGeminiAttachmentMenu = remember(currentChatModel?.modelId) {
@@ -769,6 +771,18 @@ private fun MinimalPickerContent(
     }
     val mcpSyncStatus by mcpManager.syncingStatus.collectAsStateWithLifecycle()
     val mcpLoading = mcpSyncStatus.values.any { it == McpStatus.Connecting }
+    val enabledSkills = remember(settings.skills, assistant.enabledSkillIds) {
+        settings.skills.filter { skill -> skill.id in assistant.enabledSkillIds }
+    }
+    val activeExplicitSkillIds = remember(
+        conversation.explicitSkillContextIds,
+        assistant.enabledSkillIds,
+        enabledSkills,
+    ) {
+        conversation.explicitSkillContextIds.filter { skillId ->
+            skillId in assistant.enabledSkillIds && enabledSkills.any { skill -> skill.id == skillId }
+        }.toSet()
+    }
     
     // Track the last valid search provider index so selection persists when search is disabled
     var lastValidProviderIndex by rememberSaveable { mutableStateOf(settings.searchServiceSelected.coerceAtLeast(0)) }
@@ -1162,6 +1176,29 @@ private fun MinimalPickerContent(
                     }
                 )
             }
+
+            if (enabledSkills.isNotEmpty()) {
+                val activeSkillCount = activeExplicitSkillIds.size
+                MinimalPickerItem(
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Rounded.Extension,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = if (activeSkillCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    title = stringResource(R.string.explicit_skills_picker_title),
+                    subtitle = stringResource(
+                        R.string.explicit_skills_picker_count,
+                        activeSkillCount,
+                        enabledSkills.size,
+                    ),
+                    onClick = {
+                        showSkillsPicker = true
+                    },
+                )
+            }
         }
         
         val activeModesCount = settings.modes.count { mode ->
@@ -1357,6 +1394,17 @@ private fun MinimalPickerContent(
                 )
             }
         }
+    }
+
+    if (uiMode == ChatInputUiMode.Normal && showSkillsPicker) {
+        ExplicitSkillsPickerSheet(
+            skills = enabledSkills,
+            selectedSkillIds = activeExplicitSkillIds,
+            onSelectedSkillIdsChange = { nextIds ->
+                onUpdateConversation(conversation.copy(explicitSkillContextIds = nextIds))
+            },
+            onDismiss = { showSkillsPicker = false },
+        )
     }
     
     // Search picker sheet (same as floating toolbar) - direct content, no intermediate button

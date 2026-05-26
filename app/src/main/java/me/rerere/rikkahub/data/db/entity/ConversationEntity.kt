@@ -37,6 +37,8 @@ data class ConversationEntity(
     val isConsolidated: Boolean = false,
     @ColumnInfo(name = "enabled_mode_ids", defaultValue = "[]")
     val enabledModeIds: String = "[]",
+    @ColumnInfo(name = "explicit_skill_context_ids", defaultValue = "[]")
+    val explicitSkillContextIds: String = "[]",
     @ColumnInfo(name = "context_summary", defaultValue = "''")
     val contextSummary: String = "",
     @ColumnInfo(name = "context_summary_up_to_index", defaultValue = "-1")

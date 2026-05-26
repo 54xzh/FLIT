@@ -558,4 +558,7 @@
     <string name="quota_group_keep_one_model">组内至少保留一个模型。</string>
     <string name="quota_group_delete">删除限额组</string>
     <string name="quota_group_delete_confirm">删除这个限额组吗？模型会保留各自的单独限额设置。</string>
+    <string name="explicit_skills_picker_title">技能</string>
+    <string name="explicit_skills_picker_desc">把选中的 SKILL.md 注入当前对话。</string>
+    <string name="explicit_skills_picker_count">已注入 %1$d/%2$d</string>
 </resources>

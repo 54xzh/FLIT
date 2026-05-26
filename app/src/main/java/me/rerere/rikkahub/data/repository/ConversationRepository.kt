@@ -214,6 +214,7 @@ class ConversationRepository(
                 isPinned = entity.isPinned,
                 isConsolidated = entity.isConsolidated,
                 enabledModeIds = entity.enabledModeIds,
+                explicitSkillContextIds = entity.explicitSkillContextIds,
                 contextSummary = entity.contextSummary,
                 contextSummaryUpToIndex = entity.contextSummaryUpToIndex,
                 lastPruneTime = entity.lastPruneTime,
@@ -352,6 +353,7 @@ class ConversationRepository(
             isPinned = conversation.isPinned,
             isConsolidated = conversation.isConsolidated,
             enabledModeIds = JsonInstant.encodeToString(conversation.enabledModeIds.map { it.toString() }),
+            explicitSkillContextIds = JsonInstant.encodeToString(conversation.explicitSkillContextIds.map { it.toString() }),
             contextSummary = conversation.contextSummary.orEmpty(),
             contextSummaryUpToIndex = conversation.contextSummaryUpToIndex,
             lastPruneTime = conversation.lastPruneTime,
@@ -368,6 +370,13 @@ class ConversationRepository(
         val enabledModeIds = try {
             JsonInstant.decodeFromString<List<String>>(conversationEntity.enabledModeIds)
                 .map { Uuid.parse(it) }
+                .toSet()
+        } catch (_: Exception) {
+            emptySet()
+        }
+        val explicitSkillContextIds = try {
+            JsonInstant.decodeFromString<List<String>>(conversationEntity.explicitSkillContextIds)
+                .mapNotNull { value -> runCatching { Uuid.parse(value) }.getOrNull() }
                 .toSet()
         } catch (_: Exception) {
             emptySet()
@@ -391,6 +400,7 @@ class ConversationRepository(
             isPinned = conversationEntity.isPinned,
             isConsolidated = conversationEntity.isConsolidated,
             enabledModeIds = enabledModeIds,
+            explicitSkillContextIds = explicitSkillContextIds,
             contextSummary = conversationEntity.contextSummary.takeIf { it.isNotBlank() },
             contextSummaryUpToIndex = conversationEntity.contextSummaryUpToIndex,
             lastPruneTime = conversationEntity.lastPruneTime,
@@ -1171,6 +1181,8 @@ private data class RawConversationEntity(
     val isConsolidated: Boolean,
     @SerialName("enabled_mode_ids")
     val enabledModeIds: String,
+    @SerialName("explicit_skill_context_ids")
+    val explicitSkillContextIds: String = "[]",
     @SerialName("context_summary")
     val contextSummary: String,
     @SerialName("context_summary_up_to_index")

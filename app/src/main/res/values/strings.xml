@@ -2155,5 +2155,8 @@
     <string name="quota_group_keep_one_model">Keep at least one model in the group.</string>
     <string name="quota_group_delete">Delete quota group</string>
     <string name="quota_group_delete_confirm">Delete this quota group? Models will keep their single-model quota settings.</string>
+    <string name="explicit_skills_picker_title">Skills</string>
+    <string name="explicit_skills_picker_desc">Inject selected SKILL.md files into this conversation.</string>
+    <string name="explicit_skills_picker_count">%1$d/%2$d injected</string>
 
 </resources>

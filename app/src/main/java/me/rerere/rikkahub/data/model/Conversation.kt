@@ -81,6 +81,7 @@ data class Conversation(
     val chatSuggestions: List<String> = emptyList(),
     val isPinned: Boolean = false,
     val enabledModeIds: Set<Uuid> = emptySet(), // Per-chat enabled modes
+    val explicitSkillContextIds: Set<Uuid> = emptySet(), // Per-chat Skill.md files injected directly
     @Serializable(with = InstantSerializer::class)
     val createAt: Instant = Instant.now(),
     @Serializable(with = InstantSerializer::class)

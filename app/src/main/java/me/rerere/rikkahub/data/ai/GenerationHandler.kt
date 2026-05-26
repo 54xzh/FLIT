@@ -91,6 +91,7 @@ import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
 import me.rerere.rikkahub.utils.applyPlaceholders
 import me.rerere.rikkahub.R
+import java.io.File
 import java.io.IOException
 import java.util.Locale
 import kotlin.uuid.Uuid
@@ -221,6 +222,7 @@ class GenerationHandler(
         truncateIndex: Int = -1,
         maxSteps: Int = 256,
         enabledModeIds: Set<Uuid> = emptySet(),
+        explicitSkillContextIds: Set<Uuid> = emptySet(),
         source: AIRequestSource = AIRequestSource.OTHER,
         toolApprovalHandler: ToolApprovalHandler? = null,
         askUserHandler: AskUserHandler? = null,
@@ -303,6 +305,7 @@ class GenerationHandler(
                 truncateIndex = truncateIndex,
                 stream = assistant.streamOutput,
                 enabledModeIds = enabledModeIds,
+                explicitSkillContextIds = explicitSkillContextIds,
                 source = source,
             )
             messages = messages.visualTransforms(
@@ -678,6 +681,7 @@ class GenerationHandler(
         sessionMemories: List<SessionMemory>,
         truncateIndex: Int,
         enabledModeIds: Set<Uuid> = emptySet(),
+        explicitSkillContextIds: Set<Uuid> = emptySet(),
     ): BuildMessagesResult {
         val allMessages = messages.truncate(truncateIndex)
         val conversation = conversationId?.let { conversationRepo.getConversationById(it) }
@@ -1031,6 +1035,16 @@ class GenerationHandler(
                 )
             )
         }
+
+        val explicitSkillContextPrompt = buildExplicitSkillContextPrompt(
+            settings = settings,
+            assistant = assistant,
+            explicitSkillContextIds = explicitSkillContextIds,
+        )
+        if (explicitSkillContextPrompt.isNotBlank()) {
+            baseSystemPromptBuilder.appendLine()
+            baseSystemPromptBuilder.append(explicitSkillContextPrompt)
+        }
         val baseSystemPrompt = baseSystemPromptBuilder.toString()
         currentTokens += estimateTokens(baseSystemPrompt)
         if (contextSummarySection.isNotBlank()) {
@@ -1360,6 +1374,7 @@ class GenerationHandler(
         truncateIndex: Int,
         stream: Boolean,
         enabledModeIds: Set<Uuid> = emptySet(),
+        explicitSkillContextIds: Set<Uuid> = emptySet(),
         source: AIRequestSource,
     ) {
         val buildResult = buildMessages(
@@ -1373,6 +1388,7 @@ class GenerationHandler(
             sessionMemories = sessionMemories,
             truncateIndex = truncateIndex,
             enabledModeIds = enabledModeIds,
+            explicitSkillContextIds = explicitSkillContextIds,
         )
         val internalMessages = buildResult.messages.transforms(transformers, context, model, assistant)
         val usedLorebookEntries = buildResult.usedLorebookEntries
@@ -1863,6 +1879,69 @@ class GenerationHandler(
         val prompt = summary.trim()
         if (prompt.isBlank()) return null
         return buildAppContextMessage(prompt)
+    }
+
+    private suspend fun buildExplicitSkillContextPrompt(
+        settings: Settings,
+        assistant: Assistant,
+        explicitSkillContextIds: Set<Uuid>,
+    ): String {
+        if (explicitSkillContextIds.isEmpty()) return ""
+        val enabledSkillIds = assistant.enabledSkillIds
+        if (enabledSkillIds.isEmpty()) return ""
+
+        val skillsById = settings.skills
+            .asSequence()
+            .filter { skill -> skill.id in enabledSkillIds }
+            .associateBy { it.id }
+        if (skillsById.isEmpty()) return ""
+
+        val selectedSkills = explicitSkillContextIds.mapNotNull { skillId -> skillsById[skillId] }
+        if (selectedSkills.isEmpty()) return ""
+
+        val loadedSkills = withContext(Dispatchers.IO) {
+            selectedSkills.mapNotNull { skill ->
+                val skillFile = File(context.filesDir, "skills/${skill.id}/SKILL.md")
+                val content = runCatching {
+                    if (skillFile.isFile) skillFile.readText() else ""
+                }.getOrElse { error ->
+                    Log.w(TAG, "Failed to read explicit SKILL.md for ${skill.id}", error)
+                    ""
+                }
+                if (content.isBlank()) {
+                    null
+                } else {
+                    skill to content
+                }
+            }
+        }
+        if (loadedSkills.isEmpty()) return ""
+
+        return buildString {
+            appendLine("## Explicitly Enabled Skills")
+            appendLine("App-provided Skill instructions explicitly enabled for this conversation.")
+            appendLine("The following SKILL.md files are already loaded. Follow them directly.")
+            appendLine("This overrides the generic skill-tool rule to load SKILL.md first for these skills.")
+            appendLine("Do not call read_skill_file for these SKILL.md files unless you need other files from the skill package.")
+            loadedSkills.forEach { (skill, content) ->
+                appendLine()
+                append("<skill name=\"")
+                append(escapeXmlAttribute(skill.name.ifBlank { skill.id.toString() }))
+                append("\" id=\"")
+                append(skill.id)
+                appendLine("\">")
+                appendLine(content)
+                appendLine("</skill>")
+            }
+        }.trim()
+    }
+
+    private fun escapeXmlAttribute(value: String): String {
+        return value
+            .replace("&", "&amp;")
+            .replace("\"", "&quot;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
     }
 
     private fun buildAppContextMessage(prompt: String): UIMessage {
