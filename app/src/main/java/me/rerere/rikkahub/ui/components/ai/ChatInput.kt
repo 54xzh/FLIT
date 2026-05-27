@@ -72,7 +72,9 @@ import androidx.compose.material3.LocalAbsoluteTonalElevation
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ProvideTextStyle
+import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -154,7 +156,6 @@ import me.rerere.rikkahub.ui.components.crop.CropImageScreen
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ModelType
-import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.common.android.appTempFolder
 import me.rerere.rikkahub.R
@@ -222,6 +223,12 @@ enum class ExpandState {
 enum class ChatInputUiMode {
     Normal,
     GroupChat,
+}
+
+private enum class InjectionPickerTab {
+    Skills,
+    Lorebooks,
+    Modes,
 }
 
 internal data class GroupChatMentionKeySuggestion(
@@ -341,139 +348,6 @@ internal fun filterGroupChatMentionSuggestions(
     }
 
     return startsWith + contains
-}
-
-@Composable
-internal fun ExplicitSkillsPickerSheet(
-    skills: List<Skill>,
-    selectedSkillIds: Set<Uuid>,
-    onSelectedSkillIdsChange: (Set<Uuid>) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val haptics = rememberPremiumHaptics()
-    val amoledMode by rememberAmoledDarkMode()
-    val isDarkMode = LocalDarkMode.current
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    var localSelectedIds by remember(skills, selectedSkillIds) {
-        mutableStateOf(selectedSkillIds.filter { skillId -> skills.any { it.id == skillId } }.toSet())
-    }
-    val cornerRadius = 28.dp
-    val smallCorner = 8.dp
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        sheetGesturesEnabled = false,
-        dragHandle = {
-            IconButton(
-                onClick = {
-                    scope.launch {
-                        sheetState.hide()
-                        onDismiss()
-                    }
-                }
-            ) {
-                Icon(Icons.Rounded.KeyboardArrowDown, null)
-            }
-        },
-        containerColor = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.explicit_skills_picker_title),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            Text(
-                text = stringResource(R.string.explicit_skills_picker_desc),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-
-            skills.forEachIndexed { index, skill ->
-                val isEnabled = skill.id in localSelectedIds
-                val shape = when {
-                    skills.size == 1 -> RoundedCornerShape(cornerRadius)
-                    index == 0 -> RoundedCornerShape(
-                        topStart = cornerRadius,
-                        topEnd = cornerRadius,
-                        bottomStart = smallCorner,
-                        bottomEnd = smallCorner,
-                    )
-                    index == skills.lastIndex -> RoundedCornerShape(
-                        topStart = smallCorner,
-                        topEnd = smallCorner,
-                        bottomStart = cornerRadius,
-                        bottomEnd = cornerRadius,
-                    )
-                    else -> RoundedCornerShape(smallCorner)
-                }
-
-                CompositionLocalProvider(LocalAbsoluteTonalElevation provides if (amoledMode && isDarkMode) 0.dp else LocalAbsoluteTonalElevation.current) {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh,
-                        ),
-                        shape = shape,
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 80.dp)
-                                .clickable {
-                                    haptics.perform(HapticPattern.Pop)
-                                    val nextIds = if (isEnabled) {
-                                        localSelectedIds - skill.id
-                                    } else {
-                                        localSelectedIds + skill.id
-                                    }
-                                    localSelectedIds = nextIds
-                                    onSelectedSkillIdsChange(nextIds)
-                                }
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Extension,
-                                contentDescription = null,
-                                tint = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = skill.name.ifBlank { stringResource(R.string.skills_unnamed) },
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = skill.description.trim().ifBlank { stringResource(R.string.skills_no_description) },
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            androidx.compose.material3.Switch(
-                                checked = isEnabled,
-                                onCheckedChange = null,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -669,6 +543,36 @@ fun ChatInput(
                         ),
                         label = "plus_alpha"
                     )
+                    val activeInjectionCount = remember(
+                        uiMode,
+                        conversation.enabledModeIds,
+                        conversation.explicitSkillContextIds,
+                        assistant.enabledLorebookIds,
+                        assistant.enabledSkillIds,
+                        settings.modes,
+                        settings.lorebooks,
+                        settings.skills,
+                    ) {
+                        val activeModeCount = settings.modes.count { mode ->
+                            mode.id in conversation.enabledModeIds
+                        }
+                        val activeLorebookCount = settings.lorebooks.count { lorebook ->
+                            lorebook.id in assistant.enabledLorebookIds
+                        }
+                        val validSkillIds = settings.skills
+                            .asSequence()
+                            .filter { skill -> skill.id in assistant.enabledSkillIds }
+                            .map { skill -> skill.id }
+                            .toSet()
+                        val activeSkillCount = if (uiMode == ChatInputUiMode.Normal) {
+                            conversation.explicitSkillContextIds.count { skillId ->
+                                skillId in validSkillIds
+                            }
+                        } else {
+                            0
+                        }
+                        activeModeCount + activeLorebookCount + activeSkillCount
+                    }
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
@@ -697,14 +601,11 @@ fun ChatInput(
                             ),
                             label = "rotation"
                         )
-                        val hasActiveModes = remember(conversation.enabledModeIds) {
-                            conversation.enabledModeIds.isNotEmpty()
-                        }
                         Icon(
                             imageVector = Icons.Rounded.Add,
                             contentDescription = stringResource(R.string.more_options),
                             modifier = Modifier.rotate(rotation),
-                            tint = if (hasActiveModes) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            tint = if (activeInjectionCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                         )
                     }
 
@@ -1557,7 +1458,6 @@ private fun FilesPicker(
 ) {
     val settings = LocalSettings.current
     val amoledMode by rememberAmoledDarkMode()
-    val provider = settings.getCurrentChatModel()?.findProvider(providers = settings.providers)
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     val toaster = LocalToaster.current
     val context = LocalContext.current
@@ -1621,7 +1521,7 @@ private fun FilesPicker(
     val mcpSyncStatus by mcpManager.syncingStatus.collectAsStateWithLifecycle()
     val mcpLoading = mcpSyncStatus.values.any { it == McpStatus.Connecting }
     var showMcpPicker by remember { mutableStateOf(false) }
-    var showSkillsPicker by remember { mutableStateOf(false) }
+    var showInjectionPicker by remember { mutableStateOf(false) }
 
     val isDarkMode = LocalDarkMode.current
     val isKeyboardVisible = WindowInsets.isImeVisible
@@ -1643,14 +1543,13 @@ private fun FilesPicker(
         RoundedCornerShape(topStart = 10.dp, topEnd = 24.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
     }
     // Shapes for modes/lorebooks row - middle if context refresh enabled, bottom if not
-    val middleLeftShape = RoundedCornerShape(10.dp)
-    val middleRightShape = RoundedCornerShape(10.dp)
-    val bottomLeftShape = if (showContextRefresh) middleLeftShape else RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp, bottomStart = 24.dp, bottomEnd = 10.dp)
-    val bottomRightShape = if (showContextRefresh) middleRightShape else RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp, bottomStart = 10.dp, bottomEnd = 24.dp)
+    val injectionShape = if (showContextRefresh) {
+        RoundedCornerShape(10.dp)
+    } else {
+        RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+    }
     val fullBottomShape = RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
     
-    var showModesPicker by remember { mutableStateOf(false) }
-    var showLorebooksPicker by remember { mutableStateOf(false) }
     var showClearContextConfirmDialog by remember { mutableStateOf(false) }
     
     Column(
@@ -1696,108 +1595,91 @@ private fun FilesPicker(
             }
         }
         
-        // Modes and Lorebooks row - hidden when keyboard is visible
+        // Prompt injection row - hidden when keyboard is visible
         if (!isKeyboardVisible) {
-            // Calculate active modes count from conversation
             val activeModeCount = settings.modes.count { mode ->
                 conversation.enabledModeIds.contains(mode.id)
             }
-            
-            // Calculate active lorebooks count from assistant
-            val activeLorebookCount = assistant.enabledLorebookIds.size
-            
-            Row(
-                modifier = Modifier.fillMaxWidth().height(80.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                // Modes button (left half) - matches BigIconTextButton pattern
-                val modesActive = activeModeCount > 0
-                CompositionLocalProvider(LocalAbsoluteTonalElevation provides if(amoledMode && isDarkMode) 0.dp else LocalAbsoluteTonalElevation.current) {
-                    Surface(
-                        modifier = Modifier.weight(1f),
-                        shape = bottomLeftShape,
-                        color = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh,
-                        tonalElevation = if (amoledMode && isDarkMode) 0.dp else 6.dp,
-                        onClick = {
-                            haptics.perform(HapticPattern.Pop)
-                            showModesPicker = true
-                        }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.AutoFixHigh,
-                                contentDescription = null,
-                                tint = if (modesActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = stringResource(R.string.modes_picker_title),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = if (modesActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = if (settings.modes.isEmpty()) {
-                                        stringResource(R.string.modes_picker_none)
-                                    } else {
-                                        "$activeModeCount/${settings.modes.size}"
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Lorebooks button (right half) - matches BigIconTextButton pattern
-                val lorebooksActive = activeLorebookCount > 0
-                CompositionLocalProvider(LocalAbsoluteTonalElevation provides if(amoledMode && isDarkMode) 0.dp else LocalAbsoluteTonalElevation.current) {
-                    Surface(
-                        modifier = Modifier.weight(1f),
-                        shape = bottomRightShape,
-                        color = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh,
-                        tonalElevation = if (amoledMode && isDarkMode) 0.dp else 6.dp,
-                        onClick = {
-                            haptics.perform(HapticPattern.Pop)
-                            showLorebooksPicker = true
-                        }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Book,
-                                contentDescription = null,
-                                tint = if (lorebooksActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = stringResource(R.string.lorebooks_picker_title),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = if (lorebooksActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = if (settings.lorebooks.isEmpty()) {
-                                        stringResource(R.string.lorebooks_picker_none)
-                                    } else {
-                                        "$activeLorebookCount/${settings.lorebooks.size}"
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
+            val activeLorebookCount = settings.lorebooks.count { lorebook ->
+                lorebook.id in assistant.enabledLorebookIds
             }
+            val showSkillsTab = uiMode == ChatInputUiMode.Normal && enabledSkills.isNotEmpty()
+            val activeSkillCount = if (showSkillsTab) activeExplicitSkillIds.size else 0
+            val activeInjectionCount = activeModeCount + activeLorebookCount + activeSkillCount
+            val totalInjectionCount = settings.modes.size + settings.lorebooks.size + if (showSkillsTab) enabledSkills.size else 0
+            val skillSummary = if (showSkillsTab) {
+                stringResource(R.string.injection_picker_summary_skills, activeSkillCount, enabledSkills.size)
+            } else {
+                null
+            }
+            val lorebookSummary = stringResource(R.string.injection_picker_summary_lorebooks, activeLorebookCount, settings.lorebooks.size)
+            val modeSummary = stringResource(R.string.injection_picker_summary_modes, activeModeCount, settings.modes.size)
+            val injectionSummaryParts = listOfNotNull(skillSummary, lorebookSummary, modeSummary)
+            val injectionSummary = injectionSummaryParts.joinToString(" · ")
+            val injectionInteractionSource = remember { MutableInteractionSource() }
+            val isInjectionPressed by injectionInteractionSource.collectIsPressedAsState()
+            val injectionScale by animateFloatAsState(
+                targetValue = if (isInjectionPressed) 0.98f else 1f,
+                animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                label = "injection_item_scale",
+            )
+
+            ListItem(
+                modifier = Modifier
+                    .graphicsLayer {
+                        scaleX = injectionScale
+                        scaleY = injectionScale
+                    }
+                    .clip(injectionShape)
+                    .clickable(
+                        interactionSource = injectionInteractionSource,
+                        indication = LocalIndication.current,
+                    ) {
+                        haptics.perform(HapticPattern.Pop)
+                        showInjectionPicker = true
+                    },
+                colors = ListItemDefaults.colors(
+                    containerColor = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
+                leadingContent = {
+                    BadgedBox(
+                        badge = {
+                            if (activeInjectionCount > 0) {
+                                Badge(containerColor = MaterialTheme.colorScheme.tertiaryContainer) {
+                                    Text(activeInjectionCount.toString())
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AutoFixHigh,
+                            contentDescription = stringResource(R.string.injection_picker_title),
+                            tint = if (activeInjectionCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                headlineContent = {
+                    Text(
+                        text = stringResource(R.string.injection_picker_title),
+                        color = if (activeInjectionCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    )
+                },
+                supportingContent = {
+                    Text(
+                        text = injectionSummary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                trailingContent = {
+                    Text(
+                        text = "$activeInjectionCount/$totalInjectionCount",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                        maxLines = 1,
+                    )
+                },
+            )
             
             // Context Refresh button row - shown when enabled
             if (showContextRefresh) {
@@ -2035,66 +1917,6 @@ private fun FilesPicker(
                     },
                 )
             }
-
-            if (uiMode == ChatInputUiMode.Normal && enabledSkills.isNotEmpty()) {
-                val skillsInteractionSource = remember { MutableInteractionSource() }
-                val isSkillsPressed by skillsInteractionSource.collectIsPressedAsState()
-                val skillsScale by animateFloatAsState(
-                    targetValue = if (isSkillsPressed) 0.98f else 1f,
-                    animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
-                    label = "explicit_skills_item_scale",
-                )
-                val activeSkillCount = activeExplicitSkillIds.size
-                ListItem(
-                    modifier = Modifier
-                        .graphicsLayer {
-                            scaleX = skillsScale
-                            scaleY = skillsScale
-                        }
-                        .clip(RoundedCornerShape(24.dp))
-                        .clickable(
-                            interactionSource = skillsInteractionSource,
-                            indication = LocalIndication.current,
-                        ) {
-                            haptics.perform(HapticPattern.Pop)
-                            showSkillsPicker = true
-                        },
-                    colors = ListItemDefaults.colors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                    ),
-                    leadingContent = {
-                        BadgedBox(
-                            badge = {
-                                if (activeSkillCount > 0) {
-                                    Badge(containerColor = MaterialTheme.colorScheme.tertiaryContainer) {
-                                        Text(text = activeSkillCount.toString())
-                                    }
-                                }
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Extension,
-                                contentDescription = stringResource(R.string.explicit_skills_picker_title),
-                                tint = if (activeSkillCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    },
-                    headlineContent = {
-                        Text(stringResource(R.string.explicit_skills_picker_title))
-                    },
-                    supportingContent = {
-                        Text(stringResource(R.string.explicit_skills_picker_desc))
-                    },
-                    trailingContent = {
-                        Text(
-                            text = "$activeSkillCount/${enabledSkills.size}",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                            maxLines = 1,
-                        )
-                    },
-                )
-            }
         }
     }
 
@@ -2129,36 +1951,24 @@ private fun FilesPicker(
         )
     }
 
-    if (showModesPicker) {
-        ModesPickerSheet(
+    if (showInjectionPicker) {
+        InjectionPickerSheet(
             settings = settings,
             conversation = conversation,
-            onUpdateConversation = onUpdateConversation,
-            onDismiss = { showModesPicker = false },
-        )
-    }
-
-    if (showLorebooksPicker) {
-        LorebooksPickerSheet(
-            settings = settings,
             assistant = assistant,
+            enabledSkills = enabledSkills,
+            selectedSkillIds = activeExplicitSkillIds,
+            uiMode = uiMode,
+            onUpdateConversation = onUpdateConversation,
             onUpdateAssistant = onUpdateAssistant,
             onNavigateToLorebook = { lorebookId ->
-                showLorebooksPicker = false
+                showInjectionPicker = false
                 onNavigateToLorebook(lorebookId)
             },
-            onDismiss = { showLorebooksPicker = false },
-        )
-    }
-
-    if (uiMode == ChatInputUiMode.Normal && showSkillsPicker) {
-        ExplicitSkillsPickerSheet(
-            skills = enabledSkills,
-            selectedSkillIds = activeExplicitSkillIds,
             onSelectedSkillIdsChange = { nextIds ->
                 onUpdateConversation(conversation.copy(explicitSkillContextIds = nextIds))
             },
-            onDismiss = { showSkillsPicker = false },
+            onDismiss = { showInjectionPicker = false },
         )
     }
 
@@ -2662,21 +2472,51 @@ private fun BigIconTextButtonPreview() {
 }
 
 @Composable
-internal fun ModesPickerSheet(
+internal fun InjectionPickerSheet(
     settings: me.rerere.rikkahub.data.datastore.Settings,
     conversation: Conversation,
+    assistant: Assistant,
+    enabledSkills: List<Skill>,
+    selectedSkillIds: Set<Uuid>,
+    uiMode: ChatInputUiMode,
     onUpdateConversation: (Conversation) -> Unit,
+    onUpdateAssistant: (Assistant) -> Unit,
+    onNavigateToLorebook: (String) -> Unit,
+    onSelectedSkillIdsChange: (Set<Uuid>) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val haptics = me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics()
+    val haptics = rememberPremiumHaptics()
     val amoledMode by rememberAmoledDarkMode()
     val isDarkMode = LocalDarkMode.current
-    val cornerRadius = 28.dp
-    val smallCorner = 8.dp
-    
-    // Use local state for immediate UI feedback
-    var localEnabledIds by remember(conversation.id, conversation.enabledModeIds) {
+    val showSkillsTab = uiMode == ChatInputUiMode.Normal && enabledSkills.isNotEmpty()
+    var localSelectedSkillIds by remember(enabledSkills, selectedSkillIds) {
+        mutableStateOf(selectedSkillIds.filter { skillId -> enabledSkills.any { it.id == skillId } }.toSet())
+    }
+    var localEnabledLorebookIds by remember(assistant.id, assistant.enabledLorebookIds) {
+        mutableStateOf(assistant.enabledLorebookIds)
+    }
+    var localEnabledModeIds by remember(conversation.id, conversation.enabledModeIds) {
         mutableStateOf(conversation.enabledModeIds)
+    }
+    val tabs = remember(showSkillsTab) {
+        buildList {
+            if (showSkillsTab) add(InjectionPickerTab.Skills)
+            add(InjectionPickerTab.Lorebooks)
+            add(InjectionPickerTab.Modes)
+        }
+    }
+    val initialTab = remember(showSkillsTab, enabledSkills, selectedSkillIds, assistant.enabledLorebookIds, settings.lorebooks, settings.modes, conversation.enabledModeIds) {
+        when {
+            showSkillsTab && localSelectedSkillIds.isNotEmpty() -> InjectionPickerTab.Skills
+            localEnabledLorebookIds.isNotEmpty() -> InjectionPickerTab.Lorebooks
+            localEnabledModeIds.isNotEmpty() -> InjectionPickerTab.Modes
+            showSkillsTab -> InjectionPickerTab.Skills
+            settings.lorebooks.isNotEmpty() -> InjectionPickerTab.Lorebooks
+            else -> InjectionPickerTab.Modes
+        }
+    }
+    var selectedTab by remember(tabs, initialTab) {
+        mutableStateOf(if (initialTab in tabs) initialTab else tabs.first())
     }
     
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -2709,89 +2549,265 @@ internal fun ModesPickerSheet(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
-                text = stringResource(R.string.modes_picker_title),
+                text = stringResource(R.string.injection_picker_title),
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
-            
-            if (settings.modes.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.modes_picker_none),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+
+            Text(
+                text = stringResource(R.string.injection_picker_desc),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+
+            SecondaryTabRow(
+                selectedTabIndex = tabs.indexOf(selectedTab),
+                containerColor = Color.Transparent,
+            ) {
+                tabs.forEach { tab ->
+                    val countText = when (tab) {
+                        InjectionPickerTab.Skills -> "${localSelectedSkillIds.size}/${enabledSkills.size}"
+                        InjectionPickerTab.Lorebooks -> "${settings.lorebooks.count { it.id in localEnabledLorebookIds }}/${settings.lorebooks.size}"
+                        InjectionPickerTab.Modes -> "${settings.modes.count { it.id in localEnabledModeIds }}/${settings.modes.size}"
+                    }
+                    Tab(
+                        selected = selectedTab == tab,
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            selectedTab = tab
+                        },
+                        text = {
+                            Text(
+                                text = when (tab) {
+                                    InjectionPickerTab.Skills -> stringResource(R.string.injection_picker_tab_skills, countText)
+                                    InjectionPickerTab.Lorebooks -> stringResource(R.string.injection_picker_tab_lorebooks, countText)
+                                    InjectionPickerTab.Modes -> stringResource(R.string.injection_picker_tab_modes, countText)
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            when (selectedTab) {
+                InjectionPickerTab.Skills -> ExplicitSkillsPickerContent(
+                    skills = enabledSkills,
+                    selectedSkillIds = localSelectedSkillIds,
+                    onSelectedSkillIdsChange = { nextIds ->
+                        localSelectedSkillIds = nextIds
+                        onSelectedSkillIdsChange(nextIds)
+                    },
+                    emptyText = stringResource(R.string.injection_picker_empty_skills),
                 )
-            } else {
-                settings.modes.forEachIndexed { index, mode ->
-                    // Use local state for isEnabled
-                    val isEnabled = localEnabledIds.contains(mode.id)
-                    
-                    // Calculate position for grouped card styling
-                    val position = when {
-                        settings.modes.size == 1 -> me.rerere.rikkahub.ui.components.ui.ItemPosition.ONLY
-                        index == 0 -> me.rerere.rikkahub.ui.components.ui.ItemPosition.FIRST
-                        index == settings.modes.lastIndex -> me.rerere.rikkahub.ui.components.ui.ItemPosition.LAST
-                        else -> me.rerere.rikkahub.ui.components.ui.ItemPosition.MIDDLE
-                    }
-                    
-                    // Calculate shape based on position (grouped cards)
-                    val shape = when (position) {
-                        me.rerere.rikkahub.ui.components.ui.ItemPosition.ONLY -> RoundedCornerShape(cornerRadius)
-                        me.rerere.rikkahub.ui.components.ui.ItemPosition.FIRST -> RoundedCornerShape(
-                            topStart = cornerRadius, topEnd = cornerRadius,
-                            bottomStart = smallCorner, bottomEnd = smallCorner
-                        )
-                        me.rerere.rikkahub.ui.components.ui.ItemPosition.MIDDLE -> RoundedCornerShape(smallCorner)
-                        me.rerere.rikkahub.ui.components.ui.ItemPosition.LAST -> RoundedCornerShape(
-                            topStart = smallCorner, topEnd = smallCorner,
-                            bottomStart = cornerRadius, bottomEnd = cornerRadius
-                        )
-                    }
-                    
-                    CompositionLocalProvider(LocalAbsoluteTonalElevation provides if(amoledMode && isDarkMode) 0.dp else LocalAbsoluteTonalElevation.current) {
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
-                            ),
-                            shape = shape
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = 80.dp)
-                                    .padding(12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Mode content
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = mode.name.ifEmpty { stringResource(R.string.modes_page_unnamed) },
-                                        style = MaterialTheme.typography.bodyLarge
-                                    )
-                                    Text(
-                                        text = mode.prompt.take(50) + if (mode.prompt.length > 50) "..." else "",
-                                        maxLines = 1,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                // Switch
-                                HapticSwitch(
-                                    checked = isEnabled,
-                                    onCheckedChange = { newEnabled ->
-                                        val newEnabledIds = if (newEnabled) {
-                                            localEnabledIds + mode.id
-                                        } else {
-                                            localEnabledIds - mode.id
-                                        }
-                                        // Update local state immediately for UI feedback
-                                        localEnabledIds = newEnabledIds
-                                        // Persist change via callback
-                                        onUpdateConversation(conversation.copy(enabledModeIds = newEnabledIds))
-                                    }
-                                )
+
+                InjectionPickerTab.Lorebooks -> LorebooksPickerContent(
+                    settings = settings,
+                    enabledLorebookIds = localEnabledLorebookIds,
+                    onEnabledLorebookIdsChange = { nextIds ->
+                        localEnabledLorebookIds = nextIds
+                        onUpdateAssistant(assistant.copy(enabledLorebookIds = nextIds))
+                    },
+                    onNavigateToLorebook = onNavigateToLorebook,
+                )
+
+                InjectionPickerTab.Modes -> ModesPickerContent(
+                    settings = settings,
+                    enabledModeIds = localEnabledModeIds,
+                    onEnabledModeIdsChange = { nextIds ->
+                        localEnabledModeIds = nextIds
+                        onUpdateConversation(conversation.copy(enabledModeIds = nextIds))
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExplicitSkillsPickerContent(
+    skills: List<Skill>,
+    selectedSkillIds: Set<Uuid>,
+    onSelectedSkillIdsChange: (Set<Uuid>) -> Unit,
+    emptyText: String,
+) {
+    val haptics = rememberPremiumHaptics()
+    val amoledMode by rememberAmoledDarkMode()
+    val isDarkMode = LocalDarkMode.current
+    val cornerRadius = 28.dp
+    val smallCorner = 8.dp
+    var localSelectedIds by remember(skills, selectedSkillIds) {
+        mutableStateOf(selectedSkillIds.filter { skillId -> skills.any { it.id == skillId } }.toSet())
+    }
+
+    if (skills.isEmpty()) {
+        Text(
+            text = emptyText,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+
+    skills.forEachIndexed { index, skill ->
+        val isEnabled = skill.id in localSelectedIds
+        val shape = when {
+            skills.size == 1 -> RoundedCornerShape(cornerRadius)
+            index == 0 -> RoundedCornerShape(
+                topStart = cornerRadius,
+                topEnd = cornerRadius,
+                bottomStart = smallCorner,
+                bottomEnd = smallCorner,
+            )
+
+            index == skills.lastIndex -> RoundedCornerShape(
+                topStart = smallCorner,
+                topEnd = smallCorner,
+                bottomStart = cornerRadius,
+                bottomEnd = cornerRadius,
+            )
+
+            else -> RoundedCornerShape(smallCorner)
+        }
+
+        CompositionLocalProvider(LocalAbsoluteTonalElevation provides if (amoledMode && isDarkMode) 0.dp else LocalAbsoluteTonalElevation.current) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
+                shape = shape,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 80.dp)
+                        .clickable {
+                            haptics.perform(HapticPattern.Pop)
+                            val nextIds = if (isEnabled) {
+                                localSelectedIds - skill.id
+                            } else {
+                                localSelectedIds + skill.id
                             }
+                            localSelectedIds = nextIds
+                            onSelectedSkillIdsChange(nextIds)
                         }
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Extension,
+                        contentDescription = null,
+                        tint = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = skill.name.ifBlank { stringResource(R.string.skills_unnamed) },
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = skill.description.trim().ifBlank { stringResource(R.string.skills_no_description) },
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    androidx.compose.material3.Switch(
+                        checked = isEnabled,
+                        onCheckedChange = null,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModesPickerContent(
+    settings: me.rerere.rikkahub.data.datastore.Settings,
+    enabledModeIds: Set<Uuid>,
+    onEnabledModeIdsChange: (Set<Uuid>) -> Unit,
+) {
+    val amoledMode by rememberAmoledDarkMode()
+    val isDarkMode = LocalDarkMode.current
+    val cornerRadius = 28.dp
+    val smallCorner = 8.dp
+
+    if (settings.modes.isEmpty()) {
+        Text(
+            text = stringResource(R.string.modes_picker_none),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    } else {
+        settings.modes.forEachIndexed { index, mode ->
+            val isEnabled = enabledModeIds.contains(mode.id)
+            val position = when {
+                settings.modes.size == 1 -> me.rerere.rikkahub.ui.components.ui.ItemPosition.ONLY
+                index == 0 -> me.rerere.rikkahub.ui.components.ui.ItemPosition.FIRST
+                index == settings.modes.lastIndex -> me.rerere.rikkahub.ui.components.ui.ItemPosition.LAST
+                else -> me.rerere.rikkahub.ui.components.ui.ItemPosition.MIDDLE
+            }
+            val shape = when (position) {
+                me.rerere.rikkahub.ui.components.ui.ItemPosition.ONLY -> RoundedCornerShape(cornerRadius)
+                me.rerere.rikkahub.ui.components.ui.ItemPosition.FIRST -> RoundedCornerShape(
+                    topStart = cornerRadius, topEnd = cornerRadius,
+                    bottomStart = smallCorner, bottomEnd = smallCorner
+                )
+
+                me.rerere.rikkahub.ui.components.ui.ItemPosition.MIDDLE -> RoundedCornerShape(smallCorner)
+                me.rerere.rikkahub.ui.components.ui.ItemPosition.LAST -> RoundedCornerShape(
+                    topStart = smallCorner, topEnd = smallCorner,
+                    bottomStart = cornerRadius, bottomEnd = cornerRadius
+                )
+            }
+
+            CompositionLocalProvider(LocalAbsoluteTonalElevation provides if(amoledMode && isDarkMode) 0.dp else LocalAbsoluteTonalElevation.current) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    shape = shape
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 80.dp)
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = mode.name.ifEmpty { stringResource(R.string.modes_page_unnamed) },
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = mode.prompt.take(50) + if (mode.prompt.length > 50) "..." else "",
+                                maxLines = 1,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        HapticSwitch(
+                            checked = isEnabled,
+                            onCheckedChange = { newEnabled ->
+                                val newEnabledIds = if (newEnabled) {
+                                    enabledModeIds + mode.id
+                                } else {
+                                    enabledModeIds - mode.id
+                                }
+                                onEnabledModeIdsChange(newEnabledIds)
+                            }
+                        )
                     }
                 }
             }
@@ -2800,191 +2816,141 @@ internal fun ModesPickerSheet(
 }
 
 @Composable
-internal fun LorebooksPickerSheet(
+private fun LorebooksPickerContent(
     settings: me.rerere.rikkahub.data.datastore.Settings,
-    assistant: Assistant,
-    onUpdateAssistant: (Assistant) -> Unit,
+    enabledLorebookIds: Set<Uuid>,
+    onEnabledLorebookIdsChange: (Set<Uuid>) -> Unit,
     onNavigateToLorebook: (String) -> Unit,
-    onDismiss: () -> Unit
 ) {
-    val haptics = me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics()
     val amoledMode by rememberAmoledDarkMode()
     val isDarkMode = LocalDarkMode.current
-    
-    // Use local state for immediate UI feedback
-    var localEnabledIds by remember(assistant.id) {
-        mutableStateOf(assistant.enabledLorebookIds)
-    }
-    
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        sheetGesturesEnabled = false,
-        dragHandle = {
-            IconButton(
-                onClick = {
-                    scope.launch {
-                        sheetState.hide()
-                        onDismiss()
-                    }
-                }
-            ) {
-                Icon(Icons.Rounded.KeyboardArrowDown, null)
+
+    if (settings.lorebooks.isEmpty()) {
+        Text(
+            text = stringResource(R.string.lorebooks_picker_none),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    } else {
+        settings.lorebooks.forEachIndexed { index, lorebook ->
+            val isEnabled = enabledLorebookIds.contains(lorebook.id)
+            val position = when {
+                settings.lorebooks.size == 1 -> me.rerere.rikkahub.ui.components.ui.ItemPosition.ONLY
+                index == 0 -> me.rerere.rikkahub.ui.components.ui.ItemPosition.FIRST
+                index == settings.lorebooks.lastIndex -> me.rerere.rikkahub.ui.components.ui.ItemPosition.LAST
+                else -> me.rerere.rikkahub.ui.components.ui.ItemPosition.MIDDLE
             }
-        },
-        containerColor = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerLow
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                text = stringResource(R.string.lorebooks_picker_title),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            
-            if (settings.lorebooks.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.lorebooks_picker_none),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            val cornerRadius = 28.dp
+            val smallCorner = 8.dp
+            val shape = when (position) {
+                me.rerere.rikkahub.ui.components.ui.ItemPosition.ONLY -> RoundedCornerShape(cornerRadius)
+                me.rerere.rikkahub.ui.components.ui.ItemPosition.FIRST -> RoundedCornerShape(
+                    topStart = cornerRadius, topEnd = cornerRadius,
+                    bottomStart = smallCorner, bottomEnd = smallCorner
                 )
-            } else {
-                settings.lorebooks.forEachIndexed { index, lorebook ->
-                    val isEnabled = localEnabledIds.contains(lorebook.id)
-                    
-                    // Calculate position for connected card styling
-                    val position = when {
-                        settings.lorebooks.size == 1 -> me.rerere.rikkahub.ui.components.ui.ItemPosition.ONLY
-                        index == 0 -> me.rerere.rikkahub.ui.components.ui.ItemPosition.FIRST
-                        index == settings.lorebooks.lastIndex -> me.rerere.rikkahub.ui.components.ui.ItemPosition.LAST
-                        else -> me.rerere.rikkahub.ui.components.ui.ItemPosition.MIDDLE
-                    }
-                    
-                    // Calculate shape based on position (grouped cards)
-                    val cornerRadius = 28.dp
-                    val smallCorner = 8.dp
-                    val shape = when (position) {
-                        me.rerere.rikkahub.ui.components.ui.ItemPosition.ONLY -> RoundedCornerShape(cornerRadius)
-                        me.rerere.rikkahub.ui.components.ui.ItemPosition.FIRST -> RoundedCornerShape(
-                            topStart = cornerRadius, topEnd = cornerRadius,
-                            bottomStart = smallCorner, bottomEnd = smallCorner
-                        )
-                        me.rerere.rikkahub.ui.components.ui.ItemPosition.MIDDLE -> RoundedCornerShape(smallCorner)
-                        me.rerere.rikkahub.ui.components.ui.ItemPosition.LAST -> RoundedCornerShape(
-                            topStart = smallCorner, topEnd = smallCorner,
-                            bottomStart = cornerRadius, bottomEnd = cornerRadius
-                        )
-                    }
-                    
-                    CompositionLocalProvider(LocalAbsoluteTonalElevation provides if(amoledMode && isDarkMode) 0.dp else LocalAbsoluteTonalElevation.current) {
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
-                            ),
-                            shape = shape,
-                            onClick = { onNavigateToLorebook(lorebook.id.toString()) }
-                        ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Book cover or letter fallback
-                            val bookShape = when (position) {
-                                me.rerere.rikkahub.ui.components.ui.ItemPosition.ONLY -> RoundedCornerShape(
-                                    topStart = 16.dp, topEnd = 6.dp,
-                                    bottomStart = 16.dp, bottomEnd = 6.dp
-                                )
-                                me.rerere.rikkahub.ui.components.ui.ItemPosition.FIRST -> RoundedCornerShape(
-                                    topStart = 16.dp, topEnd = 6.dp,
-                                    bottomStart = 6.dp, bottomEnd = 6.dp
-                                )
-                                me.rerere.rikkahub.ui.components.ui.ItemPosition.MIDDLE -> RoundedCornerShape(6.dp)
-                                me.rerere.rikkahub.ui.components.ui.ItemPosition.LAST -> RoundedCornerShape(
-                                    topStart = 6.dp, topEnd = 6.dp,
-                                    bottomStart = 16.dp, bottomEnd = 6.dp
-                                )
-                            }
-                            Surface(
-                                shape = bookShape,
-                                color = if (isEnabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier.size(width = 40.dp, height = 56.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    when (val cover = lorebook.cover) {
-                                        is me.rerere.rikkahub.data.model.Avatar.Image -> {
-                                            AsyncImage(
-                                                model = cover.url,
-                                                contentDescription = null,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                            )
-                                        }
-                                        is me.rerere.rikkahub.data.model.Avatar.Emoji -> {
-                                            Text(
-                                                text = cover.content,
-                                                fontSize = 20.sp
-                                            )
-                                        }
-                                        else -> {
-                                            // Letter fallback
-                                            Text(
-                                                text = lorebook.name.take(1).uppercase().ifEmpty { "L" },
-                                                style = MaterialTheme.typography.titleMedium,
-                                                color = if (isEnabled) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                            }
 
-                            // Lorebook info
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                Text(
-                                    text = lorebook.name.ifEmpty { stringResource(R.string.lorebooks_page_unnamed) },
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = stringResource(R.string.lorebooks_page_entries_count, lorebook.entries.size),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                me.rerere.rikkahub.ui.components.ui.ItemPosition.MIDDLE -> RoundedCornerShape(smallCorner)
+                me.rerere.rikkahub.ui.components.ui.ItemPosition.LAST -> RoundedCornerShape(
+                    topStart = smallCorner, topEnd = smallCorner,
+                    bottomStart = cornerRadius, bottomEnd = cornerRadius
+                )
+            }
 
-                            // Toggle
-                            me.rerere.rikkahub.ui.components.ui.HapticSwitch(
-                                checked = isEnabled,
-                                onCheckedChange = { newEnabled ->
-                                    val newIds = if (newEnabled) {
-                                        localEnabledIds + lorebook.id
-                                    } else {
-                                        localEnabledIds - lorebook.id
-                                    }
-                                    // Update local state immediately for UI feedback
-                                    localEnabledIds = newIds
-                                    // Persist change via callback
-                                    onUpdateAssistant(assistant.copy(enabledLorebookIds = newIds))
-                                }
+            CompositionLocalProvider(LocalAbsoluteTonalElevation provides if(amoledMode && isDarkMode) 0.dp else LocalAbsoluteTonalElevation.current) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (amoledMode && isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    shape = shape,
+                    onClick = { onNavigateToLorebook(lorebook.id.toString()) }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val bookShape = when (position) {
+                            me.rerere.rikkahub.ui.components.ui.ItemPosition.ONLY -> RoundedCornerShape(
+                                topStart = 16.dp, topEnd = 6.dp,
+                                bottomStart = 16.dp, bottomEnd = 6.dp
+                            )
+
+                            me.rerere.rikkahub.ui.components.ui.ItemPosition.FIRST -> RoundedCornerShape(
+                                topStart = 16.dp, topEnd = 6.dp,
+                                bottomStart = 6.dp, bottomEnd = 6.dp
+                            )
+
+                            me.rerere.rikkahub.ui.components.ui.ItemPosition.MIDDLE -> RoundedCornerShape(6.dp)
+                            me.rerere.rikkahub.ui.components.ui.ItemPosition.LAST -> RoundedCornerShape(
+                                topStart = 6.dp, topEnd = 6.dp,
+                                bottomStart = 16.dp, bottomEnd = 6.dp
                             )
                         }
+                        Surface(
+                            shape = bookShape,
+                            color = if (isEnabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.size(width = 40.dp, height = 56.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                when (val cover = lorebook.cover) {
+                                    is me.rerere.rikkahub.data.model.Avatar.Image -> {
+                                        AsyncImage(
+                                            model = cover.url,
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                        )
+                                    }
+
+                                    is me.rerere.rikkahub.data.model.Avatar.Emoji -> {
+                                        Text(
+                                            text = cover.content,
+                                            fontSize = 20.sp
+                                        )
+                                    }
+
+                                    else -> {
+                                        Text(
+                                            text = lorebook.name.take(1).uppercase().ifEmpty { "L" },
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = if (isEnabled) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
                         }
+
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = lorebook.name.ifEmpty { stringResource(R.string.lorebooks_page_unnamed) },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = stringResource(R.string.lorebooks_page_entries_count, lorebook.entries.size),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        HapticSwitch(
+                            checked = isEnabled,
+                            onCheckedChange = { newEnabled ->
+                                val newIds = if (newEnabled) {
+                                    enabledLorebookIds + lorebook.id
+                                } else {
+                                    enabledLorebookIds - lorebook.id
+                                }
+                                onEnabledLorebookIdsChange(newIds)
+                            }
+                        )
                     }
                 }
             }

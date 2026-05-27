@@ -60,6 +60,7 @@ import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Book
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Close
@@ -754,11 +755,9 @@ private fun MinimalPickerContent(
     // Sub-picker states
     var showModelPicker by remember { mutableStateOf(false) }
     var showReasoningPicker by remember { mutableStateOf(false) }
-    var showModesPicker by remember { mutableStateOf(false) }
-    var showLorebooksPicker by remember { mutableStateOf(false) }
+    var showInjectionPicker by remember { mutableStateOf(false) }
     var showSearchPicker by remember { mutableStateOf(false) }
     var showMcpPicker by remember { mutableStateOf(false) }
-    var showSkillsPicker by remember { mutableStateOf(false) }
     var showAttachmentMenu by remember { mutableStateOf(false) }
     val currentChatModel = settings.getCurrentChatModel()
     val showGeminiAttachmentMenu = remember(currentChatModel?.modelId) {
@@ -1177,70 +1176,42 @@ private fun MinimalPickerContent(
                 )
             }
 
-            if (enabledSkills.isNotEmpty()) {
-                val activeSkillCount = activeExplicitSkillIds.size
-                MinimalPickerItem(
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Extension,
-                            contentDescription = null,
-                            modifier = Modifier.size(24.dp),
-                            tint = if (activeSkillCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    },
-                    title = stringResource(R.string.explicit_skills_picker_title),
-                    subtitle = stringResource(
-                        R.string.explicit_skills_picker_count,
-                        activeSkillCount,
-                        enabledSkills.size,
-                    ),
-                    onClick = {
-                        showSkillsPicker = true
-                    },
-                )
-            }
         }
-        
+
         val activeModesCount = settings.modes.count { mode ->
             conversation.enabledModeIds.contains(mode.id)
         }
-        val modesActive = activeModesCount > 0
+        val activeLorebooksCount = settings.lorebooks.count { lorebook ->
+            lorebook.id in assistant.enabledLorebookIds
+        }
+        val showSkillsTab = uiMode == ChatInputUiMode.Normal && enabledSkills.isNotEmpty()
+        val activeSkillCount = if (showSkillsTab) activeExplicitSkillIds.size else 0
+        val activeInjectionCount = activeModesCount + activeLorebooksCount + activeSkillCount
+        val skillSummary = if (showSkillsTab) {
+            stringResource(R.string.injection_picker_summary_skills, activeSkillCount, enabledSkills.size)
+        } else {
+            null
+        }
+        val lorebookSummary = stringResource(R.string.injection_picker_summary_lorebooks, activeLorebooksCount, settings.lorebooks.size)
+        val modeSummary = stringResource(R.string.injection_picker_summary_modes, activeModesCount, settings.modes.size)
+        val injectionSummary = listOfNotNull(skillSummary, lorebookSummary, modeSummary).joinToString(" · ")
         MinimalPickerItem(
             icon = {
                 Icon(
-                    imageVector = Icons.Rounded.FlashOn,
+                    imageVector = Icons.Rounded.AutoFixHigh,
                     contentDescription = null,
                     modifier = Modifier.size(24.dp),
-                    tint = if (modesActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = if (activeInjectionCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
-            title = stringResource(R.string.minimal_input_modes),
-            subtitle = if (activeModesCount > 0) "$activeModesCount active" else stringResource(R.string.minimal_input_modes_desc),
+            title = stringResource(R.string.injection_picker_title),
+            subtitle = injectionSummary,
             onClick = { 
-                showModesPicker = true
+                showInjectionPicker = true
             }
         )
         
         if (uiMode == ChatInputUiMode.Normal) {
-            // Lorebooks - show active count and blue icon when enabled
-            val activeLorebooksCount = assistant.enabledLorebookIds.size
-            val lorebooksActive = activeLorebooksCount > 0
-            MinimalPickerItem(
-                icon = {
-                    Icon(
-                        imageVector = Icons.Rounded.Book,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                        tint = if (lorebooksActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                },
-                title = stringResource(R.string.minimal_input_lorebooks),
-                subtitle = if (activeLorebooksCount > 0) "$activeLorebooksCount active" else stringResource(R.string.minimal_input_lorebooks_desc),
-                onClick = {
-                    showLorebooksPicker = true
-                }
-            )
-
             // Summarize button - only show when context refresh is enabled and there are enough messages
             if (assistant.enableContextRefresh && conversation.currentMessages.size > 2) {
                 MinimalPickerItem(
@@ -1327,27 +1298,24 @@ private fun MinimalPickerContent(
         }
     }
     
-    // Modes picker sheet
-    if (showModesPicker) {
-        ModesPickerSheet(
+    if (showInjectionPicker) {
+        InjectionPickerSheet(
             settings = settings,
             conversation = conversation,
-            onUpdateConversation = onUpdateConversation,
-            onDismiss = { showModesPicker = false }
-        )
-    }
-    
-    // Lorebooks picker sheet
-    if (uiMode == ChatInputUiMode.Normal && showLorebooksPicker) {
-        LorebooksPickerSheet(
-            settings = settings,
             assistant = assistant,
+            enabledSkills = enabledSkills,
+            selectedSkillIds = activeExplicitSkillIds,
+            uiMode = uiMode,
+            onUpdateConversation = onUpdateConversation,
             onUpdateAssistant = onUpdateAssistant,
-            onNavigateToLorebook = { lorebookId ->
-                showLorebooksPicker = false
+            onNavigateToLorebook = { lorebookId: String ->
+                showInjectionPicker = false
                 onNavigateToLorebook(lorebookId)
             },
-            onDismiss = { showLorebooksPicker = false }
+            onSelectedSkillIdsChange = { nextIds: Set<Uuid> ->
+                onUpdateConversation(conversation.copy(explicitSkillContextIds = nextIds))
+            },
+            onDismiss = { showInjectionPicker = false },
         )
     }
     
@@ -1396,17 +1364,6 @@ private fun MinimalPickerContent(
         }
     }
 
-    if (uiMode == ChatInputUiMode.Normal && showSkillsPicker) {
-        ExplicitSkillsPickerSheet(
-            skills = enabledSkills,
-            selectedSkillIds = activeExplicitSkillIds,
-            onSelectedSkillIdsChange = { nextIds ->
-                onUpdateConversation(conversation.copy(explicitSkillContextIds = nextIds))
-            },
-            onDismiss = { showSkillsPicker = false },
-        )
-    }
-    
     // Search picker sheet (same as floating toolbar) - direct content, no intermediate button
     if (uiMode == ChatInputUiMode.Normal && showSearchPicker) {
         val chatModel = settings.getCurrentChatModel()

@@ -561,4 +561,13 @@
     <string name="explicit_skills_picker_title">技能</string>
     <string name="explicit_skills_picker_desc">把选中的 SKILL.md 注入当前对话。</string>
     <string name="explicit_skills_picker_count">已注入 %1$d/%2$d</string>
+    <string name="injection_picker_title">注入</string>
+    <string name="injection_picker_desc">选择要加入当前对话的内容。</string>
+    <string name="injection_picker_summary_skills">技能 %1$d/%2$d</string>
+    <string name="injection_picker_summary_lorebooks">世界书 %1$d/%2$d</string>
+    <string name="injection_picker_summary_modes">模式 %1$d/%2$d</string>
+    <string name="injection_picker_tab_skills">技能 %1$s</string>
+    <string name="injection_picker_tab_lorebooks">世界书 %1$s</string>
+    <string name="injection_picker_tab_modes">模式 %1$s</string>
+    <string name="injection_picker_empty_skills">请先在助手设置里启用技能。</string>
 </resources>
