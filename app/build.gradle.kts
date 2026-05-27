@@ -120,10 +120,9 @@ android {
 
     splits {
         abi {
-            // AppBundle tasks usually contain "bundle" in their name
-            //noinspection WrongGradleMethod
-            val isBuildingBundle = gradle.startParameter.taskNames.any { it.lowercase().contains("bundle") }
-            isEnable = !isBuildingBundle
+            // Chaquopy requires ndk.abiFilters, and AGP rejects overlapping
+            // ndk/split ABI filters. Keep ndk filtering as the single ABI gate.
+            isEnable = false
             reset()
             val buildAbis = if (isGithubActionsBuild) githubActionsBuildAbis else localBuildAbis
             include(*buildAbis.toTypedArray())
