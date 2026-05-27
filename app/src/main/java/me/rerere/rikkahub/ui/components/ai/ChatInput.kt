@@ -2869,7 +2869,8 @@ private fun ModesPickerContent(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = mode.name.ifEmpty { stringResource(R.string.modes_page_unnamed) },
-                                style = MaterialTheme.typography.bodyLarge
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
                                 text = mode.prompt.take(50) + if (mode.prompt.length > 50) "..." else "",
@@ -3004,6 +3005,7 @@ private fun LorebooksPickerContent(
                                 text = lorebook.name.ifEmpty { stringResource(R.string.lorebooks_page_unnamed) },
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
+                                color = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
