@@ -1187,14 +1187,15 @@ private fun MinimalPickerContent(
         val showSkillsTab = uiMode == ChatInputUiMode.Normal && enabledSkills.isNotEmpty()
         val activeSkillCount = if (showSkillsTab) activeExplicitSkillIds.size else 0
         val activeInjectionCount = activeModesCount + activeLorebooksCount + activeSkillCount
-        val skillSummary = if (showSkillsTab) {
-            stringResource(R.string.injection_picker_summary_skills, activeSkillCount, enabledSkills.size)
-        } else {
-            null
-        }
-        val lorebookSummary = stringResource(R.string.injection_picker_summary_lorebooks, activeLorebooksCount, settings.lorebooks.size)
-        val modeSummary = stringResource(R.string.injection_picker_summary_modes, activeModesCount, settings.modes.size)
-        val injectionSummary = listOfNotNull(skillSummary, lorebookSummary, modeSummary).joinToString(" · ")
+        val injectionSummary = injectionPickerSummaryText(
+            showSkills = showSkillsTab,
+            activeSkillCount = activeSkillCount,
+            totalSkillCount = enabledSkills.size,
+            activeLorebookCount = activeLorebooksCount,
+            totalLorebookCount = settings.lorebooks.size,
+            activeModeCount = activeModesCount,
+            totalModeCount = settings.modes.size,
+        )
         MinimalPickerItem(
             icon = {
                 Icon(

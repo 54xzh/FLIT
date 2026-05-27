@@ -566,6 +566,7 @@
     <string name="injection_picker_summary_skills">技能 %1$d/%2$d</string>
     <string name="injection_picker_summary_lorebooks">世界书 %1$d/%2$d</string>
     <string name="injection_picker_summary_modes">模式 %1$d/%2$d</string>
+    <string name="injection_picker_summary_empty">无注入</string>
     <string name="injection_picker_tab_skills">技能 %1$s</string>
     <string name="injection_picker_tab_lorebooks">世界书 %1$s</string>
     <string name="injection_picker_tab_modes">模式 %1$s</string>

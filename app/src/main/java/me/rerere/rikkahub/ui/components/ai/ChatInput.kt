@@ -203,6 +203,7 @@ import java.util.Locale
 import kotlinx.coroutines.flow.collect
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.shrinkHorizontally
@@ -223,6 +224,37 @@ enum class ExpandState {
 enum class ChatInputUiMode {
     Normal,
     GroupChat,
+}
+
+@Composable
+internal fun injectionPickerSummaryText(
+    showSkills: Boolean,
+    activeSkillCount: Int,
+    totalSkillCount: Int,
+    activeLorebookCount: Int,
+    totalLorebookCount: Int,
+    activeModeCount: Int,
+    totalModeCount: Int,
+): String {
+    val parts = listOfNotNull(
+        if (showSkills && activeSkillCount > 0) {
+            stringResource(R.string.injection_picker_summary_skills, activeSkillCount, totalSkillCount)
+        } else {
+            null
+        },
+        if (activeLorebookCount > 0) {
+            stringResource(R.string.injection_picker_summary_lorebooks, activeLorebookCount, totalLorebookCount)
+        } else {
+            null
+        },
+        if (activeModeCount > 0) {
+            stringResource(R.string.injection_picker_summary_modes, activeModeCount, totalModeCount)
+        } else {
+            null
+        },
+    )
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+        ?: stringResource(R.string.injection_picker_summary_empty)
 }
 
 private enum class InjectionPickerTab {
@@ -1607,15 +1639,15 @@ private fun FilesPicker(
             val activeSkillCount = if (showSkillsTab) activeExplicitSkillIds.size else 0
             val activeInjectionCount = activeModeCount + activeLorebookCount + activeSkillCount
             val totalInjectionCount = settings.modes.size + settings.lorebooks.size + if (showSkillsTab) enabledSkills.size else 0
-            val skillSummary = if (showSkillsTab) {
-                stringResource(R.string.injection_picker_summary_skills, activeSkillCount, enabledSkills.size)
-            } else {
-                null
-            }
-            val lorebookSummary = stringResource(R.string.injection_picker_summary_lorebooks, activeLorebookCount, settings.lorebooks.size)
-            val modeSummary = stringResource(R.string.injection_picker_summary_modes, activeModeCount, settings.modes.size)
-            val injectionSummaryParts = listOfNotNull(skillSummary, lorebookSummary, modeSummary)
-            val injectionSummary = injectionSummaryParts.joinToString(" · ")
+            val injectionSummary = injectionPickerSummaryText(
+                showSkills = showSkillsTab,
+                activeSkillCount = activeSkillCount,
+                totalSkillCount = enabledSkills.size,
+                activeLorebookCount = activeLorebookCount,
+                totalLorebookCount = settings.lorebooks.size,
+                activeModeCount = activeModeCount,
+                totalModeCount = settings.modes.size,
+            )
             val injectionInteractionSource = remember { MutableInteractionSource() }
             val isInjectionPressed by injectionInteractionSource.collectIsPressedAsState()
             val injectionScale by animateFloatAsState(
@@ -1672,12 +1704,20 @@ private fun FilesPicker(
                     )
                 },
                 trailingContent = {
-                    Text(
-                        text = "$activeInjectionCount/$totalInjectionCount",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                        maxLines = 1,
-                    )
+                    if (activeInjectionCount > 0) {
+                        Text(
+                            text = "$activeInjectionCount/$totalInjectionCount",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                            maxLines = 1,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                        )
+                    }
                 },
             )
             
@@ -2515,7 +2555,7 @@ internal fun InjectionPickerSheet(
             else -> InjectionPickerTab.Modes
         }
     }
-    var selectedTab by remember(tabs, initialTab) {
+    var selectedTab by remember(tabs) {
         mutableStateOf(if (initialTab in tabs) initialTab else tabs.first())
     }
     
@@ -2594,35 +2634,63 @@ internal fun InjectionPickerSheet(
 
             Spacer(Modifier.height(8.dp))
 
-            when (selectedTab) {
-                InjectionPickerTab.Skills -> ExplicitSkillsPickerContent(
-                    skills = enabledSkills,
-                    selectedSkillIds = localSelectedSkillIds,
-                    onSelectedSkillIdsChange = { nextIds ->
-                        localSelectedSkillIds = nextIds
-                        onSelectedSkillIdsChange(nextIds)
-                    },
-                    emptyText = stringResource(R.string.injection_picker_empty_skills),
-                )
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    fadeIn(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMedium,
+                        )
+                    ) togetherWith fadeOut(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMedium,
+                        )
+                    ) using SizeTransform(
+                        sizeAnimationSpec = { _, _ ->
+                            spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium,
+                            )
+                        },
+                    )
+                },
+                label = "injection_tab_content",
+                modifier = Modifier.fillMaxWidth(),
+            ) { tab ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    when (tab) {
+                        InjectionPickerTab.Skills -> ExplicitSkillsPickerContent(
+                            skills = enabledSkills,
+                            selectedSkillIds = localSelectedSkillIds,
+                            onSelectedSkillIdsChange = { nextIds ->
+                                localSelectedSkillIds = nextIds
+                                onSelectedSkillIdsChange(nextIds)
+                            },
+                            emptyText = stringResource(R.string.injection_picker_empty_skills),
+                        )
 
-                InjectionPickerTab.Lorebooks -> LorebooksPickerContent(
-                    settings = settings,
-                    enabledLorebookIds = localEnabledLorebookIds,
-                    onEnabledLorebookIdsChange = { nextIds ->
-                        localEnabledLorebookIds = nextIds
-                        onUpdateAssistant(assistant.copy(enabledLorebookIds = nextIds))
-                    },
-                    onNavigateToLorebook = onNavigateToLorebook,
-                )
+                        InjectionPickerTab.Lorebooks -> LorebooksPickerContent(
+                            settings = settings,
+                            enabledLorebookIds = localEnabledLorebookIds,
+                            onEnabledLorebookIdsChange = { nextIds ->
+                                localEnabledLorebookIds = nextIds
+                                onUpdateAssistant(assistant.copy(enabledLorebookIds = nextIds))
+                            },
+                            onNavigateToLorebook = onNavigateToLorebook,
+                        )
 
-                InjectionPickerTab.Modes -> ModesPickerContent(
-                    settings = settings,
-                    enabledModeIds = localEnabledModeIds,
-                    onEnabledModeIdsChange = { nextIds ->
-                        localEnabledModeIds = nextIds
-                        onUpdateConversation(conversation.copy(enabledModeIds = nextIds))
-                    },
-                )
+                        InjectionPickerTab.Modes -> ModesPickerContent(
+                            settings = settings,
+                            enabledModeIds = localEnabledModeIds,
+                            onEnabledModeIdsChange = { nextIds ->
+                                localEnabledModeIds = nextIds
+                                onUpdateConversation(conversation.copy(enabledModeIds = nextIds))
+                            },
+                        )
+                    }
+                }
             }
         }
     }
@@ -2736,6 +2804,7 @@ private fun ModesPickerContent(
     enabledModeIds: Set<Uuid>,
     onEnabledModeIdsChange: (Set<Uuid>) -> Unit,
 ) {
+    val haptics = rememberPremiumHaptics()
     val amoledMode by rememberAmoledDarkMode()
     val isDarkMode = LocalDarkMode.current
     val cornerRadius = 28.dp
@@ -2750,6 +2819,14 @@ private fun ModesPickerContent(
     } else {
         settings.modes.forEachIndexed { index, mode ->
             val isEnabled = enabledModeIds.contains(mode.id)
+            fun updateModeEnabled(newEnabled: Boolean) {
+                val newEnabledIds = if (newEnabled) {
+                    enabledModeIds + mode.id
+                } else {
+                    enabledModeIds - mode.id
+                }
+                onEnabledModeIdsChange(newEnabledIds)
+            }
             val position = when {
                 settings.modes.size == 1 -> me.rerere.rikkahub.ui.components.ui.ItemPosition.ONLY
                 index == 0 -> me.rerere.rikkahub.ui.components.ui.ItemPosition.FIRST
@@ -2781,6 +2858,10 @@ private fun ModesPickerContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 80.dp)
+                            .clickable {
+                                haptics.perform(HapticPattern.Pop)
+                                updateModeEnabled(!isEnabled)
+                            }
                             .padding(12.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -2797,16 +2878,9 @@ private fun ModesPickerContent(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        HapticSwitch(
+                        androidx.compose.material3.Switch(
                             checked = isEnabled,
-                            onCheckedChange = { newEnabled ->
-                                val newEnabledIds = if (newEnabled) {
-                                    enabledModeIds + mode.id
-                                } else {
-                                    enabledModeIds - mode.id
-                                }
-                                onEnabledModeIdsChange(newEnabledIds)
-                            }
+                            onCheckedChange = null,
                         )
                     }
                 }

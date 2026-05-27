@@ -2163,6 +2163,7 @@
     <string name="injection_picker_summary_skills">Skills %1$d/%2$d</string>
     <string name="injection_picker_summary_lorebooks">Lorebooks %1$d/%2$d</string>
     <string name="injection_picker_summary_modes">Modes %1$d/%2$d</string>
+    <string name="injection_picker_summary_empty">No injection</string>
     <string name="injection_picker_tab_skills">Skills %1$s</string>
     <string name="injection_picker_tab_lorebooks">Lorebooks %1$s</string>
     <string name="injection_picker_tab_modes">Modes %1$s</string>
