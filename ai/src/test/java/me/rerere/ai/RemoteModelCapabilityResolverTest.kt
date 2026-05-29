@@ -7,6 +7,7 @@ import me.rerere.ai.registry.ModelsDevCapabilityParser
 import me.rerere.ai.registry.RemoteCapabilityMatch
 import me.rerere.ai.registry.RemoteModelCapability
 import me.rerere.ai.registry.RemoteModelCapabilityResolver
+import me.rerere.ai.registry.RemoteModelNameResolver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -114,6 +115,57 @@ class RemoteModelCapabilityResolverTest {
     }
 
     @Test
+    fun strictNameResolverMatchesCanonicalIdIgnoringCase() {
+        val name = nameResolver().resolveDisplayName("Z-AI/GLM-5")
+
+        assertEquals("GLM 5", name)
+    }
+
+    @Test
+    fun strictNameResolverMatchesUniqueShortIdIgnoringCase() {
+        val name = nameResolver().resolveDisplayName("GLM-5")
+
+        assertEquals("GLM 5", name)
+    }
+
+    @Test
+    fun strictNameResolverDoesNotMatchPrefixedPaths() {
+        val resolver = nameResolver()
+
+        assertEquals(null, resolver.resolveDisplayName("Pro/zai-org/GLM-5"))
+        assertEquals(null, resolver.resolveDisplayName("openrouter/z-ai/glm-5"))
+        assertEquals(null, resolver.resolveDisplayName("provider:z-ai/glm-5"))
+    }
+
+    @Test
+    fun strictNameResolverDoesNotStripSuffixes() {
+        val resolver = nameResolver()
+
+        assertEquals(null, resolver.resolveDisplayName("z-ai/glm-5:free"))
+        assertEquals(null, resolver.resolveDisplayName("glm-5-pro"))
+    }
+
+    @Test
+    fun strictNameResolverDoesNotMatchAmbiguousShortId() {
+        val name = nameResolver(
+            RemoteModelCapability(modelId = "provider-a/shared-model", displayName = "A Shared"),
+            RemoteModelCapability(modelId = "provider-b/shared-model", displayName = "B Shared"),
+        ).resolveDisplayName("shared-model")
+
+        assertEquals(null, name)
+    }
+
+    @Test
+    fun strictNameResolverIgnoresBlankDisplayName() {
+        val resolver = nameResolver(
+            RemoteModelCapability(modelId = "z-ai/glm-5", displayName = null),
+        )
+
+        assertEquals(null, resolver.resolveDisplayName("z-ai/glm-5"))
+        assertEquals(null, resolver.resolveDisplayName("glm-5"))
+    }
+
+    @Test
     fun parsesOpenRouterCapabilitiesAndIgnoresCosts() {
         val json = Json.parseToJsonElement(
             """
@@ -202,6 +254,21 @@ class RemoteModelCapabilityResolverTest {
             )
         }
         return RemoteModelCapabilityResolver(capabilities)
+    }
+
+    private fun nameResolver(
+        vararg extraCapabilities: RemoteModelCapability,
+    ): RemoteModelNameResolver {
+        val capabilities = if (extraCapabilities.isNotEmpty()) {
+            extraCapabilities.toList()
+        } else {
+            listOf(
+                RemoteModelCapability(modelId = "z-ai/glm-5", displayName = "GLM 5"),
+                RemoteModelCapability(modelId = "z-ai/glm-5-turbo", displayName = "GLM 5 Turbo"),
+                RemoteModelCapability(modelId = "anthropic/claude-sonnet-4.5", displayName = "Claude Sonnet 4.5"),
+            )
+        }
+        return RemoteModelNameResolver(capabilities)
     }
 
     private fun assertMatchedModel(

@@ -2627,6 +2627,22 @@ private fun ModelList(
         onUpdateProvider(providerSetting.moveMove(from.index, to.index).ensureVisibleQuotaGroups())
     }
     val haptics = me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics()
+
+    fun scheduleGeneratedNameIfNeeded(model: Model) {
+        scope.launch {
+            val remoteDisplayName = modelCapabilityRepository.resolveDisplayNameForProvider(
+                modelId = model.modelId,
+                provider = providerSetting,
+            )
+            if (!remoteDisplayName.isNullOrBlank()) {
+                return@launch
+            }
+            val generatedName = onGenerateModelName(model.modelId)
+            if (!generatedName.isNullOrBlank()) {
+                onUpdateModelNameIfUnchanged(model.id, model.displayName, generatedName)
+            }
+        }
+    }
     
     val canDelete = providerSetting.models.size > 1
 
@@ -2765,12 +2781,7 @@ private fun ModelList(
                 selectedModels = providerSetting.models,
                 onAddModel = {
                     onUpdateProvider(providerSetting.addModel(it).ensureVisibleQuotaGroups())
-                    scope.launch {
-                        val generatedName = onGenerateModelName(it.modelId)
-                        if (!generatedName.isNullOrBlank()) {
-                            onUpdateModelNameIfUnchanged(it.id, it.displayName, generatedName)
-                        }
-                    }
+                    scheduleGeneratedNameIfNeeded(it)
                 },
                 onRemoveModel = {
                     onUpdateProvider(providerSetting.delModel(it).ensureVisibleQuotaGroups())
@@ -2782,12 +2793,7 @@ private fun ModelList(
                     }
                     onUpdateProvider(updated.ensureVisibleQuotaGroups())
                     models.forEach { model ->
-                        scope.launch {
-                            val generatedName = onGenerateModelName(model.modelId)
-                            if (!generatedName.isNullOrBlank()) {
-                                onUpdateModelNameIfUnchanged(model.id, model.displayName, generatedName)
-                            }
-                        }
+                        scheduleGeneratedNameIfNeeded(model)
                     }
                 },
                 onRemoveModels = { models ->
@@ -2858,13 +2864,36 @@ private fun ModelSettingsForm(
         }
     }
 
+    LaunchedEffect(parentProvider?.id, isEdit, model.id, model.modelId) {
+        if (
+            isEdit ||
+            parentProvider?.canUseRemoteModelCapabilityDefaults() != true ||
+            model.modelId.isBlank()
+        ) {
+            return@LaunchedEffect
+        }
+
+        val remoteDisplayName = modelCapabilityRepository.resolveDisplayNameForProvider(
+            modelId = model.modelId,
+            provider = parentProvider,
+        ) ?: return@LaunchedEffect
+        val fallbackNames = setOf("", model.modelId, model.modelId.uppercase())
+        if (
+            latestModel.id == model.id &&
+            latestModel.modelId == model.modelId &&
+            latestModel.displayName in fallbackNames
+        ) {
+            onModelChange(latestModel.copy(displayName = remoteDisplayName))
+        }
+    }
+
     fun setModelId(id: String) {
         // Extract providerSlug from model ID if it contains "/" (e.g., "anthropic/claude-3.5" -> "anthropic")
         val providerSlug = if (id.contains("/")) id.substringBefore("/") else null
         onModelChange(
             model.copy(
                 modelId = id,
-                displayName = id.uppercase(),
+                displayName = id,
                 providerSlug = providerSlug
             ).withRegistryCapabilities()
         )
@@ -3145,7 +3174,7 @@ private fun AddModelButton(
             selectedModels = selectedModels,
             onModelSelected = { model ->
                 scope.launch {
-                    onAddModel(modelCapabilityRepository.applyCapabilitiesForProvider(model, parentProvider))
+                    onAddModel(modelCapabilityRepository.applyNewModelDefaultsForProvider(model, parentProvider))
                 }
             },
             onModelDeselected = { model ->
@@ -3154,7 +3183,7 @@ private fun AddModelButton(
             onModelsSelected = { modelList ->
                 scope.launch {
                     onAddModels(modelList.map { model ->
-                        modelCapabilityRepository.applyCapabilitiesForProvider(model, parentProvider)
+                        modelCapabilityRepository.applyNewModelDefaultsForProvider(model, parentProvider)
                     })
                 }
             },
@@ -3348,7 +3377,7 @@ private fun ModelPickerFab(
                             val modelsToAdd = filteredModels.filter { model ->
                                 !selectedModels.any { it.modelId == model.modelId }
                             }.map { model ->
-                                modelCapabilityRepository.applyCapabilitiesForProvider(model, parentProvider)
+                                modelCapabilityRepository.applyNewModelDefaultsForProvider(model, parentProvider)
                             }
                             if (modelsToAdd.isNotEmpty()) {
                                 onAddModels(modelsToAdd)
@@ -3441,7 +3470,7 @@ private fun ModelPickerFab(
                                         } else {
                                             scope.launch {
                                                 onAddModel(
-                                                    modelCapabilityRepository.applyCapabilitiesForProvider(model, parentProvider)
+                                                    modelCapabilityRepository.applyNewModelDefaultsForProvider(model, parentProvider)
                                                 )
                                             }
                                         }
@@ -3651,7 +3680,7 @@ private fun ModelPicker(
                             val modelsToAdd = filteredModels.filter { model ->
                                 !selectedModels.any { it.modelId == model.modelId }
                             }.map { model ->
-                                modelCapabilityRepository.applyCapabilitiesForProvider(model, parentProvider)
+                                modelCapabilityRepository.applyNewModelDefaultsForProvider(model, parentProvider)
                             }
                             if (modelsToAdd.isNotEmpty()) {
                                 onModelsSelected(modelsToAdd)

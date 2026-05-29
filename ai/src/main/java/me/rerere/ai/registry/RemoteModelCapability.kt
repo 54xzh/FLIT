@@ -28,6 +28,8 @@ data class RemoteModelCapabilityCache(
     val capabilities: List<RemoteModelCapability>,
 ) {
     fun resolver(): RemoteModelCapabilityResolver = RemoteModelCapabilityResolver(capabilities)
+
+    fun nameResolver(): RemoteModelNameResolver = RemoteModelNameResolver(capabilities)
 }
 
 object ModelsDevCapabilityParser {
@@ -79,6 +81,52 @@ object ModelsDevCapabilityParser {
             .orEmpty()
 
         return parsed.ifEmpty { listOf(Modality.TEXT) }
+    }
+}
+
+class RemoteModelNameResolver(
+    capabilities: List<RemoteModelCapability>,
+) {
+    private val byCanonicalId = capabilities
+        .mapNotNull { capability ->
+            val displayName = capability.normalizedDisplayName() ?: return@mapNotNull null
+            RemoteModelCapabilityResolver.normalizeId(capability.modelId) to displayName
+        }
+        .distinctBy { (modelId, _) -> modelId }
+        .toMap()
+
+    private val byShortId = capabilities
+        .groupBy { capability ->
+            RemoteModelCapabilityResolver.shortId(
+                RemoteModelCapabilityResolver.normalizeId(capability.modelId)
+            )
+        }
+        .filterKeys { it.isNotBlank() }
+        .mapNotNull { (shortId, values) ->
+            val uniqueCapabilities = values.distinctBy {
+                RemoteModelCapabilityResolver.normalizeId(it.modelId)
+            }
+            if (uniqueCapabilities.size != 1) {
+                return@mapNotNull null
+            }
+            uniqueCapabilities.first().normalizedDisplayName()?.let { displayName ->
+                shortId to displayName
+            }
+        }
+        .toMap()
+
+    fun resolveDisplayName(modelId: String): String? {
+        val normalized = RemoteModelCapabilityResolver.normalizeId(modelId)
+        if (normalized.isBlank()) return null
+
+        byCanonicalId[normalized]?.let { return it }
+
+        if ('/' in normalized) return null
+        return byShortId[normalized]
+    }
+
+    private fun RemoteModelCapability.normalizedDisplayName(): String? {
+        return displayName?.trim()?.takeIf { it.isNotBlank() }
     }
 }
 

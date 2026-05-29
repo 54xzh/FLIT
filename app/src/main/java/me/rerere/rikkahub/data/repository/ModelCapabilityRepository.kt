@@ -15,6 +15,7 @@ import me.rerere.ai.provider.providers.openai.OpenRouterModelCapabilityProvider
 import me.rerere.ai.registry.ModelsDevCapabilityParser
 import me.rerere.ai.registry.RemoteModelCapability
 import me.rerere.ai.registry.RemoteModelCapabilityCache
+import me.rerere.ai.registry.RemoteModelNameResolver
 import me.rerere.ai.registry.RemoteModelCapabilityResolver
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.common.http.await
@@ -62,12 +63,25 @@ class ModelCapabilityRepository(
     suspend fun getOpenRouterResolver(): RemoteModelCapabilityResolver? =
         getOpenRouterCache()?.resolver()
 
+    suspend fun getOpenRouterNameResolver(): RemoteModelNameResolver? =
+        getOpenRouterCache()?.nameResolver()
+
     suspend fun resolveOpenRouterCapability(modelId: String): RemoteModelCapability? =
         getOpenRouterResolver()?.resolve(modelId)?.capabilityOrNull
 
+    suspend fun resolveOpenRouterDisplayName(modelId: String): String? =
+        getOpenRouterNameResolver()?.resolveDisplayName(modelId)
+
+    suspend fun resolveDisplayNameForProvider(modelId: String, provider: ProviderSetting): String? {
+        return if (provider.canUseRemoteModelCapabilityDefaults()) {
+            resolveOpenRouterDisplayName(modelId)
+        } else {
+            null
+        }
+    }
+
     fun applyCapability(model: Model, capability: RemoteModelCapability): Model {
         return model.copy(
-            displayName = model.displayName.ifBlank { capability.displayName ?: model.modelId },
             inputModalities = capability.inputModalities,
             outputModalities = capability.outputModalities,
             abilities = capability.abilities,
@@ -86,6 +100,16 @@ class ModelCapabilityRepository(
         } else {
             model.withRegistryCapabilities()
         }
+    }
+
+    suspend fun applyNewModelDefaultsForProvider(model: Model, provider: ProviderSetting): Model {
+        val withCapabilities = applyCapabilitiesForProvider(model, provider)
+        if (!provider.canUseRemoteModelCapabilityDefaults()) {
+            return withCapabilities
+        }
+        val displayName = resolveDisplayNameForProvider(withCapabilities.modelId, provider)
+            ?: withCapabilities.modelId
+        return withCapabilities.copy(displayName = displayName)
     }
 
     suspend fun applyOpenRouterCapabilitiesToProvider(provider: ProviderSetting): ProviderSetting {
