@@ -42,6 +42,7 @@ data class Model(
     val customIconUri: String? = null,
     val imageGenerationMethod: ImageGenerationMethod? = null,
     val quota: ModelQuota? = null,
+    val capabilitySource: ModelCapabilitySource = ModelCapabilitySource.MANUAL,
 )
 
 @Serializable
@@ -69,6 +70,12 @@ enum class ImageGenerationMethod {
 enum class ModelAbility {
     TOOL,
     REASONING,
+}
+
+@Serializable
+enum class ModelCapabilitySource {
+    AUTO,
+    MANUAL,
 }
 
 // 模型(提供商)提供的内置工具选项

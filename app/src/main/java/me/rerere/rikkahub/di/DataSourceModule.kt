@@ -5,6 +5,7 @@ import io.ktor.http.HttpHeaders
 import io.pebbletemplates.pebble.PebbleEngine
 import kotlinx.serialization.json.Json
 import me.rerere.ai.provider.ProviderManager
+import me.rerere.ai.provider.providers.openai.OpenRouterModelCapabilityProvider
 import me.rerere.common.http.AcceptLanguageBuilder
 import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.data.ai.AIRequestInterceptor
@@ -14,6 +15,7 @@ import me.rerere.rikkahub.data.ai.transformers.TemplateTransformer
 import me.rerere.rikkahub.data.api.LastChatAPI
 import me.rerere.rikkahub.data.api.SponsorAPI
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.datastore.ModelCapabilityStore
 import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.Migration_6_7
 import me.rerere.rikkahub.data.ai.mcp.McpManager
@@ -31,6 +33,10 @@ import java.util.concurrent.TimeUnit
 val dataSourceModule = module {
     single {
         SettingsStore(context = get(), scope = get())
+    }
+
+    single {
+        ModelCapabilityStore(context = get())
     }
 
     single {
@@ -168,7 +174,12 @@ val dataSourceModule = module {
     }
 
     single {
-        ProviderManager(client = get())
+        ProviderManager(
+            client = get(),
+            openRouterModelCapabilityProvider = runCatching {
+                get<OpenRouterModelCapabilityProvider>()
+            }.getOrNull(),
+        )
     }
 
     single {

@@ -85,6 +85,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -124,6 +125,7 @@ import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
+import me.rerere.ai.provider.ModelCapabilitySource
 import me.rerere.ai.provider.ModelQuotaGroup
 import me.rerere.ai.provider.ModelType
 import me.rerere.ai.provider.ImageGenerationMethod
@@ -174,7 +176,11 @@ import kotlin.uuid.Uuid
 import me.rerere.rikkahub.data.model.Tag as DataTag
 import me.rerere.rikkahub.ui.components.ui.FormItem
 import me.rerere.rikkahub.data.repository.ModelQuotaRepository
+import me.rerere.rikkahub.data.repository.ModelCapabilityRepository
 import me.rerere.rikkahub.data.repository.QuotaUsageResult
+import me.rerere.rikkahub.data.repository.canUseRemoteModelCapabilityDefaults
+import me.rerere.rikkahub.data.repository.markCapabilitiesManual
+import me.rerere.rikkahub.data.repository.withRegistryCapabilities
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import androidx.compose.material3.LinearProgressIndicator
@@ -192,8 +198,6 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
     val provider = settings.providers.find { it.id == id } ?: return
     val pager = rememberPagerState { 3 }
     val scope = rememberCoroutineScope()
-    val toaster = LocalToaster.current
-    val context = LocalContext.current
 
     val onEdit = { newProvider: ProviderSetting ->
         val newSettings = settings.copy(
@@ -2563,6 +2567,16 @@ private fun ModelList(
     contentPadding: PaddingValues = PaddingValues(0.dp)
 ) {
     val providerManager = koinInject<ProviderManager>()
+    val modelCapabilityRepository = koinInject<ModelCapabilityRepository>()
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(providerSetting.id, providerSetting.models) {
+        if (!providerSetting.canUseRemoteModelCapabilityDefaults()) return@LaunchedEffect
+        modelCapabilityRepository.refreshOpenRouterIfStale(force = false)
+        val updatedProvider = modelCapabilityRepository.applyOpenRouterCapabilitiesToProvider(providerSetting)
+        if (updatedProvider.models != providerSetting.models) {
+            onUpdateProvider(updatedProvider.ensureVisibleQuotaGroups())
+        }
+    }
     val modelList by produceState(emptyList(), providerSetting) {
         runCatching {
             println("loading models...")
@@ -2612,7 +2626,6 @@ private fun ModelList(
     val reorderableLazyListState = rememberReorderableLazyListState(lazyListState) { from, to ->
         onUpdateProvider(providerSetting.moveMove(from.index, to.index).ensureVisibleQuotaGroups())
     }
-    val scope = rememberCoroutineScope()
     val haptics = me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics()
     
     val canDelete = providerSetting.models.size > 1
@@ -2814,7 +2827,9 @@ private fun ModelSettingsForm(
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
     val generateModelNameFailedMessage = stringResource(R.string.setting_provider_page_generate_model_name_failed)
+    val modelCapabilityRepository = koinInject<ModelCapabilityRepository>()
     var generatingDisplayName by remember(model.id, model.modelId) { mutableStateOf(false) }
+    val latestModel by rememberUpdatedState(model)
 
     LaunchedEffect(initialPage) {
         val targetPage = initialPage.coerceIn(0, 2)
@@ -2823,21 +2838,35 @@ private fun ModelSettingsForm(
         }
     }
 
+    LaunchedEffect(parentProvider?.id, model.id, model.modelId, model.capabilitySource) {
+        if (
+            parentProvider?.canUseRemoteModelCapabilityDefaults() != true ||
+            model.modelId.isBlank() ||
+            model.capabilitySource != ModelCapabilitySource.AUTO
+        ) {
+            return@LaunchedEffect
+        }
+
+        val autoModel = modelCapabilityRepository.applyOpenRouterCapability(model)
+        if (
+            autoModel != latestModel &&
+            latestModel.id == autoModel.id &&
+            latestModel.modelId == autoModel.modelId &&
+            latestModel.capabilitySource == ModelCapabilitySource.AUTO
+        ) {
+            onModelChange(autoModel)
+        }
+    }
+
     fun setModelId(id: String) {
-        val inputModality = ModelRegistry.MODEL_INPUT_MODALITIES.getData(id)
-        val outputModality = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(id)
-        val abilities = ModelRegistry.MODEL_ABILITIES.getData(id)
         // Extract providerSlug from model ID if it contains "/" (e.g., "anthropic/claude-3.5" -> "anthropic")
         val providerSlug = if (id.contains("/")) id.substringBefore("/") else null
         onModelChange(
             model.copy(
                 modelId = id,
                 displayName = id.uppercase(),
-                inputModalities = inputModality,
-                outputModalities = outputModality,
-                abilities = abilities,
                 providerSlug = providerSlug
-            )
+            ).withRegistryCapabilities()
         )
     }
 
@@ -3003,7 +3032,7 @@ private fun ModelSettingsForm(
                                     } else {
                                         model.inputModalities - Modality.IMAGE
                                     }
-                                    onModelChange(model.copy(inputModalities = newInputModalities))
+                                    onModelChange(model.copy(inputModalities = newInputModalities).markCapabilitiesManual())
                                 }
                             )
                         }
@@ -3012,11 +3041,11 @@ private fun ModelSettingsForm(
                             model = model,
                             inputModalities = model.inputModalities,
                             onUpdateInputModalities = {
-                                onModelChange(model.copy(inputModalities = it))
+                                onModelChange(model.copy(inputModalities = it).markCapabilitiesManual())
                             },
                             outputModalities = model.outputModalities,
                             onUpdateOutputModalities = {
-                                onModelChange(model.copy(outputModalities = it))
+                                onModelChange(model.copy(outputModalities = it).markCapabilitiesManual())
                             }
                         )
 
@@ -3024,7 +3053,7 @@ private fun ModelSettingsForm(
                             ModalAbilitySelector(
                                 abilities = model.abilities,
                                 onUpdateAbilities = {
-                                    onModelChange(model.copy(abilities = it))
+                                    onModelChange(model.copy(abilities = it).markCapabilitiesManual())
                                 }
                             )
                         }
@@ -3105,6 +3134,7 @@ private fun AddModelButton(
 ) {
     val dialogState = useEditState<Model> { onAddModel(it) }
     val scope = rememberCoroutineScope()
+    val modelCapabilityRepository = koinInject<ModelCapabilityRepository>()
 
     Row(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -3114,22 +3144,19 @@ private fun AddModelButton(
             models = models,
             selectedModels = selectedModels,
             onModelSelected = { model ->
-                val inputModalities = ModelRegistry.MODEL_INPUT_MODALITIES.getData(model.modelId)
-                val outputModalities = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(model.modelId)
-                val abilities = ModelRegistry.MODEL_ABILITIES.getData(model.modelId)
-                onAddModel(
-                    model.copy(
-                        inputModalities = inputModalities,
-                        outputModalities = outputModalities,
-                        abilities = abilities
-                    )
-                )
+                scope.launch {
+                    onAddModel(modelCapabilityRepository.applyCapabilitiesForProvider(model, parentProvider))
+                }
             },
             onModelDeselected = { model ->
                 onRemoveModel(model)
             },
             onModelsSelected = { modelList ->
-                onAddModels(modelList)
+                scope.launch {
+                    onAddModels(modelList.map { model ->
+                        modelCapabilityRepository.applyCapabilitiesForProvider(model, parentProvider)
+                    })
+                }
             },
             onModelsDeselected = { modelList ->
                 onRemoveModels(modelList)
@@ -3253,6 +3280,8 @@ private fun ModelPickerFab(
     parentProvider: ProviderSetting
 ) {
     var showPicker by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val modelCapabilityRepository = koinInject<ModelCapabilityRepository>()
     val haptics = me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics()
     
     FloatingActionButton(
@@ -3315,20 +3344,15 @@ private fun ModelPickerFab(
                 } else {
                     // Not all selected, show Select All
                     TextButton(onClick = {
-                        val modelsToAdd = filteredModels.filter { model ->
-                            !selectedModels.any { it.modelId == model.modelId }
-                        }.map { model ->
-                            val inputModalities = ModelRegistry.MODEL_INPUT_MODALITIES.getData(model.modelId)
-                            val outputModalities = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(model.modelId)
-                            val abilities = ModelRegistry.MODEL_ABILITIES.getData(model.modelId)
-                            model.copy(
-                                inputModalities = inputModalities,
-                                outputModalities = outputModalities,
-                                abilities = abilities
-                            )
-                        }
-                        if (modelsToAdd.isNotEmpty()) {
-                            onAddModels(modelsToAdd)
+                        scope.launch {
+                            val modelsToAdd = filteredModels.filter { model ->
+                                !selectedModels.any { it.modelId == model.modelId }
+                            }.map { model ->
+                                modelCapabilityRepository.applyCapabilitiesForProvider(model, parentProvider)
+                            }
+                            if (modelsToAdd.isNotEmpty()) {
+                                onAddModels(modelsToAdd)
+                            }
                         }
                     }) {
                         Text(stringResource(R.string.select_all))
@@ -3400,11 +3424,11 @@ private fun ModelPickerFab(
                                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
                                         val modelMeta = remember(model) {
-                                            model.copy(
-                                                inputModalities = ModelRegistry.MODEL_INPUT_MODALITIES.getData(model.modelId),
-                                                outputModalities = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(model.modelId),
-                                                abilities = ModelRegistry.MODEL_ABILITIES.getData(model.modelId),
-                                            )
+                                            if (model.capabilitySource == ModelCapabilitySource.AUTO) {
+                                                model
+                                            } else {
+                                                model.withRegistryCapabilities()
+                                            }
                                         }
                                         ModelModalityTag(model = modelMeta)
                                         ModelAbilityTag(model = modelMeta)
@@ -3415,16 +3439,11 @@ private fun ModelPickerFab(
                                         if (isSelected) {
                                             onRemoveModel(model)
                                         } else {
-                                            val inputModalities = ModelRegistry.MODEL_INPUT_MODALITIES.getData(model.modelId)
-                                            val outputModalities = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(model.modelId)
-                                            val abilities = ModelRegistry.MODEL_ABILITIES.getData(model.modelId)
-                                            onAddModel(
-                                                model.copy(
-                                                    inputModalities = inputModalities,
-                                                    outputModalities = outputModalities,
-                                                    abilities = abilities
+                                            scope.launch {
+                                                onAddModel(
+                                                    modelCapabilityRepository.applyCapabilitiesForProvider(model, parentProvider)
                                                 )
-                                            )
+                                            }
                                         }
                                     }
                                 ) {
@@ -3579,6 +3598,8 @@ private fun ModelPicker(
     parentProvider: ProviderSetting
 ) {
     var showModal by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val modelCapabilityRepository = koinInject<ModelCapabilityRepository>()
     if (showModal) {
         ModalBottomSheet(
             onDismissRequest = { showModal = false },
@@ -3626,20 +3647,15 @@ private fun ModelPicker(
                 } else {
                     // Not all selected, show Select All
                     TextButton(onClick = {
-                        val modelsToAdd = filteredModels.filter { model ->
-                            !selectedModels.any { it.modelId == model.modelId }
-                        }.map { model ->
-                            val inputModalities = ModelRegistry.MODEL_INPUT_MODALITIES.getData(model.modelId)
-                            val outputModalities = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(model.modelId)
-                            val abilities = ModelRegistry.MODEL_ABILITIES.getData(model.modelId)
-                            model.copy(
-                                inputModalities = inputModalities,
-                                outputModalities = outputModalities,
-                                abilities = abilities
-                            )
-                        }
-                        if (modelsToAdd.isNotEmpty()) {
-                            onModelsSelected(modelsToAdd)
+                        scope.launch {
+                            val modelsToAdd = filteredModels.filter { model ->
+                                !selectedModels.any { it.modelId == model.modelId }
+                            }.map { model ->
+                                modelCapabilityRepository.applyCapabilitiesForProvider(model, parentProvider)
+                            }
+                            if (modelsToAdd.isNotEmpty()) {
+                                onModelsSelected(modelsToAdd)
+                            }
                         }
                     }) {
                         Text(stringResource(R.string.select_all))
@@ -3720,11 +3736,11 @@ private fun ModelPicker(
                                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
                                         val modelMeta = remember(it) {
-                                            it.copy(
-                                                inputModalities = ModelRegistry.MODEL_INPUT_MODALITIES.getData(it.modelId),
-                                                outputModalities = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(it.modelId),
-                                                abilities = ModelRegistry.MODEL_ABILITIES.getData(it.modelId),
-                                            )
+                                            if (it.capabilitySource == ModelCapabilitySource.AUTO) {
+                                                it
+                                            } else {
+                                                it.withRegistryCapabilities()
+                                            }
                                         }
                                         ModelModalityTag(
                                             model = modelMeta,

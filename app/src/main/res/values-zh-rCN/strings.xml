@@ -371,6 +371,12 @@
     <string name="developer_option_manual_update_loading">检查中…</string>
     <string name="developer_option_manual_update_no_result">未找到发布版本</string>
     <string name="developer_option_manual_update_error_prefix">错误：%1$s</string>
+    <string name="developer_option_model_capability_refresh_title">模型能力数据库</string>
+    <string name="developer_option_model_capability_refresh_desc">刷新用于 OpenAI 兼容模型别名匹配的 OpenRouter 远端能力缓存。</string>
+    <string name="developer_option_model_capability_refresh_action">刷新</string>
+    <string name="developer_option_model_capability_refresh_loading">刷新中…</string>
+    <string name="developer_option_model_capability_refresh_success">模型能力数据库已刷新</string>
+    <string name="developer_option_model_capability_refresh_failed">刷新模型能力数据库失败：%1$s</string>
 
     <string name="backup_page_object_storage_backup">对象存储备份</string>
     <string name="backup_page_object_storage_backup_files">对象存储备份文件列表</string>

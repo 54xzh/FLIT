@@ -10,11 +10,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.provider.ImageGenerationParams
+import me.rerere.ai.provider.ModelCapabilitySource
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.Provider
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.providers.openai.ChatCompletionsAPI
+import me.rerere.ai.provider.providers.openai.OpenRouterModelCapabilityProvider
 import me.rerere.ai.provider.providers.openai.ResponseAPI
 import me.rerere.ai.ui.ImageAspectRatio
 import me.rerere.ai.ui.ImageGenerationItem
@@ -37,7 +39,8 @@ import java.math.BigDecimal
 import java.util.concurrent.TimeUnit
 
 class OpenAIProvider(
-    private val client: OkHttpClient
+    private val client: OkHttpClient,
+    private val openRouterModelCapabilityProvider: OpenRouterModelCapabilityProvider? = null,
 ) : Provider<ProviderSetting.OpenAI> {
     private val keyRoulette = KeyRoulette.default()
 
@@ -130,7 +133,7 @@ class OpenAIProvider(
             // Used for LobeHub CDN icon lookup
             val providerSlug = if (id.contains("/")) id.substringBefore("/") else null
             
-            Model(
+            val baseModel = Model(
                 modelId = id,
                 displayName = modelObj["name"]?.jsonPrimitive?.contentOrNull ?: id,
                 type = if (isEmbedding) me.rerere.ai.provider.ModelType.EMBEDDING else me.rerere.ai.provider.ModelType.CHAT,
@@ -138,6 +141,22 @@ class OpenAIProvider(
                 iconUrl = iconUrl,
                 providerSlug = providerSlug
             )
+
+            if (forceEmbeddingType) {
+                baseModel
+            } else {
+                val capability = openRouterModelCapabilityProvider?.resolve(id)
+                if (capability == null) {
+                    baseModel
+                } else {
+                    baseModel.copy(
+                        inputModalities = capability.inputModalities,
+                        outputModalities = capability.outputModalities,
+                        abilities = capability.abilities,
+                        capabilitySource = ModelCapabilitySource.AUTO,
+                    )
+                }
+            }
         }
     }
 

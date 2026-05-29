@@ -32,6 +32,12 @@
     <string name="developer_option_manual_update_loading">Checking…</string>
     <string name="developer_option_manual_update_no_result">No release found</string>
     <string name="developer_option_manual_update_error_prefix">Error: %1$s</string>
+    <string name="developer_option_model_capability_refresh_title">Model capability database</string>
+    <string name="developer_option_model_capability_refresh_desc">Refresh the remote OpenRouter capability cache used for OpenAI-compatible model aliases.</string>
+    <string name="developer_option_model_capability_refresh_action">Refresh</string>
+    <string name="developer_option_model_capability_refresh_loading">Refreshing…</string>
+    <string name="developer_option_model_capability_refresh_success">Model capability database refreshed</string>
+    <string name="developer_option_model_capability_refresh_failed">Failed to refresh model capability database: %1$s</string>
     <string name="setting_request_logs_desc">View AI request logs.</string>
     <string name="setting_request_logs_enable_developer_mode_first">Enable Developer Mode to view logs.</string>
     <string name="request_log_status_ok">OK</string>

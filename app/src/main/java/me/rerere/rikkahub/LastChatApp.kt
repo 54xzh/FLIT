@@ -27,6 +27,7 @@ import me.rerere.rikkahub.di.dataSourceModule
 import me.rerere.rikkahub.di.repositoryModule
 import me.rerere.rikkahub.di.viewModelModule
 import me.rerere.rikkahub.data.repository.ConversationRepository
+import me.rerere.rikkahub.data.repository.ModelCapabilityRepository
 import me.rerere.rikkahub.utils.DatabaseUtil
 import org.koin.android.ext.android.get
 import org.koin.android.ext.koin.androidContext
@@ -207,6 +208,10 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
             } catch (e: Exception) {
                 Log.e(TAG, "Conversation search text backfill failed", e)
             }
+        }
+
+        get<AppScope>().launch(Dispatchers.IO) {
+            get<ModelCapabilityRepository>().refreshOpenRouterIfStale(force = false)
         }
     }
 

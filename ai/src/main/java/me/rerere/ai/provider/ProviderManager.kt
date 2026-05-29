@@ -3,18 +3,22 @@ package me.rerere.ai.provider
 import me.rerere.ai.provider.providers.ClaudeProvider
 import me.rerere.ai.provider.providers.GoogleProvider
 import me.rerere.ai.provider.providers.OpenAIProvider
+import me.rerere.ai.provider.providers.openai.OpenRouterModelCapabilityProvider
 import okhttp3.OkHttpClient
 
 /**
  * Provider管理器，负责注册和获取Provider实例
  */
-class ProviderManager(client: OkHttpClient) {
+class ProviderManager(
+    client: OkHttpClient,
+    openRouterModelCapabilityProvider: OpenRouterModelCapabilityProvider? = null,
+) {
     // 存储已注册的Provider实例
     private val providers = mutableMapOf<String, Provider<*>>()
 
     init {
         // 注册默认Provider
-        registerProvider("openai", OpenAIProvider(client))
+        registerProvider("openai", OpenAIProvider(client, openRouterModelCapabilityProvider))
         registerProvider("google", GoogleProvider(client))
         registerProvider("claude", ClaudeProvider(client))
     }

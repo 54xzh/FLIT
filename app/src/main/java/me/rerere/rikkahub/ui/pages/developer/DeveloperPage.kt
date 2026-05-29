@@ -14,6 +14,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FontDownload
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
@@ -56,6 +57,7 @@ import kotlin.time.toJavaInstant
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.ai.AILogging
+import me.rerere.rikkahub.data.repository.ModelCapabilityRepository
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
 import me.rerere.rikkahub.ui.components.ui.ToastType
@@ -145,7 +147,10 @@ private fun DeveloperToolsPage(vm: DeveloperVM) {
     val context = LocalContext.current
     val toaster = LocalToaster.current
     val haptics = rememberPremiumHaptics()
+    val scope = rememberCoroutineScope()
+    val modelCapabilityRepository = koinInject<ModelCapabilityRepository>()
     var showUpdateDetail by remember { mutableStateOf(false) }
+    var isRefreshingModelCapabilities by remember { mutableStateOf(false) }
     val updateInfo = (updateState as? UiState.Success)?.data
 
     LaunchedEffect(updateState) {
@@ -335,6 +340,70 @@ private fun DeveloperToolsPage(vm: DeveloperVM) {
                         }
                     }
                     else -> Unit
+                }
+            }
+        }
+
+        item {
+            SettingGroupInputItem(
+                title = stringResource(R.string.developer_option_model_capability_refresh_title),
+                subtitle = stringResource(R.string.developer_option_model_capability_refresh_desc),
+                icon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Refresh,
+                        contentDescription = null,
+                    )
+                },
+            ) {
+                FilledTonalButton(
+                    onClick = {
+                        haptics.perform(HapticPattern.Pop)
+                        scope.launch {
+                            isRefreshingModelCapabilities = true
+                            try {
+                                modelCapabilityRepository.refreshOpenRouterIfStale(force = true)
+                                    .onSuccess {
+                                        val refreshedProviders = settings.providers.map { provider ->
+                                            modelCapabilityRepository.applyOpenRouterCapabilitiesToProvider(provider)
+                                        }
+                                        vm.updateSettings { current ->
+                                            current.copy(
+                                                providers = current.providers.map { currentProvider ->
+                                                    refreshedProviders.firstOrNull { it.id == currentProvider.id }
+                                                        ?: currentProvider
+                                                }
+                                            )
+                                        }
+                                        toaster.show(
+                                            context.getString(R.string.developer_option_model_capability_refresh_success),
+                                            type = ToastType.Success,
+                                        )
+                                    }
+                                    .onFailure {
+                                        toaster.show(
+                                            context.getString(
+                                                R.string.developer_option_model_capability_refresh_failed,
+                                                it.message ?: "Unknown",
+                                            ),
+                                            type = ToastType.Error,
+                                        )
+                                    }
+                            } finally {
+                                isRefreshingModelCapabilities = false
+                            }
+                        }
+                    },
+                    enabled = !isRefreshingModelCapabilities,
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (isRefreshingModelCapabilities) {
+                                R.string.developer_option_model_capability_refresh_loading
+                            } else {
+                                R.string.developer_option_model_capability_refresh_action
+                            }
+                        )
+                    )
                 }
             }
         }
