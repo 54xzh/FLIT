@@ -130,7 +130,17 @@ private fun MiMoTTSConfiguration(
     }
 
     var voiceExpanded by remember { mutableStateOf(false) }
-    val voices = listOf("mimo_default", "default_zh", "default_eh", "default_en")
+    val voices = listOf(
+        "mimo_default",
+        "冰糖",
+        "茉莉",
+        "苏打",
+        "白桦",
+        "Mia",
+        "Chloe",
+        "Milo",
+        "Dean"
+    )
 
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_voice)) },

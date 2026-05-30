@@ -302,7 +302,7 @@
     <string name="setting_tts_page_api_key_placeholder_mimo">MIMO_API_KEY</string>
     <string name="setting_tts_page_default_system_name">系统TTS</string>
     <string name="setting_tts_page_default_mimo_name">MiMo TTS</string>
-    <string name="setting_tts_page_model_placeholder_mimo">mimo-v2-tts</string>
+    <string name="setting_tts_page_model_placeholder_mimo">mimo-v2.5-tts</string>
     <string name="setting_tts_page_preset_elevenlabs_desc">专业级语音克隆</string>
     <string name="setting_tts_page_preset_gemini_desc">Google 的自然语音 TTS</string>
     <string name="setting_tts_page_preset_mimo_desc">小米 MiMo 语音合成，内置多个预设音色</string>

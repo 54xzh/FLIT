@@ -1278,7 +1278,7 @@
     <string name="setting_tts_page_model">Model</string>
     <string name="setting_tts_page_model_description">TTS Model to use</string>
     <string name="setting_tts_page_model_placeholder_gemini">gemini-2.5-flash-preview-tts</string>
-    <string name="setting_tts_page_model_placeholder_mimo">mimo-v2-tts</string>
+    <string name="setting_tts_page_model_placeholder_mimo">mimo-v2.5-tts</string>
     <string name="setting_tts_page_model_placeholder_openai">gpt-4o-mini-tts</string>
     <string name="setting_tts_page_more_options_content_description">More Options</string>
     <string name="setting_tts_page_name">Name</string>

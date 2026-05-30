@@ -1002,7 +1002,7 @@
   <string name="setting_tts_page_model">模型</string>
   <string name="setting_tts_page_model_description">要使用的TTS模型</string>
   <string name="setting_tts_page_model_placeholder_gemini">gemini-2.5-flash-preview-tts</string>
-  <string name="setting_tts_page_model_placeholder_mimo">mimo-v2-tts</string>
+  <string name="setting_tts_page_model_placeholder_mimo">mimo-v2.5-tts</string>
   <string name="setting_tts_page_model_placeholder_openai">gpt-4o-mini-tts</string>
   <string name="setting_tts_page_more_options_content_description">更多選項</string>
   <string name="setting_tts_page_name">名稱</string>
