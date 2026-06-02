@@ -156,7 +156,7 @@ fun ReasoningPicker(
             // Spacer between groups
             Spacer(modifier = Modifier.height(16.dp))
             
-            // Group 2: LOW, MEDIUM, HIGH (3 items)
+            // Group 2: LOW, MEDIUM, HIGH, XHIGH (4 items)
             Column(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -184,6 +184,15 @@ fun ReasoningPicker(
                     title = stringResource(id = R.string.reasoning_heavy),
                     subtitle = stringResource(id = R.string.reasoning_heavy_desc),
                     onClick = { onUpdateReasoningTokens(32_000) },
+                    position = ItemPosition.MIDDLE,
+                    isDarkMode = isDarkMode
+                )
+                ReasoningOptionItem(
+                    selected = currentLevel == ReasoningLevel.XHIGH,
+                    icon = { Icon(Icons.Rounded.Lightbulb, null, modifier = Modifier.size(20.dp)) },
+                    title = stringResource(id = R.string.reasoning_xhigh),
+                    subtitle = stringResource(id = R.string.reasoning_xhigh_desc),
+                    onClick = { onUpdateReasoningTokens(64_000) },
                     position = ItemPosition.LAST,
                     isDarkMode = isDarkMode
                 )

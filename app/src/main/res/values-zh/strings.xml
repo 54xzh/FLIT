@@ -512,6 +512,8 @@
   <string name="reasoning_custom">自定义推理预算</string>
   <string name="reasoning_heavy">重度推理</string>
   <string name="reasoning_heavy_desc">模型将使用大量推理来回答问题。</string>
+  <string name="reasoning_xhigh">极限推理</string>
+  <string name="reasoning_xhigh_desc">模型将使用支持范围内最强的推理。</string>
   <string name="reasoning_light">轻度推理</string>
   <string name="reasoning_light_desc">模型将使用少量推理来回答问题。</string>
   <string name="reasoning_medium">中度推理</string>

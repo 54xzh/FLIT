@@ -461,6 +461,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                         else -> {
                             if(ModelRegistry.GEMINI_3_SERIES.match(modelId = params.model.modelId)) {
                                 when(val level = ReasoningLevel.fromBudgetTokens(params.thinkingBudget)) {
+                                    ReasoningLevel.XHIGH -> put("thinkingLevel", "high")
                                     ReasoningLevel.HIGH -> put("thinkingLevel", "high")
                                     ReasoningLevel.MEDIUM -> put("thinkingLevel", "high")
                                     ReasoningLevel.LOW -> put("thinkingLevel", "low")

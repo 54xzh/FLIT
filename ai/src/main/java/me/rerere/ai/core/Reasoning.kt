@@ -8,7 +8,8 @@ enum class ReasoningLevel(
     AUTO(-1, "auto"),
     LOW(1024, "low"),
     MEDIUM(16_000, "medium"),
-    HIGH(32_000, "high");
+    HIGH(32_000, "high"),
+    XHIGH(64_000, "xhigh");
 
     val isEnabled: Boolean
         get() = this != OFF
