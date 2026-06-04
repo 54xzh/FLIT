@@ -47,6 +47,7 @@ import me.rerere.ai.ui.UsedMode
 import me.rerere.ai.ui.UsedSessionMemory
 import me.rerere.ai.ui.handleMessageChunk
 import me.rerere.ai.ui.limitContext
+import me.rerere.ai.ui.repairToolCallMessageSequence
 import me.rerere.ai.ui.truncate
 import me.rerere.ai.util.HttpStatusException
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_LEARNING_MODE_PROMPT
@@ -1390,7 +1391,11 @@ class GenerationHandler(
             enabledModeIds = enabledModeIds,
             explicitSkillContextIds = explicitSkillContextIds,
         )
-        val internalMessages = buildResult.messages.transforms(transformers, context, model, assistant)
+        val internalMessages = buildResult.messages
+            .transforms(transformers, context, model, assistant)
+            .repairToolCallMessageSequence { toolCall ->
+                toolCall.requiresLocalToolResult(model)
+            }
         val usedLorebookEntries = buildResult.usedLorebookEntries
         val usedModes = buildResult.usedModes
         val usedMemories = buildResult.usedMemories
@@ -1609,6 +1614,20 @@ class GenerationHandler(
                 )
             }
         }
+    }
+
+    private fun UIMessagePart.ToolCall.requiresLocalToolResult(model: Model): Boolean {
+        val isServerToolUseByMetadata = metadata
+            ?.get(META_ANTHROPIC_TYPE)
+            ?.jsonPrimitive
+            ?.contentOrNull == TYPE_SERVER_TOOL_USE
+        val isClaudeBuiltInWebSearchToolCall =
+            toolName == CLAUDE_WEB_SEARCH_TOOL_NAME &&
+                model.tools.contains(BuiltInTools.ClaudeWebSearch)
+        val isGrokBuiltInToolCall =
+            (toolName == GROK_WEB_SEARCH_TOOL_NAME && model.tools.contains(BuiltInTools.GrokWebSearch)) ||
+                (toolName == GROK_X_SEARCH_TOOL_NAME && model.tools.contains(BuiltInTools.GrokXSearch))
+        return !isServerToolUseByMetadata && !isClaudeBuiltInWebSearchToolCall && !isGrokBuiltInToolCall
     }
 
     private fun buildMemoryTools(

@@ -497,6 +497,97 @@ fun List<UIMessage>.limitContext(size: Int): List<UIMessage> {
     return this.subList(adjustedStartIndex, this.size)
 }
 
+fun List<UIMessage>.repairToolCallMessageSequence(
+    requiresToolResult: (UIMessagePart.ToolCall) -> Boolean = { true },
+): List<UIMessage> {
+    if (none { it.role == MessageRole.TOOL || it.getToolCalls().isNotEmpty() }) return this
+
+    val repaired = mutableListOf<UIMessage>()
+    var index = 0
+    var changed = false
+
+    while (index < size) {
+        val message = this[index]
+        if (message.role == MessageRole.ASSISTANT && message.getToolCalls().any(requiresToolResult)) {
+            val followingToolMessages = mutableListOf<UIMessage>()
+            var nextIndex = index + 1
+            while (nextIndex < size && this[nextIndex].role == MessageRole.TOOL) {
+                followingToolMessages += this[nextIndex]
+                nextIndex++
+            }
+
+            val resultIds = followingToolMessages
+                .flatMap { it.getToolResults() }
+                .mapNotNull { it.toolCallId.takeIf(String::isNotBlank) }
+                .toSet()
+            val matchedRequiredIds = message.getToolCalls()
+                .filter(requiresToolResult)
+                .mapNotNull { call -> call.toolCallId.takeIf { it.isNotBlank() && it in resultIds } }
+                .toSet()
+
+            val repairedParts = message.parts.mapNotNull { part ->
+                if (
+                    part is UIMessagePart.ToolCall &&
+                    requiresToolResult(part) &&
+                    part.toolCallId !in matchedRequiredIds
+                ) {
+                    changed = true
+                    null
+                } else {
+                    part
+                }
+            }
+            val repairedMessage = message.copy(parts = repairedParts)
+            if (repairedMessage.hasProviderUploadableParts()) {
+                repaired += repairedMessage
+            } else {
+                changed = true
+            }
+
+            followingToolMessages.forEach { toolMessage ->
+                val repairedToolResults = toolMessage.getToolResults()
+                    .filter { it.toolCallId in matchedRequiredIds }
+                if (repairedToolResults.isEmpty()) {
+                    changed = true
+                } else {
+                    val repairedToolMessage = toolMessage.copy(parts = repairedToolResults)
+                    if (repairedToolMessage != toolMessage) changed = true
+                    repaired += repairedToolMessage
+                }
+            }
+
+            index = nextIndex
+            continue
+        }
+
+        if (message.role == MessageRole.TOOL) {
+            changed = true
+            index++
+            continue
+        }
+
+        repaired += message
+        index++
+    }
+
+    return if (changed) repaired else this
+}
+
+private fun UIMessage.hasProviderUploadableParts(): Boolean {
+    return parts.any { part ->
+        when (part) {
+            is UIMessagePart.Text -> part.text.isNotBlank()
+            is UIMessagePart.Image -> part.url.isNotBlank()
+            is UIMessagePart.Video -> part.url.isNotBlank()
+            is UIMessagePart.Audio -> part.url.isNotBlank()
+            is UIMessagePart.Document -> part.url.isNotBlank()
+            is UIMessagePart.ToolCall -> true
+            is UIMessagePart.ToolResult -> true
+            else -> false
+        }
+    }
+}
+
 @Serializable
 enum class ToolApprovalState {
     Pending,

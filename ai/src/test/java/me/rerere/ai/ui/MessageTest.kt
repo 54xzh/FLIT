@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.time.Clock
@@ -215,6 +216,99 @@ class MessageTest {
         // Request 3 messages starting from tool result, should include the whole chain
         val result = messages.limitContext(3)
         assertEquals(6, result.size)
+        assertEquals(messages, result)
+    }
+
+    @Test
+    fun `repairToolCallMessageSequence drops orphan tool result`() {
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Previous context"))),
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(UIMessagePart.ToolResult("call1", "search_web", JsonPrimitive("result"), JsonPrimitive("{}")))
+            ),
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Latest question"))),
+        )
+
+        val result = messages.repairToolCallMessageSequence()
+
+        assertEquals(2, result.size)
+        assertFalse(result.any { it.role == MessageRole.TOOL })
+        assertEquals(messages.first(), result.first())
+        assertEquals(messages.last(), result.last())
+    }
+
+    @Test
+    fun `repairToolCallMessageSequence keeps complete tool call and result pair`() {
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Search"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.ToolCall("call1", "search_web", "{}"),
+                    UIMessagePart.Text("")
+                )
+            ),
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(UIMessagePart.ToolResult("call1", "search_web", JsonPrimitive("result"), JsonPrimitive("{}")))
+            ),
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Follow up"))),
+        )
+
+        val result = messages.repairToolCallMessageSequence()
+
+        assertEquals(messages, result)
+    }
+
+    @Test
+    fun `repairToolCallMessageSequence removes unmatched tool calls and results from mixed tool batch`() {
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Search twice"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.ToolCall("call1", "search_web", "{}"),
+                    UIMessagePart.ToolCall("call2", "search_web", "{}"),
+                    UIMessagePart.Text("")
+                )
+            ),
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(
+                    UIMessagePart.ToolResult("call2", "search_web", JsonPrimitive("result2"), JsonPrimitive("{}")),
+                    UIMessagePart.ToolResult("orphan", "search_web", JsonPrimitive("result orphan"), JsonPrimitive("{}")),
+                )
+            ),
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Follow up"))),
+        )
+
+        val result = messages.repairToolCallMessageSequence()
+        val assistant = result[1]
+        val tool = result[2]
+
+        assertEquals(listOf("call2"), assistant.getToolCalls().map { it.toolCallId })
+        assertEquals(listOf("call2"), tool.getToolResults().map { it.toolCallId })
+    }
+
+    @Test
+    fun `repairToolCallMessageSequence preserves tool calls that do not require local result`() {
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Search"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.ToolCall("call1", "server_search", "{}"),
+                    UIMessagePart.Text("")
+                )
+            ),
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Follow up"))),
+        )
+
+        val result = messages.repairToolCallMessageSequence { toolCall ->
+            toolCall.toolName != "server_search"
+        }
+
         assertEquals(messages, result)
     }
 
