@@ -1477,6 +1477,8 @@
   <string name="setting_search_page_depth_basic">基礎</string>
   <string name="setting_search_page_depth_deep">深度</string>
   <string name="setting_search_page_depth_standard">標準</string>
+  <string name="setting_search_page_exa_search_type">搜尋類型</string>
+  <string name="setting_search_page_exa_search_type_desc">控制 Exa 搜尋深度和速度</string>
   <string name="setting_search_page_model">模型</string>
   <string name="setting_search_page_engines">引擎</string>
   <string name="setting_search_page_include_images">包含圖片</string>

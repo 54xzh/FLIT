@@ -96,6 +96,27 @@ enum class GrokSearchApiType(val path: String) {
 }
 
 @Serializable
+enum class ExaSearchType(val value: String) {
+    @SerialName("auto")
+    AUTO("auto"),
+
+    @SerialName("fast")
+    FAST("fast"),
+
+    @SerialName("instant")
+    INSTANT("instant"),
+
+    @SerialName("deep-lite")
+    DEEP_LITE("deep-lite"),
+
+    @SerialName("deep")
+    DEEP("deep"),
+
+    @SerialName("deep-reasoning")
+    DEEP_REASONING("deep-reasoning"),
+}
+
+@Serializable
 data class SearchCommonOptions(
     val resultSize: Int = 5,
     val multiSearchStrategy: MultiSearchStrategy = MultiSearchStrategy.PARALLEL,
@@ -189,6 +210,7 @@ sealed class SearchServiceOptions {
     data class ExaOptions(
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
+        val searchType: ExaSearchType = ExaSearchType.AUTO,
         val alias: String = "",
     ) : SearchServiceOptions()
 

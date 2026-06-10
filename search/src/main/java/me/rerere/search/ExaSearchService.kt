@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -57,13 +58,7 @@ object ExaSearchService : SearchService<SearchServiceOptions.ExaOptions> {
     ): Result<SearchResult> = withContext(Dispatchers.IO) {
         runCatching {
             val query = params["query"]?.jsonPrimitive?.content ?: error("query is required")
-            val body = buildJsonObject {
-                put("query", JsonPrimitive(query))
-                put("numResults", JsonPrimitive(commonOptions.resultSize))
-                put("contents", buildJsonObject {
-                    put("text", JsonPrimitive(true))
-                })
-            }
+            val body = buildRequestBody(query, commonOptions, serviceOptions)
 
             val request = Request.Builder()
                 .url("https://api.exa.ai/search")
@@ -77,25 +72,45 @@ object ExaSearchService : SearchService<SearchServiceOptions.ExaOptions> {
                 val response = runCatching {
                     json.decodeFromString<ExaData>(bodyRaw)
                 }.onFailure {
-                    it.printStackTrace()
-                    println(bodyRaw)
-                    error("Failed to decode response: $bodyRaw")
+                    throw SerializationException(
+                        "Failed to decode Exa response: ${bodyRaw.take(500)}"
+                    )
                 }.getOrThrow()
 
                 return@withContext Result.success(
                     SearchResult(
-                        items = response.results.map {
-                            SearchResultItem(
-                                title = it.title,
-                                url = it.url,
-                                text = it.text
-                            )
-                        }
+                        items = response.toSearchResultItems()
                     ))
             } else {
                 println(response.body?.string())
                 error("response failed #${response.code}")
             }
+        }
+    }
+
+    internal fun buildRequestBody(
+        query: String,
+        commonOptions: SearchCommonOptions,
+        serviceOptions: SearchServiceOptions.ExaOptions
+    ): JsonObject = buildJsonObject {
+        put("query", JsonPrimitive(query))
+        put("type", JsonPrimitive(serviceOptions.searchType.value))
+        put("numResults", JsonPrimitive(commonOptions.resultSize))
+        put("contents", buildJsonObject {
+            put("highlights", JsonPrimitive(true))
+        })
+    }
+
+    internal fun ExaData.toSearchResultItems(): List<SearchResultItem> {
+        return results.map {
+            SearchResultItem(
+                title = it.title?.takeIf { title -> title.isNotBlank() } ?: it.url,
+                url = it.url,
+                text = it.highlights.orEmpty()
+                    .filter { highlight -> highlight.isNotBlank() }
+                    .joinToString("\n\n")
+                    .ifBlank { it.text.orEmpty() }
+            )
         }
     }
 
@@ -110,52 +125,56 @@ object ExaSearchService : SearchService<SearchServiceOptions.ExaOptions> {
     @Serializable
     data class ExaData(
         @SerialName("requestId")
-        val requestId: String,
+        val requestId: String? = null,
         @SerialName("autopromptString")
-        val autopromptString: String,
+        val autopromptString: String? = null,
         @SerialName("resolvedSearchType")
-        val resolvedSearchType: String,
+        val resolvedSearchType: String? = null,
         @SerialName("results")
-        val results: List<ExaResult>,
+        val results: List<ExaResult> = emptyList(),
         @SerialName("costDollars")
-        val costDollars: ExaCostDollars
+        val costDollars: ExaCostDollars? = null
     )
 
     @Serializable
     data class ExaResult(
         @SerialName("id")
-        val id: String,
+        val id: String? = null,
         @SerialName("title")
-        val title: String,
+        val title: String? = null,
         @SerialName("url")
         val url: String,
         @SerialName("publishedDate")
-        val publishedDate: String?,
+        val publishedDate: String? = null,
         @SerialName("author")
-        val author: String?,
+        val author: String? = null,
         @SerialName("text")
-        val text: String,
+        val text: String? = null,
+        @SerialName("highlights")
+        val highlights: List<String>? = null,
     )
 
     @Serializable
     data class ExaCostDollars(
         @SerialName("total")
-        val total: Double,
+        val total: Double? = null,
         @SerialName("search")
-        val search: ExaSearchCost,
+        val search: ExaSearchCost? = null,
         @SerialName("contents")
-        val contents: ExaContentsCost
+        val contents: ExaContentsCost? = null
     )
 
     @Serializable
     data class ExaSearchCost(
         @SerialName("neural")
-        val neural: Double
+        val neural: Double? = null
     )
 
     @Serializable
     data class ExaContentsCost(
         @SerialName("text")
-        val text: Double
+        val text: Double? = null,
+        @SerialName("highlights")
+        val highlights: Double? = null,
     )
 }

@@ -110,6 +110,7 @@ import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.plus
 import me.rerere.search.GrokSearchApiType
+import me.rerere.search.ExaSearchType
 import me.rerere.search.MultiSearchStrategy
 import me.rerere.search.SearchCommonOptions
 import me.rerere.search.SearchService
@@ -149,6 +150,15 @@ private val GROK_SEARCH_MODELS = listOf(
 )
 
 private val SERPER_SEARCH_LANGUAGES = listOf("zh-cn", "zh-tw", "en", "ja")
+
+private val EXA_SEARCH_TYPES = listOf(
+    ExaSearchType.AUTO,
+    ExaSearchType.FAST,
+    ExaSearchType.INSTANT,
+    ExaSearchType.DEEP_LITE,
+    ExaSearchType.DEEP,
+    ExaSearchType.DEEP_REASONING,
+)
 
 /**
  * List of search service presets
@@ -1057,6 +1067,61 @@ private fun ExaOptions(
             },
             modifier = Modifier.fillMaxWidth()
         )
+    }
+
+    FormItem(
+        label = {
+            Text(stringResource(R.string.setting_search_page_exa_search_type))
+        },
+        description = {
+            Text(stringResource(R.string.setting_search_page_exa_search_type_desc))
+        }
+    ) {
+        var searchTypeExpanded by remember { mutableStateOf(false) }
+        val focusManager = LocalFocusManager.current
+        Box(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            OutlinedTextField(
+                value = options.searchType.value,
+                onValueChange = {},
+                modifier = Modifier.fillMaxWidth(),
+                readOnly = true,
+                trailingIcon = {
+                    IconButton(
+                        onClick = {
+                            focusManager.clearFocus(force = true)
+                            searchTypeExpanded = !searchTypeExpanded
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = stringResource(R.string.a11y_expand)
+                        )
+                    }
+                }
+            )
+            DropdownMenu(
+                expanded = searchTypeExpanded,
+                onDismissRequest = { searchTypeExpanded = false },
+                modifier = Modifier.fillMaxWidth(0.92f)
+            ) {
+                EXA_SEARCH_TYPES.forEach { searchType ->
+                    DropdownMenuItem(
+                        text = { Text(searchType.value) },
+                        onClick = {
+                            searchTypeExpanded = false
+                            focusManager.clearFocus(force = true)
+                            onUpdateOptions(
+                                options.copy(
+                                    searchType = searchType
+                                )
+                            )
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 

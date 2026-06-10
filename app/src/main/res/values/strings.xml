@@ -1638,6 +1638,8 @@
     <string name="setting_search_page_depth_basic">Basic</string>
     <string name="setting_search_page_depth_deep">Deep</string>
     <string name="setting_search_page_depth_standard">Standard</string>
+    <string name="setting_search_page_exa_search_type">Search Type</string>
+    <string name="setting_search_page_exa_search_type_desc">Controls Exa search depth and speed</string>
     <string name="setting_search_page_model">Model</string>
     <string name="setting_search_page_engines">Engines</string>
     <string name="setting_search_page_include_images">Include Images</string>
