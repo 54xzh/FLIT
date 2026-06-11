@@ -37,6 +37,16 @@ private const val BACKUP_FILE_PREFIX = "LastChat_backup_"
 private const val BACKUP_FILE_SUFFIX = ".zip"
 private const val DATABASE_SNAPSHOT_PREFIX = "rikka_hub_snapshot_"
 private val STALE_BACKUP_TEMP_MAX_AGE_MS = TimeUnit.HOURS.toMillis(24)
+private val FILES_DIR_BACKUP_PATHS = listOf(
+    "upload",
+    "avatars",
+    "images",
+    "skills",
+    "python/wheels",
+    "custom_fonts",
+    "chat_files",
+    "custom_icons",
+)
 
 class WebdavSync(
     private val settingsStore: SettingsStore,
@@ -275,87 +285,20 @@ class WebdavSync(
 
             // 备份聊天文件
             if (webDavConfig.items.contains(WebDavConfig.BackupItem.FILES)) {
-                val uploadFolder = File(context.filesDir, "upload")
-                if (uploadFolder.exists() && uploadFolder.isDirectory) {
-                    Log.i(
-                        TAG,
-                        "prepareBackupFile: Backing up files from ${uploadFolder.absolutePath}"
-                    )
-                    uploadFolder.listFiles()?.forEach { file ->
-                        if (file.isFile) {
-                            runCatching {
-                                addFileToZip(zipOut, file, "upload/${file.name}")
-                            }.onFailure { err ->
-                                Log.w(TAG, "prepareBackupFile: Skip upload/${file.name}: ${err.message}")
-                            }
-                        }
+                FILES_DIR_BACKUP_PATHS.forEach { relativePath ->
+                    val folder = File(context.filesDir, relativePath)
+                    if (folder.exists() && folder.isDirectory) {
+                        Log.i(
+                            TAG,
+                            "prepareBackupFile: Backing up $relativePath from ${folder.absolutePath}"
+                        )
+                        addDirectoryToZip(zipOut, folder, relativePath)
+                    } else {
+                        Log.i(
+                            TAG,
+                            "prepareBackupFile: $relativePath folder does not exist or is not a directory"
+                        )
                     }
-                } else {
-                    Log.w(
-                        TAG,
-                        "prepareBackupFile: Upload folder does not exist or is not a directory"
-                    )
-                }
-
-                // 备份头像图片（用户/助手）
-                val avatarsFolder = File(context.filesDir, "avatars")
-                if (avatarsFolder.exists() && avatarsFolder.isDirectory) {
-                    Log.i(
-                        TAG,
-                        "prepareBackupFile: Backing up avatars from ${avatarsFolder.absolutePath}"
-                    )
-                    avatarsFolder.listFiles()?.forEach { file ->
-                        if (file.isFile) {
-                            runCatching {
-                                addFileToZip(zipOut, file, "avatars/${file.name}")
-                            }.onFailure { err ->
-                                Log.w(TAG, "prepareBackupFile: Skip avatars/${file.name}: ${err.message}")
-                            }
-                        }
-                    }
-                } else {
-                    Log.i(
-                        TAG,
-                        "prepareBackupFile: Avatars folder does not exist or is not a directory"
-                    )
-                }
-
-                // 备份图片文件（如图生图等）
-                val imagesFolder = File(context.filesDir, "images")
-                if (imagesFolder.exists() && imagesFolder.isDirectory) {
-                    Log.i(
-                        TAG,
-                        "prepareBackupFile: Backing up images from ${imagesFolder.absolutePath}"
-                    )
-                    imagesFolder.listFiles()?.forEach { file ->
-                        if (file.isFile) {
-                            runCatching {
-                                addFileToZip(zipOut, file, "images/${file.name}")
-                            }.onFailure { err ->
-                                Log.w(TAG, "prepareBackupFile: Skip images/${file.name}: ${err.message}")
-                            }
-                        }
-                    }
-                } else {
-                    Log.i(
-                        TAG,
-                        "prepareBackupFile: Images folder does not exist or is not a directory"
-                    )
-                }
-
-                // 备份 Skills 包（文件系统内容，非仅 settings 引用）
-                val skillsFolder = File(context.filesDir, "skills")
-                if (skillsFolder.exists() && skillsFolder.isDirectory) {
-                    Log.i(
-                        TAG,
-                        "prepareBackupFile: Backing up skills from ${skillsFolder.absolutePath}"
-                    )
-                    addDirectoryToZip(zipOut, skillsFolder, "skills")
-                } else {
-                    Log.i(
-                        TAG,
-                        "prepareBackupFile: Skills folder does not exist or is not a directory"
-                    )
                 }
             }
         }
@@ -545,28 +488,16 @@ class WebdavSync(
                                 }
 
                                 if (webDavConfig.items.contains(WebDavConfig.BackupItem.FILES)) {
-                                    when {
-                                        zipEntry.name.startsWith("upload/") -> restoreToFilesDirSubfolder(
-                                            subfolder = "upload",
-                                            prefix = "upload/"
+                                    val supportedPath = FILES_DIR_BACKUP_PATHS.firstOrNull { relativePath ->
+                                        zipEntry.name.startsWith(filesDirBackupZipPrefix(relativePath))
+                                    }
+                                    if (supportedPath != null) {
+                                        restoreToFilesDirSubfolder(
+                                            subfolder = supportedPath,
+                                            prefix = filesDirBackupZipPrefix(supportedPath)
                                         )
-
-                                        zipEntry.name.startsWith("avatars/") -> restoreToFilesDirSubfolder(
-                                            subfolder = "avatars",
-                                            prefix = "avatars/"
-                                        )
-
-                                        zipEntry.name.startsWith("images/") -> restoreToFilesDirSubfolder(
-                                            subfolder = "images",
-                                            prefix = "images/"
-                                        )
-
-                                        zipEntry.name.startsWith("skills/") -> restoreToFilesDirSubfolder(
-                                            subfolder = "skills",
-                                            prefix = "skills/"
-                                        )
-
-                                        else -> skipEntry(reason = "unsupported")
+                                    } else {
+                                        skipEntry(reason = "unsupported")
                                     }
                                 } else {
                                     skipEntry(reason = "unsupported")
@@ -664,6 +595,10 @@ private fun addDirectoryToZip(zipOut: ZipOutputStream, dir: File, entryPrefix: S
                 Log.w(TAG, "addDirectoryToZip: Skip $prefix/$relPath: ${err.message}")
             }
         }
+}
+
+private fun filesDirBackupZipPrefix(relativePath: String): String {
+    return "${relativePath.trim('/')}/"
 }
 
 private fun addVirtualFileToZip(zipOut: ZipOutputStream, name: String, content: String) {
