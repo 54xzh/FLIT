@@ -388,7 +388,7 @@ private class MermaidInterface(
 /**
  * Builds HTML with Mermaid JS to render the diagram
  */
-private fun buildMermaidHtml(
+internal fun buildMermaidHtml(
     code: String,
     theme: MermaidTheme,
     colorScheme: ColorScheme,

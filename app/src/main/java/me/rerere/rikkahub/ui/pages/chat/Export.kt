@@ -1,8 +1,10 @@
 package me.rerere.rikkahub.ui.pages.chat
 
+import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -19,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -90,12 +93,18 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.ai.provider.Model
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
+import me.rerere.rikkahub.ui.components.richtext.MermaidExportAssets
+import me.rerere.rikkahub.ui.components.richtext.MermaidImageRenderer
+import me.rerere.rikkahub.ui.components.richtext.MermaidTheme
+import me.rerere.rikkahub.ui.components.richtext.extractMermaidCodeBlocks
+import me.rerere.rikkahub.ui.components.richtext.mermaidExportKey
 import me.rerere.rikkahub.ui.components.ui.ModelIcon
 import me.rerere.rikkahub.ui.components.ui.BitmapComposer
 import me.rerere.rikkahub.ui.components.ui.UIAvatar
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.exportImage
@@ -111,6 +120,8 @@ import kotlin.time.DurationUnit
 import kotlin.uuid.Uuid
 import kotlinx.datetime.LocalDateTime as KxLocalDateTime
 
+private const val TAG = "ChatExport"
+
 @Composable
 fun ChatExportSheet(
     visible: Boolean,
@@ -123,6 +134,8 @@ fun ChatExportSheet(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val settings = LocalSettings.current
+    val colorScheme = MaterialTheme.colorScheme
+    val mermaidTheme = if (LocalDarkMode.current) MermaidTheme.DARK else MermaidTheme.DEFAULT
     var imageExportOptions by remember { mutableStateOf(ImageExportOptions()) }
 
     if (visible) {
@@ -211,6 +224,8 @@ fun ChatExportSheet(
                                                 context = context,
                                                 scope = scope,
                                                 density = density,
+                                                colorScheme = colorScheme,
+                                                mermaidTheme = mermaidTheme,
                                                 conversation = conversation,
                                                 messages = selectedMessages,
                                                 settings = settings,
@@ -335,6 +350,8 @@ private suspend fun exportToImage(
     context: Context,
     scope: CoroutineScope,
     density: Density,
+    colorScheme: ColorScheme,
+    mermaidTheme: MermaidTheme,
     conversation: Conversation,
     messages: List<UIMessage>,
     settings: Settings,
@@ -350,22 +367,34 @@ private suspend fun exportToImage(
         return
     }
 
-    val bitmap = composer.composableToBitmap(
+    val mermaidAssets = prepareMermaidExportAssets(
         activity = activity,
-        width = 540.dp,
-        screenDensity = density,
-        content = {
-            CompositionLocalProvider(LocalSettings provides settings) {
-                ExportedChatImage(
-                    conversation = conversation,
-                    messages = messages,
-                    options = options
-                )
-            }
-        }
+        density = density,
+        colorScheme = colorScheme,
+        mermaidTheme = mermaidTheme,
+        messages = messages,
+        options = options,
     )
 
+    var bitmap: Bitmap? = null
     try {
+        val renderedBitmap = composer.composableToBitmap(
+            activity = activity,
+            width = 540.dp,
+            screenDensity = density,
+            content = {
+                CompositionLocalProvider(LocalSettings provides settings) {
+                    ExportedChatImage(
+                        conversation = conversation,
+                        messages = messages,
+                        options = options,
+                        mermaidAssets = mermaidAssets,
+                    )
+                }
+            }
+        )
+        bitmap = renderedBitmap
+
         val dir = context.appTempFolder
         val file = dir.resolve(filename)
         if (!file.exists()) {
@@ -376,11 +405,11 @@ private suspend fun exportToImage(
         }
 
         FileOutputStream(file).use { fos ->
-            bitmap.compress(Bitmap.CompressFormat.PNG, 90, fos)
+            renderedBitmap.compress(Bitmap.CompressFormat.PNG, 90, fos)
         }
 
         // Save to gallery
-        context.exportImage(activity, bitmap, filename)
+        context.exportImage(activity, renderedBitmap, filename)
 
         // Share the file
         val uri = FileProvider.getUriForFile(
@@ -399,8 +428,68 @@ private suspend fun exportToImage(
             ).show()
         }
     } finally {
-        bitmap.recycle()
+        bitmap?.recycle()
+        mermaidAssets.images.values.forEach { it.recycle() }
     }
+}
+
+private suspend fun prepareMermaidExportAssets(
+    activity: Activity,
+    density: Density,
+    colorScheme: ColorScheme,
+    mermaidTheme: MermaidTheme,
+    messages: List<UIMessage>,
+    options: ImageExportOptions,
+): MermaidExportAssets {
+    val codes = collectMermaidCodeBlocks(messages = messages, options = options)
+    if (codes.isEmpty()) return MermaidExportAssets()
+
+    val renderer = MermaidImageRenderer(activity = activity, density = density)
+    val images = mutableMapOf<String, Bitmap>()
+    codes.forEach { code ->
+        val key = mermaidExportKey(code)
+        if (images.containsKey(key)) return@forEach
+
+        val bitmap = runCatching {
+            renderer.render(
+                code = code,
+                theme = mermaidTheme,
+                colorScheme = colorScheme,
+            )
+        }.onFailure {
+            Log.w(TAG, "Failed to render Mermaid export image", it)
+        }.getOrNull()
+
+        if (bitmap != null) {
+            images[key] = bitmap
+        }
+    }
+    return MermaidExportAssets(images = images)
+}
+
+private fun collectMermaidCodeBlocks(
+    messages: List<UIMessage>,
+    options: ImageExportOptions,
+): List<String> {
+    return messages.asSequence()
+        .flatMap { message ->
+            message.parts.asSequence().flatMap { part ->
+                when (part) {
+                    is UIMessagePart.Text -> extractMermaidCodeBlocks(part.text).asSequence()
+                    is UIMessagePart.Reasoning -> {
+                        if (options.expandReasoning) {
+                            extractMermaidCodeBlocks(part.reasoning).asSequence()
+                        } else {
+                            emptySequence()
+                        }
+                    }
+
+                    else -> emptySequence()
+                }
+            }
+        }
+        .distinctBy(::mermaidExportKey)
+        .toList()
 }
 
 data class ImageExportOptions(val expandReasoning: Boolean = false)
@@ -409,7 +498,8 @@ data class ImageExportOptions(val expandReasoning: Boolean = false)
 private fun ExportedChatImage(
     conversation: Conversation,
     messages: List<UIMessage>,
-    options: ImageExportOptions = ImageExportOptions()
+    options: ImageExportOptions = ImageExportOptions(),
+    mermaidAssets: MermaidExportAssets = MermaidExportAssets(),
 ) {
     val navBackStack = rememberNavController()
     val highlighter = koinInject<Highlighter>()
@@ -501,6 +591,7 @@ private fun ExportedChatImage(
                             model = model,
                             assistant = assistant,
                             forceUseAssistantAvatar = forceUseAssistantAvatar,
+                            mermaidAssets = mermaidAssets,
                         )
                     }
 
@@ -526,6 +617,7 @@ private fun ExportedChatMessage(
     assistant: Assistant? = null,
     forceUseAssistantAvatar: Boolean = false,
     options: ImageExportOptions = ImageExportOptions(),
+    mermaidAssets: MermaidExportAssets = MermaidExportAssets(),
 ) {
     if (message.parts.isEmptyUIMessage()) return
     val context = LocalContext.current
@@ -563,7 +655,8 @@ private fun ExportedChatMessage(
                                 ProvideTextStyle(MaterialTheme.typography.bodyMedium) {
                                     MarkdownBlock(
                                         content = part.text,
-                                        modifier = Modifier.padding(12.dp)
+                                        modifier = Modifier.padding(12.dp),
+                                        exportAssets = mermaidAssets,
                                     )
                                 }
                             }
@@ -585,7 +678,11 @@ private fun ExportedChatMessage(
                     }
 
                     is UIMessagePart.Reasoning -> {
-                        ExportedReasoningCard(reasoning = part, expanded = options.expandReasoning)
+                        ExportedReasoningCard(
+                            reasoning = part,
+                            expanded = options.expandReasoning,
+                            mermaidAssets = mermaidAssets,
+                        )
                     }
 
                     is UIMessagePart.ToolCall -> {
@@ -667,7 +764,11 @@ internal fun resolveExportedAssistantHeaderInfo(
 }
 
 @Composable
-private fun ExportedReasoningCard(reasoning: UIMessagePart.Reasoning, expanded: Boolean) {
+private fun ExportedReasoningCard(
+    reasoning: UIMessagePart.Reasoning,
+    expanded: Boolean,
+    mermaidAssets: MermaidExportAssets = MermaidExportAssets(),
+) {
     val duration = reasoning.finishedAt?.let { endTime ->
         endTime - reasoning.createdAt
     } ?: (kotlin.time.Clock.System.now() - reasoning.createdAt)
@@ -714,6 +815,7 @@ private fun ExportedReasoningCard(reasoning: UIMessagePart.Reasoning, expanded: 
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp),
+                    exportAssets = mermaidAssets,
                 )
             }
         }

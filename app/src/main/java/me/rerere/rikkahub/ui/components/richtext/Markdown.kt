@@ -57,7 +57,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -88,6 +90,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.foundation.Image as ComposeImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -470,7 +473,8 @@ fun MarkdownBlock(
     content: String,
     modifier: Modifier = Modifier,
     style: TextStyle = LocalTextStyle.current,
-    onClickCitation: (String) -> Unit = {}
+    onClickCitation: (String) -> Unit = {},
+    exportAssets: MermaidExportAssets? = null,
 ) {
     // Read rpStyleRules from settings
     val settings = LocalSettings.current
@@ -508,7 +512,10 @@ fun MarkdownBlock(
             ) {
                 astTree.children.fastForEach { child ->
                     MarkdownNode(
-                        node = child, content = preprocessed, onClickCitation = onClickCitation
+                        node = child,
+                        content = preprocessed,
+                        onClickCitation = onClickCitation,
+                        exportAssets = exportAssets,
                     )
                 }
             }
@@ -556,14 +563,19 @@ private fun MarkdownNode(
     content: String,
     modifier: Modifier = Modifier,
     onClickCitation: (String) -> Unit = {},
-    listLevel: Int = 0
+    listLevel: Int = 0,
+    exportAssets: MermaidExportAssets? = null,
 ) {
     when (node.type) {
         // 文件根节点
         MarkdownElementTypes.MARKDOWN_FILE -> {
             node.children.fastForEach { child ->
                 MarkdownNode(
-                    node = child, content = content, modifier = modifier, onClickCitation = onClickCitation
+                    node = child,
+                    content = content,
+                    modifier = modifier,
+                    onClickCitation = onClickCitation,
+                    exportAssets = exportAssets,
                 )
             }
         }
@@ -571,7 +583,11 @@ private fun MarkdownNode(
         // 段落
         MarkdownElementTypes.PARAGRAPH -> {
             Paragraph(
-                node = node, content = content, modifier = modifier, onClickCitation = onClickCitation
+                node = node,
+                content = content,
+                modifier = modifier,
+                onClickCitation = onClickCitation,
+                exportAssets = exportAssets,
             )
         }
 
@@ -599,6 +615,7 @@ private fun MarkdownNode(
                                 onClickCitation = onClickCitation,
                                 modifier = modifier.padding(vertical = 16.dp),
                                 trim = true,
+                                exportAssets = exportAssets,
                             )
                         }
                     }
@@ -613,7 +630,8 @@ private fun MarkdownNode(
                 content = content,
                 modifier = modifier.padding(vertical = 4.dp),
                 onClickCitation = onClickCitation,
-                level = listLevel
+                level = listLevel,
+                exportAssets = exportAssets,
             )
         }
 
@@ -623,7 +641,8 @@ private fun MarkdownNode(
                 content = content,
                 modifier = modifier.padding(vertical = 4.dp),
                 onClickCitation = onClickCitation,
-                level = listLevel
+                level = listLevel,
+                exportAssets = exportAssets,
             )
         }
 
@@ -677,7 +696,10 @@ private fun MarkdownNode(
                         .padding(8.dp)) {
                     node.children.fastForEach { child ->
                         MarkdownNode(
-                            node = child, content = content, onClickCitation = onClickCitation
+                            node = child,
+                            content = content,
+                            onClickCitation = onClickCitation,
+                            exportAssets = exportAssets,
                         )
                     }
                 }
@@ -707,7 +729,11 @@ private fun MarkdownNode(
             ProvideTextStyle(TextStyle(fontStyle = FontStyle.Italic)) {
                 node.children.fastForEach { child ->
                     MarkdownNode(
-                        node = child, content = content, modifier = modifier, onClickCitation = onClickCitation
+                        node = child,
+                        content = content,
+                        modifier = modifier,
+                        onClickCitation = onClickCitation,
+                        exportAssets = exportAssets,
                     )
                 }
             }
@@ -717,7 +743,11 @@ private fun MarkdownNode(
             ProvideTextStyle(TextStyle(fontWeight = FontWeight.SemiBold)) {
                 node.children.fastForEach { child ->
                     MarkdownNode(
-                        node = child, content = content, modifier = modifier, onClickCitation = onClickCitation
+                        node = child,
+                        content = content,
+                        modifier = modifier,
+                        onClickCitation = onClickCitation,
+                        exportAssets = exportAssets,
                     )
                 }
             }
@@ -817,12 +847,34 @@ private fun MarkdownNode(
 
             // Mermaid diagrams: render directly without HighlightCodeBlock wrapper
             if (hasEnd && language == "mermaid") {
-                Mermaid(
-                    code = code,
-                    modifier = Modifier
-                        .padding(bottom = 4.dp)
-                        .fillMaxWidth(),
-                )
+                val mermaidImage = exportAssets?.images?.get(mermaidExportKey(code))
+                if (mermaidImage != null) {
+                    ComposeImage(
+                        bitmap = mermaidImage.asImageBitmap(),
+                        contentDescription = stringResource(R.string.mermaid_diagram),
+                        modifier = Modifier
+                            .padding(bottom = 4.dp)
+                            .fillMaxWidth()
+                            .clip(AppShapes.CardLarge),
+                        contentScale = ContentScale.Fit,
+                    )
+                } else if (exportAssets != null) {
+                    HighlightCodeBlock(
+                        code = code,
+                        language = language,
+                        modifier = Modifier
+                            .padding(bottom = 4.dp)
+                            .fillMaxWidth(),
+                        completeCodeBlock = hasEnd
+                    )
+                } else {
+                    Mermaid(
+                        code = code,
+                        modifier = Modifier
+                            .padding(bottom = 4.dp)
+                            .fillMaxWidth(),
+                    )
+                }
             } else {
                 HighlightCodeBlock(
                     code = code,
@@ -855,7 +907,11 @@ private fun MarkdownNode(
             // 递归处理其他节点的子节点
             node.children.fastForEach { child ->
                 MarkdownNode(
-                    node = child, content = content, modifier = modifier, onClickCitation = onClickCitation
+                    node = child,
+                    content = content,
+                    modifier = modifier,
+                    onClickCitation = onClickCitation,
+                    exportAssets = exportAssets,
                 )
             }
         }
@@ -1108,7 +1164,8 @@ private fun UnorderedListNode(
     content: String,
     modifier: Modifier = Modifier,
     onClickCitation: (String) -> Unit = {},
-    level: Int = 0
+    level: Int = 0,
+    exportAssets: MermaidExportAssets? = null,
 ) {
     val bulletStyle = when (level % 3) {
         0 -> "• "
@@ -1126,7 +1183,8 @@ private fun UnorderedListNode(
                     content = content,
                     bulletText = bulletStyle,
                     onClickCitation = onClickCitation,
-                    level = level
+                    level = level,
+                    exportAssets = exportAssets,
                 )
             }
         }
@@ -1139,7 +1197,8 @@ private fun OrderedListNode(
     content: String,
     modifier: Modifier = Modifier,
     onClickCitation: (String) -> Unit = {},
-    level: Int = 0
+    level: Int = 0,
+    exportAssets: MermaidExportAssets? = null,
 ) {
     Column(modifier.padding(start = (level * 8).dp)) {
         var index = 1
@@ -1152,7 +1211,8 @@ private fun OrderedListNode(
                     content = content,
                     bulletText = numberText,
                     onClickCitation = onClickCitation,
-                    level = level
+                    level = level,
+                    exportAssets = exportAssets,
                 )
                 index++
             }
@@ -1162,7 +1222,12 @@ private fun OrderedListNode(
 
 @Composable
 private fun ListItemNode(
-    node: ASTNode, content: String, bulletText: String, onClickCitation: (String) -> Unit = {}, level: Int
+    node: ASTNode,
+    content: String,
+    bulletText: String,
+    onClickCitation: (String) -> Unit = {},
+    level: Int,
+    exportAssets: MermaidExportAssets? = null,
 ) {
     Column {
         // 分离列表项的直接内容和嵌套列表
@@ -1183,6 +1248,7 @@ private fun ListItemNode(
                             content = content,
                             onClickCitation = onClickCitation,
                             listLevel = level,
+                            exportAssets = exportAssets,
                         )
                     }
                 }
@@ -1191,7 +1257,11 @@ private fun ListItemNode(
         // nestedLists 渲染处理
         nestedLists.fastForEach { nestedList ->
             MarkdownNode(
-                node = nestedList, content = content, onClickCitation = onClickCitation, listLevel = level + 1 // 增加层级
+                node = nestedList,
+                content = content,
+                onClickCitation = onClickCitation,
+                listLevel = level + 1, // 增加层级
+                exportAssets = exportAssets,
             )
         }
     }
@@ -1222,13 +1292,17 @@ private fun Paragraph(
     trim: Boolean = false,
     onClickCitation: (String) -> Unit = {},
     modifier: Modifier,
+    exportAssets: MermaidExportAssets? = null,
 ) {
     // dumpAst(node, content)
     if (node.findChildOfTypeRecursive(MarkdownElementTypes.IMAGE, GFMElementTypes.BLOCK_MATH) != null) {
         FlowRow(modifier = modifier) {
             node.children.fastForEach { child ->
                 MarkdownNode(
-                    node = child, content = content, onClickCitation = onClickCitation
+                    node = child,
+                    content = content,
+                    onClickCitation = onClickCitation,
+                    exportAssets = exportAssets,
                 )
             }
         }
