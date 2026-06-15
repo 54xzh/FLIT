@@ -80,6 +80,13 @@ interface ConversationDAO {
     @Query("SELECT id, assistant_id as assistantId, nodes FROM conversationentity ORDER BY update_at DESC LIMIT :limit OFFSET :offset")
     suspend fun getNodesBatchForScan(limit: Int, offset: Int): List<ConversationNodesScanRow>
 
+    /**
+     * Single-pass variant of [getNodesBatchForScan]. One full-table SELECT is cheaper than many
+     * OFFSET-page queries, because SQLite OFFSET is a linear scan that gets slower as offset grows.
+     */
+    @Query("SELECT id, assistant_id as assistantId, nodes FROM conversationentity ORDER BY update_at DESC")
+    suspend fun getNodesForScan(): List<ConversationNodesScanRow>
+
     @Query("""
         SELECT
             id,

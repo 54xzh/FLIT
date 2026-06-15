@@ -171,7 +171,7 @@ class StorageCategoryVM(
 
     fun refreshUsage(force: Boolean = false) {
         viewModelScope.launch {
-            val cached = storageRepo.peekOverviewCache()
+            val cached = storageRepo.peekDiskOverviewCache()
                 ?.categories
                 ?.firstOrNull { it.category == category }
             _categoryUsage.value = cached?.let { UiState.Success(it) } ?: UiState.Loading

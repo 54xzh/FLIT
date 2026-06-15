@@ -22,7 +22,9 @@ class StorageManagerVM(
 
     fun refresh(force: Boolean = false) {
         viewModelScope.launch {
-            val cached = storageRepo.peekOverviewCache()
+            // Prefer the on-disk snapshot on cold start so the page renders instantly instead of
+            // spinning while the fresh (and potentially heavy) overview is recomputed.
+            val cached = storageRepo.peekDiskOverviewCache()
             _overview.value = cached?.let { UiState.Success(it) } ?: UiState.Loading
             _overview.value = runCatching { storageRepo.loadOverview(forceRefresh = force) }
                 .fold(

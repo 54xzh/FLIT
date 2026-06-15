@@ -2,8 +2,10 @@ package me.rerere.rikkahub.data.repository
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
@@ -11,12 +13,14 @@ import me.rerere.rikkahub.data.db.dao.AIRequestLogDao
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.GenMediaDAO
 import me.rerere.rikkahub.data.model.Avatar
+import me.rerere.rikkahub.utils.JsonInstant
 import java.io.File
 import java.time.YearMonth
 import java.time.ZoneId
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
 
+@Serializable
 enum class StorageCategoryKey(val key: String) {
     IMAGES("images"),
     FILES("files"),
@@ -31,12 +35,14 @@ enum class StorageCategoryKey(val key: String) {
     }
 }
 
+@Serializable
 data class StorageCategoryUsage(
     val category: StorageCategoryKey,
     val bytes: Long,
     val fileCount: Int,
 )
 
+@Serializable
 data class CacheTopLevelUsage(
     val name: String,
     val bytes: Long,
@@ -44,6 +50,7 @@ data class CacheTopLevelUsage(
     val isDirectory: Boolean,
 )
 
+@Serializable
 data class StorageOverview(
     val totalBytes: Long,
     val categories: List<StorageCategoryUsage>,
@@ -111,10 +118,11 @@ class StorageManagerRepository(
 ) {
     private companion object {
         private const val ATTACHMENT_LIST_CACHE_MAX_AGE_MS = 10 * 60_000L
+        private const val OVERVIEW_CACHE_MAX_AGE_MS = 30 * 60_000L
     }
 
     private val overviewCache = TimedSuspendCache<StorageOverview>(
-        maxAgeMs = 30 * 60_000L,
+        maxAgeMs = OVERVIEW_CACHE_MAX_AGE_MS,
     )
 
     private val allImageEntriesCache = TimedSuspendCache<List<AssistantImageEntry>>(
@@ -125,10 +133,49 @@ class StorageManagerRepository(
         maxAgeMs = ATTACHMENT_LIST_CACHE_MAX_AGE_MS,
     )
 
+    private val cacheTopLevelUsageCache = TimedSuspendCache<List<CacheTopLevelUsage>>(
+        maxAgeMs = OVERVIEW_CACHE_MAX_AGE_MS,
+    )
+
     private val assistantImageEntriesCaches = ConcurrentHashMap<Uuid, TimedSuspendCache<List<AssistantImageEntry>>>()
     private val assistantFileEntriesCaches = ConcurrentHashMap<Uuid, TimedSuspendCache<List<AssistantFileEntry>>>()
 
+    /**
+     * On-disk snapshot of the last overview computation. Survives process death so the storage
+     * page can render instantly on cold start while the fresh computation runs in the background.
+     */
+    private val overviewCacheFile = File(File(context.filesDir, "storage"), "overview_cache.json")
+
+    private fun readDiskOverviewCache(): StorageOverview? = runCatching {
+        val file = overviewCacheFile
+        if (!file.exists() || !file.isFile) return null
+        JsonInstant.decodeFromString<StorageOverview>(file.readText())
+    }.getOrNull()
+
+    private fun writeDiskOverviewCache(overview: StorageOverview) {
+        runCatching {
+            val file = overviewCacheFile
+            file.parentFile?.mkdirs()
+            // Use a process-unique tmp name so concurrent writers (e.g. the settings page and the
+            // storage page both triggering loadOverview) cannot clobber each other's tmp file.
+            val tmp = File.createTempFile(file.name, ".tmp", file.parentFile)
+            tmp.writeText(JsonInstant.encodeToString(StorageOverview.serializer(), overview))
+            if (file.exists()) file.delete()
+            tmp.renameTo(file)
+        }
+    }
+
     fun peekOverviewCache(): StorageOverview? = overviewCache.peek()?.value
+
+    /**
+     * Returns the most recent overview result available without triggering a recomputation.
+     * Falls back to the on-disk snapshot (which may be stale) when the in-memory cache is empty,
+     * e.g. right after a cold start. Use this to render the page instantly.
+     */
+    fun peekDiskOverviewCache(): StorageOverview? {
+        overviewCache.peek()?.value?.let { return it }
+        return readDiskOverviewCache()
+    }
 
     fun peekAllImageEntriesCache(): List<AssistantImageEntry>? = allImageEntriesCache.peek()?.value
     fun peekAllFileEntriesCache(): List<AssistantFileEntry>? = allFileEntriesCache.peek()?.value
@@ -145,6 +192,10 @@ class StorageManagerRepository(
         overviewCache.invalidate()
     }
 
+    private fun invalidateCacheUsageCaches() {
+        cacheTopLevelUsageCache.invalidate()
+    }
+
     private fun invalidateImageEntriesCaches() {
         allImageEntriesCache.invalidate()
         assistantImageEntriesCaches.values.forEach { it.invalidate() }
@@ -156,20 +207,17 @@ class StorageManagerRepository(
     }
 
     suspend fun loadOverview(forceRefresh: Boolean = false): StorageOverview {
-        return overviewCache.get(forceRefresh = forceRefresh) { computeOverview() }
+        val overview = overviewCache.get(forceRefresh = forceRefresh) { computeOverview() }
+        writeDiskOverviewCache(overview)
+        return overview
     }
 
     private suspend fun computeOverview(): StorageOverview = withContext(Dispatchers.IO) {
         val settings = settingsStore.settingsFlow.value
-
-        val requestLogCount = runCatching { aiRequestLogDao.countAll() }.getOrNull() ?: 0
-        val conversationCount = runCatching { conversationDAO.getConversationCount() }.getOrNull() ?: 0
-
-        val dbUsage = countDatabaseUsage()
-        val cacheUsage = countDirUsage(context.cacheDir)
-
-        val referencedFilePaths = buildReferencedFilePathSet(settings = settings)
         val referencedSkillIds = settings.skills.map { it.id.toString() }.toSet()
+
+        // The referenced-file set must be computed first: the per-directory walks below depend on it.
+        val referencedFilePaths = buildReferencedFilePathSet(settings = settings)
 
         val uploadDir = File(context.filesDir, "upload")
         val imagesDir = File(context.filesDir, "images")
@@ -177,68 +225,74 @@ class StorageManagerRepository(
         val customIconsDir = File(context.filesDir, "custom_icons")
         val skillsDir = File(context.filesDir, "skills")
 
-        val uploadUsage = countManagedFilesInDir(
-            rootDir = uploadDir,
-            referencedFilePaths = referencedFilePaths,
-            treatAllAsImages = false,
-        )
+        // Run every independent I/O in parallel. Each directory walk + the DB counts + the DB file
+        // size read have no data dependency on each other, so awaiting them concurrently turns the
+        // previous sequential chain into a max-cost rather than a sum-cost.
+        val requestLogCount = async { runCatching { aiRequestLogDao.countAll() }.getOrNull() ?: 0 }
+        val conversationCount = async { runCatching { conversationDAO.getConversationCount() }.getOrNull() ?: 0 }
+        val dbUsage = async { countDatabaseUsage() }
+        val cacheUsage = async { countDirUsage(context.cacheDir) }
+        val uploadUsage = async {
+            countManagedFilesInDir(uploadDir, referencedFilePaths, treatAllAsImages = false)
+        }
+        val imagesUsage = async {
+            countManagedFilesInDir(imagesDir, referencedFilePaths, treatAllAsImages = true)
+        }
+        val avatarsUsage = async {
+            countManagedFilesInDir(avatarsDir, referencedFilePaths, treatAllAsImages = true)
+        }
+        val customIconsUsage = async {
+            countManagedFilesInDir(customIconsDir, referencedFilePaths, treatAllAsImages = true)
+        }
+        val skillsUsage = async {
+            countSkillsUsage(skillsDir, referencedSkillIds)
+        }
 
-        val imagesUsage = countManagedFilesInDir(
-            rootDir = imagesDir,
-            referencedFilePaths = referencedFilePaths,
-            treatAllAsImages = true,
-        )
+        val requestLogCountVal = requestLogCount.await()
+        val conversationCountVal = conversationCount.await()
+        val dbUsageVal = dbUsage.await()
+        val cacheUsageVal = cacheUsage.await()
+        val uploadUsageVal = uploadUsage.await()
+        val imagesUsageVal = imagesUsage.await()
+        val avatarsUsageVal = avatarsUsage.await()
+        val customIconsUsageVal = customIconsUsage.await()
+        val skillsUsageVal = skillsUsage.await()
 
-        val avatarsUsage = countManagedFilesInDir(
-            rootDir = avatarsDir,
-            referencedFilePaths = referencedFilePaths,
-            treatAllAsImages = true,
-        )
+        val imagesBytes = uploadUsageVal.images.bytes +
+            imagesUsageVal.images.bytes +
+            avatarsUsageVal.images.bytes +
+            customIconsUsageVal.images.bytes
+        val imagesCount = uploadUsageVal.images.count +
+            imagesUsageVal.images.count +
+            avatarsUsageVal.images.count +
+            customIconsUsageVal.images.count
 
-        val customIconsUsage = countManagedFilesInDir(
-            rootDir = customIconsDir,
-            referencedFilePaths = referencedFilePaths,
-            treatAllAsImages = true,
-        )
-
-        val skillsUsage = countSkillsUsage(
-            skillsDir = skillsDir,
-            referencedSkillIds = referencedSkillIds,
-        )
-
-        val imagesBytes = uploadUsage.images.bytes +
-            imagesUsage.images.bytes +
-            avatarsUsage.images.bytes +
-            customIconsUsage.images.bytes
-        val imagesCount = uploadUsage.images.count +
-            imagesUsage.images.count +
-            avatarsUsage.images.count +
-            customIconsUsage.images.count
-
-        // "Files" in Storage Manager is scoped to assistant chat attachments (upload/ referenced by conversations).
+        // "Files" in Storage Manager is scoped to assistant chat attachments referenced by
+        // conversations (Document / Video / Audio in upload/). This is exactly what
+        // countManagedFilesInDir already classifies as non-image referenced files, so we reuse it
+        // instead of triggering a second full-table conversation scan via getAllFileEntries().
         // Skills packages are managed elsewhere and should not be surfaced here.
-        val assistantFiles = getAllFileEntries()
-        val filesBytes = assistantFiles.sumOf { it.bytes }
-        val filesCount = assistantFiles.size
+        val filesBytes = uploadUsageVal.files.bytes + imagesUsageVal.files.bytes
+        val filesCount = uploadUsageVal.files.count + imagesUsageVal.files.count
 
-        val historyBytes = uploadUsage.history.bytes +
-            imagesUsage.history.bytes +
-            avatarsUsage.history.bytes +
-            customIconsUsage.history.bytes +
-            skillsUsage.history.bytes
-        val historyCount = uploadUsage.history.count +
-            imagesUsage.history.count +
-            avatarsUsage.history.count +
-            customIconsUsage.history.count +
-            skillsUsage.history.count
+        val historyBytes = uploadUsageVal.history.bytes +
+            imagesUsageVal.history.bytes +
+            avatarsUsageVal.history.bytes +
+            customIconsUsageVal.history.bytes +
+            skillsUsageVal.history.bytes
+        val historyCount = uploadUsageVal.history.count +
+            imagesUsageVal.history.count +
+            avatarsUsageVal.history.count +
+            customIconsUsageVal.history.count +
+            skillsUsageVal.history.count
 
         val categories = listOf(
             StorageCategoryUsage(StorageCategoryKey.IMAGES, imagesBytes, imagesCount),
             StorageCategoryUsage(StorageCategoryKey.FILES, filesBytes, filesCount),
-            StorageCategoryUsage(StorageCategoryKey.CHAT_RECORDS, dbUsage.bytes, conversationCount),
-            StorageCategoryUsage(StorageCategoryKey.CACHE, cacheUsage.bytes, cacheUsage.count),
+            StorageCategoryUsage(StorageCategoryKey.CHAT_RECORDS, dbUsageVal.bytes, conversationCountVal),
+            StorageCategoryUsage(StorageCategoryKey.CACHE, cacheUsageVal.bytes, cacheUsageVal.count),
             StorageCategoryUsage(StorageCategoryKey.HISTORY_FILES, historyBytes, historyCount),
-            StorageCategoryUsage(StorageCategoryKey.LOGS, bytes = 0L, fileCount = requestLogCount),
+            StorageCategoryUsage(StorageCategoryKey.LOGS, bytes = 0L, fileCount = requestLogCountVal),
         )
 
         StorageOverview(
@@ -247,21 +301,33 @@ class StorageManagerRepository(
                 .filterNot { it.category == StorageCategoryKey.LOGS }
                 .sumOf { it.bytes },
             categories = categories,
-            requestLogCount = requestLogCount,
+            requestLogCount = requestLogCountVal,
             generatedAt = System.currentTimeMillis(),
         )
     }
 
-    suspend fun getCacheUsage(): StorageCategoryUsage = withContext(Dispatchers.IO) {
-        val usage = countDirUsage(context.cacheDir)
-        StorageCategoryUsage(
+    /**
+     * Cached. The CACHE category page calls both [getCacheUsage] and [getCacheTopLevelUsage] on
+     * entry, and each used to walk the entire cacheDir tree independently (twice per visit). We
+     * now walk once to build the per-top-level breakdown, derive the total from it, and cache the
+     * breakdown so repeat visits within the TTL are free.
+     */
+    suspend fun getCacheUsage(forceRefresh: Boolean = false): StorageCategoryUsage {
+        // Derive the total from the cached per-top-level breakdown so the cacheDir tree is walked
+        // at most once per TTL window instead of twice per page visit.
+        val topLevel = getCacheTopLevelUsage(forceRefresh = forceRefresh)
+        return StorageCategoryUsage(
             category = StorageCategoryKey.CACHE,
-            bytes = usage.bytes,
-            fileCount = usage.count,
+            bytes = topLevel.sumOf { it.bytes },
+            fileCount = topLevel.sumOf { it.fileCount },
         )
     }
 
-    suspend fun getCacheTopLevelUsage(): List<CacheTopLevelUsage> = withContext(Dispatchers.IO) {
+    suspend fun getCacheTopLevelUsage(forceRefresh: Boolean = false): List<CacheTopLevelUsage> {
+        return cacheTopLevelUsageCache.get(forceRefresh = forceRefresh) { computeCacheTopLevelUsage() }
+    }
+
+    private suspend fun computeCacheTopLevelUsage(): List<CacheTopLevelUsage> = withContext(Dispatchers.IO) {
         context.cacheDir
             .listFiles()
             .orEmpty()
@@ -980,6 +1046,7 @@ class StorageManagerRepository(
         val targets = children.filter { it.exists() }
         val result = deleteFilesOrDirs(targets)
         invalidateOverviewCache()
+        invalidateCacheUsageCaches()
         result
     }
 
@@ -1151,27 +1218,16 @@ class StorageManagerRepository(
             referenced += StorageScanUtils.normalizePath(file)
         }
 
-        // Conversations: scan nodes JSON in batches and pick up file:// urls.
-        val total = try {
-            conversationDAO.getConversationCount()
+        // Conversations: scan nodes JSON in a single pass and pick up file:// urls.
+        // A single SELECT is far cheaper than many OFFSET-page queries (OFFSET is a linear scan
+        // that gets slower as offset grows), at the cost of holding all rows in memory at once.
+        val rows = try {
+            conversationDAO.getNodesForScan()
         } catch (_: Exception) {
-            0
+            emptyList()
         }
-        val batchSize = 40
-        var offset = 0
-        while (offset < total) {
-            val batch = try {
-                conversationDAO.getNodesBatchForScan(limit = batchSize, offset = offset)
-            } catch (_: Exception) {
-                emptyList()
-            }
-
-            batch.forEach { row ->
-                referenced += StorageScanUtils.extractReferencedFilePathsFromText(row.nodes, context.filesDir)
-            }
-
-            offset += batchSize
-            if (batch.isEmpty()) break
+        rows.forEach { row ->
+            referenced += StorageScanUtils.extractReferencedFilePathsFromText(row.nodes, context.filesDir)
         }
 
         return referenced
