@@ -78,7 +78,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -997,16 +996,12 @@ private fun ChatPageContent(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0.dp)
         ) { innerPadding ->
-            // Keep the full-screen Box unpadded on top so the chat list extends under the
-            // translucent (haze-blurred) top bar; the bar blurs the messages scrolling
-            // beneath it. We still consume the top inset (status bar height) so child
-            // composables that opt out of insets get correct values, but we apply it as
-            // ChatList's content padding instead of layout padding.
-            val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-            val topBarTotalHeight = statusBarTopPadding + 56.dp
+            val topBarHeight = innerPadding.calculateTopPadding()
+            val contentTopPadding = if (topBarBlurEnabled) 0.dp else topBarHeight
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .padding(top = contentTopPadding)
                     .padding(bottom = innerPadding.calculateBottomPadding())
             ) {
                 val groupChatTemplate = remember(setting.groupChatTemplates, conversation.assistantId) {
@@ -1119,7 +1114,7 @@ private fun ChatPageContent(
                         }
                         .onGloballyPositioned { chatListTopInWindow = it.boundsInWindow().top },
                     innerPadding = PaddingValues(
-                        top = if (topBarBlurEnabled) topBarTotalHeight else 0.dp,
+                        top = if (topBarBlurEnabled) topBarHeight else 0.dp,
                         bottom = chatListBottomPadding,
                     ),
                     conversation = conversation,
@@ -1289,10 +1284,9 @@ private fun ChatPageContent(
                 val overlayBottomPadding = remember(chatInputChromeHeightDp) {
                     maxOf(EmptyChatOverlayBottomPaddingFallback, chatInputChromeHeightDp)
                 }
-                // The empty-chat welcome/overlay should remain visually centered in the area
-                // *below* the top bar (which now floats over the content), not the whole
-                // screen, otherwise it shifts up under the bar.
-                val overlayTopPadding = if (topBarBlurEnabled) topBarTotalHeight else 0.dp
+                // When blur is enabled the top bar floats over content, so center overlays
+                // in the visible area below it.
+                val overlayTopPadding = if (topBarBlurEnabled) topBarHeight else 0.dp
 
                 Box(
                     modifier = Modifier
