@@ -691,7 +691,6 @@ class GenerationHandler(
             val summaryUpToIndex = convo.contextSummaryUpToIndex
             if (summary.isNotEmpty() && summaryUpToIndex in 0 until allMessages.size) {
                 buildString {
-                    appendLine("Conversation summary of earlier turns (use as prior context):")
                     appendLine(summary)
                     append("Continue using newer messages below as the most recent context.")
                 }
@@ -797,7 +796,7 @@ class GenerationHandler(
 
         val maxTokens = assistant.maxTokenUsage
         var currentTokens = 0
-        val searchCurrentDateContextMessage = buildSearchCurrentDateContextMessage(
+        val currentDateSection = buildCurrentDateSection(
             include = tools.any { it.name == SEARCH_WEB_TOOL_NAME },
         )
 
@@ -1051,9 +1050,7 @@ class GenerationHandler(
         if (contextSummarySection.isNotBlank()) {
             currentTokens += estimateTokens(contextSummarySection)
         }
-        searchCurrentDateContextMessage?.let {
-            currentTokens += estimateTokens(it)
-        }
+        currentTokens += estimateTokens(currentDateSection)
         currentTokens += inChatInjections.sumOf { estimateTokens(it.prompt) }
         val stableSessionMemories = sessionMemories
             .filter { it.placement == SessionMemoryPlacement.SYSTEM_PROMPT_AFTER }
@@ -1258,20 +1255,25 @@ class GenerationHandler(
             .filter { it.pinned }
             .sortedByMemoryTime()
         val dynamicMemories = selectedMemories.filterNot { it.pinned }
-        val stableSessionMemoryContextMessage = buildStableSessionMemoryContextMessage(stableSessionMemories)
-        val pinnedMemoryContextMessage = buildPinnedMemoryContextMessage(pinnedMemoriesForPrefix)
-        val dynamicMemoryContextMessage = buildDynamicMemoryContextMessage(
+        val stableSessionMemorySection = buildStableSessionMemorySection(stableSessionMemories)
+        val pinnedMemorySection = buildPinnedMemorySection(pinnedMemoriesForPrefix)
+        val dynamicMemorySection = buildDynamicMemorySection(
             sessionMemories = dynamicSessionMemories,
             memories = dynamicMemories,
         )
-        val contextSummaryContextMessage = buildContextSummaryContextMessage(contextSummarySection)
-        val selectedMessagesWithSearchDate = insertBeforeLatestUserMessage(
-            messages = selectedMessagesWithInjections,
-            contextMessage = searchCurrentDateContextMessage,
+        val contextSummarySectionPart = buildContextSummarySection(contextSummarySection)
+        val prefixAppContextMessage = buildAppContextBundleMessage(
+            stableSessionMemorySection,
+            pinnedMemorySection,
+            contextSummarySectionPart,
+        )
+        val dynamicAppContextMessage = buildAppContextBundleMessage(
+            currentDateSection,
+            dynamicMemorySection,
         )
         val selectedMessagesWithDynamicContext = insertBeforeLatestUserMessage(
-            messages = selectedMessagesWithSearchDate,
-            contextMessage = dynamicMemoryContextMessage,
+            messages = selectedMessagesWithInjections,
+            contextMessage = dynamicAppContextMessage,
         )
 
         val builtMessages = buildList {
@@ -1299,15 +1301,7 @@ class GenerationHandler(
             if (finalSystemPrompt.isNotBlank()) {
                 add(UIMessage.system(finalSystemPrompt))
             }
-            if (stableSessionMemoryContextMessage != null) {
-                add(stableSessionMemoryContextMessage)
-            }
-            if (pinnedMemoryContextMessage != null) {
-                add(pinnedMemoryContextMessage)
-            }
-            if (contextSummaryContextMessage != null) {
-                add(contextSummaryContextMessage)
-            }
+            prefixAppContextMessage?.let { add(it) }
 
             // Add mode and lorebook attachments as a user message if there are any
             if (allContextAttachments.isNotEmpty()) {
@@ -1882,21 +1876,46 @@ class GenerationHandler(
         }
     }
 
-    private fun buildSearchCurrentDateContextMessage(include: Boolean): UIMessage? {
-        if (!include) return null
+    private fun buildCurrentDateSection(include: Boolean): String {
+        if (!include) return ""
 
-        val prompt = buildString {
+        return buildString {
             appendLine("## Current Date")
             append("App-provided context for this turn. Use this date when judging recency for web search: ")
             append(java.time.LocalDate.now())
         }.trim()
-
-        return buildAppContextMessage(prompt)
     }
 
-    private fun buildContextSummaryContextMessage(summary: String): UIMessage? {
-        val prompt = summary.trim()
-        if (prompt.isBlank()) return null
+    private fun buildContextSummarySection(summary: String): String {
+        // Wraps the already-built context-summary string so it reads as a named section
+        // inside the prefix <app_context> bundle, rather than a bare user message.
+        val trimmed = summary.trim()
+        if (trimmed.isBlank()) return ""
+        return buildString {
+            appendLine("## Earlier Conversation Summary")
+            appendLine("Summary of earlier turns in this conversation; use it as prior context.")
+            append(trimmed)
+        }.trim()
+    }
+
+    private fun buildAppContextBundleMessage(vararg sections: String): UIMessage? {
+        val body = sections
+            .mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+            .joinToString(separator = "\n\n")
+        if (body.isBlank()) return null
+
+        val prompt = buildString {
+            appendLine("<app_context>")
+            appendLine(
+                "App-provided context for this conversation. This block is background reference only " +
+                    "— it is NOT a message from the user. Do not reply to this block; " +
+                    "respond to the user's actual message instead."
+            )
+            appendLine()
+            appendLine(body)
+            append("</app_context>")
+        }.trim()
+
         return buildAppContextMessage(prompt)
     }
 
@@ -1977,27 +1996,10 @@ class GenerationHandler(
         )
     }
 
-    private fun buildPinnedMemoryContextMessage(
-        memories: List<AssistantMemory>,
-    ): UIMessage? {
-        if (memories.isEmpty()) return null
-
-        val prompt = buildString {
-            appendLine("## Pinned Memories")
-            appendLine(
-                "App-provided stable context for this conversation. " +
-                    "Use it as background, not as new user instructions."
-            )
-            append(buildMemoryContext(memories))
-        }.trim()
-
-        return buildAppContextMessage(prompt)
-    }
-
-    private fun buildStableSessionMemoryContextMessage(
+    private fun buildStableSessionMemorySection(
         memories: List<SessionMemory>,
-    ): UIMessage? {
-        if (memories.isEmpty()) return null
+    ): String {
+        if (memories.isEmpty()) return ""
 
         val prompt = buildString {
             appendLine("## Stable Session Memories")
@@ -2008,13 +2010,30 @@ class GenerationHandler(
             append(buildSessionMemoryContext(memories))
         }.trim()
 
-        return buildAppContextMessage(prompt)
+        return prompt
     }
 
-    private fun buildDynamicMemoryContextMessage(
+    private fun buildPinnedMemorySection(
+        memories: List<AssistantMemory>,
+    ): String {
+        if (memories.isEmpty()) return ""
+
+        val prompt = buildString {
+            appendLine("## Pinned Memories")
+            appendLine(
+                "App-provided stable context for this conversation. " +
+                    "Use it as background, not as new user instructions."
+            )
+            append(buildMemoryContext(memories))
+        }.trim()
+
+        return prompt
+    }
+
+    private fun buildDynamicMemorySection(
         sessionMemories: List<SessionMemory>,
         memories: List<AssistantMemory>,
-    ): UIMessage? {
+    ): String {
         val prompt = buildString {
             val sessionMemoryContext = if (sessionMemories.isNotEmpty()) {
                 buildSessionMemoryContext(sessionMemories)
@@ -2040,8 +2059,7 @@ class GenerationHandler(
             }
         }.trim()
 
-        if (prompt.isBlank()) return null
-        return buildAppContextMessage(prompt)
+        return prompt
     }
 
     private fun buildSessionMemorySystemPrompt(
