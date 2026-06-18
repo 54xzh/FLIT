@@ -108,7 +108,6 @@ private fun getMemoryMode(assistant: Assistant): MemoryMode {
         !assistant.enableMemory -> MemoryMode.OFF
         assistant.enableMemoryConsolidation -> MemoryMode.ADVANCED
         assistant.useRagMemoryRetrieval -> MemoryMode.BASIC_RAG
-        assistant.enableRecentChatsReference -> MemoryMode.BASIC_RECENT
         else -> MemoryMode.BASIC
     }
 }
@@ -297,14 +296,15 @@ fun AssistantMemorySettings(
                 }
             )
 
-            // Recent Chats Toggle (when memory enabled)
+            // Recent Chats Toggle (only under advanced/consolidation memory; otherwise the
+            // title-only injection adds noise without useful content)
             AnimatedVisibility(
-                visible = assistant.enableMemory,
+                visible = assistant.enableMemory && assistant.enableMemoryConsolidation,
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically()
             ) {
                 val isLockedByConsolidation = assistant.enableMemoryConsolidation
-                
+
                 MemorySettingsItem(
                     title = stringResource(R.string.assistant_page_recent_chats),
                     subtitle = stringResource(R.string.assistant_page_recent_chats_desc),

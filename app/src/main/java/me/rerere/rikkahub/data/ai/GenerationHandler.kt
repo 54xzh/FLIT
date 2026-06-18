@@ -1069,7 +1069,14 @@ class GenerationHandler(
             (!assistant.useRagMemoryRetrieval || assistant.ragLimit > 0 || memories.any { it.pinned })
 
         val effectiveMemoriesCandidates = if (shouldInjectMemories) {
-            val recentChatMemories = if (assistant.enableRecentChatsReference && messages.size <= 2) {
+            // Recent-chat reference only injects conversation titles, which add noise without
+            // useful content. Keep it reserved for the advanced (consolidation) memory flow;
+            // skip injection otherwise so the model isn't confused by title-only entries.
+            val recentChatMemories = if (
+                assistant.enableRecentChatsReference &&
+                assistant.enableMemoryConsolidation &&
+                messages.size <= 2
+            ) {
                 val today = java.time.LocalDate.now()
                 val recentConversations = conversationRepo.getRecentConversations(
                     assistantId = assistant.id,

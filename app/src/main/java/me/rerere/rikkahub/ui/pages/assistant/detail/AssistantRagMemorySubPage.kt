@@ -202,36 +202,39 @@ fun AssistantRagMemorySubPage(
                 }
             }
 
-            // Recent Chats Reference
-            Card(
-                shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
-                colors = CardDefaults.cardColors(
-                        containerColor = if (me.rerere.rikkahub.ui.theme.LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh
-                )
-            ) {
-                FormItem(
-                    modifier = Modifier.padding(8.dp),
-                    label = {
-                        Text(stringResource(R.string.assistant_page_recent_chats))
-                    },
-                    description = {
-                        Text(
-                            text = stringResource(R.string.assistant_page_recent_chats_desc),
-                        )
-                    },
-                    tail = {
-                        HapticSwitch(
-                            checked = assistant.enableRecentChatsReference,
-                            onCheckedChange = {
-                                onUpdateAssistant(
-                                    assistant.copy(
-                                        enableRecentChatsReference = it
+            // Recent Chats Reference (only under advanced/consolidation memory; otherwise the
+            // title-only injection adds noise without useful content)
+            if (assistant.enableMemoryConsolidation) {
+                Card(
+                    shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+                    colors = CardDefaults.cardColors(
+                            containerColor = if (me.rerere.rikkahub.ui.theme.LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
+                ) {
+                    FormItem(
+                        modifier = Modifier.padding(8.dp),
+                        label = {
+                            Text(stringResource(R.string.assistant_page_recent_chats))
+                        },
+                        description = {
+                            Text(
+                                text = stringResource(R.string.assistant_page_recent_chats_desc),
+                            )
+                        },
+                        tail = {
+                            HapticSwitch(
+                                checked = assistant.enableRecentChatsReference,
+                                onCheckedChange = {
+                                    onUpdateAssistant(
+                                        assistant.copy(
+                                            enableRecentChatsReference = it
+                                        )
                                     )
-                                )
-                            }
-                        )
-                    }
-                )
+                                }
+                            )
+                        }
+                    )
+                }
             }
 
             // Memory Debugger
