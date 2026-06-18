@@ -62,10 +62,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import dev.chrisbanes.haze.ExperimentalHazeApi
+import dev.chrisbanes.haze.HazeInputScale
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
@@ -133,6 +137,7 @@ import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberChatInputState
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.hooks.useEditState
+import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.utils.base64Decode
 import me.rerere.rikkahub.utils.createChatFilesByContents
 import me.rerere.rikkahub.utils.getFileMimeType
@@ -2165,6 +2170,7 @@ private fun QuotaDetailSheet(
 }
 
 @Composable
+@OptIn(ExperimentalHazeApi::class)
 private fun TopBar(
     settings: Settings,
     conversation: Conversation,
@@ -2196,15 +2202,23 @@ private fun TopBar(
     val assistantForConversation = settings.getAssistantById(conversation.assistantId)
         ?: settings.getCurrentAssistant()
 
-    // Theme-aware frosted-glass style. No color tint overlay — a translucent scrim would
-    // cause a visible color cast against the chat background. We rely on the blur alone
-    // so the bar reads as pure frosted glass and stays in sync with the system theme.
-    val blurStyle = remember {
+    val topBarGlassTint = MaterialTheme.colorScheme.surface.copy(
+        alpha = if (LocalDarkMode.current) 0.16f else 0.10f,
+    )
+    val topBarBlurMask = remember {
+        Brush.verticalGradient(
+            0f to Color.Black,
+            0.82f to Color.Black,
+            1f to Color.Transparent,
+        )
+    }
+    // Keep the live backdrop blur, but soften high-frequency text shimmer while scrolling.
+    val blurStyle = remember(topBarGlassTint) {
         HazeStyle(
             backgroundColor = Color.Unspecified,
-            tints = emptyList(),
+            tints = listOf(HazeTint(topBarGlassTint)),
             blurRadius = 32.dp,
-            noiseFactor = 0f,
+            noiseFactor = 0.04f,
         )
     }
 
@@ -2214,7 +2228,11 @@ private fun TopBar(
             Modifier.hazeEffect(
                 state = hazeState,
                 style = blurStyle,
-                block = { blurEnabled = topBarBlurEnabled },
+                block = {
+                    blurEnabled = topBarBlurEnabled
+                    inputScale = HazeInputScale.Fixed(0.66f)
+                    mask = topBarBlurMask
+                },
             )
         } else Modifier,
         navigationIcon = {
