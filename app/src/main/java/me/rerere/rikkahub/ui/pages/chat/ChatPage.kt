@@ -64,6 +64,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.layout.onSizeChanged
@@ -73,6 +78,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -122,7 +128,6 @@ import me.rerere.rikkahub.ui.components.ai.LargeContextWarningDialog
 import me.rerere.rikkahub.ui.components.ai.MinimalChatInput
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
-import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.HapticPattern
@@ -949,7 +954,12 @@ private fun ChatPageContent(
         color = MaterialTheme.colorScheme.background,
         modifier = Modifier.fillMaxSize()
     ) {
-        AssistantBackground(setting = setting)
+        val topBarBlurEnabled = setting.displaySetting.topBarBlur
+        // A single stable HazeState survives topBarBlur toggles so hazeEffect/hazeSource
+        // references don't get recreated (which caused flicker). `blurEnabled` is driven
+        // from the setting via the lambda so the effect itself respects the toggle.
+        val hazeState = rememberHazeState()
+        AssistantBackground(setting = setting, hazeState = hazeState)
         Scaffold(
             topBar = {
                 TopBar(
@@ -960,6 +970,8 @@ private fun ChatPageContent(
                     previewMode = previewMode,
                     isTemporaryChat = isTemporaryChat,
                     quotaUsage = quotaUsage,
+                    hazeState = hazeState,
+                    topBarBlurEnabled = topBarBlurEnabled,
                     onNewChat = {
                         // Temporary chats are not persisted, so just navigate to new chat
                         navigateToChatPage(navController)
@@ -985,10 +997,17 @@ private fun ChatPageContent(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0.dp)
         ) { innerPadding ->
+            // Keep the full-screen Box unpadded on top so the chat list extends under the
+            // translucent (haze-blurred) top bar; the bar blurs the messages scrolling
+            // beneath it. We still consume the top inset (status bar height) so child
+            // composables that opt out of insets get correct values, but we apply it as
+            // ChatList's content padding instead of layout padding.
+            val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+            val topBarTotalHeight = statusBarTopPadding + 56.dp
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
+                    .padding(bottom = innerPadding.calculateBottomPadding())
             ) {
                 val groupChatTemplate = remember(setting.groupChatTemplates, conversation.assistantId) {
                     setting.groupChatTemplates.firstOrNull { it.id == conversation.assistantId }
@@ -1091,11 +1110,18 @@ private fun ChatPageContent(
                     }
                 }
 
+                val hazeStateLocal = hazeState
                 ChatList(
                     modifier = Modifier
                         .graphicsLayer { alpha = chatListAlpha }
+                        .let { base ->
+                            if (topBarBlurEnabled) base.hazeSource(state = hazeStateLocal) else base
+                        }
                         .onGloballyPositioned { chatListTopInWindow = it.boundsInWindow().top },
-                    innerPadding = PaddingValues(bottom = chatListBottomPadding),
+                    innerPadding = PaddingValues(
+                        top = if (topBarBlurEnabled) topBarTotalHeight else 0.dp,
+                        bottom = chatListBottomPadding,
+                    ),
                     conversation = conversation,
                     state = chatListState,
                     loading = loadingJob != null,
@@ -1263,10 +1289,15 @@ private fun ChatPageContent(
                 val overlayBottomPadding = remember(chatInputChromeHeightDp) {
                     maxOf(EmptyChatOverlayBottomPaddingFallback, chatInputChromeHeightDp)
                 }
+                // The empty-chat welcome/overlay should remain visually centered in the area
+                // *below* the top bar (which now floats over the content), not the whole
+                // screen, otherwise it shifts up under the bar.
+                val overlayTopPadding = if (topBarBlurEnabled) topBarTotalHeight else 0.dp
 
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .padding(top = overlayTopPadding)
                         .padding(bottom = overlayBottomPadding)
                         .padding(WindowInsets.ime.asPaddingValues()),
                     contentAlignment = Alignment.Center,
@@ -2154,13 +2185,15 @@ private fun TopBar(
     onToggleTemporaryChat: () -> Unit,
     onSetConversationAssistant: (Uuid) -> Unit,
     quotaUsage: QuotaUsageResult? = null,
+    hazeState: HazeState? = null,
+    topBarBlurEnabled: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
     val titleState = useEditState<String> {
         onUpdateTitle(it)
     }
-    
+
     // State for assistant picker - must be at function level for proper recomposition
     var showAssistantPicker by remember { mutableStateOf(false) }
     val groupChatTemplateForConversation = remember(settings.groupChatTemplates, conversation.assistantId) {
@@ -2169,8 +2202,27 @@ private fun TopBar(
     val assistantForConversation = settings.getAssistantById(conversation.assistantId)
         ?: settings.getCurrentAssistant()
 
+    // Theme-aware frosted-glass style. No color tint overlay — a translucent scrim would
+    // cause a visible color cast against the chat background. We rely on the blur alone
+    // so the bar reads as pure frosted glass and stays in sync with the system theme.
+    val blurStyle = remember {
+        HazeStyle(
+            backgroundColor = Color.Unspecified,
+            tints = emptyList(),
+            blurRadius = 32.dp,
+            noiseFactor = 0f,
+        )
+    }
+
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+        modifier = if (hazeState != null) {
+            Modifier.hazeEffect(
+                state = hazeState,
+                style = blurStyle,
+                block = { blurEnabled = topBarBlurEnabled },
+            )
+        } else Modifier,
         navigationIcon = {
             if (!bigScreen) {
                 IconButton(

@@ -11,19 +11,29 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.HazeState
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.model.OverlayColorMode
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 
 @Composable
-fun AssistantBackground(setting: Settings) {
+fun AssistantBackground(setting: Settings, hazeState: HazeState? = null) {
     val assistant = setting.getCurrentAssistant()
     val background = assistant.background ?: return
     val overlay = assistant.backgroundOverlay
     val isDarkMode = LocalDarkMode.current
 
-    Box {
+    Box(
+        modifier = if (hazeState != null) {
+            Modifier
+                .fillMaxSize()
+                .hazeSource(state = hazeState)
+        } else {
+            Modifier.fillMaxSize()
+        }
+    ) {
         AsyncImage(
             model = background,
             contentDescription = null,

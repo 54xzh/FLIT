@@ -1193,6 +1193,7 @@ data class DisplaySetting(
     val useJsonEditorForCustomRequest: Boolean = false, // Use JSON editor for custom headers/body in assistant/model advanced settings
     val showExportConversationJsonButton: Boolean = false, // Show export raw JSON action in conversation long-press menu
     val hideSuggestionsOnOverlap: Boolean = true, // Fade out chat suggestions when they visually cover message text
+    val topBarBlur: Boolean = true, // Frosted-glass blur on the chat top bar over background/content
 )
 
 fun DisplaySetting.coerceForConflicts(): DisplaySetting {

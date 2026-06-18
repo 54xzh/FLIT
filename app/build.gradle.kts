@@ -383,6 +383,10 @@ dependencies {
     // Reorderable (https://github.com/Calvin-LL/Reorderable/)
     implementation(libs.reorderable)
 
+    // Haze (glassmorphism blur for Compose, https://github.com/chrisbanes/haze)
+    implementation(libs.haze)
+    implementation(libs.haze.materials)
+
     // lucide icons
     implementation(libs.lucide.icons)
 

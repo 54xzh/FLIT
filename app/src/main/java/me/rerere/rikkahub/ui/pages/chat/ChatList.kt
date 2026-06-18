@@ -36,6 +36,8 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
@@ -1398,14 +1400,16 @@ private fun SharedTransitionScope.ChatListPreview(
 
     Column(
         modifier = Modifier
-            .padding(innerPadding)
+            .padding(bottom = innerPadding.calculateBottomPadding())
             .fillMaxSize(),
     ) {
-        // 搜索框
+        // 搜索框 (kept below the status bar so it isn't hidden under the floating top bar)
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
             modifier = Modifier
+                .statusBarsPadding()
+                .padding(top = 56.dp)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             placeholder = { Text(stringResource(R.string.chat_page_search_placeholder)) },

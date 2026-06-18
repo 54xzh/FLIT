@@ -366,6 +366,18 @@ fun SettingDisplayPage(vm: SettingVM = koinViewModel()) {
                         }
                     )
                     SettingGroupItem(
+                        title = stringResource(R.string.setting_display_page_top_bar_blur_title),
+                        subtitle = stringResource(R.string.setting_display_page_top_bar_blur_desc),
+                        trailing = {
+                            HapticSwitch(
+                                checked = displaySetting.topBarBlur,
+                                onCheckedChange = {
+                                    updateDisplaySetting(displaySetting.copy(topBarBlur = it))
+                                }
+                            )
+                        }
+                    )
+                    SettingGroupItem(
                         title = stringResource(R.string.setting_display_page_auto_scroll_generation_title),
                         subtitle = stringResource(R.string.setting_display_page_auto_scroll_generation_desc),
                         trailing = {
