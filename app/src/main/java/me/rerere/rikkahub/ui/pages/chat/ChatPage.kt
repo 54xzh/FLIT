@@ -63,6 +63,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import dev.chrisbanes.haze.ExperimentalHazeApi
@@ -81,6 +83,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.ime
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -2212,6 +2215,24 @@ private fun TopBar(
             1f to Color.Transparent,
         )
     }
+    // Status-bar scrim: the very top of a backdrop blur is under-blurred — the blur kernel is
+    // clipped at the window's physical top edge with no content above to sample, so high-frequency
+    // text shimmers there during slow scroll (confirmed: feathering the top made it worse). A short
+    // surface→transparent gradient over the status-bar band hides that strip without tinting the
+    // rest of the glass.
+    val density = LocalDensity.current
+    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val topScrimColor = MaterialTheme.colorScheme.surface
+    val topScrimHeightPx = with(density) { (statusBarHeight + 16.dp).toPx() }
+    val topScrimBrush = remember(topScrimColor, topScrimHeightPx) {
+        Brush.verticalGradient(
+            0f to topScrimColor.copy(alpha = 0.85f),
+            0.5f to topScrimColor.copy(alpha = 0.45f),
+            1f to Color.Transparent,
+            startY = 0f,
+            endY = topScrimHeightPx,
+        )
+    }
     // Keep the live backdrop blur, but soften high-frequency text shimmer while scrolling.
     val blurStyle = remember(topBarGlassTint) {
         HazeStyle(
@@ -2225,15 +2246,26 @@ private fun TopBar(
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
         modifier = if (hazeState != null) {
-            Modifier.hazeEffect(
-                state = hazeState,
-                style = blurStyle,
-                block = {
-                    blurEnabled = topBarBlurEnabled
-                    inputScale = HazeInputScale.Fixed(0.66f)
-                    mask = topBarBlurMask
-                },
-            )
+            Modifier
+                .hazeEffect(
+                    state = hazeState,
+                    style = blurStyle,
+                    block = {
+                        blurEnabled = topBarBlurEnabled
+                        inputScale = HazeInputScale.Fixed(0.66f)
+                        mask = topBarBlurMask
+                    },
+                )
+                .drawWithContent {
+                    drawContent()
+                    // Cover the under-blurred top strip (see topScrimBrush note above).
+                    if (topBarBlurEnabled) {
+                        drawRect(
+                            brush = topScrimBrush,
+                            size = Size(size.width, topScrimHeightPx),
+                        )
+                    }
+                }
         } else Modifier,
         navigationIcon = {
             if (!bigScreen) {
