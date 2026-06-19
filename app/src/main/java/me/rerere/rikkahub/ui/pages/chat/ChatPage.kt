@@ -2226,8 +2226,10 @@ private fun TopBar(
     val topScrimHeightPx = with(density) { (statusBarHeight + 16.dp).toPx() }
     val topScrimBrush = remember(topScrimColor, topScrimHeightPx) {
         Brush.verticalGradient(
-            0f to topScrimColor.copy(alpha = 0.85f),
-            0.5f to topScrimColor.copy(alpha = 0.45f),
+            0f to topScrimColor,
+            0.35f to topScrimColor.copy(alpha = 0.78f),
+            0.6f to topScrimColor.copy(alpha = 0.45f),
+            0.82f to topScrimColor.copy(alpha = 0.18f),
             1f to Color.Transparent,
             startY = 0f,
             endY = topScrimHeightPx,
