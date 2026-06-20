@@ -1229,11 +1229,8 @@ private fun ChatPageContent(
                     },
                 )
 
-                // Top-bar glass blur, decoupled from the TopAppBar so its vertical extent is an
-                // independent knob: the blur region overflows below the original bar bottom and the
-                // fade-out straddles that line, giving a longer/softer transition than a mask confined
-                // to the bar's own height could. The TopAppBar (title/icons) is drawn by the Scaffold
-                // topBar slot, which paints above this content, so the title still sits on the glass.
+                // Top-bar glass blur, decoupled from the TopAppBar. The TopAppBar
+                // (title/icons) is drawn by the Scaffold topBar slot above this content.
                 if (topBarBlurEnabled) {
                     val blurDensity = LocalDensity.current
                     val glassTint = MaterialTheme.colorScheme.surface.copy(
@@ -1247,15 +1244,7 @@ private fun ChatPageContent(
                             noiseFactor = 0.04f,
                         )
                     }
-                    // Geometry (tunable): full blur starts fading `fadePullBack` above the original
-                    // bar bottom and the region overflows `blurOverflow` below it. Transition band ≈
-                    // pullBack + overflow. fadePullBack must stay below the title text.
-                    val blurOverflow = 26.dp
-                    val fadePullBack = 14.dp
-                    val overlayHeight = topBarHeight + blurOverflow
-                    val overlayHeightPx = with(blurDensity) { overlayHeight.toPx() }
-                    val fadeStartFrac =
-                        with(blurDensity) { (topBarHeight - fadePullBack).toPx() } / overlayHeightPx
+                    val overlayHeight = topBarHeight
 
                     // Status-bar scrim: the very top of a backdrop blur is under-blurred (the kernel is
                     // clipped at the window's physical top with no content above to sample), so text
@@ -1263,32 +1252,17 @@ private fun ChatPageContent(
                     // status-bar band hides that strip without tinting the rest of the glass.
                     val scrimColor = MaterialTheme.colorScheme.surface
                     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-                    val topScrimHeightPx = with(blurDensity) { (statusBarHeight + 16.dp).toPx() }
+                    val topScrimHeightPx = with(blurDensity) { (statusBarHeight + 28.dp).toPx() }
                     val topScrimBrush = remember(scrimColor, topScrimHeightPx) {
                         Brush.verticalGradient(
-                            0f to scrimColor,
-                            0.35f to scrimColor.copy(alpha = 0.78f),
-                            0.6f to scrimColor.copy(alpha = 0.45f),
-                            0.82f to scrimColor.copy(alpha = 0.18f),
+                            0f to scrimColor.copy(alpha = 0.92f),
+                            0.20f to scrimColor.copy(alpha = 0.72f),
+                            0.45f to scrimColor.copy(alpha = 0.42f),
+                            0.70f to scrimColor.copy(alpha = 0.18f),
+                            0.88f to scrimColor.copy(alpha = 0.06f),
                             1f to Color.Transparent,
                             startY = 0f,
                             endY = topScrimHeightPx,
-                        )
-                    }
-
-                    // Hold full blur until `fadeStartFrac`, then ease out to transparent (soft landing,
-                    // no hard edge) — a longer, gentler dissolve than the previous 2-stop linear mask.
-                    val blurMask = remember(fadeStartFrac) {
-                        val s = fadeStartFrac
-                        fun at(t: Float) = s + t * (1f - s)
-                        Brush.verticalGradient(
-                            0f to Color.Black,
-                            s to Color.Black,
-                            at(0.30f) to Color.Black.copy(alpha = 0.82f),
-                            at(0.55f) to Color.Black.copy(alpha = 0.50f),
-                            at(0.75f) to Color.Black.copy(alpha = 0.26f),
-                            at(0.90f) to Color.Black.copy(alpha = 0.10f),
-                            1f to Color.Transparent,
                         )
                     }
 
@@ -1303,7 +1277,6 @@ private fun ChatPageContent(
                                 block = {
                                     blurEnabled = true
                                     inputScale = HazeInputScale.Fixed(0.66f)
-                                    mask = blurMask
                                 },
                             )
                             .drawWithContent {
