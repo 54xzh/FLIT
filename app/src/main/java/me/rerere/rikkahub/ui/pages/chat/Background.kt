@@ -21,7 +21,23 @@ import me.rerere.rikkahub.ui.theme.LocalDarkMode
 @Composable
 fun AssistantBackground(setting: Settings, hazeState: HazeState? = null) {
     val assistant = setting.getCurrentAssistant()
-    val background = assistant.background ?: return
+    val background = assistant.background
+    if (background == null) {
+        if (hazeState != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .hazeSource(state = hazeState)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                )
+            }
+        }
+        return
+    }
     val overlay = assistant.backgroundOverlay
     val isDarkMode = LocalDarkMode.current
 
