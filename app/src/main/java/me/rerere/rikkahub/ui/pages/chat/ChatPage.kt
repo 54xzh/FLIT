@@ -70,7 +70,6 @@ import androidx.compose.ui.platform.LocalContext
 import dev.chrisbanes.haze.ExperimentalHazeApi
 import dev.chrisbanes.haze.HazeInputScale
 import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
@@ -1233,15 +1232,12 @@ private fun ChatPageContent(
                 // (title/icons) is drawn by the Scaffold topBar slot above this content.
                 if (topBarBlurEnabled) {
                     val blurDensity = LocalDensity.current
-                    val glassTint = MaterialTheme.colorScheme.surface.copy(
-                        alpha = if (LocalDarkMode.current) 0.16f else 0.10f,
-                    )
-                    val blurStyle = remember(glassTint) {
+                    val blurStyle = remember {
                         HazeStyle(
                             backgroundColor = Color.Unspecified,
-                            tints = listOf(HazeTint(glassTint)),
+                            tints = emptyList(),
                             blurRadius = 32.dp,
-                            noiseFactor = 0.04f,
+                            noiseFactor = 0f,
                         )
                     }
                     val overlayHeight = topBarHeight
