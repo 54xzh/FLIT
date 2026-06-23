@@ -225,6 +225,9 @@
     <string name="assistant_page_json_edit_mode">JSON 编辑模式</string>
     <string name="assistant_page_json_editor_label">JSON</string>
     <string name="assistant_page_json_must_be_object">JSON 必须是对象，例如 {&quot;key&quot;:&quot;value&quot;}</string>
+    <string name="assistant_page_local_tools_group_code_files">代码执行与文件操作</string>
+    <string name="assistant_page_local_tools_group_memory_search">记忆与会话检索</string>
+    <string name="assistant_page_local_tools_group_other">其他</string>
     <string name="assistant_page_local_tools_scheduled_task_manager_title">定时任务管理</string>
     <string name="assistant_page_local_tools_scheduled_task_manager_desc">允许助手创建、编辑和删除定时任务（需要用户确认）</string>
     <string name="assistant_page_local_tools_ask_user_title">询问用户</string>

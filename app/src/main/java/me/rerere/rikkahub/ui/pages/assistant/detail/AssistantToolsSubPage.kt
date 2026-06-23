@@ -83,7 +83,7 @@ fun AssistantToolsSubPage(
             onUpdate(assistant.copy(localTools = newLocalTools))
         }
         
-        SettingsGroup(title = stringResource(R.string.assistant_page_tab_local_tools)) {
+        SettingsGroup(title = stringResource(R.string.assistant_page_local_tools_group_code_files)) {
             // JavaScript Engine
             SettingGroupItem(
                 title = stringResource(R.string.assistant_page_local_tools_javascript_engine_title),
@@ -140,7 +140,9 @@ fun AssistantToolsSubPage(
                     )
                 }
             )
+        }
 
+        SettingsGroup(title = stringResource(R.string.assistant_page_local_tools_group_memory_search)) {
             // Memory Search
             SettingGroupItem(
                 title = stringResource(R.string.assistant_page_local_tools_memory_search_title),
@@ -178,7 +180,9 @@ fun AssistantToolsSubPage(
                     )
                 }
             )
+        }
 
+        SettingsGroup(title = stringResource(R.string.assistant_page_local_tools_group_other)) {
             // Lorebooks Editor
             SettingGroupItem(
                 title = stringResource(R.string.assistant_page_local_tools_lorebooks_editor_title),

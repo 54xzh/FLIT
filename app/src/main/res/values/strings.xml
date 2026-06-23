@@ -272,6 +272,9 @@
     <string name="assistant_page_system_prompt">System Prompt</string>
     <string name="assistant_page_tab_basic">Basic</string>
     <string name="assistant_page_tab_local_tools">Local Tools</string>
+    <string name="assistant_page_local_tools_group_code_files">Code Execution &amp; Files</string>
+    <string name="assistant_page_local_tools_group_memory_search">Memory &amp; Conversation Search</string>
+    <string name="assistant_page_local_tools_group_other">Other</string>
     <string name="assistant_page_tab_mcp">MCP</string>
     <string name="assistant_page_tab_memory">Memory</string>
     <string name="assistant_page_tab_prompt">Prompt</string>

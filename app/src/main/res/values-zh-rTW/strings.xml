@@ -169,6 +169,9 @@
   <string name="assistant_page_system_prompt">系統提示詞</string>
   <string name="assistant_page_tab_basic">基本設定</string>
   <string name="assistant_page_tab_local_tools">本地工具</string>
+  <string name="assistant_page_local_tools_group_code_files">程式碼執行與檔案操作</string>
+  <string name="assistant_page_local_tools_group_memory_search">記憶與會話檢索</string>
+  <string name="assistant_page_local_tools_group_other">其他</string>
   <string name="assistant_page_tab_mcp">MCP</string>
   <string name="assistant_page_tab_memory">記憶</string>
   <string name="assistant_page_tab_prompt">提示詞</string>
