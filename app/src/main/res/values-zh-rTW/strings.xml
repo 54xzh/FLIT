@@ -871,12 +871,17 @@
   <string name="setting_page_search_provider_type">提供商類型</string>
   <string name="setting_page_search_providers">搜尋提供商</string>
   <string name="setting_page_search_result_size">結果數量</string>
+  <string name="setting_page_search_result_size_desc">每次搜尋每個提供商回傳的結果數量</string>
   <string name="setting_page_search_multi_strategy">多選策略</string>
+  <string name="setting_page_search_multi_strategy_desc">多個已選服務商的組合方式</string>
   <string name="setting_page_search_multi_strategy_parallel">並行搜尋</string>
   <string name="setting_page_search_multi_strategy_sequential">順序回退</string>
   <string name="setting_page_search_service">搜尋服務</string>
   <string name="setting_page_search_service_desc">設定搜尋服務</string>
   <string name="setting_page_search_title">搜尋服務</string>
+  <string name="setting_page_search_setting_title">搜尋設定</string>
+  <string name="setting_page_search_tab_providers">搜尋服務商</string>
+  <string name="setting_page_search_tab_common">通用設定</string>
   <string name="setting_page_share">分享</string>
   <string name="setting_page_share_desc">分享本APP給朋友</string>
   <string name="setting_page_share_text">LastChat - 開源安卓AI助手\n\n官網: https://rikka-ai.com/</string>
@@ -1487,7 +1492,9 @@
   <string name="setting_search_page_exa_search_type">搜尋類型</string>
   <string name="setting_search_page_exa_search_type_desc">控制 Exa 搜尋深度和速度</string>
   <string name="setting_search_page_enable_search_agent">啟用搜尋子代理</string>
+  <string name="setting_search_page_enable_search_agent_desc">使用子代理進行搜尋、讀取網頁並總結結果</string>
   <string name="setting_search_page_override_original_tools">覆蓋原搜尋工具</string>
+  <string name="setting_search_page_override_original_tools_desc">讓搜尋子代理替換模型自帶的搜尋工具</string>
   <string name="setting_search_page_model">模型</string>
   <string name="setting_search_page_engines">引擎</string>
   <string name="setting_search_page_include_images">包含圖片</string>
