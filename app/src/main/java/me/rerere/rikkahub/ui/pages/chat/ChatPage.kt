@@ -656,7 +656,8 @@ private fun ChatPageContent(
     val hasPersistedReadPosition = settingsReady && conversationReadPosition != null
     val hasCachedPosition = hasInMemoryCache || hasPersistedReadPosition
     val chatListAlpha = if (
-        !hasCachedPosition && conversation.messageNodes.isNotEmpty() && !initialEntryHandled
+        !conversationInitialized ||
+        (!hasCachedPosition && conversation.messageNodes.isNotEmpty() && !initialEntryHandled)
     ) 0f else 1f
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -971,6 +972,7 @@ private fun ChatPageContent(
                 TopBar(
                     settings = setting,
                     conversation = conversation,
+                    conversationInitialized = conversationInitialized,
                     bigScreen = bigScreen,
                     drawerState = drawerState,
                     previewMode = previewMode,
@@ -1267,6 +1269,7 @@ private fun ChatPageContent(
                             .align(Alignment.TopCenter)
                             .fillMaxWidth()
                             .height(overlayHeight)
+                            .graphicsLayer { alpha = chatListAlpha }
                             .hazeEffect(
                                 state = hazeState,
                                 style = blurStyle,
@@ -2230,6 +2233,7 @@ private fun QuotaDetailSheet(
 private fun TopBar(
     settings: Settings,
     conversation: Conversation,
+    conversationInitialized: Boolean,
     drawerState: DrawerState,
     bigScreen: Boolean,
     previewMode: Boolean,
@@ -2314,7 +2318,7 @@ private fun TopBar(
         },
         actions = {
             // Check if chat is "empty" (no user-sent messages, ignoring preset messages)
-            val isEmpty = !conversation.messageNodes.any { it.role == me.rerere.ai.core.MessageRole.USER }
+            val isEmpty = conversationInitialized && !conversation.messageNodes.any { it.role == me.rerere.ai.core.MessageRole.USER }
 
             AnimatedVisibility(
                 visible = quotaUsage != null,

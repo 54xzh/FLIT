@@ -31,3 +31,8 @@ settings.local.json
 /.jdks
 /.claude/
 .alma-snapshots
+
+/gradle-user-home
+/fix_topbar.py
+/write_patch.py
+/.codex_patches
