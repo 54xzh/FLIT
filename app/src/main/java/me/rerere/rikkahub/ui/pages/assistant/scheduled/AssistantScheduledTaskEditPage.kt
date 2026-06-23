@@ -529,6 +529,21 @@ private fun SearchProviderPicker(
         ScheduledTaskSearchOverrideType.INHERIT -> providerIndexFromAssistant ?: -1
         else -> draft.searchProviderIndex
     }
+    val enableSearch = when (draft.searchOverrideType) {
+        ScheduledTaskSearchOverrideType.OFF -> false
+        ScheduledTaskSearchOverrideType.INHERIT -> assistant.searchMode !is AssistantSearchMode.Off
+        ScheduledTaskSearchOverrideType.OVERRIDE -> draft.searchProviderIndex >= 0
+        ScheduledTaskSearchOverrideType.OVERRIDE_PREFER_BUILTIN -> modelSupportsBuiltIn || draft.searchProviderIndex >= 0
+        else -> false
+    }
+    val effectiveBuiltInSearch = enableSearch && modelSupportsBuiltIn && when (draft.searchOverrideType) {
+        ScheduledTaskSearchOverrideType.INHERIT -> {
+            assistant.searchMode is AssistantSearchMode.BuiltIn || assistant.preferBuiltInSearch
+        }
+
+        ScheduledTaskSearchOverrideType.OVERRIDE_PREFER_BUILTIN -> true
+        else -> false
+    }
 
     val providerName = effectiveProviderIndex
         .takeIf { it >= 0 }
@@ -543,7 +558,7 @@ private fun SearchProviderPicker(
 
     val detailText = when {
         draft.searchOverrideType == ScheduledTaskSearchOverrideType.OFF -> offText
-        preferBuiltInSearch && modelSupportsBuiltIn -> stringResource(R.string.built_in_search_title)
+        effectiveBuiltInSearch -> stringResource(R.string.built_in_search_title)
         effectiveProviderIndex >= 0 -> providerName
         else -> offText
     }
@@ -551,14 +566,6 @@ private fun SearchProviderPicker(
         ScheduledTaskSearchOverrideType.INHERIT -> "$inheritText · $detailText"
         ScheduledTaskSearchOverrideType.OFF -> offText
         else -> "$customText · $detailText"
-    }
-
-    val enableSearch = when (draft.searchOverrideType) {
-        ScheduledTaskSearchOverrideType.OFF -> false
-        ScheduledTaskSearchOverrideType.INHERIT -> assistant.searchMode !is AssistantSearchMode.Off || preferBuiltInSearch
-        ScheduledTaskSearchOverrideType.OVERRIDE,
-        ScheduledTaskSearchOverrideType.OVERRIDE_PREFER_BUILTIN -> (draft.searchProviderIndex >= 0) || preferBuiltInSearch
-        else -> false
     }
 
     val providerIndexForDialog = when {
@@ -674,7 +681,7 @@ private fun SearchProviderPicker(
                             )
                         }
                     },
-                    contentColor = if (enableSearch || (preferBuiltInSearch && modelSupportsBuiltIn)) {
+                    contentColor = if (enableSearch) {
                         MaterialTheme.colorScheme.primary
                     } else {
                         MaterialTheme.colorScheme.onSurface

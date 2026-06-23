@@ -86,6 +86,7 @@
     <string name="request_log_source_scheduled_message">Scheduled Message</string>
     <string name="request_log_source_spontaneous">Spontaneous</string>
     <string name="request_log_source_model_name_generation">Model Name Generation</string>
+    <string name="request_log_source_search_agent">Search Agent</string>
     <string name="request_log_source_other">Other</string>
     <string name="app_name">LastChat Plus</string>
     <string name="assistant_importer_import_failed">Import Failed</string>
@@ -894,6 +895,8 @@
     <string name="setting_model_page_model_name_generation_model">Model Name Generation Model</string>
     <string name="setting_model_page_model_name_generation_model_desc">Model used to generate readable names from model IDs.</string>
     <string name="setting_model_page_model_name_generation_prompt_vars">Vars: Model ID: {model_id}</string>
+    <string name="setting_model_page_search_agent_model">Search Agent Model</string>
+    <string name="setting_model_page_search_agent_model_desc">Used to search, read webpages, and summarize results.</string>
     <string name="setting_model_page_translate_model">Translate Model</string>
     <string name="setting_model_page_translate_model_desc">Model for translation features</string>
     <string name="setting_model_page_translate_prompt_vars">Vars: Source: {source_text}, Target Lang: {target_lang}</string>
@@ -1676,6 +1679,8 @@
     <string name="setting_search_preset_serper_desc">Google search results through Serper API</string>
     <string name="setting_search_page_bing_no_config">Bing search does not require any configuration.</string>
     <string name="setting_search_page_edit_service_title">Edit %1$s</string>
+    <string name="setting_search_page_enable_search_agent">Enable Search Agent</string>
+    <string name="setting_search_page_override_original_tools">Override Original Search Tools</string>
     <string name="setting_search_page_service_fallback_name">Search Service</string>
     <string name="setting_search_page_alias">Alias (Optional)</string>
     <string name="setting_search_page_stealth_mode">Stealth Mode</string>
@@ -1684,6 +1689,8 @@
     <string name="setting_search_page_summary_desc">Enable summary generation</string>
     <string name="setting_search_page_tag_scrape">Scrape</string>
     <string name="setting_search_page_username">Username</string>
+    <string name="chat_message_tool_search_agent">Search Agent</string>
+    <string name="chat_message_tool_search_agent_steps">Internal Steps</string>
     <string name="color_hex">Color (Hex)</string>
     <string name="color_hex_placeholder">#808080</string>
     <string name="pattern">Pattern</string>

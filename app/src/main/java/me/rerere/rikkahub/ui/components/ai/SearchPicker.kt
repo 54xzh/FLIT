@@ -128,10 +128,11 @@ fun SearchPickerButton(
         model?.findProvider(settings.providers)
     }
     val modelSupportsBuiltIn = model?.supportsBuiltInSearch(modelProvider) == true
+    val isUsingBuiltIn = enableSearch && modelSupportsBuiltIn && (isBuiltInMode || preferBuiltInSearch)
 
     ToggleSurface(
         modifier = modifier,
-        checked = enableSearch || (preferBuiltInSearch && modelSupportsBuiltIn),
+        checked = enableSearch,
         checkedColor = Color.Transparent,
         uncheckedColor = Color.Transparent,
         contentColor = contentColor,
@@ -149,9 +150,6 @@ fun SearchPickerButton(
                 modifier = Modifier.size(24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Determine if built-in search is effectively active
-                val isUsingBuiltIn = preferBuiltInSearch && modelSupportsBuiltIn
-                
                 // Show globe icon when: using built-in search, or no provider selected, or search is off
                 // Show provider icon only when: search is on, NOT using built-in, and has a provider
                 if (enableSearch && !isUsingBuiltIn && currentService != null) {

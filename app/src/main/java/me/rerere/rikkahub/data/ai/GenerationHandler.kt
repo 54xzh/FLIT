@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -612,12 +613,13 @@ class GenerationHandler(
                         tool.execute(args)
                     }
 
+                    val toolOutput = result.extractToolResultMetadata()
                     results += UIMessagePart.ToolResult(
                         toolName = toolCall.toolName,
                         toolCallId = resolvedToolCallId,
-                        content = result,
+                        content = toolOutput.content,
                         arguments = args,
-                        metadata = toolCall.metadata
+                        metadata = mergeToolResultMetadata(toolCall.metadata, toolOutput.metadata)
                     )
                 }.onFailure {
                     it.printStackTrace()
@@ -749,7 +751,8 @@ class GenerationHandler(
             if (maxSearches > 0) {
                 val searchResultIndices = contextMessages.mapIndexedNotNull { index, msg ->
                     val hasSearchResult = msg.parts.any { part ->
-                        part is UIMessagePart.ToolResult && part.toolName == "search_web"
+                        part is UIMessagePart.ToolResult &&
+                            (part.toolName == "search_web" || part.toolName == "search_agent")
                     }
                     if (hasSearchResult) index else null
                 }
@@ -760,7 +763,10 @@ class GenerationHandler(
                         if (index in indicesToPrune) {
                             msg.copy(
                                 parts = msg.parts.map { part ->
-                                    if (part is UIMessagePart.ToolResult && part.toolName == "search_web") {
+                                    if (
+                                        part is UIMessagePart.ToolResult &&
+                                        (part.toolName == "search_web" || part.toolName == "search_agent")
+                                    ) {
                                         part.copy(
                                             content = buildJsonObject {
                                                 put(
@@ -1615,6 +1621,28 @@ class GenerationHandler(
                 )
             }
         }
+    }
+
+    private data class ToolExecutionOutput(
+        val content: JsonElement,
+        val metadata: JsonObject?,
+    )
+
+    private fun JsonElement.extractToolResultMetadata(): ToolExecutionOutput {
+        val obj = this as? JsonObject ?: return ToolExecutionOutput(content = this, metadata = null)
+        val metadata = obj["_tool_result_metadata"] as? JsonObject
+            ?: return ToolExecutionOutput(content = this, metadata = null)
+        val content = JsonObject(obj.filterKeys { key -> key != "_tool_result_metadata" })
+        return ToolExecutionOutput(content = content, metadata = metadata)
+    }
+
+    private fun mergeToolResultMetadata(
+        callMetadata: JsonObject?,
+        resultMetadata: JsonObject?,
+    ): JsonObject? {
+        if (callMetadata == null) return resultMetadata
+        if (resultMetadata == null) return callMetadata
+        return JsonObject(callMetadata + resultMetadata)
     }
 
     private fun UIMessagePart.ToolCall.requiresLocalToolResult(model: Model): Boolean {

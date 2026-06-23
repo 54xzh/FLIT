@@ -208,6 +208,7 @@ fun AIRequestSource.displayName(): String {
         AIRequestSource.SCHEDULED_MESSAGE -> stringResource(R.string.request_log_source_scheduled_message)
         AIRequestSource.SPONTANEOUS -> stringResource(R.string.request_log_source_spontaneous)
         AIRequestSource.MODEL_NAME_GENERATION -> stringResource(R.string.request_log_source_model_name_generation)
+        AIRequestSource.SEARCH_AGENT -> stringResource(R.string.request_log_source_search_agent)
         AIRequestSource.OTHER -> stringResource(R.string.request_log_source_other)
     }
 }

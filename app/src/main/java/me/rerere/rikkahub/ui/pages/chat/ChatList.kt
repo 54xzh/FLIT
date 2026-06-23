@@ -502,6 +502,17 @@ private fun SharedTransitionScope.ChatListNormal(
                                 }
                             }
                         }
+                        if (part is UIMessagePart.ToolResult && part.toolName == "search_agent") {
+                            val sources = part.content.jsonObject["sources"]?.jsonArray ?: return@forEach
+                            sources.forEach { source ->
+                                val id = source.jsonObject["id"]?.jsonPrimitive?.content ?: return@forEach
+                                val url = source.jsonObject["url"]?.jsonPrimitive?.content ?: return@forEach
+                                if (citationId == id) {
+                                    context.openUrl(url)
+                                    return@findCitation
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -92,6 +92,7 @@ import me.rerere.rikkahub.data.ai.tools.LocalToolOption
 import me.rerere.rikkahub.data.ai.tools.LocalTools
 import me.rerere.rikkahub.data.ai.tools.RUN_SKILL_SCRIPT_SYSTEM_PROMPT_TEMPLATE
 import me.rerere.rikkahub.data.ai.tools.SCRIPTABLE_SKILL_LIST_VARIABLE
+import me.rerere.rikkahub.data.ai.tools.SearchAgentTools
 import me.rerere.rikkahub.data.ai.tools.SkillScriptRunner
 import me.rerere.rikkahub.data.ai.tools.WORKSPACE_COMMON_RULES_PROMPT
 import me.rerere.rikkahub.data.ai.tools.WORKSPACE_COMMON_RULES_VARIABLE
@@ -1700,7 +1701,10 @@ class ChatService(
             val assistant = settings.getCurrentAssistant()
             val modelProvider = model.findProvider(settings.providers)
             val modelSupportsBuiltIn = model.supportsBuiltInSearch(modelProvider)
-            val useBuiltInSearch = assistant.preferBuiltInSearch && modelSupportsBuiltIn
+            val useBuiltInSearch = modelSupportsBuiltIn && (
+                assistant.searchMode is AssistantSearchMode.BuiltIn ||
+                    (assistant.preferBuiltInSearch && assistant.searchMode !is AssistantSearchMode.Off)
+                )
             val runtimeModel = if (useBuiltInSearch) {
                 model.ensureBuiltInSearchTool(modelProvider)
             } else {
@@ -1857,7 +1861,7 @@ class ChatService(
                         is AssistantSearchMode.Provider,
                         is AssistantSearchMode.MultiProvider -> {
                             if (!useBuiltInSearch) {
-                                addAll(me.rerere.rikkahub.data.ai.tools.SearchTools.createSearchTools(settings, searchMode))
+                                addAll(createEffectiveSearchTools(settings, searchMode))
                             }
                         }
                         is AssistantSearchMode.BuiltIn -> Unit
@@ -2302,7 +2306,10 @@ class ChatService(
             val seatProvider = model.findProvider(settings.providers)
             val modelSupportsBuiltIn = model.supportsBuiltInSearch(seatProvider)
             val useBuiltInSearch = modelSupportsBuiltIn &&
-                (seatAssistant.searchMode is AssistantSearchMode.BuiltIn || seatAssistant.preferBuiltInSearch)
+                (
+                    seatAssistant.searchMode is AssistantSearchMode.BuiltIn ||
+                        (seatAssistant.preferBuiltInSearch && seatAssistant.searchMode !is AssistantSearchMode.Off)
+                    )
             val seatModel = if (useBuiltInSearch) model.ensureBuiltInSearchTool(seatProvider) else model.withoutBuiltInSearchTools()
 
             val seatInputTransformers = buildList {
@@ -2328,7 +2335,7 @@ class ChatService(
                     is AssistantSearchMode.Provider,
                     is AssistantSearchMode.MultiProvider -> {
                         if (!useBuiltInSearch) {
-                            addAll(me.rerere.rikkahub.data.ai.tools.SearchTools.createSearchTools(settings, searchMode))
+                            addAll(createEffectiveSearchTools(settings, searchMode))
                         }
                     }
                     is AssistantSearchMode.BuiltIn -> Unit
@@ -4227,6 +4234,30 @@ class ChatService(
 
     private fun workspaceToolsRequireApproval(settingsSnapshot: Settings): Boolean {
         return !settingsSnapshot.workspaceFileToolsAllowAll
+    }
+
+    private fun createEffectiveSearchTools(
+        settings: Settings,
+        searchMode: AssistantSearchMode,
+    ): List<Tool> {
+        val originalTools = me.rerere.rikkahub.data.ai.tools.SearchTools
+            .createSearchTools(settings, searchMode)
+            .toList()
+        if (!settings.enableSearchAgent) return originalTools
+
+        val searchAgentTool = SearchAgentTools.create(
+            settings = settings,
+            searchMode = searchMode,
+            providerManager = providerManager,
+            requestLogManager = requestLogManager,
+            json = JsonInstant,
+        ) ?: return originalTools
+
+        return if (settings.searchAgentOverrideOriginalTools) {
+            listOf(searchAgentTool)
+        } else {
+            listOf(searchAgentTool) + originalTools
+        }
     }
 
     private fun workspaceToolsCommonSystemPrompt(): String {

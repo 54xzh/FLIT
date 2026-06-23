@@ -200,6 +200,7 @@ class SettingsStore(
         val TRANSLATE_MODEL = stringPreferencesKey("translate_model")
         val SUGGESTION_MODEL = stringPreferencesKey("suggestion_model")
         val IMAGE_GENERATION_MODEL = stringPreferencesKey("image_generation_model")
+        val SEARCH_AGENT_MODEL = stringPreferencesKey("search_agent_model")
         val TITLE_PROMPT = stringPreferencesKey("title_prompt")
         val MODEL_NAME_GENERATION_PROMPT = stringPreferencesKey("model_name_generation_prompt")
         val TRANSLATION_PROMPT = stringPreferencesKey("translation_prompt")
@@ -225,6 +226,8 @@ class SettingsStore(
         val SEARCH_SERVICES = stringPreferencesKey("search_services")
         val SEARCH_COMMON = stringPreferencesKey("search_common")
         val SEARCH_SELECTED = intPreferencesKey("search_selected")
+        val ENABLE_SEARCH_AGENT = booleanPreferencesKey("enable_search_agent")
+        val SEARCH_AGENT_OVERRIDE_ORIGINAL_TOOLS = booleanPreferencesKey("search_agent_override_original_tools")
 
         // MCP
         val MCP_SERVERS = stringPreferencesKey("mcp_servers")
@@ -442,6 +445,7 @@ class SettingsStore(
                 suggestionModelId = preferences[SUGGESTION_MODEL]?.let { Uuid.parse(it) }
                     ?: GEMINI_2_5_FLASH_ID,
                 imageGenerationModelId = preferences[IMAGE_GENERATION_MODEL]?.let { Uuid.parse(it) } ?: Uuid.random(),
+                searchAgentModelId = preferences[SEARCH_AGENT_MODEL]?.let { Uuid.parse(it) },
                 titlePrompt = preferences[TITLE_PROMPT] ?: DEFAULT_TITLE_PROMPT,
                 modelNameGenerationPrompt = preferences[MODEL_NAME_GENERATION_PROMPT] ?: DEFAULT_MODEL_NAME_GENERATION_PROMPT,
                 translatePrompt = preferences[TRANSLATION_PROMPT] ?: DEFAULT_TRANSLATION_PROMPT,
@@ -485,6 +489,8 @@ class SettingsStore(
                     JsonInstant.decodeFromString(it)
                 } ?: SearchCommonOptions(),
                 searchServiceSelected = preferences[SEARCH_SELECTED] ?: 0,
+                enableSearchAgent = preferences[ENABLE_SEARCH_AGENT] == true,
+                searchAgentOverrideOriginalTools = preferences[SEARCH_AGENT_OVERRIDE_ORIGINAL_TOOLS] == true,
                 mcpToolCallTimeoutSeconds = (preferences[MCP_TOOL_CALL_TIMEOUT_SECONDS] ?: 60).coerceAtLeast(1),
                 httpRetryMaxRetries = (
                     preferences[HTTP_RETRY_MAX_RETRIES]
@@ -741,6 +747,9 @@ class SettingsStore(
             preferences[TRANSLATE_MODEL] = finalSettingsToSave.translateModeId.toString()
             preferences[SUGGESTION_MODEL] = finalSettingsToSave.suggestionModelId.toString()
             preferences[IMAGE_GENERATION_MODEL] = finalSettingsToSave.imageGenerationModelId.toString()
+            finalSettingsToSave.searchAgentModelId?.let {
+                preferences[SEARCH_AGENT_MODEL] = it.toString()
+            } ?: preferences.remove(SEARCH_AGENT_MODEL)
             preferences[TITLE_PROMPT] = finalSettingsToSave.titlePrompt
             preferences[MODEL_NAME_GENERATION_PROMPT] = finalSettingsToSave.modelNameGenerationPrompt
             preferences[TRANSLATION_PROMPT] = finalSettingsToSave.translatePrompt
@@ -763,6 +772,8 @@ class SettingsStore(
             preferences[SEARCH_SERVICES] = JsonInstant.encodeToString(finalSettingsToSave.searchServices)
             preferences[SEARCH_COMMON] = JsonInstant.encodeToString(finalSettingsToSave.searchCommonOptions)
             preferences[SEARCH_SELECTED] = finalSettingsToSave.searchServiceSelected.coerceIn(0, finalSettingsToSave.searchServices.size - 1)
+            preferences[ENABLE_SEARCH_AGENT] = finalSettingsToSave.enableSearchAgent
+            preferences[SEARCH_AGENT_OVERRIDE_ORIGINAL_TOOLS] = finalSettingsToSave.searchAgentOverrideOriginalTools
 
             preferences[MCP_SERVERS] = JsonInstant.encodeToString(finalSettingsToSave.mcpServers)
             preferences[MCP_TOOL_CALL_TIMEOUT_SECONDS] = finalSettingsToSave.mcpToolCallTimeoutSeconds.coerceAtLeast(1)
@@ -877,6 +888,7 @@ data class Settings(
     val translatePrompt: String = DEFAULT_TRANSLATION_PROMPT,
     val suggestionModelId: Uuid = Uuid.random(),
     val suggestionPrompt: String = DEFAULT_SUGGESTION_PROMPT,
+    val searchAgentModelId: Uuid? = null,
     val learningModePrompt: String = DEFAULT_LEARNING_MODE_PROMPT,
     val ocrModelId: Uuid = Uuid.random(),
     val ocrPrompt: String = DEFAULT_OCR_PROMPT,
@@ -892,6 +904,8 @@ data class Settings(
     val searchServices: List<SearchServiceOptions> = listOf(SearchServiceOptions.DEFAULT),
     val searchCommonOptions: SearchCommonOptions = SearchCommonOptions(),
     val searchServiceSelected: Int = 0,
+    val enableSearchAgent: Boolean = false,
+    val searchAgentOverrideOriginalTools: Boolean = false,
     val mcpToolCallTimeoutSeconds: Int = 60,
     @OptIn(ExperimentalSerializationApi::class)
     @JsonNames("http429MaxRetries")

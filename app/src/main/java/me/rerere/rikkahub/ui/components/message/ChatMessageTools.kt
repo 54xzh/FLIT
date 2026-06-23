@@ -143,6 +143,7 @@ fun ToolCallItem(
                     imageVector = when (toolName) {
                         "create_memory", "edit_memory" -> Icons.Rounded.Bookmark
                         "delete_memory" -> Icons.Rounded.BookmarkRemove
+                        "search_agent" -> Icons.Rounded.Public
                         "search_web" -> Icons.Rounded.Public
                         "scrape_web" -> Icons.Rounded.Public
                         "read_skill_file" -> Icons.Rounded.Extension
@@ -172,6 +173,7 @@ fun ToolCallItem(
                         "create_memory" -> stringResource(R.string.chat_message_tool_create_memory)
                         "edit_memory" -> stringResource(R.string.chat_message_tool_edit_memory)
                         "delete_memory" -> stringResource(R.string.chat_message_tool_delete_memory)
+                        "search_agent" -> stringResource(R.string.chat_message_tool_search_agent)
                         "search_web" -> stringResource(
                             R.string.chat_message_tool_search_web,
                             arguments.jsonObject["query"]?.jsonPrimitiveOrNull?.contentOrNull
@@ -234,6 +236,19 @@ fun ToolCallItem(
                     if (content != null) {
                         Text(
                             text = content,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.shimmer(isLoading = loading),
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                if (toolName == "search_agent") {
+                    val summary = content?.jsonObject?.get("summary")?.jsonPrimitiveOrNull?.contentOrNull
+                    if (!summary.isNullOrBlank()) {
+                        Text(
+                            text = summary,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.shimmer(isLoading = loading),
@@ -608,6 +623,7 @@ internal fun ToolCallPreviewSheet(
     toolName: String,
     arguments: JsonElement,
     content: JsonElement,
+    metadata: JsonObject? = null,
     onDismissRequest: () -> Unit = {}
 ) {
     val navController = LocalNavController.current
@@ -632,6 +648,145 @@ internal fun ToolCallPreviewSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 when (toolName) {
+                    "search_agent" -> {
+                        Text(stringResource(R.string.chat_message_tool_search_agent))
+                        val summary = content.jsonObject["summary"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
+                        val sources = content.jsonObject["sources"]?.jsonArray ?: emptyList()
+                        val notes = content.jsonObject["notes"]?.jsonArray ?: emptyList()
+                        val steps = metadata?.get("search_agent_steps") as? kotlinx.serialization.json.JsonArray
+
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (summary.isNotBlank()) {
+                                item {
+                                    Card(
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                                        )
+                                    ) {
+                                        MarkdownBlock(
+                                            content = summary,
+                                            modifier = Modifier
+                                                .padding(16.dp)
+                                                .fillMaxWidth(),
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                            }
+
+                            items(sources) {
+                                val obj = it.jsonObject
+                                val url = obj["url"]?.jsonPrimitiveOrNull?.contentOrNull ?: return@items
+                                val title = obj["title"]?.jsonPrimitiveOrNull?.contentOrNull ?: url
+                                val snippet = obj["snippet"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
+                                Card(
+                                    onClick = {
+                                        navController.navigate(Screen.WebView(url = url))
+                                    },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 8.dp, horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Favicon(
+                                            url = url,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Column {
+                                            Text(text = title, maxLines = 1)
+                                            if (snippet.isNotBlank()) {
+                                                Text(
+                                                    text = snippet,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                            Text(
+                                                text = url,
+                                                maxLines = 1,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (notes.isNotEmpty()) {
+                                item {
+                                    Card {
+                                        Column(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            notes.forEach { note ->
+                                                Text(
+                                                    text = note.jsonPrimitiveOrNull?.contentOrNull.orEmpty(),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (steps != null && steps.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        text = stringResource(R.string.chat_message_tool_search_agent_steps),
+                                        style = MaterialTheme.typography.titleSmall,
+                                    )
+                                }
+                                items(steps) { step ->
+                                    val obj = step.jsonObject
+                                    val title = obj["title"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
+                                    val detail = obj["detail"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
+                                    val urls = obj["urls"]?.jsonArray ?: emptyList()
+                                    Card {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            Text(
+                                                text = title,
+                                                style = MaterialTheme.typography.titleSmall,
+                                            )
+                                            if (detail.isNotBlank()) {
+                                                Text(
+                                                    text = detail,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                )
+                                            }
+                                            urls.take(3).forEach { url ->
+                                                Text(
+                                                    text = url.jsonPrimitiveOrNull?.contentOrNull.orEmpty(),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     "search_web" -> {
                         Text(
                             stringResource(

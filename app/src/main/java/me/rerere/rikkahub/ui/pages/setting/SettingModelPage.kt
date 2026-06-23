@@ -46,6 +46,7 @@ import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.DocumentScanner
 import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.TipsAndUpdates
 import androidx.compose.material.icons.rounded.Title
@@ -94,6 +95,10 @@ fun SettingModelPage(vm: SettingVM = koinViewModel()) {
             }
 
             item {
+                DefaultSearchAgentModelSetting(settings = settings, vm = vm)
+            }
+
+            item {
                 DefaultTitleModelSetting(settings = settings, vm = vm)
             }
 
@@ -118,6 +123,49 @@ fun SettingModelPage(vm: SettingVM = koinViewModel()) {
             }
         }
     }
+}
+
+@Composable
+private fun DefaultSearchAgentModelSetting(
+    settings: Settings,
+    vm: SettingVM
+) {
+    ModelFeatureCard(
+        icon = {
+            Icon(Icons.Rounded.Search, null)
+        },
+        title = {
+            Text(stringResource(R.string.setting_model_page_search_agent_model), maxLines = 1)
+        },
+        description = {
+            Text(stringResource(R.string.setting_model_page_search_agent_model_desc))
+        },
+        actions = {
+            Box(modifier = Modifier.weight(1f)) {
+                ModelSelector(
+                    modelId = settings.searchAgentModelId,
+                    type = ModelType.CHAT,
+                    onSelect = {
+                        vm.updateSettings(
+                            settings.copy(
+                                searchAgentModelId = it.id
+                            )
+                        )
+                    },
+                    onClear = {
+                        vm.updateSettings(
+                            settings.copy(
+                                searchAgentModelId = null
+                            )
+                        )
+                    },
+                    allowClear = true,
+                    providers = settings.providers,
+                    modifier = Modifier.wrapContentWidth()
+                )
+            }
+        }
+    )
 }
 
 @Composable

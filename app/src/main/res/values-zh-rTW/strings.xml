@@ -632,6 +632,8 @@
   <string name="setting_model_page_model_name_generation_model">模型名稱生成模型</string>
   <string name="setting_model_page_model_name_generation_model_desc">用於根據模型 ID 生成可讀模型名稱的模型</string>
   <string name="setting_model_page_model_name_generation_prompt_vars">變數：模型 ID：{model_id}</string>
+  <string name="setting_model_page_search_agent_model">搜尋子代理模型</string>
+  <string name="setting_model_page_search_agent_model_desc">用於執行搜尋、讀取網頁並總結結果。</string>
   <string name="setting_model_page_translate_model">翻譯模型</string>
   <string name="setting_model_page_translate_model_desc">用於翻譯功能的模型</string>
   <string name="setting_model_page_translate_prompt_vars">變數: 原始文字: {source_text}, 目標語言: {target_lang}</string>
@@ -1484,6 +1486,8 @@
   <string name="setting_search_page_depth_standard">標準</string>
   <string name="setting_search_page_exa_search_type">搜尋類型</string>
   <string name="setting_search_page_exa_search_type_desc">控制 Exa 搜尋深度和速度</string>
+  <string name="setting_search_page_enable_search_agent">啟用搜尋子代理</string>
+  <string name="setting_search_page_override_original_tools">覆蓋原搜尋工具</string>
   <string name="setting_search_page_model">模型</string>
   <string name="setting_search_page_engines">引擎</string>
   <string name="setting_search_page_include_images">包含圖片</string>
@@ -1521,6 +1525,8 @@
   <string name="setting_search_page_summary_desc">啟用摘要生成</string>
   <string name="setting_search_page_tag_scrape">抓取</string>
   <string name="setting_search_page_username">用戶名</string>
+  <string name="chat_message_tool_search_agent">搜尋子代理</string>
+  <string name="chat_message_tool_search_agent_steps">內部步驟</string>
   <string name="color_hex">顏色（十六進制）</string>
   <string name="color_hex_placeholder">#808080</string>
   <string name="pattern">Pattern</string>
@@ -1827,6 +1833,7 @@
   <string name="request_log_source_scheduled_message">定時訊息</string>
   <string name="request_log_source_spontaneous">主動通知</string>
   <string name="request_log_source_model_name_generation">模型名稱生成</string>
+  <string name="request_log_source_search_agent">搜尋子代理</string>
   <string name="request_log_source_other">其他</string>
 
   <!-- Provider -->

@@ -332,6 +332,22 @@ class ToolResultArchiveRepository(
         content: JsonElement,
     ): String {
         return when (toolName) {
+            "search_agent" -> {
+                val task = (arguments as? JsonObject)
+                    ?.get("task")
+                    ?.jsonPrimitiveOrNull
+                    ?.contentOrNull
+                val summary = (content as? JsonObject)
+                    ?.get("summary")
+                    ?.jsonPrimitiveOrNull
+                    ?.contentOrNull
+                buildString {
+                    append("tool: search_agent")
+                    if (!task.isNullOrBlank()) append("\ntask: ${task.take(240)}")
+                    if (!summary.isNullOrBlank()) append("\nsummary: ${summary.take(240)}")
+                }
+            }
+
             "search_web" -> {
                 val query = (arguments as? JsonObject)
                     ?.get("query")
@@ -370,6 +386,7 @@ class ToolResultArchiveRepository(
     ): String {
         val maxChars = 80_000
         val raw = when (toolName) {
+            "search_agent" -> buildSearchAgentFullText(arguments, content)
             "search_web" -> buildSearchWebFullText(arguments, content)
             "scrape_web" -> buildScrapeWebFullText(arguments, content)
             else -> buildGenericFullText(toolName, arguments, content)
@@ -421,6 +438,53 @@ class ToolResultArchiveRepository(
                         appendLine(text.trim())
                     }
                     appendLine()
+                }
+            }
+        }
+    }
+
+    private fun buildSearchAgentFullText(arguments: JsonElement, content: JsonElement): String {
+        val argsObject = arguments as? JsonObject
+        val task = argsObject?.get("task")?.jsonPrimitiveOrNull?.contentOrNull
+        val urls = (argsObject?.get("urls") as? JsonArray)
+            ?.mapNotNull { it.jsonPrimitiveOrNull?.contentOrNull }
+            .orEmpty()
+
+        val root = content as? JsonObject
+        val summary = root?.get("summary")?.jsonPrimitiveOrNull?.contentOrNull
+        val sources = root?.get("sources") as? JsonArray
+        val notes = root?.get("notes") as? JsonArray
+
+        return buildString {
+            if (!task.isNullOrBlank()) appendLine("task: $task")
+            if (urls.isNotEmpty()) {
+                appendLine("urls:")
+                urls.take(20).forEach { appendLine("- $it") }
+            }
+            if (!summary.isNullOrBlank()) {
+                appendLine("summary:")
+                appendLine(summary.trim())
+            }
+            if (sources != null) {
+                appendLine("sources:")
+                sources.jsonArray.take(30).forEach { source ->
+                    val obj = source as? JsonObject ?: return@forEach
+                    val id = obj["id"]?.jsonPrimitiveOrNull?.contentOrNull
+                    val title = obj["title"]?.jsonPrimitiveOrNull?.contentOrNull
+                    val url = obj["url"]?.jsonPrimitiveOrNull?.contentOrNull
+                    val snippet = obj["snippet"]?.jsonPrimitiveOrNull?.contentOrNull
+                    if (!id.isNullOrBlank()) appendLine("id: $id")
+                    if (!title.isNullOrBlank()) appendLine("title: ${title.take(240)}")
+                    if (!url.isNullOrBlank()) appendLine("url: $url")
+                    if (!snippet.isNullOrBlank()) appendLine("snippet: ${snippet.take(600)}")
+                    appendLine()
+                }
+            }
+            if (notes != null) {
+                appendLine("notes:")
+                notes.jsonArray.take(10).forEach { note ->
+                    val text = note.jsonPrimitiveOrNull?.contentOrNull
+                    if (!text.isNullOrBlank()) appendLine("- ${text.take(400)}")
                 }
             }
         }
@@ -790,11 +854,52 @@ class ToolResultArchiveRepository(
         content: JsonElement,
     ): String {
         val raw = when (toolName) {
+            "search_agent" -> buildSearchAgentExtract(arguments, content)
             "search_web" -> buildSearchWebExtract(arguments, content)
             "scrape_web" -> buildScrapeWebExtract(arguments, content)
             else -> buildGenericExtract(toolName, arguments, content)
         }
         return raw.trim().take(12_000)
+    }
+
+    private fun buildSearchAgentExtract(arguments: JsonElement, content: JsonElement): String {
+        val argsObject = arguments as? JsonObject
+        val task = argsObject?.get("task")?.jsonPrimitiveOrNull?.contentOrNull
+        val root = content as? JsonObject
+        val summary = root?.get("summary")?.jsonPrimitiveOrNull?.contentOrNull
+        val sources = root?.get("sources") as? JsonArray
+        val notes = root?.get("notes") as? JsonArray
+
+        return buildString {
+            appendLine("tool: search_agent")
+            if (!task.isNullOrBlank()) appendLine("task: ${task.take(400)}")
+            if (!summary.isNullOrBlank()) {
+                appendLine("summary:")
+                appendLine(summary.take(3000))
+            }
+            if (sources != null) {
+                appendLine("sources:")
+                sources.jsonArray.take(10).forEach { source ->
+                    val obj = source as? JsonObject ?: return@forEach
+                    val id = obj["id"]?.jsonPrimitiveOrNull?.contentOrNull
+                    val title = obj["title"]?.jsonPrimitiveOrNull?.contentOrNull
+                    val url = obj["url"]?.jsonPrimitiveOrNull?.contentOrNull
+                    val snippet = obj["snippet"]?.jsonPrimitiveOrNull?.contentOrNull
+                    append("- ")
+                    if (!id.isNullOrBlank()) append("id=$id ")
+                    if (!title.isNullOrBlank()) append("title=${title.take(160)} ")
+                    if (!url.isNullOrBlank()) append("url=$url ")
+                    if (!snippet.isNullOrBlank()) append("snippet=${snippet.take(280)}")
+                    appendLine()
+                }
+            }
+            if (notes != null) {
+                notes.jsonArray.take(5).forEach { note ->
+                    val text = note.jsonPrimitiveOrNull?.contentOrNull
+                    if (!text.isNullOrBlank()) appendLine("note: ${text.take(240)}")
+                }
+            }
+        }
     }
 
     private fun buildSearchWebExtract(arguments: JsonElement, content: JsonElement): String {

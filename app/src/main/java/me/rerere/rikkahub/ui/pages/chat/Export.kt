@@ -840,6 +840,7 @@ private fun ExportedToolCall(
                 imageVector = when (toolCall.toolName) {
                     "create_memory", "edit_memory" -> Icons.Rounded.Favorite
                     "delete_memory" -> Icons.Rounded.Delete
+                    "search_agent" -> Icons.Rounded.Public
                     "search_web" -> Icons.Rounded.Public
                     "scrape_web" -> Icons.Rounded.Public
                     "run_skill_script" -> Icons.Rounded.Terminal
@@ -856,6 +857,7 @@ private fun ExportedToolCall(
                         "create_memory" -> stringResource(R.string.chat_message_tool_create_memory)
                         "edit_memory" -> stringResource(R.string.chat_message_tool_edit_memory)
                         "delete_memory" -> stringResource(R.string.chat_message_tool_delete_memory)
+                        "search_agent" -> stringResource(R.string.chat_message_tool_search_agent)
                         "search_web" -> {
                             val query = runCatching {
                                 JsonInstant.parseToJsonElement(toolCall.arguments).jsonObject["query"]?.jsonPrimitiveOrNull?.contentOrNull
@@ -904,6 +906,7 @@ private fun ExportedToolResult(toolResult: UIMessagePart.ToolResult) {
                 imageVector = when (toolResult.toolName) {
                     "create_memory", "edit_memory" -> Icons.Rounded.Favorite
                     "delete_memory" -> Icons.Rounded.Delete
+                    "search_agent" -> Icons.Rounded.Public
                     "search_web" -> Icons.Rounded.Public
                     "scrape_web" -> Icons.Rounded.Public
                     "run_skill_script" -> Icons.Rounded.Terminal
@@ -920,6 +923,7 @@ private fun ExportedToolResult(toolResult: UIMessagePart.ToolResult) {
                         "create_memory" -> stringResource(R.string.chat_message_tool_create_memory)
                         "edit_memory" -> stringResource(R.string.chat_message_tool_edit_memory)
                         "delete_memory" -> stringResource(R.string.chat_message_tool_delete_memory)
+                        "search_agent" -> stringResource(R.string.chat_message_tool_search_agent)
                         "search_web" -> {
                             val query =
                                 toolResult.arguments.jsonObject["query"]?.jsonPrimitiveOrNull?.contentOrNull

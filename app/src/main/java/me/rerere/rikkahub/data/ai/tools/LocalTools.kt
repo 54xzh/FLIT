@@ -64,11 +64,11 @@ sealed class LocalToolOption {
     @Serializable
     @SerialName("chat_search")
     data object ChatSearch : LocalToolOption()
-}
 
     @Serializable
     @SerialName("get_current_time")
     data object GetCurrentTime : LocalToolOption()
+}
 
 class LocalTools(
     private val context: Context,

@@ -356,11 +356,14 @@
     <string name="setting_model_page_model_name_generation_model">模型名称生成模型</string>
     <string name="setting_model_page_model_name_generation_model_desc">用于根据模型 ID 生成可读模型名称的模型</string>
     <string name="setting_model_page_model_name_generation_prompt_vars">变量：模型 ID：{model_id}</string>
+    <string name="setting_model_page_search_agent_model">搜索子代理模型</string>
+    <string name="setting_model_page_search_agent_model_desc">用于执行搜索、读取网页并总结结果。</string>
 
     <string name="setting_provider_page_generate_model_name">生成模型名称</string>
     <string name="setting_provider_page_generate_model_name_failed">模型名称生成失败</string>
     <string name="request_log_source_document_summary">文件摘要</string>
     <string name="request_log_source_model_name_generation">模型名称生成</string>
+    <string name="request_log_source_search_agent">搜索子代理</string>
     <string name="developer_option_auto_continue_on_truncation_title">截断时自动续写一次</string>
     <string name="developer_option_auto_continue_on_truncation_desc">当生成因 token 上限截断（非手动取消）时，自动续写一次。</string>
     <string name="developer_option_ipv6_probe_title">IPv6 检测</string>
@@ -463,6 +466,8 @@
     <string name="notification_web_server_error">网络服务器出现故障</string>
     <string name="setting_search_page_alias">别名（可选）</string>
     <string name="setting_search_page_language">语言</string>
+    <string name="setting_search_page_enable_search_agent">启用搜索子代理</string>
+    <string name="setting_search_page_override_original_tools">覆盖原搜索工具</string>
     <string name="setting_search_page_grok_enable_custom">启用自定义</string>
     <string name="setting_search_page_grok_enable_custom_desc">自定义 Base URL、接口类型和系统提示词</string>
     <string name="setting_search_page_grok_base_url">Base URL</string>
@@ -476,6 +481,8 @@
     <string name="setting_search_page_grok_system_prompt">系统提示词</string>
     <string name="setting_search_page_grok_stream">流式输出</string>
     <string name="setting_search_page_grok_stream_desc">如果非流式请求报错，可以打开这个选项</string>
+    <string name="chat_message_tool_search_agent">搜索子代理</string>
+    <string name="chat_message_tool_search_agent_steps">内部步骤</string>
     <string name="setting_search_preset_serper_desc">通过 Serper API 使用 Google 搜索结果</string>
     <string name="setting_page_search_multi_strategy">多选策略</string>
     <string name="setting_page_search_multi_strategy_parallel">并行搜索</string>

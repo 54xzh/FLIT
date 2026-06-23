@@ -45,8 +45,6 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -326,12 +324,22 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
                             settings = settings,
                             onDismissRequest = { showCommonOptions = false },
                             onUpdate = { options ->
-                                vm.updateSettings(
-                                    settings.copy(
+                                vm.updateSettings { current ->
+                                    current.copy(
                                         searchCommonOptions = options
                                     )
-                                )
-                            }
+                                }
+                            },
+                            onUpdateEnableSearchAgent = { enabled ->
+                                vm.updateSettings { current ->
+                                    current.copy(enableSearchAgent = enabled)
+                                }
+                            },
+                            onUpdateOverrideOriginalTools = { enabled ->
+                                vm.updateSettings { current ->
+                                    current.copy(searchAgentOverrideOriginalTools = enabled)
+                                }
+                            },
                         )
                     }
                 }
@@ -688,6 +696,32 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SearchAgentSwitchRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f),
+        )
+        HapticSwitch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
     }
 }
 
@@ -1204,7 +1238,9 @@ fun ZhipuOptions(
 private fun CommonOptionsDialog(
     settings: Settings,
     onDismissRequest: () -> Unit,
-    onUpdate: (SearchCommonOptions) -> Unit
+    onUpdate: (SearchCommonOptions) -> Unit,
+    onUpdateEnableSearchAgent: (Boolean) -> Unit,
+    onUpdateOverrideOriginalTools: (Boolean) -> Unit,
 ) {
     var commonOptions by remember(settings.searchCommonOptions) {
         mutableStateOf(settings.searchCommonOptions)
@@ -1264,6 +1300,16 @@ private fun CommonOptionsDialog(
                         }
                     }
                 }
+                SearchAgentSwitchRow(
+                    title = stringResource(R.string.setting_search_page_enable_search_agent),
+                    checked = settings.enableSearchAgent,
+                    onCheckedChange = onUpdateEnableSearchAgent,
+                )
+                SearchAgentSwitchRow(
+                    title = stringResource(R.string.setting_search_page_override_original_tools),
+                    checked = settings.searchAgentOverrideOriginalTools,
+                    onCheckedChange = onUpdateOverrideOriginalTools,
+                )
             }
         },
         confirmButton = {

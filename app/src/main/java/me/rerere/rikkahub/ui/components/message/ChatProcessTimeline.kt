@@ -341,6 +341,7 @@ private fun ProcessTimelineStep(
                             toolName = part.toolName,
                             arguments = parsedArguments,
                             content = null,
+                            metadata = null,
                             loading = loading,
                         )
                     }
@@ -350,6 +351,7 @@ private fun ProcessTimelineStep(
                             toolName = part.toolName,
                             arguments = part.arguments,
                             content = part.content,
+                            metadata = part.metadata,
                             loading = false,
                         )
                     }
@@ -575,6 +577,7 @@ private fun CompactToolTimelineItem(
     toolName: String,
     arguments: JsonElement,
     content: JsonElement?,
+    metadata: JsonObject?,
     loading: Boolean,
 ) {
     val settings = LocalSettings.current
@@ -632,6 +635,7 @@ private fun CompactToolTimelineItem(
             toolName = toolName,
             arguments = arguments,
             content = content,
+            metadata = metadata,
             onDismissRequest = {
                 showPreviewSheet = false
             }
@@ -869,6 +873,7 @@ private fun toolTimelineTitle(
         "create_memory" -> stringResource(R.string.chat_message_tool_create_memory)
         "edit_memory" -> stringResource(R.string.chat_message_tool_edit_memory)
         "delete_memory" -> stringResource(R.string.chat_message_tool_delete_memory)
+        "search_agent" -> stringResource(R.string.chat_message_tool_search_agent)
         "search_web" -> stringResource(
             R.string.chat_message_tool_search_web,
             arguments.jsonObject["query"]?.jsonPrimitiveOrNull?.contentOrNull ?: ""
@@ -944,6 +949,14 @@ private fun toolTimelineSubtitle(
                     ?.let { stringResource(R.string.chat_message_tool_search_results_count, it) }
         }
 
+        "search_agent" -> {
+            content?.jsonObject?.get("summary")?.jsonPrimitiveOrNull?.contentOrNull
+                ?: content?.jsonObject?.get("notes")?.jsonArray
+                    ?.firstOrNull()
+                    ?.jsonPrimitiveOrNull
+                    ?.contentOrNull
+        }
+
         "scrape_web" -> {
             arguments.jsonObject["url"]?.jsonPrimitiveOrNull?.contentOrNull
                 ?: arguments.jsonObject["urls"]?.jsonArray
@@ -990,7 +1003,7 @@ private fun processTimelineIcon(part: UIMessagePart): ImageVector {
 
 private fun processTimelineToolIcon(toolName: String): ImageVector {
     return when (toolName) {
-        "search_web", "scrape_web" -> Icons.Rounded.Public
+        "search_agent", "search_web", "scrape_web" -> Icons.Rounded.Public
         "run_skill_script", "eval_python" -> Icons.Rounded.Terminal
         "create_memory", "edit_memory", "delete_memory" -> Icons.Rounded.Bookmark
         "ask_user" -> Icons.Rounded.HelpOutline

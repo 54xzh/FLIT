@@ -120,7 +120,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import me.rerere.ai.provider.supportsBuiltInSearch
 import androidx.compose.ui.util.fastForEach
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
@@ -164,7 +163,6 @@ import me.rerere.rikkahub.data.ai.mcp.McpStatus
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.ConversationWorkDirBinding
 import me.rerere.rikkahub.data.datastore.ConversationWorkDirMode
-import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
@@ -655,9 +653,6 @@ fun ChatInput(
                             val enableSearchMsg = stringResource(R.string.web_search_enabled)
                             val disableSearchMsg = stringResource(R.string.web_search_disabled)
                             val chatModel = settings.getCurrentChatModel()
-                            val chatModelProvider = chatModel?.findProvider(settings.providers)
-                            val chatModelSupportsBuiltIn =
-                                chatModel?.supportsBuiltInSearch(chatModelProvider) == true
                             
                             SearchPickerButton(
                                 enableSearch = enableSearch,
@@ -687,7 +682,7 @@ fun ChatInput(
                                 onTogglePreferBuiltInSearch = { enabled ->
                                     onUpdateAssistant(assistant.copy(preferBuiltInSearch = enabled))
                                 },
-                                contentColor = if (enableSearch || (assistant.preferBuiltInSearch && chatModelSupportsBuiltIn)) {
+                                contentColor = if (enableSearch) {
                                     MaterialTheme.colorScheme.primary
                                 } else {
                                     MaterialTheme.colorScheme.onSurface
