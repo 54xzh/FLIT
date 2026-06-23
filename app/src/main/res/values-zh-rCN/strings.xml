@@ -490,7 +490,7 @@
     <string name="setting_display_page_hide_suggestions_overlap_title">遮挡消息时自动隐藏建议</string>
     <string name="setting_display_page_hide_suggestions_overlap_desc">当聊天建议覆盖到消息文本时淡出</string>
     <string name="setting_display_page_top_bar_blur_title">顶栏模糊效果</string>
-    <string name="setting_display_page_top_bar_blur_desc">为聊天顶栏应用毛玻璃模糊，透过背景与消息的同时保持标题和图标清晰可读</string>
+    <string name="setting_display_page_top_bar_blur_desc">为聊天顶栏应用毛玻璃模糊</string>
     <string name="setting_display_page_auto_scroll_generation_title">生成时自动跟随滚动</string>
     <string name="setting_display_page_auto_scroll_generation_desc">消息生成时跟随新内容滚动。关闭后会保留当前阅读位置。</string>
     <string name="quota_settings_title">Token 限额</string>

@@ -558,7 +558,7 @@
   <string name="setting_display_page_hide_suggestions_overlap_title">遮擋訊息時自動隱藏建議</string>
   <string name="setting_display_page_hide_suggestions_overlap_desc">當聊天建議覆蓋到訊息文字時淡出</string>
   <string name="setting_display_page_top_bar_blur_title">頂欄模糊效果</string>
-  <string name="setting_display_page_top_bar_blur_desc">為聊天頂欄套用毛玻璃模糊，透出背景與訊息的同時保持標題與圖示清晰可讀</string>
+  <string name="setting_display_page_top_bar_blur_desc">為聊天頂欄套用毛玻璃模糊</string>
   <string name="setting_display_page_auto_scroll_generation_title">生成時自動跟隨捲動</string>
   <string name="setting_display_page_auto_scroll_generation_desc">訊息生成時跟隨新內容捲動。關閉後會保留目前閱讀位置。</string>
   <string name="setting_display_page_show_message_jumper_desc">在捲動聊天列表時，在右側顯示快速跳轉按鈕</string>

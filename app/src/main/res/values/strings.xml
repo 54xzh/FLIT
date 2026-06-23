@@ -717,7 +717,7 @@
     <string name="setting_display_page_hide_suggestions_overlap_title">Auto-hide suggestions on overlap</string>
     <string name="setting_display_page_hide_suggestions_overlap_desc">Fade out chat suggestions when they cover message text</string>
     <string name="setting_display_page_top_bar_blur_title">Top bar blur effect</string>
-    <string name="setting_display_page_top_bar_blur_desc">Apply a frosted-glass blur to the chat top bar so background and messages show through while keeping the title and icons readable</string>
+    <string name="setting_display_page_top_bar_blur_desc">Apply a frosted-glass blur to the chat top bar</string>
     <string name="setting_display_page_auto_scroll_generation_title">Auto-scroll while generating</string>
     <string name="setting_display_page_auto_scroll_generation_desc">Follow new output while a message is generating. Turn this off to keep your reading position.</string>
     <string name="setting_display_page_notification_live_update">Live Update Mode</string>
