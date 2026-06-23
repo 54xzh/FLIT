@@ -2394,6 +2394,9 @@ class ChatService(
                     if (scriptableSkills.isNotEmpty()) {
                         add(createSkillScriptTool(conversationId = conversation.id, allowedSkills = scriptableSkills))
                     }
+                    if (seatAssistant.localTools.contains(LocalToolOption.GetCurrentTime)) {
+                        add(localTools.currentTimeTool)
+                    }
                 }
             }
 

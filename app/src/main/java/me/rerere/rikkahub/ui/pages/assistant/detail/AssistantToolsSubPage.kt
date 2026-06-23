@@ -240,6 +240,25 @@ fun AssistantToolsSubPage(
                 }
             )
 
+            // Get Current Time
+            SettingGroupItem(
+                title = stringResource(R.string.assistant_page_local_tools_get_time_title),
+                subtitle = stringResource(R.string.assistant_page_local_tools_get_time_desc),
+                trailing = {
+                    HapticSwitch(
+                        checked = assistant.localTools.contains(LocalToolOption.GetCurrentTime),
+                        onCheckedChange = { enabled ->
+                            val newLocalTools = if (enabled) {
+                                assistant.localTools + LocalToolOption.GetCurrentTime
+                            } else {
+                                assistant.localTools - LocalToolOption.GetCurrentTime
+                            }
+                            onUpdate(assistant.copy(localTools = newLocalTools))
+                        }
+                    )
+                }
+            )
+
             // Device Control
             SettingGroupItem(
                 title = stringResource(R.string.assistant_page_local_tools_device_control_title),

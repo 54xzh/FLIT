@@ -1519,6 +1519,8 @@
   <string name="assistant_page_local_tools_workspace_files_desc">允许助手读写当前会话的工作区文件。需要先授予工作区根目录权限。</string>
   <string name="assistant_page_local_tools_lorebooks_editor_title">世界书编辑</string>
   <string name="assistant_page_local_tools_lorebooks_editor_desc">允许助手编辑已启用的世界书条目（新增/修改/删除）。工具变更会写入历史，可撤销。</string>
+  <string name="assistant_page_local_tools_get_time_title">获取当前时间</string>
+  <string name="assistant_page_local_tools_get_time_desc">允许助手调用工具获取当前的日期、时间和星期</string>
   <string name="assistant_page_memory_settings_title">记忆设置</string>
   <string name="assistant_page_temperature_level_value_format">%1$s（%2$s）</string>
   <string name="assistant_page_mcp_servers_desc">启用外部工具服务器</string>

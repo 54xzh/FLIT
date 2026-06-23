@@ -103,6 +103,11 @@ object ToolSystemPromptRegistry {
             defaultTemplate = "",
         ),
         ToolSystemPromptDefinition(
+            toolName = "get_time",
+            group = ToolSystemPromptGroup.Local,
+            defaultTemplate = "",
+        ),
+        ToolSystemPromptDefinition(
             toolName = "read_skill_file",
             group = ToolSystemPromptGroup.Skills,
             defaultTemplate = READ_SKILL_FILE_SYSTEM_PROMPT_TEMPLATE,

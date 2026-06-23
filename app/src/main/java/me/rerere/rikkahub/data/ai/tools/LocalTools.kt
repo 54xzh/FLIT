@@ -66,6 +66,10 @@ sealed class LocalToolOption {
     data object ChatSearch : LocalToolOption()
 }
 
+    @Serializable
+    @SerialName("get_current_time")
+    data object GetCurrentTime : LocalToolOption()
+
 class LocalTools(
     private val context: Context,
     private val scheduledTaskDao: ScheduledTaskDao,
@@ -598,7 +602,31 @@ class LocalTools(
         if (options.contains(LocalToolOption.ScheduledTaskManager)) {
             tools.addAll(createScheduledTaskTools(assistantId, scheduledTaskDao, scheduledTaskScheduler))
         }
+        if (options.contains(LocalToolOption.GetCurrentTime)) {
+            tools.add(currentTimeTool)
+        }
         return tools
+    }
+
+    val currentTimeTool by lazy {
+        Tool(
+            name = "get_time",
+            description = "Get the current date, time and weekday. Call this when you need to know what day/time it is now.",
+            parameters = { null },
+            systemPrompt = { _, _ -> "" },
+            execute = {
+                val zoned = java.time.ZonedDateTime.now()
+                val weekday = zoned.dayOfWeek.getDisplayName(
+                    java.time.format.TextStyle.FULL,
+                    java.util.Locale.getDefault()
+                )
+                buildJsonObject {
+                    put("date", zoned.toLocalDate().toString())
+                    put("time", zoned.toLocalTime().withNano(0).toString())
+                    put("weekday", weekday)
+                }
+            }
+        )
     }
 }
 
