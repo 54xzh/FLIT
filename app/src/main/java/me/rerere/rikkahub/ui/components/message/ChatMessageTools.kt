@@ -50,6 +50,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -647,6 +648,7 @@ internal fun ToolCallPreviewSheet(
     metadata: JsonObject? = null,
     toolCallId: String = "",
     hasResult: Boolean = true,
+    searchAgentSelectedTabStates: SnapshotStateMap<String, Int>? = null,
     onDismissRequest: () -> Unit = {},
 ) {
     val navController = LocalNavController.current
@@ -675,6 +677,7 @@ internal fun ToolCallPreviewSheet(
                         hasResult = hasResult,
                         content = content,
                         metadata = metadata,
+                        selectedTabStates = searchAgentSelectedTabStates,
                     )
 
                     "search_web" -> {
@@ -1342,6 +1345,7 @@ private fun SearchAgentPreviewContent(
     hasResult: Boolean,
     content: JsonElement,
     metadata: JsonObject?,
+    selectedTabStates: SnapshotStateMap<String, Int>? = null,
 ) {
     val chatService = koinInject<ChatService>()
     val progressStore = chatService.searchAgentProgressStore
@@ -1355,14 +1359,29 @@ private fun SearchAgentPreviewContent(
         stringResource(R.string.search_agent_tab_result),
         stringResource(R.string.search_agent_tab_steps),
     )
-    var selectedTab by remember { mutableStateOf(if (hasResult) 0 else 1) }
+    var localSelectedTab by remember(toolCallId) {
+        mutableStateOf(if (hasResult) 0 else 1)
+    }
+    val selectedTabKey = remember(toolCallId) { "search_agent:$toolCallId" }
+    val selectedTab = if (selectedTabStates != null && toolCallId.isNotBlank()) {
+        selectedTabStates[selectedTabKey] ?: localSelectedTab
+    } else {
+        localSelectedTab
+    }
+    fun updateSelectedTab(index: Int) {
+        if (selectedTabStates != null && toolCallId.isNotBlank()) {
+            selectedTabStates[selectedTabKey] = index
+        } else {
+            localSelectedTab = index
+        }
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         PrimaryTabRow(selectedTabIndex = selectedTab) {
             tabs.forEachIndexed { index, label ->
                 Tab(
                     selected = selectedTab == index,
-                    onClick = { selectedTab = index },
+                    onClick = { updateSelectedTab(index) },
                     text = { Text(label) },
                 )
             }

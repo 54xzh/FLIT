@@ -120,6 +120,7 @@ import me.rerere.rikkahub.ui.components.message.ChatMessage
 import me.rerere.rikkahub.ui.components.message.ChatMessageAssistantAvatar
 import me.rerere.rikkahub.ui.components.message.ChatProcessTimeline
 import me.rerere.rikkahub.ui.components.message.ReasoningBodyState
+import me.rerere.rikkahub.ui.components.message.ToolCallPreviewSheet
 import me.rerere.rikkahub.ui.components.message.planChatProcessDisplay
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItemContentPadding
@@ -128,6 +129,8 @@ import me.rerere.rikkahub.ui.hooks.ImeLazyListAutoScroller
 import me.rerere.rikkahub.utils.plus
 import kotlin.uuid.Uuid
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -135,6 +138,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.context.LocalNavController
+import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.openUrl
 import kotlin.math.abs
 
@@ -165,6 +169,83 @@ private data class AutoFollowScrollSample(
     val offset: Int,
     val atBottom: Boolean,
 )
+
+private data class ToolPreviewContent(
+    val toolCallId: String,
+    val toolName: String,
+    val arguments: JsonElement,
+    val content: JsonElement,
+    val metadata: JsonObject?,
+    val hasResult: Boolean,
+)
+
+private val EmptyToolPreviewJson = JsonObject(emptyMap())
+
+private fun toolPreviewKey(toolName: String, toolCallId: String): String = "$toolName:$toolCallId"
+
+private fun parseToolPreviewKey(key: String): Pair<String, String>? {
+    val separatorIndex = key.indexOf(':')
+    if (separatorIndex <= 0 || separatorIndex == key.lastIndex) return null
+    return key.substring(0, separatorIndex) to key.substring(separatorIndex + 1)
+}
+
+private fun Conversation.findToolPreviewContent(key: String): ToolPreviewContent? {
+    val (targetToolName, targetToolCallId) = parseToolPreviewKey(key) ?: return null
+    var callToolName = targetToolName
+    var callArguments: JsonElement? = null
+    var resultPart: UIMessagePart.ToolResult? = null
+
+    messageNodes.forEach { node ->
+        node.currentMessage.parts.forEach { part ->
+            when (part) {
+                is UIMessagePart.ToolCall -> {
+                    if (part.toolCallId == targetToolCallId && part.toolName == targetToolName) {
+                        callToolName = part.toolName
+                        if (callArguments == null) {
+                            callArguments = runCatching {
+                                JsonInstant.parseToJsonElement(part.arguments)
+                            }.getOrElse { EmptyToolPreviewJson }
+                        }
+                    }
+                }
+
+                is UIMessagePart.ToolResult -> {
+                    if (part.toolCallId == targetToolCallId && part.toolName == targetToolName) {
+                        resultPart = part
+                    }
+                }
+
+                else -> Unit
+            }
+        }
+    }
+
+    resultPart?.let { result ->
+        return ToolPreviewContent(
+            toolCallId = result.toolCallId,
+            toolName = result.toolName,
+            arguments = result.arguments,
+            content = result.content,
+            metadata = result.metadata,
+            hasResult = true,
+        )
+    }
+
+    val arguments = callArguments ?: if (targetToolName == "search_agent") {
+        EmptyToolPreviewJson
+    } else {
+        return null
+    }
+
+    return ToolPreviewContent(
+        toolCallId = targetToolCallId,
+        toolName = callToolName,
+        arguments = arguments,
+        content = EmptyToolPreviewJson,
+        metadata = null,
+        hasResult = false,
+    )
+}
 
 private suspend fun LazyListState.tryAnimateSendScrollToItem(
     index: Int,
@@ -415,6 +496,31 @@ private fun SharedTransitionScope.ChatListNormal(
     }
     val reasoningBodyStates = remember(conversation.id) {
         mutableStateMapOf<String, ReasoningBodyState>()
+    }
+    var activeToolPreviewKey by remember(conversation.id) { mutableStateOf<String?>(null) }
+    var activeToolPreviewSnapshot by remember(conversation.id) { mutableStateOf<ToolPreviewContent?>(null) }
+    val toolPreviewTabStates = remember(conversation.id) {
+        mutableStateMapOf<String, Int>()
+    }
+    val activeToolPreviewContent = activeToolPreviewKey?.let { key ->
+        conversation.findToolPreviewContent(key)
+    }
+    val displayedToolPreviewContent = activeToolPreviewContent
+        ?: activeToolPreviewSnapshot?.takeIf { snapshot ->
+            activeToolPreviewKey == toolPreviewKey(snapshot.toolName, snapshot.toolCallId)
+        }
+    fun openToolPreview(toolCallId: String, toolName: String, hasResult: Boolean) {
+        val key = toolPreviewKey(toolName, toolCallId)
+        if (toolName == "search_agent" && key !in toolPreviewTabStates) {
+            toolPreviewTabStates[key] = if (hasResult) 0 else 1
+        }
+        activeToolPreviewSnapshot = conversation.findToolPreviewContent(key)
+        activeToolPreviewKey = key
+    }
+    LaunchedEffect(activeToolPreviewKey, activeToolPreviewContent) {
+        if (activeToolPreviewContent != null) {
+            activeToolPreviewSnapshot = activeToolPreviewContent
+        }
     }
     val visibleMessageNeighbors = remember(conversation.messageNodes, processDisplayPlan.hiddenNodeIndexes) {
         val previousVisibleIndexByIndex = IntArray(conversation.messageNodes.size) { -1 }
@@ -966,6 +1072,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                 model = standaloneModelForMessage ?: modelForMessage,
                                 assistant = standaloneAssistantForMessage ?: assistantForMessage,
                                 reasoningBodyStates = reasoningBodyStates,
+                                onOpenToolPreview = ::openToolPreview,
                             )
                         }
                     }
@@ -991,6 +1098,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                 hiddenToolCallIds = hiddenToolCallIds,
                                 leadingProcessParts = prefixedDisplaySegments,
                                 reasoningBodyStates = reasoningBodyStates,
+                                onOpenToolPreview = ::openToolPreview,
                                 conversationId = conversation.id,
                                 onCitationClick = onCitationClick,
                                 model = modelForMessage,
@@ -1115,6 +1223,22 @@ private fun SharedTransitionScope.ChatListNormal(
                         .height(ScrollBottomBaseHeight + sendScrollDynamicSpacerHeight)
                 )
             }
+        }
+
+        displayedToolPreviewContent?.let { preview ->
+            ToolCallPreviewSheet(
+                toolCallId = preview.toolCallId,
+                toolName = preview.toolName,
+                arguments = preview.arguments,
+                content = preview.content,
+                metadata = preview.metadata,
+                hasResult = preview.hasResult,
+                searchAgentSelectedTabStates = toolPreviewTabStates,
+                onDismissRequest = {
+                    activeToolPreviewKey = null
+                    activeToolPreviewSnapshot = null
+                },
+            )
         }
 
         Box(

@@ -149,6 +149,7 @@ internal fun ChatProcessTimeline(
     model: Model?,
     assistant: Assistant?,
     reasoningBodyStates: SnapshotStateMap<String, ReasoningBodyState>? = null,
+    onOpenToolPreview: (toolCallId: String, toolName: String, hasResult: Boolean) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     if (processParts.isEmpty()) return
@@ -276,6 +277,7 @@ internal fun ChatProcessTimeline(
                             conversationId = conversationId,
                             toolCallArgumentsById = toolCallArgumentsById,
                             reasoningBodyStates = resolvedReasoningBodyStates,
+                            onOpenToolPreview = onOpenToolPreview,
                             loading = loading,
                             model = model,
                             assistant = assistant,
@@ -294,6 +296,7 @@ private fun ProcessTimelineStep(
     conversationId: Uuid?,
     toolCallArgumentsById: Map<String, JsonElement>,
     reasoningBodyStates: SnapshotStateMap<String, ReasoningBodyState>,
+    onOpenToolPreview: (toolCallId: String, toolName: String, hasResult: Boolean) -> Unit,
     loading: Boolean,
     model: Model?,
     assistant: Assistant?,
@@ -346,6 +349,7 @@ private fun ProcessTimelineStep(
                             arguments = parsedArguments,
                             content = null,
                             metadata = null,
+                            onOpenToolPreview = onOpenToolPreview,
                             loading = loading,
                         )
                     }
@@ -357,6 +361,7 @@ private fun ProcessTimelineStep(
                             arguments = part.arguments,
                             content = part.content,
                             metadata = part.metadata,
+                            onOpenToolPreview = onOpenToolPreview,
                             loading = false,
                         )
                     }
@@ -584,6 +589,7 @@ private fun CompactToolTimelineItem(
     arguments: JsonElement,
     content: JsonElement?,
     metadata: JsonObject?,
+    onOpenToolPreview: (toolCallId: String, toolName: String, hasResult: Boolean) -> Unit,
     loading: Boolean,
 ) {
     val settings = LocalSettings.current
@@ -605,7 +611,6 @@ private fun CompactToolTimelineItem(
         progress = progress,
     )
     var showArgumentsSheet by remember(toolName, arguments) { mutableStateOf(false) }
-    var showPreviewSheet by remember(toolCallId, toolName, content) { mutableStateOf(false) }
 
     ProcessStepRow(
         title = title,
@@ -628,7 +633,7 @@ private fun CompactToolTimelineItem(
         onClick = {
             haptics.perform(HapticPattern.Pop)
             if (content != null || toolName == "search_agent") {
-                showPreviewSheet = true
+                onOpenToolPreview(toolCallId, toolName, content != null)
             } else {
                 showArgumentsSheet = true
             }
@@ -645,19 +650,6 @@ private fun CompactToolTimelineItem(
         )
     }
 
-    if (showPreviewSheet && (content != null || toolName == "search_agent")) {
-        ToolCallPreviewSheet(
-            toolCallId = toolCallId,
-            toolName = toolName,
-            arguments = arguments,
-            content = content ?: ProcessEmptyJson,
-            metadata = metadata,
-            hasResult = content != null,
-            onDismissRequest = {
-                showPreviewSheet = false
-            }
-        )
-    }
 }
 
 @Composable
