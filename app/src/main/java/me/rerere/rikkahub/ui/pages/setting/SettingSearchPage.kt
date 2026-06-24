@@ -93,6 +93,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -1306,6 +1307,7 @@ private fun CommonOptionsContent(
                 Text(
                     text = "${commonOptions.resultSize}",
                     style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Normal,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
