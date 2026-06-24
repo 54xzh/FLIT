@@ -470,6 +470,7 @@
     <string name="setting_search_page_enable_search_agent_desc">使用子代理进行搜索、读取网页并总结结果</string>
     <string name="search_agent_enabled_mode">已启用子代理搜索模式</string>
     <string name="setting_search_page_override_original_tools">覆盖原搜索工具</string>
+    <string name="setting_search_page_override_original_tools_desc">启用搜索子代理时，让搜索子代理工具替换原搜索与抓取工具</string>
     <string name="setting_search_page_grok_enable_custom">启用自定义</string>
     <string name="setting_search_page_grok_enable_custom_desc">自定义 Base URL、接口类型和系统提示词</string>
     <string name="setting_search_page_grok_base_url">Base URL</string>

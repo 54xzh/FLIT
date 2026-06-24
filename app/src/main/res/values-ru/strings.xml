@@ -474,7 +474,7 @@
   <string name="setting_search_page_enable_search_agent">Включить поискового агента</string>
   <string name="setting_search_page_enable_search_agent_desc">Субагент выполняет поиск, чтение страниц и суммирование</string>
   <string name="setting_search_page_override_original_tools">Переопределить исходные инструменты поиска</string>
-  <string name="setting_search_page_override_original_tools_desc">Поисковый агент заменяет встроенные инструменты модели</string>
+  <string name="setting_search_page_override_original_tools_desc">При включённом поисковом субагенте заменить им исходные инструменты поиска и скрапинга</string>
   <string name="setting_page_search_service">Служба поиска</string>
   <string name="setting_page_search_service_desc">Настроить службу поиска</string>
   <string name="setting_page_search_title">Служба поиска</string>

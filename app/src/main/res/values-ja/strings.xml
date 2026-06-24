@@ -474,7 +474,7 @@
   <string name="setting_search_page_enable_search_agent">検索サブエージェントを有効化</string>
   <string name="setting_search_page_enable_search_agent_desc">サブエージェントが検索・ページ読み込み・結果要約を行います</string>
   <string name="setting_search_page_override_original_tools">元の検索ツールを上書き</string>
-  <string name="setting_search_page_override_original_tools_desc">検索サブエージェントでモデル内蔵の検索ツールを置き換えます</string>
+  <string name="setting_search_page_override_original_tools_desc">検索サブエージェント有効時、検索サブエージェントで元の検索・スクレイピングツールを置き換える</string>
   <string name="setting_page_search_service">検索サービス</string>
   <string name="setting_page_search_service_desc">検索サービスを設定</string>
   <string name="setting_page_search_title">検索サービス</string>

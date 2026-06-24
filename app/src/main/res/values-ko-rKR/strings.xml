@@ -474,7 +474,7 @@
   <string name="setting_search_page_enable_search_agent">검색 서브에이전트 활성화</string>
   <string name="setting_search_page_enable_search_agent_desc">서브에이전트로 검색, 웹페이지 읽기, 결과 요약</string>
   <string name="setting_search_page_override_original_tools">원본 검색 도구 재정의</string>
-  <string name="setting_search_page_override_original_tools_desc">검색 에이전트가 모델 내장 검색 도구를 대체</string>
+  <string name="setting_search_page_override_original_tools_desc">검색 서브에이전트 활성화 시, 검색 서브에이전트 도구로 원래 검색·스크래핑 도구를 대체</string>
   <string name="setting_page_search_service">검색 서비스</string>
   <string name="setting_page_search_service_desc">검색 서비스 설정</string>
   <string name="setting_page_search_title">검색 서비스</string>

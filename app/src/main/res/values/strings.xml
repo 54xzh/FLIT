@@ -1140,7 +1140,7 @@
     <string name="setting_page_search_result_size_desc">Number of results each search provider returns per query</string>
     <string name="setting_page_search_multi_strategy_desc">How multiple selected providers are combined</string>
     <string name="setting_search_page_enable_search_agent_desc">Use a sub-agent to search, read pages and summarize results</string>
-    <string name="setting_search_page_override_original_tools_desc">Let the search agent replace the model\'s built-in search tools</string>
+    <string name="setting_search_page_override_original_tools_desc">When the search sub-agent is on, replace the original search and scraping tools with the search sub-agent tool</string>
     <string name="setting_page_search_service">Search Providers</string>
     <string name="setting_page_search_service_desc">Configure search services</string>
     <string name="setting_page_search_title">Search Providers</string>

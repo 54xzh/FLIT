@@ -934,7 +934,7 @@
   <string name="setting_search_page_enable_search_agent">启用搜索子代理</string>
   <string name="setting_search_page_enable_search_agent_desc">使用子代理进行搜索、读取网页并总结结果</string>
   <string name="setting_search_page_override_original_tools">覆盖原搜索工具</string>
-  <string name="setting_search_page_override_original_tools_desc">让搜索子代理替换模型自带的搜索工具</string>
+  <string name="setting_search_page_override_original_tools_desc">启用搜索子代理时，让搜索子代理工具替换原搜索与抓取工具</string>
   <string name="setting_page_search_service">搜索服务</string>
   <string name="setting_page_search_service_desc">设置搜索服务</string>
   <string name="setting_page_search_title">搜索服务</string>
