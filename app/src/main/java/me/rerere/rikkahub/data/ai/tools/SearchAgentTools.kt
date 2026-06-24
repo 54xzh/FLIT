@@ -42,8 +42,9 @@ import kotlin.coroutines.coroutineContext
 import kotlin.uuid.Uuid
 
 private const val SEARCH_AGENT_TOOL_NAME = "search_agent"
-private const val SEARCH_AGENT_MAX_STEPS = 12
-private const val SEARCH_AGENT_TIMEOUT_MS = 90_000L
+private const val SEARCH_AGENT_MAX_STEPS = 16
+private const val SEARCH_AGENT_IDLE_TIMEOUT_MS = 60_000L
+private const val SEARCH_AGENT_STEP_LIMIT_CODE = "search_agent_step_limit_reached"
 private const val FALLBACK_SOURCE_LIMIT = 12
 
 private val MARKDOWN_URL_REGEX = Regex("""\[([^\]\n]{1,240})]\((https?://[^\s)]+)\)""")
@@ -158,12 +159,10 @@ private class SearchAgentRunner(
     suspend fun run(task: String, urls: List<String>): JsonObject {
         appendStep(SearchAgentStep.TaskStep(text = buildTaskDetail(task = task, urls = urls)))
         return runCatching {
-            withTimeout(SEARCH_AGENT_TIMEOUT_MS) {
-                runInternal(task = task, urls = urls)
-            }
+            runInternal(task = task, urls = urls)
         }.getOrElse { throwable ->
             val message = when (throwable) {
-                is kotlinx.coroutines.TimeoutCancellationException -> "搜索子代理超时，请稍后重试。"
+                is kotlinx.coroutines.TimeoutCancellationException -> "搜索子代理 60 秒内没有新进展，请稍后重试。"
                 else -> "搜索子代理失败：${throwable.message ?: throwable::class.simpleName.orEmpty()}"
             }
             appendStep(SearchAgentStep.ErrorStep(title = "搜索子代理失败", detail = message))
@@ -203,13 +202,15 @@ private class SearchAgentRunner(
                 buildUserPrompt(task = task, urls = urls)
             ),
         )
+        var stepLimitReached = false
 
-        repeat(SEARCH_AGENT_MAX_STEPS) { stepIndex ->
+        repeat(SEARCH_AGENT_MAX_STEPS + 1) { stepIndex ->
             var requestBodyJson: String? = null
+            val toolsForStep = if (stepLimitReached) emptyList() else internalTools
             val params = TextGenerationParams(
                 model = model,
                 temperature = 0.1f,
-                tools = internalTools,
+                tools = toolsForStep,
                 onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()
@@ -217,11 +218,13 @@ private class SearchAgentRunner(
             var rawResponseText = ""
             val requestMessages = messages
             try {
-                val chunk = provider.generateText(
-                    providerSetting = providerSetting,
-                    messages = requestMessages,
-                    params = params,
-                )
+                val chunk = withTimeout(SEARCH_AGENT_IDLE_TIMEOUT_MS) {
+                    provider.generateText(
+                        providerSetting = providerSetting,
+                        messages = requestMessages,
+                        params = params,
+                    )
+                }
                 rawResponseText = chunk.rawResponse.orEmpty()
                 messages = messages.handleMessageChunk(chunk = chunk, model = model)
                 // 被动展示思考：若本轮模型返回了 reasoning，发布一条折叠步骤
@@ -250,7 +253,9 @@ private class SearchAgentRunner(
             val toolCalls = messages.lastOrNull()?.getToolCalls().orEmpty()
             if (toolCalls.isEmpty()) {
                 val finalText = messages.lastOrNull()?.toContentText().orEmpty()
-                val finalResult = normalizeFinalResult(finalText)
+                val finalResult = normalizeFinalResult(finalText).let { result ->
+                    if (stepLimitReached) result.withAdditionalNote(stepLimitNote()) else result
+                }
                 appendStep(
                     SearchAgentStep.FinalStep(
                         detail = finalResult["summary"]?.jsonPrimitiveOrNull?.contentOrNull
@@ -260,6 +265,17 @@ private class SearchAgentRunner(
                 )
                 progressStore.finish(toolCallId)
                 return finalResult
+            }
+
+            if (stepLimitReached) {
+                val message = stepLimitNote()
+                appendStep(SearchAgentStep.ErrorStep(title = "已达到搜索轮数上限", detail = message))
+                progressStore.finish(toolCallId)
+                return buildAgentResult(
+                    summary = "",
+                    sources = emptyList(),
+                    notes = listOf(message),
+                )
             }
 
             val resolvedToolCalls = toolCalls.mapIndexed { index, call ->
@@ -273,27 +289,29 @@ private class SearchAgentRunner(
                 messages = messages.replaceLastToolCalls(resolvedToolCalls)
             }
 
-            val results = resolvedToolCalls.map { toolCall ->
-                executeInternalTool(toolCall = toolCall, internalTools = internalTools)
+            val reachedStepLimit = stepIndex == SEARCH_AGENT_MAX_STEPS - 1
+            val results = if (reachedStepLimit) {
+                appendStep(buildStepLimitNoticeStep())
+                stepLimitReached = true
+                resolvedToolCalls.map(::buildStepLimitToolResult)
+            } else {
+                resolvedToolCalls.map { toolCall ->
+                    executeInternalTool(toolCall = toolCall, internalTools = internalTools)
+                }
             }
             messages = messages + UIMessage(
                 role = MessageRole.TOOL,
                 parts = results,
             )
         }
-
-        error("Search agent reached step limit")
+        error("Unreachable search agent step loop exit")
     }
 
     private suspend fun executeInternalTool(
         toolCall: UIMessagePart.ToolCall,
         internalTools: List<Tool>,
     ): UIMessagePart.ToolResult {
-        val args = runCatching {
-            json.parseToJsonElement(toolCall.arguments.ifBlank { "{}" })
-        }.getOrElse {
-            JsonObject(emptyMap())
-        }
+        val args = parseToolArguments(toolCall)
         val tool = internalTools.firstOrNull { it.name == toolCall.toolName }
         // 先发布一条 Running 步骤（带 title），执行完替换为 Done
         val runningTitle = buildInternalToolTitle(toolName = toolCall.toolName, args = args)
@@ -308,7 +326,27 @@ private class SearchAgentRunner(
         )
         val result = runCatching {
             requireNotNull(tool) { "Tool ${toolCall.toolName} not found" }
-            tool.execute(args)
+            withTimeout(SEARCH_AGENT_IDLE_TIMEOUT_MS) {
+                tool.execute(args)
+            }
+        }
+        result.exceptionOrNull()?.let { throwable ->
+            if (throwable is kotlinx.coroutines.TimeoutCancellationException) {
+                val timeoutContent = buildJsonObject {
+                    put("error", "timeout")
+                    put("message", "内部工具 60 秒内没有返回结果。")
+                }
+                replaceLastStep {
+                    buildInternalToolDoneStep(
+                        toolName = toolCall.toolName,
+                        title = runningTitle,
+                        args = args,
+                        content = timeoutContent,
+                        failed = true,
+                    )
+                }
+                throw throwable
+            }
         }
         val content = result.getOrElse { throwable ->
             buildJsonObject {
@@ -330,6 +368,41 @@ private class SearchAgentRunner(
             content = content,
             arguments = args,
         )
+    }
+
+    private fun parseToolArguments(toolCall: UIMessagePart.ToolCall): JsonElement {
+        return runCatching {
+            json.parseToJsonElement(toolCall.arguments.ifBlank { "{}" })
+        }.getOrElse {
+            JsonObject(emptyMap())
+        }
+    }
+
+    private fun buildStepLimitToolResult(toolCall: UIMessagePart.ToolCall): UIMessagePart.ToolResult {
+        val args = parseToolArguments(toolCall)
+        return UIMessagePart.ToolResult(
+            toolCallId = toolCall.toolCallId,
+            toolName = toolCall.toolName,
+            content = buildJsonObject {
+                put("error", SEARCH_AGENT_STEP_LIMIT_CODE)
+                put("message", "已达到搜索轮数上限。请立即基于已有搜索结果输出最终 JSON，不要继续调用工具。")
+            },
+            arguments = args,
+        )
+    }
+
+    private fun buildStepLimitNoticeStep(): SearchAgentStep.ToolCallStep {
+        return SearchAgentStep.ToolCallStep(
+            toolName = SEARCH_AGENT_TOOL_NAME,
+            title = "已达到搜索轮数上限",
+            detail = "搜索子代理已执行 ${SEARCH_AGENT_MAX_STEPS} 轮，已要求它基于已有资料总结。",
+            urls = emptyList(),
+            status = SearchAgentStep.ToolCallStep.Status.Done,
+        )
+    }
+
+    private fun stepLimitNote(): String {
+        return "搜索子代理已达到 ${SEARCH_AGENT_MAX_STEPS} 轮上限，已基于已有资料总结，结果可能不完整。"
     }
 
     private fun buildSystemPrompt(toolInstructions: String): String = """
@@ -681,6 +754,17 @@ private fun buildAgentResult(
     put("notes", buildJsonArray {
         notes.filter { it.isNotBlank() }.distinct().forEach { add(JsonPrimitive(it)) }
     })
+}
+
+private fun JsonObject.withAdditionalNote(note: String): JsonObject {
+    val summary = this["summary"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
+    val sources = (this["sources"] as? JsonArray)
+        ?.mapNotNull { it as? JsonObject }
+        .orEmpty()
+    val notes = (this["notes"] as? JsonArray)
+        ?.mapNotNull { it.jsonPrimitiveOrNull?.contentOrNull }
+        .orEmpty() + note
+    return buildAgentResult(summary = summary, sources = sources, notes = notes)
 }
 
 private fun JsonObject.withMetadata(steps: List<JsonObject>): JsonObject {
