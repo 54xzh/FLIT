@@ -99,5 +99,12 @@ class SearchToolsMultiProviderTest {
     fun urlDedupKey_normalizesHost_andTrimsSlash() {
         assertEquals("example.com/path", SearchTools.urlDedupKey("https://Example.COM/path/"))
     }
-}
 
+    @Test
+    fun toolSystemPromptRegistry_containsSearchAgentPrompt() {
+        val definition = ToolSystemPromptRegistry.get("search_agent")
+
+        assertEquals(ToolSystemPromptGroup.Search, definition?.group)
+        assertTrue(SEARCH_AGENT_MAIN_TOOL_PROMPT_TEMPLATE.contains("latest/current information"))
+    }
+}

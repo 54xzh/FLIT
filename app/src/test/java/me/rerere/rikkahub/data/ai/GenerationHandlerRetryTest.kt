@@ -77,4 +77,11 @@ class GenerationHandlerRetryTest {
         assertEquals(12_000L, computeHttpRetryDelayMs(12))
         assertEquals(30_000L, computeHttpRetryDelayMs(99))
     }
+
+    @Test
+    fun shouldIncludeCurrentDateSection_includesSearchAgentTool() {
+        assertTrue(shouldIncludeCurrentDateSection(listOf("search_web")))
+        assertTrue(shouldIncludeCurrentDateSection(listOf("search_agent")))
+        assertFalse(shouldIncludeCurrentDateSection(listOf("memory_search")))
+    }
 }

@@ -92,7 +92,7 @@ object SearchAgentTools {
                     required = listOf("task"),
                 )
             },
-            systemPrompt = { _, _ -> SEARCH_AGENT_MAIN_TOOL_PROMPT },
+            systemPrompt = { _, _ -> SEARCH_AGENT_MAIN_TOOL_PROMPT_TEMPLATE },
             execute = { args ->
                 val params = args.jsonObject
                 val task = params["task"]?.jsonPrimitiveOrNull?.contentOrNull?.trim().orEmpty()
@@ -672,14 +672,3 @@ private fun List<UIMessage>.replaceLastToolCalls(resolvedToolCalls: List<UIMessa
     )
     return dropLast(1) + updated
 }
-
-private val SEARCH_AGENT_MAIN_TOOL_PROMPT = """
-    ## tool: search_agent
-
-    ### usage
-    - Use search_agent first for web search or webpage reading.
-    - Give it a short task with only necessary context.
-    - If URLs are already known, pass them in urls.
-    - Use search_web or scrape_web directly only when you need raw results, full page content, or search_agent is unavailable.
-    - When answering, only cite sources returned by search_agent.
-""".trimIndent()

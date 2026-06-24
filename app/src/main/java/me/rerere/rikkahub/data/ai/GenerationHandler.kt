@@ -118,6 +118,12 @@ private const val GROK_WEB_SEARCH_TOOL_NAME = "web_search"
 private const val GROK_X_SEARCH_TOOL_NAME = "x_search"
 private val RETRYABLE_HTTP_STATUS_CODES = setOf(408, 429, 500, 502, 503, 504)
 
+internal fun shouldIncludeCurrentDateSection(toolNames: Iterable<String>): Boolean {
+    return toolNames.any { name ->
+        name == SEARCH_WEB_TOOL_NAME || name == SEARCH_AGENT_TOOL_NAME
+    }
+}
+
 /**
  * Result of building messages, includes both the messages and info about activated context sources.
  */
@@ -822,7 +828,7 @@ class GenerationHandler(
         val maxTokens = assistant.maxTokenUsage
         var currentTokens = 0
         val currentDateSection = buildCurrentDateSection(
-            include = tools.any { it.name == SEARCH_WEB_TOOL_NAME },
+            include = shouldIncludeCurrentDateSection(tools.map { it.name }),
         )
 
         // Cosine similarity for RAG matching

@@ -42,6 +42,11 @@ object ToolSystemPromptRegistry {
             defaultTemplate = SCRAPE_WEB_SYSTEM_PROMPT_TEMPLATE,
         ),
         ToolSystemPromptDefinition(
+            toolName = "search_agent",
+            group = ToolSystemPromptGroup.Search,
+            defaultTemplate = SEARCH_AGENT_MAIN_TOOL_PROMPT_TEMPLATE,
+        ),
+        ToolSystemPromptDefinition(
             toolName = MEMORY_MANAGEMENT_TOOL_NAME,
             group = ToolSystemPromptGroup.Memory,
             defaultTemplate = MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE,
@@ -321,6 +326,19 @@ val SCRAPE_WEB_SYSTEM_PROMPT_TEMPLATE = """
     - You can use the scrape_web tool to scrape url for detailed content.
     - You can perform multiple scrape if needed.
     - For common problems, try not to use this tool unless the user requests it.
+""".trimIndent()
+
+val SEARCH_AGENT_MAIN_TOOL_PROMPT_TEMPLATE = """
+    ## tool: search_agent
+
+    ### usage
+    - Use search_agent first for web search or webpage reading.
+    - Use search_agent for latest/current information, time-sensitive facts, or to confirm facts from the web.
+    - Use the app-provided current date as the recency reference when judging latest or recent information.
+    - Give it a short task with only necessary context.
+    - If URLs are already known, pass them in urls.
+    - Use search_web or scrape_web directly only when you need raw results, full page content, or search_agent is unavailable.
+    - When answering, only cite sources returned by search_agent.
 """.trimIndent()
 
 val MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE = """
