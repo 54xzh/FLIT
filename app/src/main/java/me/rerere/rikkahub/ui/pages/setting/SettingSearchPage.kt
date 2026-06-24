@@ -527,9 +527,18 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
                     .fillMaxWidth()
                     .padding(bottom = 24.dp)
             ) {
-                SettingsGroup(
-                    title = stringResource(R.string.setting_page_search_common_options)
-                ) {
+                // Big centered title
+                Text(
+                    text = stringResource(R.string.setting_page_search_common_options),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                )
+
+                SettingsGroup {
                     // Delegate the actual common options content to a reusable composable
                     CommonOptionsContent(
                         settings = settings,

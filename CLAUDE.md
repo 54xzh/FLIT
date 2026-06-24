@@ -31,6 +31,10 @@ Requires `JAVA_HOME`, `GRADLE_USER_HOME`, and `ANDROID_USER_HOME` set to project
 - Writing outside the workspace is prohibited.
 - Forbidden commands: `rm`, `rmdir`.
 
+## Available Tools
+
+- **LSP (Language Server Protocol):** Available for goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation, and call hierarchy. Prefer LSP over grep when navigating to symbol definitions, finding references, or inspecting type/documentation info — especially in well-indexed Kotlin files. Note: cross-file `goToDefinition` may be limited if the LSP server hasn't fully indexed the project.
+
 ## Design Philosophy
 
 **App Name:** LastChat (package: `lastchat.rikkafork.cocolal`)

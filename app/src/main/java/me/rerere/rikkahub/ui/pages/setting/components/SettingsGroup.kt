@@ -35,20 +35,22 @@ import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 
 @Composable
 fun SettingsGroup(
-    title: String,
+    title: String = "",
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(
         modifier = Modifier.padding(bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 16.dp, bottom = 4.dp, top = 0.dp)
-        )
+        if (title.isNotEmpty()) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 16.dp, bottom = 4.dp, top = 0.dp)
+            )
+        }
         Column(
             modifier = Modifier
                 .padding(horizontal = 16.dp)
