@@ -93,7 +93,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -1292,7 +1291,10 @@ private fun CommonOptionsContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Text(
                         text = stringResource(R.string.setting_page_search_result_size),
                         style = MaterialTheme.typography.titleMedium,
@@ -1306,8 +1308,7 @@ private fun CommonOptionsContent(
                 }
                 Text(
                     text = "${commonOptions.resultSize}",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Normal,
+                    style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
