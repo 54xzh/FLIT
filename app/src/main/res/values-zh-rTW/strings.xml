@@ -1537,6 +1537,14 @@
   <string name="setting_search_page_username">用戶名</string>
   <string name="chat_message_tool_search_agent">搜尋子代理</string>
   <string name="chat_message_tool_search_agent_steps">內部步驟</string>
+  <string name="search_agent_tab_result">結果</string>
+  <string name="search_agent_tab_steps">步驟</string>
+  <string name="search_agent_no_result">暫無結果</string>
+  <string name="search_agent_steps_empty">暫無步驟</string>
+  <string name="search_agent_steps_running">正在執行…</string>
+  <string name="search_agent_step_task">任務</string>
+  <string name="search_agent_step_reasoning">思考</string>
+  <string name="search_agent_step_final">完成總結</string>
   <string name="color_hex">顏色（十六進制）</string>
   <string name="color_hex_placeholder">#808080</string>
   <string name="pattern">Pattern</string>

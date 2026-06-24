@@ -28,6 +28,7 @@ import me.rerere.common.http.jsonObjectOrNull
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
+import me.rerere.ai.core.ToolCallContext
 import me.rerere.ai.core.merge
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.CustomBody
@@ -507,7 +508,9 @@ class GenerationHandler(
                             )
                             if (approved) {
                                 Log.i(TAG, "generateText: executing tool ${tool.name} with args: $args")
-                                tool.execute(args)
+                                withContext(ToolCallContext(resolvedToolCallId)) {
+                                    tool.execute(args)
+                                }
                             } else {
                                 JsonPrimitive(rejectionText)
                             }
@@ -617,7 +620,9 @@ class GenerationHandler(
                         }
                     } else {
                         Log.i(TAG, "generateText: executing tool ${tool.name} with args: $args")
-                        tool.execute(args)
+                        withContext(ToolCallContext(resolvedToolCallId)) {
+                            tool.execute(args)
+                        }
                     }
 
                     val toolOutput = result.extractToolResultMetadata()

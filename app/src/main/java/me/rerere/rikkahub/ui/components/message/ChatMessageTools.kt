@@ -3,21 +3,26 @@ package me.rerere.rikkahub.ui.components.message
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,11 +37,15 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -91,9 +100,21 @@ import me.rerere.rikkahub.ui.modifier.shimmer
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
+import me.rerere.rikkahub.data.ai.tools.SearchAgentProgress
+import me.rerere.rikkahub.data.ai.tools.SearchAgentStep
+import me.rerere.rikkahub.data.ai.tools.parseSearchAgentStepsFromMetadata
 import me.rerere.rikkahub.service.ChatService
 import org.koin.compose.koinInject
 import kotlin.uuid.Uuid
+
+@Composable
+private fun stepLabelTask() = stringResource(R.string.search_agent_step_task)
+
+@Composable
+private fun stepLabelReasoning() = stringResource(R.string.search_agent_step_reasoning)
+
+@Composable
+private fun stepLabelFinal() = stringResource(R.string.search_agent_step_final)
 
 @Composable
 internal fun toolApprovalDisplayName(toolName: String): String {
@@ -624,7 +645,9 @@ internal fun ToolCallPreviewSheet(
     arguments: JsonElement,
     content: JsonElement,
     metadata: JsonObject? = null,
-    onDismissRequest: () -> Unit = {}
+    toolCallId: String = "",
+    hasResult: Boolean = true,
+    onDismissRequest: () -> Unit = {},
 ) {
     val navController = LocalNavController.current
     val memoryRepo: MemoryRepository = koinInject()
@@ -643,149 +666,16 @@ internal fun ToolCallPreviewSheet(
             Column(
                 modifier = Modifier
                     .fillMaxHeight(0.8f)
-                    .padding(16.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 when (toolName) {
-                    "search_agent" -> {
-                        Text(stringResource(R.string.chat_message_tool_search_agent))
-                        val summary = content.jsonObject["summary"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
-                        val sources = content.jsonObject["sources"]?.jsonArray ?: emptyList()
-                        val notes = content.jsonObject["notes"]?.jsonArray ?: emptyList()
-                        val steps = metadata?.get("search_agent_steps") as? kotlinx.serialization.json.JsonArray
-
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (summary.isNotBlank()) {
-                                item {
-                                    Card(
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.primaryContainer
-                                        )
-                                    ) {
-                                        MarkdownBlock(
-                                            content = summary,
-                                            modifier = Modifier
-                                                .padding(16.dp)
-                                                .fillMaxWidth(),
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
-                                    }
-                                }
-                            }
-
-                            items(sources) {
-                                val obj = it.jsonObject
-                                val url = obj["url"]?.jsonPrimitiveOrNull?.contentOrNull ?: return@items
-                                val title = obj["title"]?.jsonPrimitiveOrNull?.contentOrNull ?: url
-                                val snippet = obj["snippet"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
-                                Card(
-                                    onClick = {
-                                        navController.navigate(Screen.WebView(url = url))
-                                    },
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                                    )
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 8.dp, horizontal = 16.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Favicon(
-                                            url = url,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                        Column {
-                                            Text(text = title, maxLines = 1)
-                                            if (snippet.isNotBlank()) {
-                                                Text(
-                                                    text = snippet,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    style = MaterialTheme.typography.bodySmall
-                                                )
-                                            }
-                                            Text(
-                                                text = url,
-                                                maxLines = 1,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (notes.isNotEmpty()) {
-                                item {
-                                    Card {
-                                        Column(
-                                            modifier = Modifier.padding(12.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                                        ) {
-                                            notes.forEach { note ->
-                                                Text(
-                                                    text = note.jsonPrimitiveOrNull?.contentOrNull.orEmpty(),
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (steps != null && steps.isNotEmpty()) {
-                                item {
-                                    Text(
-                                        text = stringResource(R.string.chat_message_tool_search_agent_steps),
-                                        style = MaterialTheme.typography.titleSmall,
-                                    )
-                                }
-                                items(steps) { step ->
-                                    val obj = step.jsonObject
-                                    val title = obj["title"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
-                                    val detail = obj["detail"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
-                                    val urls = obj["urls"]?.jsonArray ?: emptyList()
-                                    Card {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(12.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                                        ) {
-                                            Text(
-                                                text = title,
-                                                style = MaterialTheme.typography.titleSmall,
-                                            )
-                                            if (detail.isNotBlank()) {
-                                                Text(
-                                                    text = detail,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                )
-                                            }
-                                            urls.take(3).forEach { url ->
-                                                Text(
-                                                    text = url.jsonPrimitiveOrNull?.contentOrNull.orEmpty(),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    "search_agent" -> SearchAgentPreviewContent(
+                        toolCallId = toolCallId,
+                        hasResult = hasResult,
+                        content = content,
+                        metadata = metadata,
+                    )
 
                     "search_web" -> {
                         Text(
@@ -1435,5 +1325,334 @@ internal fun AskUserBottomSheet(
             }
         }
     }
+    }
+}
+
+/**
+ * search_agent 详情卡片：双 Tab —— 结果 / 步骤。
+ *
+ * - 默认进入哪个 Tab 由 [hasResult]（点开时是否已拿到 ToolResult）决定：
+ *   有结果 -> 结果 Tab；执行中 -> 步骤 Tab。
+ * - 不自动：用户手动切换；执行中切到结果 Tab 显示「暂无结果」空态。
+ * - 执行中读 store（带 Running 态）；完成 / 历史 / store 缺失读 metadata（全 Done）。
+ */
+@Composable
+private fun SearchAgentPreviewContent(
+    toolCallId: String,
+    hasResult: Boolean,
+    content: JsonElement,
+    metadata: JsonObject?,
+) {
+    val chatService = koinInject<ChatService>()
+    val progressStore = chatService.searchAgentProgressStore
+    val liveProgress by if (toolCallId.isNotBlank()) {
+        progressStore.stateOf(toolCallId).collectAsState()
+    } else {
+        remember { mutableStateOf(null as SearchAgentProgress?) }
+    }
+
+    val tabs = listOf(
+        stringResource(R.string.search_agent_tab_result),
+        stringResource(R.string.search_agent_tab_steps),
+    )
+    var selectedTab by remember { mutableStateOf(if (hasResult) 0 else 1) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        PrimaryTabRow(selectedTabIndex = selectedTab) {
+            tabs.forEachIndexed { index, label ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = { Text(label) },
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f),
+        ) {
+            when (selectedTab) {
+                0 -> SearchAgentResultTab(content = content)
+                else -> SearchAgentStepsTab(
+                    liveProgress = liveProgress,
+                    metadata = metadata,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchAgentResultTab(content: JsonElement) {
+    val summary = (content as? JsonObject)?.get("summary")?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
+    val sources = (content as? JsonObject)?.get("sources")?.jsonArray ?: emptyList()
+    val notes = (content as? JsonObject)?.get("notes")?.jsonArray ?: emptyList()
+    val navController = LocalNavController.current
+
+    if (summary.isBlank() && sources.isEmpty() && notes.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = stringResource(R.string.search_agent_no_result),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 16.dp),
+    ) {
+        if (summary.isNotBlank()) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+                ) {
+                    MarkdownBlock(
+                        content = summary,
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth(),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+        items(sources) {
+            val obj = it as? JsonObject ?: return@items
+            val url = obj["url"]?.jsonPrimitiveOrNull?.contentOrNull ?: return@items
+            val title = obj["title"]?.jsonPrimitiveOrNull?.contentOrNull ?: url
+            val snippet = obj["snippet"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
+            Card(
+                onClick = { navController.navigate(Screen.WebView(url = url)) },
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                ),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp, horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Favicon(url = url, modifier = Modifier.size(24.dp))
+                    Column {
+                        Text(text = title, maxLines = 1)
+                        if (snippet.isNotBlank()) {
+                            Text(
+                                text = snippet,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Text(
+                            text = url,
+                            maxLines = 1,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        )
+                    }
+                }
+            }
+        }
+        if (notes.isNotEmpty()) {
+            item {
+                Card {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        notes.forEach { note ->
+                            Text(
+                                text = note.jsonPrimitiveOrNull?.contentOrNull.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchAgentStepsTab(
+    liveProgress: SearchAgentProgress?,
+    metadata: JsonObject?,
+) {
+    // 执行中读 store；完成 / 历史回落 metadata。store 缺失且无 task 时显示空态。
+    val fromStore = liveProgress
+    val steps: List<SearchAgentStep> = if (fromStore != null && fromStore.steps.isNotEmpty()) {
+        fromStore.steps
+    } else {
+        parseSearchAgentStepsFromMetadata(metadata)
+    }
+    val hasLiveTask = fromStore?.task != null
+    val showEmpty = steps.isEmpty() && !hasLiveTask
+
+    if (showEmpty) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = stringResource(R.string.search_agent_steps_empty),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+
+    val expandedReasoning = remember { mutableStateMapOf<Int, Boolean>() }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 16.dp),
+    ) {
+        itemsIndexed(steps) { index, step ->
+            when (step) {
+                is SearchAgentStep.TaskStep -> StepCard(
+                    title = stepLabelTask(),
+                    detail = step.text,
+                )
+                is SearchAgentStep.ReasoningStep -> {
+                    val expanded = expandedReasoning[index] ?: false
+                    StepCard(
+                        title = stepLabelReasoning(),
+                        detail = if (expanded) step.text else "",
+                        expandable = true,
+                        expanded = expanded,
+                        onToggle = { expandedReasoning[index] = !expanded },
+                        collapsedPreview = step.text.take(80),
+                    )
+                }
+                is SearchAgentStep.ToolCallStep -> StepCard(
+                    title = step.title,
+                    detail = step.detail,
+                    urls = step.urls,
+                    running = step.status == SearchAgentStep.ToolCallStep.Status.Running,
+                )
+                is SearchAgentStep.ErrorStep -> StepCard(
+                    title = "${step.title}",
+                    detail = step.detail,
+                )
+                is SearchAgentStep.FinalStep -> StepCard(
+                    title = stepLabelFinal(),
+                    detail = step.detail,
+                )
+            }
+        }
+        // store 存在但尚未产出步骤（execute 刚开始）时显示 loading
+        if (steps.isEmpty() && hasLiveTask) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Text(
+                        text = stringResource(R.string.search_agent_steps_running),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StepCard(
+    title: String,
+    detail: String,
+    urls: List<String> = emptyList(),
+    running: Boolean = false,
+    expandable: Boolean = false,
+    expanded: Boolean = false,
+    onToggle: () -> Unit = {},
+    collapsedPreview: String = "",
+) {
+    Card(
+        colors = if (running) {
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        } else {
+            CardDefaults.cardColors()
+        },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (expandable) Modifier.clickable { onToggle() } else Modifier)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (running) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                if (expandable) {
+                    Text(
+                        text = if (expanded) "▾" else "▸",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (detail.isNotBlank()) {
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else if (expandable && collapsedPreview.isNotBlank()) {
+                Text(
+                    text = collapsedPreview,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            urls.take(3).forEach { url ->
+                Text(
+                    text = url,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                )
+            }
+        }
     }
 }

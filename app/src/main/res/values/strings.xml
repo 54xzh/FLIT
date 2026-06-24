@@ -1701,6 +1701,14 @@
     <string name="setting_search_page_username">Username</string>
     <string name="chat_message_tool_search_agent">Search Agent</string>
     <string name="chat_message_tool_search_agent_steps">Internal Steps</string>
+    <string name="search_agent_tab_result">Result</string>
+    <string name="search_agent_tab_steps">Steps</string>
+    <string name="search_agent_no_result">No result yet</string>
+    <string name="search_agent_steps_empty">No steps yet</string>
+    <string name="search_agent_steps_running">Running…</string>
+    <string name="search_agent_step_task">Task</string>
+    <string name="search_agent_step_reasoning">Thinking</string>
+    <string name="search_agent_step_final">Summary</string>
     <string name="color_hex">Color (Hex)</string>
     <string name="color_hex_placeholder">#808080</string>
     <string name="pattern">Pattern</string>

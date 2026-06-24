@@ -488,6 +488,14 @@
     <string name="setting_search_page_grok_stream_desc">如果非流式请求报错，可以打开这个选项</string>
     <string name="chat_message_tool_search_agent">搜索子代理</string>
     <string name="chat_message_tool_search_agent_steps">内部步骤</string>
+    <string name="search_agent_tab_result">结果</string>
+    <string name="search_agent_tab_steps">步骤</string>
+    <string name="search_agent_no_result">暂无结果</string>
+    <string name="search_agent_steps_empty">暂无步骤</string>
+    <string name="search_agent_steps_running">正在执行…</string>
+    <string name="search_agent_step_task">任务</string>
+    <string name="search_agent_step_reasoning">思考</string>
+    <string name="search_agent_step_final">完成总结</string>
     <string name="setting_search_preset_serper_desc">通过 Serper API 使用 Google 搜索结果</string>
     <string name="setting_page_search_multi_strategy">多选策略</string>
     <string name="setting_page_search_multi_strategy_parallel">并行搜索</string>

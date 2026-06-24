@@ -55,6 +55,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
@@ -98,6 +99,8 @@ import me.rerere.rikkahub.utils.extractGeminiThinkingTitle
 import me.rerere.rikkahub.utils.extractGeminiLastSection
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import org.koin.compose.koinInject
+import me.rerere.rikkahub.data.ai.tools.SearchAgentProgress
+import me.rerere.rikkahub.data.ai.tools.SearchAgentStep
 import java.util.Locale
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -338,6 +341,7 @@ private fun ProcessTimelineStep(
                             JsonInstant.parseToJsonElement(part.arguments)
                         }.getOrElse { ProcessEmptyJson }
                         CompactToolTimelineItem(
+                            toolCallId = part.toolCallId,
                             toolName = part.toolName,
                             arguments = parsedArguments,
                             content = null,
@@ -348,6 +352,7 @@ private fun ProcessTimelineStep(
 
                     is UIMessagePart.ToolResult -> {
                         CompactToolTimelineItem(
+                            toolCallId = part.toolCallId,
                             toolName = part.toolName,
                             arguments = part.arguments,
                             content = part.content,
@@ -574,6 +579,7 @@ private fun CompactReasoningTimelineItem(
 
 @Composable
 private fun CompactToolTimelineItem(
+    toolCallId: String,
     toolName: String,
     arguments: JsonElement,
     content: JsonElement?,
@@ -582,15 +588,24 @@ private fun CompactToolTimelineItem(
 ) {
     val settings = LocalSettings.current
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
+    val chatService = koinInject<ChatService>()
+    val progressStore = chatService.searchAgentProgressStore
+    // search_agent 实时进度订阅（仅执行中有数据）
+    val progress by if (toolName == "search_agent") {
+        progressStore.stateOf(toolCallId).collectAsState()
+    } else {
+        remember { mutableStateOf(null as SearchAgentProgress?) }
+    }
     val title = toolTimelineTitle(toolName = toolName, arguments = arguments)
     val subtitle = toolTimelineSubtitle(
         toolName = toolName,
         arguments = arguments,
         content = content,
         loading = loading,
+        progress = progress,
     )
     var showArgumentsSheet by remember(toolName, arguments) { mutableStateOf(false) }
-    var showPreviewSheet by remember(toolName, content) { mutableStateOf(false) }
+    var showPreviewSheet by remember(toolCallId, toolName, content) { mutableStateOf(false) }
 
     ProcessStepRow(
         title = title,
@@ -612,7 +627,7 @@ private fun CompactToolTimelineItem(
         },
         onClick = {
             haptics.perform(HapticPattern.Pop)
-            if (content != null) {
+            if (content != null || toolName == "search_agent") {
                 showPreviewSheet = true
             } else {
                 showArgumentsSheet = true
@@ -630,12 +645,14 @@ private fun CompactToolTimelineItem(
         )
     }
 
-    if (showPreviewSheet && content != null) {
+    if (showPreviewSheet && (content != null || toolName == "search_agent")) {
         ToolCallPreviewSheet(
+            toolCallId = toolCallId,
             toolName = toolName,
             arguments = arguments,
-            content = content,
+            content = content ?: ProcessEmptyJson,
             metadata = metadata,
+            hasResult = content != null,
             onDismissRequest = {
                 showPreviewSheet = false
             }
@@ -932,12 +949,21 @@ private fun toolTimelineSubtitle(
     arguments: JsonElement,
     content: JsonElement?,
     loading: Boolean,
+    progress: SearchAgentProgress? = null,
 ): String? {
-    if (loading && content == null) {
-        return stringResource(R.string.notification_live_update_tool_call)
-    }
-
+    val isRunning = loading && content == null
     return when (toolName) {
+        // search_agent：执行中读 store 最新步骤动作；完成读 summary；出错读 error
+        "search_agent" -> if (isRunning) {
+            progress?.let { liveSearchAgentSubtitle(it) }
+                ?: stringResource(R.string.notification_live_update_tool_call)
+        } else {
+            content?.jsonObject?.get("summary")?.jsonPrimitiveOrNull?.contentOrNull
+                ?: content?.jsonObject?.get("notes")?.jsonArray?.firstOrNull()
+                    ?.jsonPrimitiveOrNull?.contentOrNull
+                ?: progress?.let { liveSearchAgentSubtitle(it) }
+        }
+
         "create_memory", "edit_memory" -> {
             content?.jsonObject?.get("content")?.jsonPrimitiveOrNull?.contentOrNull
         }
@@ -947,14 +973,6 @@ private fun toolTimelineSubtitle(
                 ?: content?.jsonObject?.get("items")?.jsonArray?.size
                     ?.takeIf { it > 0 }
                     ?.let { stringResource(R.string.chat_message_tool_search_results_count, it) }
-        }
-
-        "search_agent" -> {
-            content?.jsonObject?.get("summary")?.jsonPrimitiveOrNull?.contentOrNull
-                ?: content?.jsonObject?.get("notes")?.jsonArray
-                    ?.firstOrNull()
-                    ?.jsonPrimitiveOrNull
-                    ?.contentOrNull
         }
 
         "scrape_web" -> {
@@ -983,7 +1001,25 @@ private fun toolTimelineSubtitle(
             }
         }
 
-        else -> null
+        else -> if (isRunning) stringResource(R.string.notification_live_update_tool_call) else null
+    }
+}
+
+/** search_agent 执行中副标题：基于 store 里最新一条步骤派生。 */
+private fun liveSearchAgentSubtitle(progress: SearchAgentProgress): String? {
+    val last = progress.steps.lastOrNull() ?: return null
+    return when (last) {
+        is SearchAgentStep.TaskStep -> last.text.lineSequence().firstOrNull()?.trim()?.takeIf(String::isNotBlank)
+        is SearchAgentStep.ReasoningStep -> null
+        is SearchAgentStep.ToolCallStep -> when (last.status) {
+            SearchAgentStep.ToolCallStep.Status.Running ->
+                // title 形如 "搜索：xxx" / "读取网页"，前缀换成"正在"
+                "正在${last.title}"
+            SearchAgentStep.ToolCallStep.Status.Done -> last.detail
+        }
+        is SearchAgentStep.ErrorStep ->
+            if (last.detail.isNotBlank()) "出错：${last.detail}" else last.title
+        is SearchAgentStep.FinalStep -> "完成总结"
     }
 }
 

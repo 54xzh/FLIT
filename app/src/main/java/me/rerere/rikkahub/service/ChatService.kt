@@ -92,6 +92,7 @@ import me.rerere.rikkahub.data.ai.tools.LocalToolOption
 import me.rerere.rikkahub.data.ai.tools.LocalTools
 import me.rerere.rikkahub.data.ai.tools.RUN_SKILL_SCRIPT_SYSTEM_PROMPT_TEMPLATE
 import me.rerere.rikkahub.data.ai.tools.SCRIPTABLE_SKILL_LIST_VARIABLE
+import me.rerere.rikkahub.data.ai.tools.SearchAgentProgressStore
 import me.rerere.rikkahub.data.ai.tools.SearchAgentTools
 import me.rerere.rikkahub.data.ai.tools.SkillScriptRunner
 import me.rerere.rikkahub.data.ai.tools.WORKSPACE_COMMON_RULES_PROMPT
@@ -209,6 +210,7 @@ class ChatService(
     private val okHttpClient: OkHttpClient,
     val mcpManager: McpManager,
     private val modelQuotaRepo: ModelQuotaRepository,
+    val searchAgentProgressStore: SearchAgentProgressStore,
 ) {
     // 存储每个对话的状态
     private val conversations = ConcurrentHashMap<Uuid, MutableStateFlow<Conversation>>()
@@ -4265,6 +4267,7 @@ class ChatService(
             providerManager = providerManager,
             requestLogManager = requestLogManager,
             json = JsonInstant,
+            progressStore = searchAgentProgressStore,
         ) ?: return originalTools
 
         return if (settings.searchAgentOverrideOriginalTools) {

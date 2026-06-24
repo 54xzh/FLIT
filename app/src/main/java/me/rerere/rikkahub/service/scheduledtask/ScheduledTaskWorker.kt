@@ -30,6 +30,7 @@ import me.rerere.rikkahub.data.ai.GenerationHandler
 import me.rerere.rikkahub.data.ai.AIRequestSource
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.tools.LocalTools
+import me.rerere.rikkahub.data.ai.tools.SearchAgentProgressStore
 import me.rerere.rikkahub.data.ai.tools.SearchAgentTools
 import me.rerere.rikkahub.data.ai.tools.SearchTools
 import me.rerere.rikkahub.data.ai.transformers.Base64ImageToLocalFileTransformer
@@ -82,6 +83,7 @@ class ScheduledTaskWorker(
     private val localTools: LocalTools by inject()
     private val mcpManager: McpManager by inject()
     private val scheduler: ScheduledTaskScheduler by inject()
+    private val searchAgentProgressStore: SearchAgentProgressStore by inject()
     private val providerManager: ProviderManager by inject()
     private val requestLogManager: AIRequestLogManager by inject()
 
@@ -515,6 +517,7 @@ class ScheduledTaskWorker(
             providerManager = providerManager,
             requestLogManager = requestLogManager,
             json = JsonInstant,
+            progressStore = searchAgentProgressStore,
         ) ?: return originalTools
 
         return if (settings.searchAgentOverrideOriginalTools) {

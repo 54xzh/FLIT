@@ -13,6 +13,7 @@ import me.rerere.rikkahub.data.backup.BackupCoordinator
 import me.rerere.rikkahub.data.backup.BackupLogManager
 import me.rerere.rikkahub.data.backup.BackupTaskMutex
 import me.rerere.rikkahub.data.ai.tools.LocalTools
+import me.rerere.rikkahub.data.ai.tools.SearchAgentProgressStore
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.service.AutoBackupScheduler
 import me.rerere.rikkahub.service.ModelNameGenerationService
@@ -35,6 +36,10 @@ val appModule = module {
 
     single {
         LocalTools(get(), get(), get())
+    }
+
+    single {
+        SearchAgentProgressStore()
     }
 
     single {
@@ -134,7 +139,8 @@ val appModule = module {
             localTools = get(),
             okHttpClient = get(),
             mcpManager = get(),
-            modelQuotaRepo = get()
+            modelQuotaRepo = get(),
+            searchAgentProgressStore = get(),
         )
     }
 

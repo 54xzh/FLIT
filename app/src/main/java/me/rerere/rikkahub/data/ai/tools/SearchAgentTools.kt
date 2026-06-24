@@ -38,13 +38,12 @@ import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 import org.intellij.markdown.parser.MarkdownParser
 import java.net.URI
 import java.time.LocalDate
+import kotlin.coroutines.coroutineContext
 import kotlin.uuid.Uuid
 
 private const val SEARCH_AGENT_TOOL_NAME = "search_agent"
 private const val SEARCH_AGENT_MAX_STEPS = 12
 private const val SEARCH_AGENT_TIMEOUT_MS = 90_000L
-private const val SEARCH_AGENT_METADATA_KEY = "_tool_result_metadata"
-private const val SEARCH_AGENT_STEPS_KEY = "search_agent_steps"
 private const val FALLBACK_SOURCE_LIMIT = 12
 
 private val MARKDOWN_URL_REGEX = Regex("""\[([^\]\n]{1,240})]\((https?://[^\s)]+)\)""")
@@ -63,6 +62,7 @@ object SearchAgentTools {
         providerManager: ProviderManager,
         requestLogManager: AIRequestLogManager,
         json: Json,
+        progressStore: SearchAgentProgressStore,
     ): Tool? {
         val agentModel = settings.searchAgentModelId
             ?.let(settings::findModelById)
@@ -94,6 +94,8 @@ object SearchAgentTools {
             },
             systemPrompt = { _, _ -> SEARCH_AGENT_MAIN_TOOL_PROMPT_TEMPLATE },
             execute = { args ->
+                val toolCallId = coroutineContext[me.rerere.ai.core.ToolCallContext]?.toolCallId
+                    ?: error("ToolCallContext missing for search_agent")
                 val params = args.jsonObject
                 val task = params["task"]?.jsonPrimitiveOrNull?.contentOrNull?.trim().orEmpty()
                 val urls = params["urls"]?.let { element ->
@@ -108,6 +110,8 @@ object SearchAgentTools {
                     providerManager = providerManager,
                     requestLogManager = requestLogManager,
                     json = json,
+                    toolCallId = toolCallId,
+                    progressStore = progressStore,
                 )
 
                 runner.run(task = task, urls = urls)
@@ -123,11 +127,36 @@ private class SearchAgentRunner(
     private val providerManager: ProviderManager,
     private val requestLogManager: AIRequestLogManager,
     private val json: Json,
+    private val toolCallId: String,
+    private val progressStore: SearchAgentProgressStore,
 ) {
-    private val steps = mutableListOf<JsonObject>()
+    private val stepList = mutableListOf<SearchAgentStep>()
     private val observedSourcesById = linkedMapOf<String, JsonObject>()
 
+    /** 把当前 stepList 同步推到进度仓库。 */
+    private fun publishProgress(finished: Boolean = false) {
+        val task = (stepList.firstOrNull() as? SearchAgentStep.TaskStep)?.text
+        progressStore.update(toolCallId) { progress ->
+            progress?.copy(steps = stepList.toList(), finished = finished)
+                ?: SearchAgentProgress(task = task, steps = stepList.toList(), finished = finished)
+        }
+    }
+
+    /** 追加并发布一条步骤。 */
+    private fun appendStep(step: SearchAgentStep) {
+        stepList += step
+        publishProgress()
+    }
+
+    /** 把最后一条同地替换为新的步骤（用于 Running -> Done）。 */
+    private fun replaceLastStep(transform: (SearchAgentStep) -> SearchAgentStep) {
+        val last = stepList.lastOrNull() ?: return
+        stepList[stepList.lastIndex] = transform(last)
+        publishProgress()
+    }
+
     suspend fun run(task: String, urls: List<String>): JsonObject {
+        appendStep(SearchAgentStep.TaskStep(text = buildTaskDetail(task = task, urls = urls)))
         return runCatching {
             withTimeout(SEARCH_AGENT_TIMEOUT_MS) {
                 runInternal(task = task, urls = urls)
@@ -137,17 +166,23 @@ private class SearchAgentRunner(
                 is kotlinx.coroutines.TimeoutCancellationException -> "搜索子代理超时，请稍后重试。"
                 else -> "搜索子代理失败：${throwable.message ?: throwable::class.simpleName.orEmpty()}"
             }
-            steps += step(
-                type = "error",
-                title = "搜索子代理失败",
-                detail = message,
-            )
+            appendStep(SearchAgentStep.ErrorStep(title = "搜索子代理失败", detail = message))
+            progressStore.finish(toolCallId)
             buildAgentResult(
                 summary = "",
                 sources = emptyList(),
                 notes = listOf(message),
             )
-        }.withMetadata(steps)
+        }.withMetadata(stepList.map { it.toJson() })
+    }
+
+    private fun buildTaskDetail(task: String, urls: List<String>): String = buildString {
+        appendLine(task)
+        if (urls.isNotEmpty()) {
+            appendLine()
+            append("URLs: ")
+            append(urls.joinToString(", "))
+        }
     }
 
     private suspend fun runInternal(task: String, urls: List<String>): JsonObject {
@@ -189,6 +224,10 @@ private class SearchAgentRunner(
                 )
                 rawResponseText = chunk.rawResponse.orEmpty()
                 messages = messages.handleMessageChunk(chunk = chunk, model = model)
+                // 被动展示思考：若本轮模型返回了 reasoning，发布一条折叠步骤
+                extractReasoning(messages)?.takeIf { it.isNotBlank() }?.let {
+                    appendStep(SearchAgentStep.ReasoningStep(text = it))
+                }
             } catch (t: Throwable) {
                 failure = t
                 throw t
@@ -212,13 +251,14 @@ private class SearchAgentRunner(
             if (toolCalls.isEmpty()) {
                 val finalText = messages.lastOrNull()?.toContentText().orEmpty()
                 val finalResult = normalizeFinalResult(finalText)
-                steps += step(
-                    type = "final",
-                    title = "完成总结",
-                    detail = finalResult["summary"]?.jsonPrimitiveOrNull?.contentOrNull
-                        ?.take(180)
-                        .orEmpty(),
+                appendStep(
+                    SearchAgentStep.FinalStep(
+                        detail = finalResult["summary"]?.jsonPrimitiveOrNull?.contentOrNull
+                            ?.take(180)
+                            .orEmpty(),
+                    ),
                 )
+                progressStore.finish(toolCallId)
                 return finalResult
             }
 
@@ -255,6 +295,17 @@ private class SearchAgentRunner(
             JsonObject(emptyMap())
         }
         val tool = internalTools.firstOrNull { it.name == toolCall.toolName }
+        // 先发布一条 Running 步骤（带 title），执行完替换为 Done
+        val runningTitle = buildInternalToolTitle(toolName = toolCall.toolName, args = args)
+        appendStep(
+            SearchAgentStep.ToolCallStep(
+                toolName = toolCall.toolName,
+                title = runningTitle,
+                detail = "执行中",
+                urls = emptyList(),
+                status = SearchAgentStep.ToolCallStep.Status.Running,
+            ),
+        )
         val result = runCatching {
             requireNotNull(tool) { "Tool ${toolCall.toolName} not found" }
             tool.execute(args)
@@ -265,7 +316,14 @@ private class SearchAgentRunner(
             }
         }
         rememberObservedSources(content = content)
-        steps += buildInternalToolStep(toolName = toolCall.toolName, args = args, content = content, failed = result.isFailure)
+        val doneStep = buildInternalToolDoneStep(
+            toolName = toolCall.toolName,
+            title = runningTitle,
+            args = args,
+            content = content,
+            failed = result.isFailure,
+        )
+        replaceLastStep { doneStep }
         return UIMessagePart.ToolResult(
             toolCallId = toolCall.toolCallId,
             toolName = toolCall.toolName,
@@ -530,55 +588,68 @@ private class SearchAgentRunner(
         }
     }
 
-    private fun buildInternalToolStep(
+    /** 运行中的 title（只看工具名和参数）。 */
+    private fun buildInternalToolTitle(toolName: String, args: JsonElement): String {
+        return when (toolName) {
+            "search_web" -> {
+                val query = (args as? JsonObject)?.get("query")?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
+                "搜索：$query"
+            }
+            "scrape_web" -> "读取网页"
+            else -> toolName
+        }
+    }
+
+    private fun buildInternalToolDoneStep(
         toolName: String,
+        title: String,
         args: JsonElement,
         content: JsonElement,
         failed: Boolean,
-    ): JsonObject {
+    ): SearchAgentStep.ToolCallStep {
         return when (toolName) {
             "search_web" -> {
-                val query = (args as? JsonObject)
-                    ?.get("query")
-                    ?.jsonPrimitiveOrNull
-                    ?.contentOrNull
-                    .orEmpty()
                 val items = (content as? JsonObject)?.get("items") as? JsonArray
-                step(
-                    type = if (failed) "error" else "search",
-                    title = "搜索：$query",
-                    detail = if (failed) {
-                        content.shortError()
-                    } else {
-                        "返回 ${items?.size ?: 0} 条结果"
-                    },
+                SearchAgentStep.ToolCallStep(
+                    toolName = toolName,
+                    title = title,
+                    detail = if (failed) content.shortError() else "返回 ${items?.size ?: 0} 条结果",
                     urls = items?.mapNotNull { item ->
                         (item as? JsonObject)?.get("url")?.jsonPrimitiveOrNull?.contentOrNull
                     }.orEmpty(),
+                    status = SearchAgentStep.ToolCallStep.Status.Done,
                 )
             }
 
             "scrape_web" -> {
                 val urls = args.extractUrls()
                 val scraped = (content as? JsonObject)?.get("urls") as? JsonArray
-                step(
-                    type = if (failed) "error" else "scrape",
-                    title = "读取网页",
-                    detail = if (failed) {
-                        content.shortError()
-                    } else {
-                        "读取 ${scraped?.size ?: urls.size} 个网页"
-                    },
+                SearchAgentStep.ToolCallStep(
+                    toolName = toolName,
+                    title = title,
+                    detail = if (failed) content.shortError() else "读取 ${scraped?.size ?: urls.size} 个网页",
                     urls = urls,
+                    status = SearchAgentStep.ToolCallStep.Status.Done,
                 )
             }
 
-            else -> step(
-                type = if (failed) "error" else "tool",
-                title = toolName,
+            else -> SearchAgentStep.ToolCallStep(
+                toolName = toolName,
+                title = title,
                 detail = if (failed) content.shortError() else "工具执行完成",
+                urls = emptyList(),
+                status = SearchAgentStep.ToolCallStep.Status.Done,
             )
         }
+    }
+
+    /** 从最新消息里提取内部模型的 reasoning（若有）。 */
+    private fun extractReasoning(messages: List<UIMessage>): String? {
+        val parts = messages.lastOrNull()?.parts ?: return null
+        return parts.filterIsInstance<UIMessagePart.Reasoning>()
+            .joinToString(separator = "\n") { it.reasoning }
+            .trim()
+            .takeIf { it.isNotBlank() }
     }
 
     private fun JsonElement.extractUrls(): List<String> {
@@ -642,20 +713,6 @@ private fun ASTNode.findChildOfTypeRecursive(vararg types: IElementType): ASTNod
         if (result != null) return result
     }
     return null
-}
-
-private fun step(
-    type: String,
-    title: String,
-    detail: String,
-    urls: List<String> = emptyList(),
-): JsonObject = buildJsonObject {
-    put("type", type)
-    put("title", title)
-    put("detail", detail)
-    put("urls", buildJsonArray {
-        urls.distinct().take(8).forEach { add(JsonPrimitive(it)) }
-    })
 }
 
 private fun List<UIMessage>.replaceLastToolCalls(resolvedToolCalls: List<UIMessagePart.ToolCall>): List<UIMessage> {
