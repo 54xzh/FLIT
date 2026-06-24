@@ -32,8 +32,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -60,13 +58,11 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -279,14 +275,14 @@ val SEARCH_SERVICE_PRESETS = listOf(
 fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val scope = rememberCoroutineScope()
-
-    // Two-tab pager: 0 = search providers, 1 = common settings
-    val pagerState = rememberPagerState(pageCount = { 2 })
+    val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
 
     // State for editing a service
     var editingService by remember { mutableStateOf<SearchServiceOptions?>(null) }
-    
+
+    // State for the common options bottom sheet
+    var showCommonSheet by remember { mutableStateOf(false) }
+
     // Move lazyListState outside for canScroll detection
     val lazyListState = rememberLazyListState()
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
@@ -315,196 +311,151 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
                     BackButton()
                 },
                 actions = {
-                    // "+" add provider only meaningful on the providers tab
-                    AnimatedVisibility(
-                        visible = pagerState.currentPage == 0,
-                        enter = fadeIn(),
-                        exit = fadeOut(),
-                    ) {
-                        AddSearchServiceButton(
-                            enableHaptics = settings.displaySetting.enableUIHaptics
-                        ) { newService ->
-                            vm.updateSettings(
-                                settings.copy(
-                                    searchServices = listOf(newService) + settings.searchServices
-                                )
-                            )
+                    // Common options (gear) button
+                    IconButton(
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            showCommonSheet = true
                         }
+                    ) {
+                        Icon(
+                            Icons.Rounded.Settings,
+                            contentDescription = stringResource(R.string.setting_page_search_common_options)
+                        )
+                    }
+
+                    // Add provider button
+                    AddSearchServiceButton(
+                        enableHaptics = settings.displaySetting.enableUIHaptics
+                    ) { newService ->
+                        vm.updateSettings(
+                            settings.copy(
+                                searchServices = listOf(newService) + settings.searchServices
+                            )
+                        )
                     }
                 }
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
     ) {
-        val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
         val density = LocalDensity.current
-        
+
         // State for swipe neighbor tracking
         var draggingIndex by remember { mutableStateOf(-1) }
         var dragOffset by remember { mutableFloatStateOf(0f) }
         var isUnlocked by remember { mutableStateOf(false) }
         var neighborsUnlocked by remember { mutableStateOf(false) }
-        
-        
+
+
         // Check if delete is allowed (more than 1 service)
         val canDelete = settings.searchServices.size > 1
-        
+
         // Reset neighborsUnlocked when offset returns to 0
         if (dragOffset == 0f && neighborsUnlocked) {
             neighborsUnlocked = false
         }
-        
 
-        
+
+
         // Delete confirmation state
         var showDeleteDialog by remember { mutableStateOf(false) }
         var serviceToDelete by remember { mutableStateOf<SearchServiceOptions?>(null) }
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            SecondaryTabRow(
-                selectedTabIndex = pagerState.currentPage,
-                containerColor = Color.Transparent,
-            ) {
-                Tab(
-                    selected = pagerState.currentPage == 0,
-                    onClick = {
-                        haptics.perform(HapticPattern.Tick)
-                        scope.launch { pagerState.animateScrollToPage(0) }
-                    },
-                    text = { Text(stringResource(R.string.setting_page_search_tab_providers)) },
-                )
-                Tab(
-                    selected = pagerState.currentPage == 1,
-                    onClick = {
-                        haptics.perform(HapticPattern.Tick)
-                        scope.launch { pagerState.animateScrollToPage(1) }
-                    },
-                    text = { Text(stringResource(R.string.setting_page_search_tab_common)) },
-                )
-            }
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
+            contentPadding = it + PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            state = lazyListState
+        ) {
+            itemsIndexed(settings.searchServices, key = { _, service -> service.id }) { index, service ->
+                val position = when {
+                    settings.searchServices.size == 1 -> ItemPosition.ONLY
+                    index == 0 -> ItemPosition.FIRST
+                    index == settings.searchServices.lastIndex -> ItemPosition.LAST
+                    else -> ItemPosition.MIDDLE
+                }
 
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.weight(1f),
-            ) { page ->
-                when (page) {
-                    0 -> {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .imePadding(),
-                            contentPadding = it + PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                            state = lazyListState
-                        ) {
-                            itemsIndexed(settings.searchServices, key = { _, service -> service.id }) { index, service ->
-                                val position = when {
-                                    settings.searchServices.size == 1 -> ItemPosition.ONLY
-                                    index == 0 -> ItemPosition.FIRST
-                                    index == settings.searchServices.lastIndex -> ItemPosition.LAST
-                                    else -> ItemPosition.MIDDLE
-                                }
+                // Calculate neighbor offset
+                val thresholdPx = with(density) { 35.dp.toPx() }
+                if (draggingIndex >= 0 && !neighborsUnlocked && kotlin.math.abs(dragOffset) >= thresholdPx) {
+                    neighborsUnlocked = true
+                }
 
-                                // Calculate neighbor offset
-                                val thresholdPx = with(density) { 35.dp.toPx() }
-                                if (draggingIndex >= 0 && !neighborsUnlocked && kotlin.math.abs(dragOffset) >= thresholdPx) {
-                                    neighborsUnlocked = true
-                                }
+                val shouldNeighborFollow = draggingIndex >= 0 &&
+                    draggingIndex != index &&
+                    !isUnlocked &&
+                    !neighborsUnlocked
 
-                                val shouldNeighborFollow = draggingIndex >= 0 &&
-                                    draggingIndex != index &&
-                                    !isUnlocked &&
-                                    !neighborsUnlocked
-
-                                val neighborOffset = if (shouldNeighborFollow) {
-                                    val distance = kotlin.math.abs(index - draggingIndex)
-                                    when (distance) {
-                                        1 -> dragOffset * 0.35f
-                                        2 -> dragOffset * 0.12f
-                                        else -> 0f
-                                    }
-                                } else {
-                                    0f
-                                }
-
-                                ReorderableItem(
-                                    state = reorderableState,
-                                    key = service.id
-                                ) { isDragging ->
-                                    // Key on canDelete to force complete PhysicsSwipeToDelete recreation when list size changes
-                                    androidx.compose.runtime.key(canDelete) {
-                                        PhysicsSwipeToDelete(
-                                            position = position,
-                                            deleteEnabled = canDelete,
-                                            neighborOffset = neighborOffset,
-                                            onDragProgress = { offset, unlocked ->
-                                                draggingIndex = index
-                                                dragOffset = offset
-                                                isUnlocked = unlocked
-                                            },
-                                            onDragEnd = {
-                                                if (draggingIndex == index) {
-                                                    draggingIndex = -1
-                                                    dragOffset = 0f
-                                                }
-                                            },
-                                            onDelete = {
-                                                serviceToDelete = service
-                                                showDeleteDialog = true
-                                            },
-                                            modifier = Modifier
-                                                .scale(if (isDragging) 0.95f else 1f)
-                                                .fillMaxWidth()
-                                        ) {
-                                            SearchServiceItemContent(
-                                                service = service,
-                                                haptics = haptics,
-                                                onClick = {
-                                                    editingService = service
-                                                },
-                                                dragHandle = {
-                                                    IconButton(
-                                                        onClick = {},
-                                                        modifier = Modifier.longPressDraggableHandle(
-                                                            onDragStarted = {
-                                                                haptics.perform(HapticPattern.Pop)
-                                                            },
-                                                            onDragStopped = {
-                                                                haptics.perform(HapticPattern.Thud)
-                                                            }
-                                                        )
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Rounded.DragIndicator,
-                                                            contentDescription = null
-                                                        )
-                                                    }
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                val neighborOffset = if (shouldNeighborFollow) {
+                    val distance = kotlin.math.abs(index - draggingIndex)
+                    when (distance) {
+                        1 -> dragOffset * 0.35f
+                        2 -> dragOffset * 0.12f
+                        else -> 0f
                     }
+                } else {
+                    0f
+                }
 
-                    1 -> {
-                        CommonOptionsTab(
-                            settings = settings,
-                            contentPadding = it,
-                            onUpdate = { options ->
-                                vm.updateSettings { current ->
-                                    current.copy(
-                                        searchCommonOptions = options
-                                    )
+
+                ReorderableItem(
+                    state = reorderableState,
+                    key = service.id
+                ) { isDragging ->
+                    // Key on canDelete to force complete PhysicsSwipeToDelete recreation when list size changes
+                    androidx.compose.runtime.key(canDelete) {
+                        PhysicsSwipeToDelete(
+                            position = position,
+                            deleteEnabled = canDelete,
+                            neighborOffset = neighborOffset,
+                            onDragProgress = { offset, unlocked ->
+                                draggingIndex = index
+                                dragOffset = offset
+                                isUnlocked = unlocked
+                            },
+                            onDragEnd = {
+                                if (draggingIndex == index) {
+                                    draggingIndex = -1
+                                    dragOffset = 0f
                                 }
                             },
-                            onUpdateOverrideOriginalTools = { enabled ->
-                                vm.updateSettings { current ->
-                                    current.copy(searchAgentOverrideOriginalTools = enabled)
-                                }
+                            onDelete = {
+                                serviceToDelete = service
+                                showDeleteDialog = true
                             },
-                        )
+                            modifier = Modifier
+                                .scale(if (isDragging) 0.95f else 1f)
+                                .fillMaxWidth()
+                        ) {
+                            SearchServiceItemContent(
+                                service = service,
+                                haptics = haptics,
+                                onClick = {
+                                    editingService = service
+                                },
+                                dragHandle = {
+                                    IconButton(
+                                        onClick = {},
+                                        modifier = Modifier.longPressDraggableHandle(
+                                            onDragStarted = {
+                                                haptics.perform(HapticPattern.Pop)
+                                            },
+                                            onDragStopped = {
+                                                haptics.perform(HapticPattern.Thud)
+                                            }
+                                        )
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.DragIndicator,
+                                            contentDescription = null
+                                        )
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -546,7 +497,60 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
             )
         }
     }
-    
+
+    // Common options bottom sheet (opened from the gear button)
+    if (showCommonSheet) {
+        val commonSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val commonScope = rememberCoroutineScope()
+        ModalBottomSheet(
+            onDismissRequest = { showCommonSheet = false },
+            sheetState = commonSheetState,
+            sheetGesturesEnabled = false,
+            dragHandle = {
+                IconButton(
+                    onClick = {
+                        commonScope.launch {
+                            commonSheetState.hide()
+                            showCommonSheet = false
+                        }
+                    }
+                ) {
+                    Icon(Icons.Rounded.KeyboardArrowDown, null)
+                }
+            }
+        ) {
+            // Sheet content: single grouped card. SettingsGroup already applies
+            // its own 16dp horizontal padding, so no extra padding here (avoids
+            // double indent). Sheet wraps content height (no fillMaxHeight).
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+            ) {
+                SettingsGroup(
+                    title = stringResource(R.string.setting_page_search_common_options)
+                ) {
+                    // Delegate the actual common options content to a reusable composable
+                    CommonOptionsContent(
+                        settings = settings,
+                        onUpdate = { options ->
+                            vm.updateSettings { current ->
+                                current.copy(
+                                    searchCommonOptions = options
+                                )
+                            }
+                        },
+                        onUpdateOverrideOriginalTools = { enabled ->
+                            vm.updateSettings { current ->
+                                current.copy(searchAgentOverrideOriginalTools = enabled)
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+
     // Edit Search Service Bottom Sheet
     editingService?.let { service ->
         val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1249,9 +1253,8 @@ fun ZhipuOptions(
 }
 
 @Composable
-private fun CommonOptionsTab(
+private fun CommonOptionsContent(
     settings: Settings,
-    contentPadding: PaddingValues,
     onUpdate: (SearchCommonOptions) -> Unit,
     onUpdateOverrideOriginalTools: (Boolean) -> Unit,
 ) {
@@ -1259,98 +1262,96 @@ private fun CommonOptionsTab(
         mutableStateOf(settings.searchCommonOptions)
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding(),
-        contentPadding = contentPadding + PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+    // Result size slider — wrapped in a Surface card so it matches the
+    // SettingGroupItem cards (otherwise the slider sits on the bare sheet
+    // background and appears as a white patch).
+    Surface(
+        color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow
+        else MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        item {
-            SettingsGroup(
-                title = stringResource(R.string.setting_page_search_common_options)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // Result size slider
-                Row(
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.setting_page_search_result_size),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = stringResource(R.string.setting_page_search_result_size_desc),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "${commonOptions.resultSize}",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.primary,
+                        text = stringResource(R.string.setting_page_search_result_size),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = stringResource(R.string.setting_page_search_result_size_desc),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Slider(
-                    value = commonOptions.resultSize.toFloat(),
-                    onValueChange = {
-                        commonOptions = commonOptions.copy(
-                            resultSize = it.toInt()
-                        )
-                        onUpdate(commonOptions)
-                    },
-                    valueRange = 1f..32f,
-                    steps = 30,
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp)
-                        .fillMaxWidth(),
-                )
-
-                // Multi-provider strategy dropdown
-                SettingGroupItem(
-                    title = stringResource(R.string.setting_page_search_multi_strategy),
-                    subtitle = stringResource(R.string.setting_page_search_multi_strategy_desc),
-                    trailing = {
-                        val strategies = remember { MultiSearchStrategy.entries.toList() }
-                        Select(
-                            options = strategies,
-                            selectedOption = commonOptions.multiSearchStrategy,
-                            onOptionSelected = { strategy ->
-                                commonOptions = commonOptions.copy(multiSearchStrategy = strategy)
-                                onUpdate(commonOptions)
-                            },
-                            optionToString = { strategy ->
-                                stringResource(
-                                    if (strategy == MultiSearchStrategy.PARALLEL)
-                                        R.string.setting_page_search_multi_strategy_parallel
-                                    else
-                                        R.string.setting_page_search_multi_strategy_sequential
-                                )
-                            },
-                            modifier = Modifier.widthIn(min = 64.dp, max = 140.dp)
-                        )
-                    },
-                )
-
-                // Override original tools
-                SettingGroupItem(
-                    title = stringResource(R.string.setting_search_page_override_original_tools),
-                    subtitle = stringResource(R.string.setting_search_page_override_original_tools_desc),
-                    trailing = {
-                        HapticSwitch(
-                            checked = settings.searchAgentOverrideOriginalTools,
-                            onCheckedChange = onUpdateOverrideOriginalTools,
-                        )
-                    },
+                Text(
+                    text = "${commonOptions.resultSize}",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
+            Slider(
+                value = commonOptions.resultSize.toFloat(),
+                onValueChange = {
+                    commonOptions = commonOptions.copy(
+                        resultSize = it.toInt()
+                    )
+                    onUpdate(commonOptions)
+                },
+                valueRange = 1f..32f,
+                steps = 30,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
+
+    // Multi-provider strategy dropdown
+    SettingGroupItem(
+        title = stringResource(R.string.setting_page_search_multi_strategy),
+        subtitle = stringResource(R.string.setting_page_search_multi_strategy_desc),
+        trailing = {
+            val strategies = remember { MultiSearchStrategy.entries.toList() }
+            Select(
+                options = strategies,
+                selectedOption = commonOptions.multiSearchStrategy,
+                onOptionSelected = { strategy ->
+                    commonOptions = commonOptions.copy(multiSearchStrategy = strategy)
+                    onUpdate(commonOptions)
+                },
+                optionToString = { strategy ->
+                    stringResource(
+                        if (strategy == MultiSearchStrategy.PARALLEL)
+                            R.string.setting_page_search_multi_strategy_parallel
+                        else
+                            R.string.setting_page_search_multi_strategy_sequential
+                    )
+                },
+                modifier = Modifier.widthIn(min = 64.dp, max = 140.dp)
+            )
+        },
+    )
+
+    // Override original tools
+    SettingGroupItem(
+        title = stringResource(R.string.setting_search_page_override_original_tools),
+        subtitle = stringResource(R.string.setting_search_page_override_original_tools_desc),
+        trailing = {
+            HapticSwitch(
+                checked = settings.searchAgentOverrideOriginalTools,
+                onCheckedChange = onUpdateOverrideOriginalTools,
+            )
+        },
+    )
 }
 
 @Composable
