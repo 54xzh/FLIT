@@ -2,7 +2,6 @@ package me.rerere.rikkahub.ui.components.ai
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
@@ -50,9 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -86,6 +83,9 @@ import me.rerere.rikkahub.ui.hooks.rememberAmoledDarkMode
 import org.koin.compose.koinInject
 
 import androidx.compose.ui.graphics.Shape
+
+private const val SearchPickerMotionDamping = 0.78f
+private const val SearchPickerMotionStiffness = 260f
 
 @Composable
 fun SearchPickerButton(
@@ -313,30 +313,6 @@ private fun AppSearchSettings(
         (if (showSearchAgent) 1 else 0)
     val builtInSearchIndex = 1
     val searchAgentIndex = 1 + if (modelSupportsBuiltIn) 1 else 0
-    val providerOffsetY = remember { Animatable(0f) }
-    val density = LocalDensity.current
-    var previousShowSearchAgent by remember { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(showSearchAgent, showProviderItems, density) {
-        if (!showProviderItems) {
-            providerOffsetY.snapTo(0f)
-            previousShowSearchAgent = showSearchAgent
-            return@LaunchedEffect
-        }
-
-        val previous = previousShowSearchAgent
-        previousShowSearchAgent = showSearchAgent
-        if (previous == null || previous == showSearchAgent) {
-            providerOffsetY.snapTo(0f)
-            return@LaunchedEffect
-        }
-
-        val kickOffset = with(density) { 14.dp.toPx() }
-        providerOffsetY.snapTo(if (showSearchAgent) -kickOffset else kickOffset)
-        providerOffsetY.animateTo(
-            targetValue = 0f,
-            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
-        )
-    }
     
     Column(
         modifier = modifier,
@@ -371,16 +347,28 @@ private fun AppSearchSettings(
             AnimatedVisibility(
                 visible = showSearchAgent,
                 enter = fadeIn(
-                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+                    animationSpec = spring(
+                        dampingRatio = SearchPickerMotionDamping,
+                        stiffness = SearchPickerMotionStiffness
+                    )
                 ) + expandVertically(
                     expandFrom = Alignment.Top,
-                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+                    animationSpec = spring(
+                        dampingRatio = SearchPickerMotionDamping,
+                        stiffness = SearchPickerMotionStiffness
+                    )
                 ),
                 exit = fadeOut(
-                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+                    animationSpec = spring(
+                        dampingRatio = SearchPickerMotionDamping,
+                        stiffness = SearchPickerMotionStiffness
+                    )
                 ) + shrinkVertically(
                     shrinkTowards = Alignment.Top,
-                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+                    animationSpec = spring(
+                        dampingRatio = SearchPickerMotionDamping,
+                        stiffness = SearchPickerMotionStiffness
+                    )
                 ),
             ) {
                 SearchOptionToggleItem(
@@ -401,9 +389,6 @@ private fun AppSearchSettings(
             Spacer(modifier = Modifier.size(8.dp))
 
             Column(
-                modifier = Modifier.graphicsLayer {
-                    translationY = providerOffsetY.value
-                },
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 settings.searchServices.forEachIndexed { index, service ->
@@ -466,12 +451,18 @@ private fun rememberSearchItemShape(
     }
     val topCorner by animateDpAsState(
         targetValue = topCornerTarget,
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+        animationSpec = spring(
+            dampingRatio = SearchPickerMotionDamping,
+            stiffness = SearchPickerMotionStiffness
+        ),
         label = "${label}TopCorner"
     )
     val bottomCorner by animateDpAsState(
         targetValue = bottomCornerTarget,
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+        animationSpec = spring(
+            dampingRatio = SearchPickerMotionDamping,
+            stiffness = SearchPickerMotionStiffness
+        ),
         label = "${label}BottomCorner"
     )
     return RoundedCornerShape(
