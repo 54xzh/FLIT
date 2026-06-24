@@ -554,6 +554,11 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
                                 current.copy(searchAgentOverrideOriginalTools = enabled)
                             }
                         },
+                        onUpdateCompactMode = { enabled ->
+                            vm.updateSettings { current ->
+                                current.copy(searchAgentCompactMode = enabled)
+                            }
+                        },
                     )
                 }
             }
@@ -1266,6 +1271,7 @@ private fun CommonOptionsContent(
     settings: Settings,
     onUpdate: (SearchCommonOptions) -> Unit,
     onUpdateOverrideOriginalTools: (Boolean) -> Unit,
+    onUpdateCompactMode: (Boolean) -> Unit,
 ) {
     var commonOptions by remember(settings.searchCommonOptions) {
         mutableStateOf(settings.searchCommonOptions)
@@ -1361,6 +1367,18 @@ private fun CommonOptionsContent(
             HapticSwitch(
                 checked = settings.searchAgentOverrideOriginalTools,
                 onCheckedChange = onUpdateOverrideOriginalTools,
+            )
+        },
+    )
+
+    // Compact sub-agent results
+    SettingGroupItem(
+        title = stringResource(R.string.setting_search_page_compact_agent_result),
+        subtitle = stringResource(R.string.setting_search_page_compact_agent_result_desc),
+        trailing = {
+            HapticSwitch(
+                checked = settings.searchAgentCompactMode,
+                onCheckedChange = onUpdateCompactMode,
             )
         },
     )

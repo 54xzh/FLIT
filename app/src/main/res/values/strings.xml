@@ -1689,6 +1689,8 @@
     <string name="setting_search_page_edit_service_title">Edit %1$s</string>
     <string name="setting_search_page_enable_search_agent">Enable Search Agent</string>
     <string name="setting_search_page_override_original_tools">Override Original Search Tools</string>
+    <string name="setting_search_page_compact_agent_result">Compact Sub-Agent Results</string>
+    <string name="setting_search_page_compact_agent_result_desc">When on, only the summary and notes from the search sub-agent are sent to the model, filtering out source details</string>
     <string name="setting_search_page_service_fallback_name">Search Service</string>
     <string name="setting_search_page_alias">Alias (Optional)</string>
     <string name="setting_search_page_stealth_mode">Stealth Mode</string>

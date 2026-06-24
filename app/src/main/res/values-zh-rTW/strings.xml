@@ -1496,6 +1496,8 @@
   <string name="setting_search_page_enable_search_agent_desc">使用子代理進行搜尋、讀取網頁並總結結果</string>
   <string name="setting_search_page_override_original_tools">覆蓋原搜尋工具</string>
   <string name="setting_search_page_override_original_tools_desc">啟用搜尋子代理時，讓搜尋子代理工具替換原搜尋與抓取工具</string>
+  <string name="setting_search_page_compact_agent_result">精簡子代理回傳結果</string>
+  <string name="setting_search_page_compact_agent_result_desc">開啟後，只將子代理的摘要和備註發送給模型，過濾掉來源詳情</string>
   <string name="setting_search_page_model">模型</string>
   <string name="setting_search_page_engines">引擎</string>
   <string name="setting_search_page_include_images">包含圖片</string>

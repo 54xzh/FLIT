@@ -100,6 +100,7 @@ import kotlin.uuid.Uuid
 
 private const val TAG = "GenerationHandler"
 private const val SEARCH_WEB_TOOL_NAME = "search_web"
+private const val SEARCH_AGENT_TOOL_NAME = "search_agent"
 private val MEMORY_TOOL_NAMES = setOf("create_memory", "edit_memory", "delete_memory")
 private val SESSION_MEMORY_TOOL_NAMES = setOf(
     "create_session_memory",
@@ -655,6 +656,24 @@ class GenerationHandler(
                     )
                 }
             }
+
+            // Strip sources from search agent results if compact mode is enabled
+            if (settings.searchAgentCompactMode) {
+                results.replaceAll { result ->
+                    if (result.toolName == SEARCH_AGENT_TOOL_NAME) {
+                        val obj = result.content as? JsonObject
+                        if (obj != null && "sources" in obj) {
+                            val stripped = obj.toMutableMap().apply { remove("sources") }
+                            result.copy(content = JsonObject(stripped))
+                        } else {
+                            result
+                        }
+                    } else {
+                        result
+                    }
+                }
+            }
+
             messages = messages + UIMessage(
                 role = MessageRole.TOOL,
                 parts = results
