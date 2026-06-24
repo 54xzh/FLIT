@@ -499,11 +499,6 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
                                     )
                                 }
                             },
-                            onUpdateEnableSearchAgent = { enabled ->
-                                vm.updateSettings { current ->
-                                    current.copy(enableSearchAgent = enabled)
-                                }
-                            },
                             onUpdateOverrideOriginalTools = { enabled ->
                                 vm.updateSettings { current ->
                                     current.copy(searchAgentOverrideOriginalTools = enabled)
@@ -1258,7 +1253,6 @@ private fun CommonOptionsTab(
     settings: Settings,
     contentPadding: PaddingValues,
     onUpdate: (SearchCommonOptions) -> Unit,
-    onUpdateEnableSearchAgent: (Boolean) -> Unit,
     onUpdateOverrideOriginalTools: (Boolean) -> Unit,
 ) {
     var commonOptions by remember(settings.searchCommonOptions) {
@@ -1339,18 +1333,6 @@ private fun CommonOptionsTab(
                                 )
                             },
                             modifier = Modifier.widthIn(min = 64.dp, max = 140.dp)
-                        )
-                    },
-                )
-
-                // Enable search agent
-                SettingGroupItem(
-                    title = stringResource(R.string.setting_search_page_enable_search_agent),
-                    subtitle = stringResource(R.string.setting_search_page_enable_search_agent_desc),
-                    trailing = {
-                        HapticSwitch(
-                            checked = settings.enableSearchAgent,
-                            onCheckedChange = onUpdateEnableSearchAgent,
                         )
                     },
                 )

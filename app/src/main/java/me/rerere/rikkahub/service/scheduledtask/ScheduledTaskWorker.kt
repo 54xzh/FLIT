@@ -191,7 +191,7 @@ class ScheduledTaskWorker(
             )
         val modelProvider = model.findProvider(settings.providers)
         val modelSupportsBuiltIn = model.supportsBuiltInSearch(modelProvider)
-        val useBuiltInSearch = modelSupportsBuiltIn && (
+        val useBuiltInSearch = modelSupportsBuiltIn && !assistantForRun.enableSearchAgent && (
             assistantForRun.searchMode is AssistantSearchMode.BuiltIn ||
                 (assistantForRun.preferBuiltInSearch && assistantForRun.searchMode !is AssistantSearchMode.Off)
             )
@@ -380,6 +380,11 @@ class ScheduledTaskWorker(
         val assistantForRun = assistant.copy(
             searchMode = resolveSearchModeOverride(task, assistant),
             preferBuiltInSearch = resolvePreferBuiltInSearchOverride(task, assistant),
+            enableSearchAgent = when (task.searchOverrideType) {
+                ScheduledTaskSearchOverrideType.OFF,
+                ScheduledTaskSearchOverrideType.OVERRIDE_PREFER_BUILTIN -> false
+                else -> assistant.enableSearchAgent
+            },
             mcpServers = resolveMcpServersOverride(task, assistant),
         )
 
@@ -449,7 +454,7 @@ class ScheduledTaskWorker(
         return buildList {
             val modelProvider = model.findProvider(settings.providers)
             val modelSupportsBuiltIn = model.supportsBuiltInSearch(modelProvider)
-            val useBuiltInSearch = modelSupportsBuiltIn && (
+            val useBuiltInSearch = modelSupportsBuiltIn && !assistantForRun.enableSearchAgent && (
                 assistantForRun.searchMode is AssistantSearchMode.BuiltIn ||
                     (assistantForRun.preferBuiltInSearch && assistantForRun.searchMode !is AssistantSearchMode.Off)
                 )
@@ -458,7 +463,13 @@ class ScheduledTaskWorker(
                 is AssistantSearchMode.Provider,
                 is AssistantSearchMode.MultiProvider -> {
                     if (!useBuiltInSearch) {
-                        addAll(createEffectiveSearchTools(settings, sm))
+                        addAll(
+                            createEffectiveSearchTools(
+                                settings = settings,
+                                searchMode = sm,
+                                enableSearchAgent = assistantForRun.enableSearchAgent,
+                            )
+                        )
                     }
                 }
 
@@ -493,9 +504,10 @@ class ScheduledTaskWorker(
     private fun createEffectiveSearchTools(
         settings: me.rerere.rikkahub.data.datastore.Settings,
         searchMode: AssistantSearchMode,
+        enableSearchAgent: Boolean,
     ): List<Tool> {
         val originalTools = SearchTools.createSearchTools(settings, searchMode).toList()
-        if (!settings.enableSearchAgent) return originalTools
+        if (!enableSearchAgent) return originalTools
 
         val searchAgentTool = SearchAgentTools.create(
             settings = settings,

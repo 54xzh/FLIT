@@ -595,7 +595,9 @@ fun Settings.toWebSettingsDto(context: Context): WebSettingsDto {
             provider.toWebProviderDto(
                 selectedModelId = currentModelId,
                 builtInSearchEnabled = currentAssistant?.let {
-                    it.preferBuiltInSearch || it.searchMode is AssistantSearchMode.BuiltIn
+                    !it.enableSearchAgent && (
+                        it.preferBuiltInSearch || it.searchMode is AssistantSearchMode.BuiltIn
+                    )
                 } == true,
             )
         },

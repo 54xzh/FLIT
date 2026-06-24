@@ -69,6 +69,7 @@ import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantSearchMode
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.buildAssistantProviderSearchMode
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.utils.JsonInstant
@@ -825,11 +826,9 @@ private fun Route.webRoutes(
                     .toList()
 
                 val assistant = current.getCurrentAssistant()
-                val nextSearchMode = when (sanitizedIndices.size) {
-                    0 -> AssistantSearchMode.Off
-                    1 -> AssistantSearchMode.Provider(sanitizedIndices.first())
-                    else -> AssistantSearchMode.MultiProvider(sanitizedIndices)
-                }
+                val nextSearchMode = buildAssistantProviderSearchMode(
+                    indices = sanitizedIndices,
+                )
 
                 current.copy(
                     enableWebSearch = sanitizedIndices.isNotEmpty(),
@@ -883,6 +882,7 @@ private fun Route.webRoutes(
                     assistants = current.assistants.replaceAssistant(assistant.id) {
                         it.copy(
                             preferBuiltInSearch = request.enabled,
+                            enableSearchAgent = if (request.enabled) false else it.enableSearchAgent,
                             searchMode = if (!request.enabled && it.searchMode is AssistantSearchMode.BuiltIn) {
                                 AssistantSearchMode.Off
                             } else {

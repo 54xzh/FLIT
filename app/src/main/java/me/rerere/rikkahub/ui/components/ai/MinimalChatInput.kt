@@ -120,6 +120,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.FileProvider
 import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.supportsBuiltInSearch
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.mcp.McpStatus
@@ -135,6 +136,7 @@ import me.rerere.rikkahub.data.datastore.getEffectiveWorkspaceRootTreeUri
 import me.rerere.rikkahub.data.datastore.hasConversationWorkspaceRoot
 import me.rerere.rikkahub.data.datastore.rememberWorkspaceForNewChatsIfEnabled
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.buildAssistantProviderSearchMode
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.ui.components.crop.CropImageScreen
@@ -787,11 +789,13 @@ private fun MinimalPickerContent(
     var lastValidProviderIndex by rememberSaveable { mutableStateOf(settings.searchServiceSelected.coerceAtLeast(0)) }
     
     // Update lastValidProviderIndex when a valid external index is set
-    val currentProviderIndex = when (val mode = assistant.searchMode) {
-        is me.rerere.rikkahub.data.model.AssistantSearchMode.Provider -> mode.index
-        is me.rerere.rikkahub.data.model.AssistantSearchMode.MultiProvider -> mode.indices.firstOrNull() ?: -1
-        else -> -1
+    val currentSearchProviderIndices = when (val mode = assistant.searchMode) {
+        is me.rerere.rikkahub.data.model.AssistantSearchMode.Provider -> listOf(mode.index)
+        is me.rerere.rikkahub.data.model.AssistantSearchMode.MultiProvider -> mode.indices
+        else -> emptyList()
     }
+    val currentProviderIndex = currentSearchProviderIndices.firstOrNull() ?: -1
+    val enableSearchAgent = assistant.enableSearchAgent
     LaunchedEffect(currentProviderIndex) {
         if (currentProviderIndex >= 0 && currentProviderIndex < settings.searchServices.size) {
             lastValidProviderIndex = currentProviderIndex
@@ -1120,17 +1124,46 @@ private fun MinimalPickerContent(
             }
 
             // Search picker - show selected provider if enabled
-            val searchService = settings.searchServices.getOrNull(effectiveProviderIndex)
-            val searchProviderTypeName = if (searchService != null) {
-                SearchServiceOptions.TYPES[searchService::class]
-            } else null
-            val searchProviderName = searchService?.displayName
+            val selectedSearchServices = currentSearchProviderIndices
+                .asSequence()
+                .filter { index -> index in settings.searchServices.indices }
+                .distinct()
+                .sorted()
+                .map { index -> index to settings.searchServices[index] }
+                .toList()
+            val firstSearchService = selectedSearchServices.firstOrNull()?.second
+            val searchProviderTypeName = firstSearchService?.let { service ->
+                SearchServiceOptions.TYPES[service::class]
+            }
+            val searchProviderName = selectedSearchServices
+                .joinToString(", ") { (index, service) ->
+                    service.displayName.ifBlank { "Provider ${index + 1}" }
+                }
+                .takeIf { it.isNotBlank() }
+            val modelProviderForSearch = currentChatModel?.findProvider(settings.providers)
+            val isUsingBuiltInSearch = enableSearch &&
+                currentChatModel?.supportsBuiltInSearch(modelProviderForSearch) == true &&
+                !enableSearchAgent &&
+                (
+                    assistant.searchMode is me.rerere.rikkahub.data.model.AssistantSearchMode.BuiltIn ||
+                        assistant.preferBuiltInSearch
+                    )
+            val searchTitle = when {
+                !enableSearch -> stringResource(R.string.minimal_input_search)
+                isUsingBuiltInSearch -> stringResource(R.string.built_in_search_title)
+                searchProviderName != null -> searchProviderName
+                else -> stringResource(R.string.minimal_input_search)
+            }
+            val searchSubtitle = when {
+                enableSearch && enableSearchAgent -> stringResource(R.string.search_agent_enabled_mode)
+                enableSearch -> stringResource(R.string.web_search_enabled)
+                else -> stringResource(R.string.minimal_input_search_desc)
+            }
 
             // Show provider icon when search is enabled and a provider is configured
             MinimalPickerItem(
                 icon = {
-                    // Only show provider icon when search is actually enabled
-                    if (enableSearch && searchProviderTypeName != null) {
+                    if (enableSearch && !isUsingBuiltInSearch && searchProviderTypeName != null) {
                         AutoAIIcon(
                             name = searchProviderTypeName,
                             modifier = Modifier.size(24.dp)
@@ -1144,8 +1177,8 @@ private fun MinimalPickerContent(
                         )
                     }
                 },
-                title = if (enableSearch && searchProviderName != null) searchProviderName else stringResource(R.string.minimal_input_search),
-                subtitle = if (enableSearch) stringResource(R.string.web_search_enabled) else stringResource(R.string.minimal_input_search_desc),
+                title = searchTitle,
+                subtitle = searchSubtitle,
                 onClick = {
                     showSearchPicker = true
                 }
@@ -1400,11 +1433,7 @@ private fun MinimalPickerContent(
                         onUpdateSearchService(index)
                     },
                     selectedProviderIndex = effectiveProviderIndex,  // Use effective index so selection persists when off
-                    selectedProviderIndices = when (val mode = assistant.searchMode) {
-                        is me.rerere.rikkahub.data.model.AssistantSearchMode.Provider -> listOf(mode.index)
-                        is me.rerere.rikkahub.data.model.AssistantSearchMode.MultiProvider -> mode.indices
-                        else -> emptyList()
-                    },
+                    selectedProviderIndices = currentSearchProviderIndices,
                     onUpdateSearchProviders = { indices ->
                         val sanitized = indices
                             .asSequence()
@@ -1413,17 +1442,42 @@ private fun MinimalPickerContent(
                             .sorted()
                             .toList()
 
-                        val nextMode = when (sanitized.size) {
-                            0 -> me.rerere.rikkahub.data.model.AssistantSearchMode.Off
-                            1 -> me.rerere.rikkahub.data.model.AssistantSearchMode.Provider(sanitized.first())
-                            else -> me.rerere.rikkahub.data.model.AssistantSearchMode.MultiProvider(sanitized)
-                        }
+                        val nextMode = buildAssistantProviderSearchMode(indices = sanitized)
 
                         onUpdateAssistant(assistant.copy(searchMode = nextMode))
                     },
                     preferBuiltInSearch = assistant.preferBuiltInSearch,
                     onTogglePreferBuiltInSearch = { enabled ->
-                        onUpdateAssistant(assistant.copy(preferBuiltInSearch = enabled))
+                        onUpdateAssistant(
+                            assistant.copy(
+                                preferBuiltInSearch = enabled,
+                                enableSearchAgent = if (enabled) false else assistant.enableSearchAgent,
+                            )
+                        )
+                    },
+                    enableSearchAgent = enableSearchAgent,
+                    onToggleSearchAgent = { enabled ->
+                        val nextSearchMode = if (
+                            enabled &&
+                            assistant.searchMode !is me.rerere.rikkahub.data.model.AssistantSearchMode.Provider &&
+                            assistant.searchMode !is me.rerere.rikkahub.data.model.AssistantSearchMode.MultiProvider &&
+                            settings.searchServices.isNotEmpty()
+                        ) {
+                            buildAssistantProviderSearchMode(
+                                indices = listOf(
+                                    settings.searchServiceSelected.coerceIn(0, settings.searchServices.lastIndex)
+                                )
+                            )
+                        } else {
+                            assistant.searchMode
+                        }
+                        onUpdateAssistant(
+                            assistant.copy(
+                                enableSearchAgent = enabled,
+                                preferBuiltInSearch = if (enabled) false else assistant.preferBuiltInSearch,
+                                searchMode = nextSearchMode,
+                            )
+                        )
                     },
                     onDismiss = { showSearchPicker = false },
                     modifier = Modifier.fillMaxWidth()

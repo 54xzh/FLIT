@@ -171,6 +171,7 @@ import me.rerere.rikkahub.data.datastore.getEffectiveWorkspaceRootTreeUri
 import me.rerere.rikkahub.data.datastore.hasConversationWorkspaceRoot
 import me.rerere.rikkahub.data.datastore.rememberWorkspaceForNewChatsIfEnabled
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.buildAssistantProviderSearchMode
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.GroupChatTemplate
 import me.rerere.rikkahub.data.model.Skill
@@ -653,6 +654,7 @@ fun ChatInput(
                             val enableSearchMsg = stringResource(R.string.web_search_enabled)
                             val disableSearchMsg = stringResource(R.string.web_search_disabled)
                             val chatModel = settings.getCurrentChatModel()
+                            val enableSearchAgent = assistant.enableSearchAgent
                             
                             SearchPickerButton(
                                 enableSearch = enableSearch,
@@ -680,7 +682,12 @@ fun ChatInput(
                                 isBuiltInMode = assistant.searchMode is me.rerere.rikkahub.data.model.AssistantSearchMode.BuiltIn,
                                 preferBuiltInSearch = assistant.preferBuiltInSearch,
                                 onTogglePreferBuiltInSearch = { enabled ->
-                                    onUpdateAssistant(assistant.copy(preferBuiltInSearch = enabled))
+                                    onUpdateAssistant(
+                                        assistant.copy(
+                                            preferBuiltInSearch = enabled,
+                                            enableSearchAgent = if (enabled) false else assistant.enableSearchAgent,
+                                        )
+                                    )
                                 },
                                 contentColor = if (enableSearch) {
                                     MaterialTheme.colorScheme.primary
@@ -701,14 +708,34 @@ fun ChatInput(
                                         .sorted()
                                         .toList()
 
-                                    val nextMode = when (sanitized.size) {
-                                        0 -> me.rerere.rikkahub.data.model.AssistantSearchMode.Off
-                                        1 -> me.rerere.rikkahub.data.model.AssistantSearchMode.Provider(sanitized.first())
-                                        else -> me.rerere.rikkahub.data.model.AssistantSearchMode.MultiProvider(sanitized)
-                                    }
+                                    val nextMode = buildAssistantProviderSearchMode(indices = sanitized)
 
                                     onUpdateAssistant(assistant.copy(searchMode = nextMode))
-                                }
+                                },
+                                enableSearchAgent = enableSearchAgent,
+                                onToggleSearchAgent = { enabled ->
+                                    val nextSearchMode = if (
+                                        enabled &&
+                                        assistant.searchMode !is me.rerere.rikkahub.data.model.AssistantSearchMode.Provider &&
+                                        assistant.searchMode !is me.rerere.rikkahub.data.model.AssistantSearchMode.MultiProvider &&
+                                        settings.searchServices.isNotEmpty()
+                                    ) {
+                                        buildAssistantProviderSearchMode(
+                                            indices = listOf(
+                                                settings.searchServiceSelected.coerceIn(0, settings.searchServices.lastIndex)
+                                            )
+                                        )
+                                    } else {
+                                        assistant.searchMode
+                                    }
+                                    onUpdateAssistant(
+                                        assistant.copy(
+                                            enableSearchAgent = enabled,
+                                            preferBuiltInSearch = if (enabled) false else assistant.preferBuiltInSearch,
+                                            searchMode = nextSearchMode,
+                                        )
+                                    )
+                                },
                             )
 
                             // Reasoning

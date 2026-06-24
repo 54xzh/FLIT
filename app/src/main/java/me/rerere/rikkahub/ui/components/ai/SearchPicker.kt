@@ -1,12 +1,21 @@
 package me.rerere.rikkahub.ui.components.ai
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +50,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -48,6 +60,7 @@ import androidx.navigation.NavHostController
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Settings
 import me.rerere.rikkahub.ui.components.ui.ToastType
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -90,7 +103,9 @@ fun SearchPickerButton(
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
     onlyIcon: Boolean = false,
     selectedProviderIndices: List<Int> = emptyList(),
-    onUpdateSearchProviders: ((List<Int>) -> Unit)? = null
+    onUpdateSearchProviders: ((List<Int>) -> Unit)? = null,
+    enableSearchAgent: Boolean = false,
+    onToggleSearchAgent: ((Boolean) -> Unit)? = null,
 ) {
     val toaster = LocalToaster.current
     var showSearchPicker by remember { mutableStateOf(false) }
@@ -128,7 +143,7 @@ fun SearchPickerButton(
         model?.findProvider(settings.providers)
     }
     val modelSupportsBuiltIn = model?.supportsBuiltInSearch(modelProvider) == true
-    val isUsingBuiltIn = enableSearch && modelSupportsBuiltIn && (isBuiltInMode || preferBuiltInSearch)
+    val isUsingBuiltIn = enableSearch && !enableSearchAgent && modelSupportsBuiltIn && (isBuiltInMode || preferBuiltInSearch)
 
     ToggleSurface(
         modifier = modifier,
@@ -150,8 +165,6 @@ fun SearchPickerButton(
                 modifier = Modifier.size(24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Show globe icon when: using built-in search, or no provider selected, or search is off
-                // Show provider icon only when: search is on, NOT using built-in, and has a provider
                 if (enableSearch && !isUsingBuiltIn && currentService != null) {
                     AutoAIIcon(
                         name = SearchServiceOptions.TYPES[currentService::class] ?: "Search",
@@ -216,6 +229,8 @@ fun SearchPickerButton(
                     },
                     preferBuiltInSearch = preferBuiltInSearch,
                     onTogglePreferBuiltInSearch = onTogglePreferBuiltInSearch,
+                    enableSearchAgent = enableSearchAgent,
+                    onToggleSearchAgent = onToggleSearchAgent,
                     onDismiss = {
                         showSearchPicker = false
                     }
@@ -238,6 +253,8 @@ internal fun SearchPicker(
     onUpdateSearchProviders: ((List<Int>) -> Unit)? = null,
     preferBuiltInSearch: Boolean = false,
     onTogglePreferBuiltInSearch: (Boolean) -> Unit = {},
+    enableSearchAgent: Boolean = false,
+    onToggleSearchAgent: ((Boolean) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val navBackStack = LocalNavController.current
@@ -245,14 +262,6 @@ internal fun SearchPicker(
         model?.findProvider(settings.providers)
     }
     val modelSupportsBuiltIn = model?.supportsBuiltInSearch(modelProvider) == true
-
-    // 模型内置搜索 (only show if model supports it)
-    if (modelSupportsBuiltIn) {
-        BuiltInSearchSetting(
-            preferBuiltInSearch = preferBuiltInSearch,
-            onTogglePreferBuiltInSearch = onTogglePreferBuiltInSearch
-        )
-    }
 
     // 显示搜索服务选择 (always show, but selection only applies when not using built-in)
     AppSearchSettings(
@@ -265,7 +274,12 @@ internal fun SearchPicker(
         selectedProviderIndex = selectedProviderIndex,
         selectedProviderIndices = selectedProviderIndices,
         onUpdateSearchService = onUpdateSearchService,
-        onUpdateSearchProviders = onUpdateSearchProviders
+        onUpdateSearchProviders = onUpdateSearchProviders,
+        modelSupportsBuiltIn = modelSupportsBuiltIn,
+        preferBuiltInSearch = preferBuiltInSearch,
+        onTogglePreferBuiltInSearch = onTogglePreferBuiltInSearch,
+        enableSearchAgent = enableSearchAgent,
+        onToggleSearchAgent = onToggleSearchAgent,
     )
 }
 
@@ -281,160 +295,270 @@ private fun AppSearchSettings(
     selectedProviderIndices: List<Int> = emptyList(),
     onUpdateSearchService: (Int) -> Unit,
     onUpdateSearchProviders: ((List<Int>) -> Unit)? = null,
+    modelSupportsBuiltIn: Boolean,
+    preferBuiltInSearch: Boolean,
+    onTogglePreferBuiltInSearch: (Boolean) -> Unit,
+    enableSearchAgent: Boolean,
+    onToggleSearchAgent: ((Boolean) -> Unit)?,
 ) {
     val amoledMode by rememberAmoledDarkMode()
     val isDarkMode = LocalDarkMode.current
     val isAmoled = amoledMode && isDarkMode
     
     val numProviders = settings.searchServices.size
-    
-    // Calculate total items for position-based corners
-    // Items: Web Search Toggle + all search providers
-    val totalItems = 1 + numProviders
-    
-    // Position-based corner shape calculator
-    fun getItemShape(index: Int, totalCount: Int, isSelected: Boolean): RoundedCornerShape {
-        if (isSelected) return RoundedCornerShape(50) // Selected = fully round
-        return when {
-            totalCount == 1 -> RoundedCornerShape(24.dp) // Single item
-            index == 0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
-            index == totalCount - 1 -> RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
-            else -> RoundedCornerShape(10.dp)
+    val showProviderItems = numProviders > 1
+    val showSearchAgent = enableSearch && settings.searchServices.isNotEmpty() && onToggleSearchAgent != null
+    val searchGroupItems = 1 +
+        (if (modelSupportsBuiltIn) 1 else 0) +
+        (if (showSearchAgent) 1 else 0)
+    val builtInSearchIndex = 1
+    val searchAgentIndex = 1 + if (modelSupportsBuiltIn) 1 else 0
+    val providerOffsetY = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    var previousShowSearchAgent by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(showSearchAgent, showProviderItems, density) {
+        if (!showProviderItems) {
+            providerOffsetY.snapTo(0f)
+            previousShowSearchAgent = showSearchAgent
+            return@LaunchedEffect
         }
+
+        val previous = previousShowSearchAgent
+        previousShowSearchAgent = showSearchAgent
+        if (previous == null || previous == showSearchAgent) {
+            providerOffsetY.snapTo(0f)
+            return@LaunchedEffect
+        }
+
+        val kickOffset = with(density) { 14.dp.toPx() }
+        providerOffsetY.snapTo(if (showSearchAgent) -kickOffset else kickOffset)
+        providerOffsetY.animateTo(
+            targetValue = 0f,
+            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+        )
     }
     
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // If no providers, just show the toggle
-        if (numProviders == 0) {
+        Column {
             SearchToggleItem(
                 enableSearch = enableSearch,
                 onToggleSearch = onToggleSearch,
                 onDismiss = onDismiss,
                 navBackStack = navBackStack,
-                shape = RoundedCornerShape(24.dp),
+                index = 0,
+                totalCount = searchGroupItems,
                 isAmoled = isAmoled,
                 isDarkMode = isDarkMode
             )
+
+            if (modelSupportsBuiltIn) {
+                SearchOptionToggleItem(
+                    modifier = Modifier.padding(top = 4.dp),
+                    icon = Icons.Rounded.Search,
+                    title = stringResource(R.string.built_in_search_title),
+                    subtitle = stringResource(R.string.built_in_search_description),
+                    checked = preferBuiltInSearch,
+                    onCheckedChange = onTogglePreferBuiltInSearch,
+                    index = builtInSearchIndex,
+                    totalCount = searchGroupItems,
+                    isDarkMode = isDarkMode,
+                )
+            }
+
+            AnimatedVisibility(
+                visible = showSearchAgent,
+                enter = fadeIn(
+                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+                ) + expandVertically(
+                    expandFrom = Alignment.Top,
+                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+                ),
+                exit = fadeOut(
+                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+                ) + shrinkVertically(
+                    shrinkTowards = Alignment.Top,
+                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+                ),
+            ) {
+                SearchOptionToggleItem(
+                    modifier = Modifier.padding(top = 4.dp),
+                    icon = Icons.Rounded.SmartToy,
+                    title = stringResource(R.string.setting_search_page_enable_search_agent),
+                    subtitle = null,
+                    checked = enableSearchAgent,
+                    onCheckedChange = onToggleSearchAgent ?: {},
+                    index = searchAgentIndex,
+                    totalCount = searchAgentIndex + 1,
+                    isDarkMode = isDarkMode,
+                )
+            }
         }
-        // If 1 provider, show toggle only (no selection needed)
-        else if (numProviders == 1) {
-            SearchToggleItem(
-                enableSearch = enableSearch,
-                onToggleSearch = onToggleSearch,
-                onDismiss = onDismiss,
-                navBackStack = navBackStack,
-                shape = RoundedCornerShape(24.dp),
-                isAmoled = isAmoled,
-                isDarkMode = isDarkMode
-            )
-        }
-        // If 2 providers, group toggle + providers together
-        else if (numProviders == 2) {
-            // Toggle at position 0
-            SearchToggleItem(
-                enableSearch = enableSearch,
-                onToggleSearch = onToggleSearch,
-                onDismiss = onDismiss,
-                navBackStack = navBackStack,
-                shape = getItemShape(0, totalItems, false),
-                isAmoled = isAmoled,
-                isDarkMode = isDarkMode
-            )
-            // Providers at positions 1-2
-            settings.searchServices.forEachIndexed { index, service ->
-                val allowMultiSelect = onUpdateSearchProviders != null
-                if (allowMultiSelect) {
-                    val isChecked = selectedProviderIndices.contains(index)
-                    SearchProviderToggleItem(
-                        service = service,
-                        checked = isChecked,
-                        onCheckedChange = { enabled ->
-                            val next = buildList {
-                                addAll(selectedProviderIndices)
-                                if (enabled) add(index) else removeAll(listOf(index))
-                            }.asSequence()
-                                .filter { it >= 0 && it < settings.searchServices.size }
-                                .distinct()
-                                .sorted()
-                                .toList()
-                            onUpdateSearchProviders?.invoke(next)
-                        },
-                        shape = getItemShape(index + 1, totalItems, isChecked),
-                        isAmoled = isAmoled,
-                        isDarkMode = isDarkMode,
-                        index = index + 1,
-                        totalCount = totalItems
-                    )
-                } else {
-                    val isSelected = selectedProviderIndex == index
-                    SearchProviderItem(
-                        service = service,
-                        isSelected = isSelected,
-                        onClick = { onUpdateSearchService(index) },
-                        shape = getItemShape(index + 1, totalItems, isSelected),
-                        isAmoled = isAmoled,
-                        isDarkMode = isDarkMode,
-                        index = index + 1,
-                        totalCount = totalItems
-                    )
+
+        if (showProviderItems) {
+            Spacer(modifier = Modifier.size(8.dp))
+
+            Column(
+                modifier = Modifier.graphicsLayer {
+                    translationY = providerOffsetY.value
+                },
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                settings.searchServices.forEachIndexed { index, service ->
+                    val allowMultiSelect = onUpdateSearchProviders != null
+                    if (allowMultiSelect) {
+                        val isChecked = selectedProviderIndices.contains(index)
+                        SearchProviderToggleItem(
+                            service = service,
+                            checked = isChecked,
+                            onCheckedChange = { enabled ->
+                                val next = buildList {
+                                    addAll(selectedProviderIndices)
+                                    if (enabled) add(index) else removeAll(listOf(index))
+                                }.asSequence()
+                                    .filter { it >= 0 && it < settings.searchServices.size }
+                                    .distinct()
+                                    .sorted()
+                                    .toList()
+                                onUpdateSearchProviders?.invoke(next)
+                            },
+                            isAmoled = isAmoled,
+                            isDarkMode = isDarkMode,
+                            index = index,
+                            totalCount = numProviders
+                        )
+                    } else {
+                        val isSelected = selectedProviderIndex == index
+                        SearchProviderItem(
+                            service = service,
+                            isSelected = isSelected,
+                            onClick = { onUpdateSearchService(index) },
+                            isAmoled = isAmoled,
+                            isDarkMode = isDarkMode,
+                            index = index,
+                            totalCount = numProviders
+                        )
+                    }
                 }
             }
         }
-        // 3+ providers: grouped list with last item spanning 2 columns behavior (simplified to list)
-        else {
-            // Toggle at position 0
-            SearchToggleItem(
-                enableSearch = enableSearch,
-                onToggleSearch = onToggleSearch,
-                onDismiss = onDismiss,
-                navBackStack = navBackStack,
-                shape = getItemShape(0, totalItems, false),
-                isAmoled = isAmoled,
-                isDarkMode = isDarkMode
+    }
+}
+
+@Composable
+private fun rememberSearchItemShape(
+    index: Int,
+    totalCount: Int,
+    isSelected: Boolean,
+    label: String,
+): RoundedCornerShape {
+    val topCornerTarget = if (isSelected) 50.dp else when {
+        totalCount == 1 -> 24.dp
+        index == 0 -> 24.dp
+        else -> 10.dp
+    }
+    val bottomCornerTarget = if (isSelected) 50.dp else when {
+        totalCount == 1 -> 24.dp
+        index == totalCount - 1 -> 24.dp
+        else -> 10.dp
+    }
+    val topCorner by animateDpAsState(
+        targetValue = topCornerTarget,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+        label = "${label}TopCorner"
+    )
+    val bottomCorner by animateDpAsState(
+        targetValue = bottomCornerTarget,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+        label = "${label}BottomCorner"
+    )
+    return RoundedCornerShape(
+        topStart = topCorner,
+        topEnd = topCorner,
+        bottomStart = bottomCorner,
+        bottomEnd = bottomCorner
+    )
+}
+
+@Composable
+private fun SearchOptionToggleItem(
+    modifier: Modifier = Modifier,
+    icon: ImageVector,
+    title: String,
+    subtitle: String?,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    index: Int,
+    totalCount: Int,
+    isDarkMode: Boolean,
+) {
+    val haptics = me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics()
+    val animatedShape = rememberSearchItemShape(
+        index = index,
+        totalCount = totalCount,
+        isSelected = checked,
+        label = "option"
+    )
+    val targetContainerColor = if (checked) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else if (isDarkMode) {
+        Color.Black
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    }
+    val targetContentColor = if (checked) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    val containerColor by animateColorAsState(
+        targetValue = targetContainerColor,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 400f),
+        label = "optionContainerColor"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = targetContentColor,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 400f),
+        label = "optionContentColor"
+    )
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(animatedShape)
+            .background(containerColor)
+            .clickable {
+                haptics.perform(me.rerere.rikkahub.ui.hooks.HapticPattern.Pop)
+                onCheckedChange(!checked)
+            }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = contentColor)
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = contentColor,
             )
-            // All providers
-            settings.searchServices.forEachIndexed { index, service ->
-                val allowMultiSelect = onUpdateSearchProviders != null
-                if (allowMultiSelect) {
-                    val isChecked = selectedProviderIndices.contains(index)
-                    SearchProviderToggleItem(
-                        service = service,
-                        checked = isChecked,
-                        onCheckedChange = { enabled ->
-                            val next = buildList {
-                                addAll(selectedProviderIndices)
-                                if (enabled) add(index) else removeAll(listOf(index))
-                            }.asSequence()
-                                .filter { it >= 0 && it < settings.searchServices.size }
-                                .distinct()
-                                .sorted()
-                                .toList()
-                            onUpdateSearchProviders?.invoke(next)
-                        },
-                        shape = getItemShape(index + 1, totalItems, isChecked),
-                        isAmoled = isAmoled,
-                        isDarkMode = isDarkMode,
-                        index = index + 1,
-                        totalCount = totalItems
-                    )
-                } else {
-                    val isSelected = selectedProviderIndex == index
-                    SearchProviderItem(
-                        service = service,
-                        isSelected = isSelected,
-                        onClick = { onUpdateSearchService(index) },
-                        shape = getItemShape(index + 1, totalItems, isSelected),
-                        isAmoled = isAmoled,
-                        isDarkMode = isDarkMode,
-                        index = index + 1,
-                        totalCount = totalItems
-                    )
-                }
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = contentColor.copy(alpha = 0.8f),
+                )
             }
         }
+        HapticSwitch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
     }
 }
 
@@ -444,18 +568,25 @@ private fun SearchToggleItem(
     onToggleSearch: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     navBackStack: NavHostController,
-    shape: RoundedCornerShape,
+    index: Int,
+    totalCount: Int,
     isAmoled: Boolean,
     isDarkMode: Boolean
 ) {
     // Use surfaceContainerHigh for Light Mode consistency
     val containerColor = if (isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
     val contentColor = MaterialTheme.colorScheme.onSurface
+    val animatedShape = rememberSearchItemShape(
+        index = index,
+        totalCount = totalCount,
+        isSelected = false,
+        label = "searchToggle"
+    )
     
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(shape)
+            .clip(animatedShape)
             .background(containerColor)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -488,37 +619,17 @@ private fun SearchProviderItem(
     service: SearchServiceOptions,
     isSelected: Boolean,
     onClick: () -> Unit,
-    shape: RoundedCornerShape,
     isAmoled: Boolean,
     isDarkMode: Boolean,
     index: Int = 0,
     totalCount: Int = 1
 ) {
     val haptics = me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics()
-    
-    // Animated corner radius - selected items animate to fully round
-    val topCorner by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (isSelected) 50.dp else when {
-            totalCount == 1 -> 24.dp
-            index == 0 -> 24.dp
-            else -> 10.dp
-        },
-        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 200f),
-        label = "topCorner"
-    )
-    val bottomCorner by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (isSelected) 50.dp else when {
-            totalCount == 1 -> 24.dp
-            index == totalCount - 1 -> 24.dp
-            else -> 10.dp
-        },
-        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 200f),
-        label = "bottomCorner"
-    )
-    
-    val animatedShape = RoundedCornerShape(
-        topStart = topCorner, topEnd = topCorner,
-        bottomStart = bottomCorner, bottomEnd = bottomCorner
+    val animatedShape = rememberSearchItemShape(
+        index = index,
+        totalCount = totalCount,
+        isSelected = isSelected,
+        label = "provider"
     )
     
     // Animated colors for smooth selection transition
@@ -577,36 +688,17 @@ private fun SearchProviderToggleItem(
     service: SearchServiceOptions,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    shape: RoundedCornerShape,
     isAmoled: Boolean,
     isDarkMode: Boolean,
     index: Int = 0,
     totalCount: Int = 1
 ) {
     val haptics = me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics()
-
-    val topCorner by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (checked) 50.dp else when {
-            totalCount == 1 -> 24.dp
-            index == 0 -> 24.dp
-            else -> 10.dp
-        },
-        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 200f),
-        label = "topCorner"
-    )
-    val bottomCorner by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (checked) 50.dp else when {
-            totalCount == 1 -> 24.dp
-            index == totalCount - 1 -> 24.dp
-            else -> 10.dp
-        },
-        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 200f),
-        label = "bottomCorner"
-    )
-
-    val animatedShape = RoundedCornerShape(
-        topStart = topCorner, topEnd = topCorner,
-        bottomStart = bottomCorner, bottomEnd = bottomCorner
+    val animatedShape = rememberSearchItemShape(
+        index = index,
+        totalCount = totalCount,
+        isSelected = checked,
+        label = "providerToggle"
     )
 
     val targetContainerColor = if (checked) {

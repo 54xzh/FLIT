@@ -65,6 +65,7 @@ data class Assistant(
     val backgroundModelId: Uuid? = null, // 用于后台检查的模型
     val searchMode: AssistantSearchMode = AssistantSearchMode.Off, // Search mode for this assistant
     val preferBuiltInSearch: Boolean = false, // If true, use built-in search when model supports it, otherwise fall back to searchMode
+    val enableSearchAgent: Boolean = false, // Use a search sub-agent for external web search
     val embeddingModelId: Uuid? = null, // 用于生成嵌入的模型
     val name: String = "",
     val avatar: Avatar = Avatar.Dummy,
@@ -190,6 +191,22 @@ sealed class AssistantSearchMode {
     @Serializable
     @SerialName("multi_provider")
     data class MultiProvider(val indices: List<Int>) : AssistantSearchMode()
+}
+
+fun buildAssistantProviderSearchMode(
+    indices: List<Int>,
+): AssistantSearchMode {
+    val sanitized = indices
+        .asSequence()
+        .distinct()
+        .sorted()
+        .toList()
+
+    return when (sanitized.size) {
+        0 -> AssistantSearchMode.Off
+        1 -> AssistantSearchMode.Provider(sanitized.first())
+        else -> AssistantSearchMode.MultiProvider(sanitized)
+    }
 }
 
 @Serializable

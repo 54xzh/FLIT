@@ -226,7 +226,6 @@ class SettingsStore(
         val SEARCH_SERVICES = stringPreferencesKey("search_services")
         val SEARCH_COMMON = stringPreferencesKey("search_common")
         val SEARCH_SELECTED = intPreferencesKey("search_selected")
-        val ENABLE_SEARCH_AGENT = booleanPreferencesKey("enable_search_agent")
         val SEARCH_AGENT_OVERRIDE_ORIGINAL_TOOLS = booleanPreferencesKey("search_agent_override_original_tools")
 
         // MCP
@@ -489,7 +488,6 @@ class SettingsStore(
                     JsonInstant.decodeFromString(it)
                 } ?: SearchCommonOptions(),
                 searchServiceSelected = preferences[SEARCH_SELECTED] ?: 0,
-                enableSearchAgent = preferences[ENABLE_SEARCH_AGENT] == true,
                 searchAgentOverrideOriginalTools = preferences[SEARCH_AGENT_OVERRIDE_ORIGINAL_TOOLS] == true,
                 mcpToolCallTimeoutSeconds = (preferences[MCP_TOOL_CALL_TIMEOUT_SECONDS] ?: 60).coerceAtLeast(1),
                 httpRetryMaxRetries = (
@@ -772,7 +770,6 @@ class SettingsStore(
             preferences[SEARCH_SERVICES] = JsonInstant.encodeToString(finalSettingsToSave.searchServices)
             preferences[SEARCH_COMMON] = JsonInstant.encodeToString(finalSettingsToSave.searchCommonOptions)
             preferences[SEARCH_SELECTED] = finalSettingsToSave.searchServiceSelected.coerceIn(0, finalSettingsToSave.searchServices.size - 1)
-            preferences[ENABLE_SEARCH_AGENT] = finalSettingsToSave.enableSearchAgent
             preferences[SEARCH_AGENT_OVERRIDE_ORIGINAL_TOOLS] = finalSettingsToSave.searchAgentOverrideOriginalTools
 
             preferences[MCP_SERVERS] = JsonInstant.encodeToString(finalSettingsToSave.mcpServers)
@@ -904,7 +901,6 @@ data class Settings(
     val searchServices: List<SearchServiceOptions> = listOf(SearchServiceOptions.DEFAULT),
     val searchCommonOptions: SearchCommonOptions = SearchCommonOptions(),
     val searchServiceSelected: Int = 0,
-    val enableSearchAgent: Boolean = false,
     val searchAgentOverrideOriginalTools: Boolean = false,
     val mcpToolCallTimeoutSeconds: Int = 60,
     @OptIn(ExperimentalSerializationApi::class)

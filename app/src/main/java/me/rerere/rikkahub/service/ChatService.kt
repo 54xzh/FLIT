@@ -1701,7 +1701,7 @@ class ChatService(
             val assistant = settings.getCurrentAssistant()
             val modelProvider = model.findProvider(settings.providers)
             val modelSupportsBuiltIn = model.supportsBuiltInSearch(modelProvider)
-            val useBuiltInSearch = modelSupportsBuiltIn && (
+            val useBuiltInSearch = modelSupportsBuiltIn && !assistant.enableSearchAgent && (
                 assistant.searchMode is AssistantSearchMode.BuiltIn ||
                     (assistant.preferBuiltInSearch && assistant.searchMode !is AssistantSearchMode.Off)
                 )
@@ -1861,7 +1861,13 @@ class ChatService(
                         is AssistantSearchMode.Provider,
                         is AssistantSearchMode.MultiProvider -> {
                             if (!useBuiltInSearch) {
-                                addAll(createEffectiveSearchTools(settings, searchMode))
+                                addAll(
+                                    createEffectiveSearchTools(
+                                        settings = settings,
+                                        searchMode = searchMode,
+                                        enableSearchAgent = assistant.enableSearchAgent,
+                                    )
+                                )
                             }
                         }
                         is AssistantSearchMode.BuiltIn -> Unit
@@ -2305,7 +2311,7 @@ class ChatService(
             val seatAssistant = applySeatOverrides(assistant, seat.overrides, fullSystemPromptSuffix)
             val seatProvider = model.findProvider(settings.providers)
             val modelSupportsBuiltIn = model.supportsBuiltInSearch(seatProvider)
-            val useBuiltInSearch = modelSupportsBuiltIn &&
+            val useBuiltInSearch = modelSupportsBuiltIn && !seatAssistant.enableSearchAgent &&
                 (
                     seatAssistant.searchMode is AssistantSearchMode.BuiltIn ||
                         (seatAssistant.preferBuiltInSearch && seatAssistant.searchMode !is AssistantSearchMode.Off)
@@ -2335,7 +2341,13 @@ class ChatService(
                     is AssistantSearchMode.Provider,
                     is AssistantSearchMode.MultiProvider -> {
                         if (!useBuiltInSearch) {
-                            addAll(createEffectiveSearchTools(settings, searchMode))
+                            addAll(
+                                createEffectiveSearchTools(
+                                    settings = settings,
+                                    searchMode = searchMode,
+                                    enableSearchAgent = seatAssistant.enableSearchAgent,
+                                )
+                            )
                         }
                     }
                     is AssistantSearchMode.BuiltIn -> Unit
@@ -2787,6 +2799,7 @@ class ChatService(
             maxTokens = overrides.maxTokens ?: assistant.maxTokens,
             searchMode = if (overrides.searchEnabled) overrides.searchMode else AssistantSearchMode.Off,
             preferBuiltInSearch = overrides.searchEnabled && overrides.preferBuiltInSearch,
+            enableSearchAgent = overrides.searchEnabled && assistant.enableSearchAgent && !overrides.preferBuiltInSearch,
             mcpServers = overrides.mcpServerIds,
             localTools = assistant.localTools,
             enableMemory = overrides.memoryEnabled && assistant.enableMemory,
@@ -4239,11 +4252,12 @@ class ChatService(
     private fun createEffectiveSearchTools(
         settings: Settings,
         searchMode: AssistantSearchMode,
+        enableSearchAgent: Boolean,
     ): List<Tool> {
         val originalTools = me.rerere.rikkahub.data.ai.tools.SearchTools
             .createSearchTools(settings, searchMode)
             .toList()
-        if (!settings.enableSearchAgent) return originalTools
+        if (!enableSearchAgent) return originalTools
 
         val searchAgentTool = SearchAgentTools.create(
             settings = settings,

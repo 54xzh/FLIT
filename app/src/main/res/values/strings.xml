@@ -1390,7 +1390,8 @@
     <string name="user_default_name">User</string>
     <string name="video">Video</string>
     <string name="web_search_disabled">Web Search Disabled</string>
-        <string name="web_search_enabled">Web Search Enabled</string>
+    <string name="web_search_enabled">Web Search Enabled</string>
+    <string name="search_agent_enabled_mode">Search agent mode enabled</string>
     <string name="setting_model_page_embedding_model">Embedding Model</string>
     <string name="setting_model_page_embedding_model_desc">Model for text embeddings (e.g. for memory).</string>
     <string name="select_all">Select All</string>
