@@ -3,10 +3,16 @@ package me.rerere.rikkahub.ui.components.message
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberPlatformOverscrollFactory
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -30,19 +36,23 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CardColors
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -50,6 +60,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -666,9 +677,10 @@ internal fun ToolCallPreviewSheet(
             onDismissRequest()
         },
         content = {
+            val sheetHeight = if (toolName == "search_agent") 0.92f else 0.8f
             Column(
                 modifier = Modifier
-                    .fillMaxHeight(0.8f)
+                    .fillMaxHeight(sheetHeight)
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -1335,9 +1347,13 @@ internal fun AskUserBottomSheet(
 /**
  * search_agent 详情卡片：双 Tab —— 结果 / 步骤。
  *
+ * - 左右滑动切换标签页（HorizontalPager + 自定义药丸标签）。
  * - 默认进入哪个 Tab 由 [hasResult]（点开时是否已拿到 ToolResult）决定：
  *   有结果 -> 结果 Tab；执行中 -> 步骤 Tab。
- * - 不自动：用户手动切换；执行中切到结果 Tab 显示「暂无结果」空态。
+ * - 「步伐更新时跟随」：执行中停在步骤页并自动滚到最新步骤；
+ *   当结果产出（finished 或 hasResult 翻 true）时，一次性自动横滑到结果页。
+ *   用户手动滑走后不再自动切回。
+ * - 选中页持久化到 [selectedTabStates]（key = "search_agent:$toolCallId"）。
  * - 执行中读 store（带 Running 态）；完成 / 历史 / store 缺失读 metadata（全 Done）。
  */
 @Composable
@@ -1360,16 +1376,21 @@ private fun SearchAgentPreviewContent(
         stringResource(R.string.search_agent_tab_result),
         stringResource(R.string.search_agent_tab_steps),
     )
+    val scope = rememberCoroutineScope()
+    val selectedTabKey = remember(toolCallId) { "search_agent:$toolCallId" }
     var localSelectedTab by remember(toolCallId) {
         mutableStateOf(if (hasResult) 0 else 1)
     }
-    val selectedTabKey = remember(toolCallId) { "search_agent:$toolCallId" }
-    val selectedTab = if (selectedTabStates != null && toolCallId.isNotBlank()) {
-        selectedTabStates[selectedTabKey] ?: localSelectedTab
+
+    // 持久化初始页：有外部 map 取之，否则退回 hasResult 派生。
+    val initialPage = if (selectedTabStates != null && toolCallId.isNotBlank()) {
+        selectedTabStates[selectedTabKey] ?: (if (hasResult) 0 else 1)
     } else {
         localSelectedTab
     }
-    fun updateSelectedTab(index: Int) {
+    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
+
+    fun persist(index: Int) {
         if (selectedTabStates != null && toolCallId.isNotBlank()) {
             selectedTabStates[selectedTabKey] = index
         } else {
@@ -1377,31 +1398,66 @@ private fun SearchAgentPreviewContent(
         }
     }
 
+    // 双向同步：仅 settle 后写回，避免拖拽中途帧抖动。
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            persist(page)
+        }
+    }
+
+    // 一次性自动横滑到结果页：执行完成 / 结果到达时触发，仅一次。
+    LaunchedEffect(toolCallId) {
+        var autoSwiped = false
+        snapshotFlow { Triple(liveProgress?.finished == true, hasResult, liveProgress?.steps?.lastIndex ?: -1) }
+            .collect { (finished, hasResultNow, _) ->
+                if (!autoSwiped && pagerState.settledPage == 1 && (finished || hasResultNow)) {
+                    autoSwiped = true
+                    scope.launch { pagerState.animateScrollToPage(0) }
+                    persist(0)
+                }
+            }
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         PrimaryTabRow(
-            selectedTabIndex = selectedTab,
+            selectedTabIndex = pagerState.currentPage,
             containerColor = Color.Transparent,
         ) {
             tabs.forEachIndexed { index, label ->
                 Tab(
-                    selected = selectedTab == index,
-                    onClick = { updateSelectedTab(index) },
+                    selected = pagerState.currentPage == index,
+                    onClick = {
+                        scope.launch { pagerState.animateScrollToPage(index) }
+                    },
                     text = { Text(label) },
                 )
             }
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-        ) {
-            when (selectedTab) {
-                0 -> SearchAgentResultTab(content = content)
-                else -> SearchAgentStepsTab(
-                    liveProgress = liveProgress,
-                    metadata = metadata,
-                )
+        Spacer(Modifier.height(8.dp))
+
+        // 关闭 pager 横滑到边的回弹动画，避免多余手势反馈。
+        CompositionLocalProvider(LocalOverscrollFactory provides null) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                beyondViewportPageCount = 1,
+            ) { page ->
+                // pager 外层关掉到边回弹；页面内恢复平台过滚动工厂，保留 LazyColumn 垂直触顶/触底气。
+                CompositionLocalProvider(
+                    LocalOverscrollFactory provides rememberPlatformOverscrollFactory()
+                ) {
+                    when (page) {
+                        0 -> SearchAgentResultTab(content = content)
+                        else -> SearchAgentStepsTab(
+                            liveProgress = liveProgress,
+                            metadata = metadata,
+                            pagerPageVisible = pagerState.settledPage == page,
+                        )
+                    }
+                }
             }
         }
     }
@@ -1514,6 +1570,7 @@ private fun SearchAgentResultTab(content: JsonElement) {
 private fun SearchAgentStepsTab(
     liveProgress: SearchAgentProgress?,
     metadata: JsonObject?,
+    pagerPageVisible: Boolean = true,
 ) {
     // 执行中读 store；完成 / 历史回落 metadata。store 缺失且无 task 时显示空态。
     val fromStore = liveProgress
@@ -1541,42 +1598,62 @@ private fun SearchAgentStepsTab(
     }
 
     val expandedReasoning = remember { mutableStateMapOf<Int, Boolean>() }
+    val lazyListState = rememberLazyListState()
+
+    // 步骤追加时跟随到最新步骤（瞬时定位，不附加主动运动动画）。
+    var lastStepCount by remember { mutableStateOf(0) }
+    LaunchedEffect(steps.size, pagerPageVisible) {
+        if (pagerPageVisible && steps.size > lastStepCount && steps.isNotEmpty()) {
+            // 用户贴近上一步末尾（含执行卡片已到列表最底部的情况）才跟随，向上浏览时打断不打扰。
+            val prevTail = lastStepCount - 1
+            if (lazyListState.firstVisibleItemIndex >= prevTail - 1) {
+                lazyListState.scrollToItem(steps.lastIndex)
+            }
+        }
+        lastStepCount = steps.size
+    }
 
     LazyColumn(
+        state = lazyListState,
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(bottom = 16.dp),
     ) {
-        itemsIndexed(steps) { index, step ->
+        itemsIndexed(steps, key = { index, _ -> "step:$index" }) { index, step ->
             when (step) {
                 is SearchAgentStep.TaskStep -> StepCard(
                     title = stepLabelTask(),
                     detail = step.text,
+                    variant = StepCardVariant.Task,
                 )
-                is SearchAgentStep.ReasoningStep -> {
-                    val expanded = expandedReasoning[index] ?: false
-                    StepCard(
-                        title = stepLabelReasoning(),
-                        detail = if (expanded) step.text else "",
-                        expandable = true,
-                        expanded = expanded,
-                        onToggle = { expandedReasoning[index] = !expanded },
-                        collapsedPreview = step.text.take(80),
+                    is SearchAgentStep.ReasoningStep -> {
+                        val expanded = expandedReasoning[index] ?: false
+                        StepCard(
+                            title = stepLabelReasoning(),
+                            detail = if (expanded) step.text else "",
+                            expandable = true,
+                            expanded = expanded,
+                            onToggle = { expandedReasoning[index] = !expanded },
+                            collapsedPreview = step.text.take(80),
+                            variant = StepCardVariant.Reasoning,
+                        )
+                    }
+                    is SearchAgentStep.ToolCallStep -> StepCard(
+                        title = step.title,
+                        detail = step.detail,
+                        urls = step.urls,
+                        running = step.status == SearchAgentStep.ToolCallStep.Status.Running,
+                        variant = StepCardVariant.ToolCall,
                     )
-                }
-                is SearchAgentStep.ToolCallStep -> StepCard(
-                    title = step.title,
-                    detail = step.detail,
-                    urls = step.urls,
-                    running = step.status == SearchAgentStep.ToolCallStep.Status.Running,
-                )
-                is SearchAgentStep.ErrorStep -> StepCard(
-                    title = "${step.title}",
-                    detail = step.detail,
-                )
-                is SearchAgentStep.FinalStep -> StepCard(
+                    is SearchAgentStep.ErrorStep -> StepCard(
+                        title = "${step.title}",
+                        detail = step.detail,
+                        variant = StepCardVariant.Error,
+                    )
+                    is SearchAgentStep.FinalStep -> StepCard(
                     title = stepLabelFinal(),
                     detail = step.detail,
+                    variant = StepCardVariant.Final,
                 )
             }
         }
@@ -1605,6 +1682,8 @@ private fun SearchAgentStepsTab(
     }
 }
 
+private enum class StepCardVariant { Task, Reasoning, ToolCall, Final, Error }
+
 @Composable
 private fun StepCard(
     title: String,
@@ -1615,17 +1694,44 @@ private fun StepCard(
     expanded: Boolean = false,
     onToggle: () -> Unit = {},
     collapsedPreview: String = "",
+    variant: StepCardVariant = StepCardVariant.ToolCall,
 ) {
+    // running 始终优先（活跃工作态最高语义权重），否则按 variant 取主题色容器。
+    val baseColors: CardColors = when (variant) {
+        StepCardVariant.Task -> CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+        StepCardVariant.Reasoning -> CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        StepCardVariant.Final -> CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+        StepCardVariant.Error -> CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        )
+        StepCardVariant.ToolCall -> CardDefaults.cardColors()
+    }
+    val cardColors = if (running) {
+        // 二次容器保留 running 视觉的同时让色彩不与 variant 主题色冲突：用 secondary.
+        CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+    } else baseColors
+
     Card(
-        colors = if (running) {
-            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-        } else {
-            CardDefaults.cardColors()
-        },
+        shape = AppShapes.CardMedium,
+        colors = cardColors,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .animateContentSize(animationSpec = spring(dampingRatio = 0.9f, stiffness = 800f))
                 .then(if (expandable) Modifier.clickable { onToggle() } else Modifier)
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -1646,6 +1752,7 @@ private fun StepCard(
                     style = MaterialTheme.typography.titleSmall,
                 )
                 if (expandable) {
+                    Spacer(Modifier.weight(1f))
                     Text(
                         text = if (expanded) "▾" else "▸",
                         style = MaterialTheme.typography.titleSmall,
@@ -1667,13 +1774,52 @@ private fun StepCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            urls.take(3).forEach { url ->
+            // URL 胶囊换行排列，贴合内容，避免横向滚动抢手势 / 卡片高度虚高。
+            if (urls.isNotEmpty()) {
+                val navController = LocalNavController.current
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    urls.take(8).forEach { url ->
+                        StepUrlChip(
+                            url = url,
+                            onClick = { navController.navigate(Screen.WebView(url = url)) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StepUrlChip(url: String, onClick: () -> Unit) {
+    val host = remember(url) {
+        runCatching { android.net.Uri.parse(url).host }.getOrNull() ?: url
+    }
+    // onClick 版 Surface 会套 minimumInteractiveComponentSize，把节点强制撑到 48dp 触摸目标，
+    // 胶囊视觉高度只有 ~18dp 却居中在 48dp 节点里，FlowRow 行高虚高 -> 上下出现大片留白。
+    // 关掉最小交互尺寸，胶囊贴合内容。
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+        Surface(
+            onClick = onClick,
+            shape = AppShapes.ButtonPill,
+            color = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Favicon(url = url, modifier = Modifier.size(12.dp))
                 Text(
-                    text = url,
-                    style = MaterialTheme.typography.labelSmall,
+                    text = host,
+                    style = MaterialTheme.typography.labelSmall.copy(lineHeight = 12.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                 )
             }
         }
