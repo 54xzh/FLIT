@@ -486,16 +486,7 @@ private class SearchAgentRunner(
         return buildAgentResult(summary = summary, sources = sources, notes = notes)
     }
 
-    private fun parseJsonObjectFromText(text: String): JsonObject? {
-        val trimmed = text.trim()
-        runCatching { return JsonInstant.parseToJsonElement(trimmed) as? JsonObject }
-        val start = trimmed.indexOf('{')
-        val end = trimmed.lastIndexOf('}')
-        if (start < 0 || end <= start) return null
-        return runCatching {
-            JsonInstant.parseToJsonElement(trimmed.substring(start, end + 1)) as? JsonObject
-        }.getOrNull()
-    }
+    private fun parseJsonObjectFromText(text: String): JsonObject? = parseSearchAgentJsonObject(text)
 
     private fun extractCitationIds(summary: String): Set<String> {
         return Regex("""\[citation,[^\]]+]\(([^)]+)\)""")
@@ -742,6 +733,97 @@ private class SearchAgentRunner(
             ?.take(220)
             ?: "工具执行失败"
     }
+}
+
+internal fun parseSearchAgentJsonObject(text: String): JsonObject? {
+    val trimmed = text.trim()
+    runCatching { return JsonInstant.parseToJsonElement(trimmed) as? JsonObject }
+    val candidate = extractSearchAgentJsonObjectCandidate(trimmed) ?: return null
+    runCatching { return JsonInstant.parseToJsonElement(candidate) as? JsonObject }
+    val sanitized = sanitizeSearchAgentJsonLikeObject(candidate)
+    if (sanitized != candidate) {
+        runCatching { return JsonInstant.parseToJsonElement(sanitized) as? JsonObject }
+    }
+    return null
+}
+
+private fun extractSearchAgentJsonObjectCandidate(text: String): String? {
+    val fencedBlock = extractFencedCodeBlock(text)
+    if (fencedBlock != null) {
+        val fencedCandidate = extractBracedObject(fencedBlock)
+        if (fencedCandidate != null) return fencedCandidate
+    }
+    return extractBracedObject(text)
+}
+
+private fun extractFencedCodeBlock(text: String): String? {
+    val start = text.indexOf("```")
+    if (start < 0) return null
+    val end = text.lastIndexOf("```")
+    if (end <= start) return null
+    val bodyStart = text.indexOf('\n', start + 3).takeIf { it >= 0 } ?: return null
+    return text.substring(bodyStart + 1, end).trim()
+}
+
+private fun extractBracedObject(text: String): String? {
+    val start = text.indexOf('{')
+    val end = text.lastIndexOf('}')
+    if (start < 0 || end <= start) return null
+    return text.substring(start, end + 1)
+}
+
+private fun sanitizeSearchAgentJsonLikeObject(text: String): String {
+    val out = StringBuilder(text.length + 32)
+    var inString = false
+    var escaped = false
+    var index = 0
+
+    while (index < text.length) {
+        val ch = text[index]
+        if (inString) {
+            when {
+                escaped -> {
+                    out.append(ch)
+                    escaped = false
+                }
+                ch == '\\' -> {
+                    out.append(ch)
+                    escaped = true
+                }
+                ch == '\n' -> out.append("\\n")
+                ch == '\r' -> out.append("\\r")
+                ch == '\t' -> out.append("\\t")
+                ch == '"' -> {
+                    if (looksLikeStringTerminator(text, index)) {
+                        out.append(ch)
+                        inString = false
+                    } else {
+                        out.append("\\\"")
+                    }
+                }
+                else -> out.append(ch)
+            }
+        } else {
+            out.append(ch)
+            if (ch == '"') {
+                inString = true
+            }
+        }
+        index++
+    }
+    return out.toString()
+}
+
+private fun looksLikeStringTerminator(text: String, quoteIndex: Int): Boolean {
+    var index = quoteIndex + 1
+    while (index < text.length && text[index].isWhitespace()) {
+        index++
+    }
+    return index >= text.length ||
+        text[index] == ':' ||
+        text[index] == ',' ||
+        text[index] == '}' ||
+        text[index] == ']'
 }
 
 private fun buildAgentResult(
