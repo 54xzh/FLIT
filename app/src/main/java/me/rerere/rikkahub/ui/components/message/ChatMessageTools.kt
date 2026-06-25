@@ -54,6 +54,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -1377,7 +1378,10 @@ private fun SearchAgentPreviewContent(
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        PrimaryTabRow(selectedTabIndex = selectedTab) {
+        PrimaryTabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = Color.Transparent,
+        ) {
             tabs.forEachIndexed { index, label ->
                 Tab(
                     selected = selectedTab == index,
@@ -1390,7 +1394,7 @@ private fun SearchAgentPreviewContent(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.85f),
+                .weight(1f),
         ) {
             when (selectedTab) {
                 0 -> SearchAgentResultTab(content = content)

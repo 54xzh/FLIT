@@ -10,6 +10,8 @@ export PATH=$JAVA_HOME/bin:$PATH && mkdir -p "$ANDROID_USER_HOME" && source ~/.b
 ```
 Requires `JAVA_HOME`, `GRADLE_USER_HOME`, and `ANDROID_USER_HOME` set to project-local paths. Build exception: skip if change is purely UI copy or prompt text.
 
+**Always package after code changes:** After making any code change that is not purely UI copy or prompt text, run the full release build command above before reporting the task done. Do not stop at `compileKotlin` — produce the actual APK. Only skip when the change falls under the build exception above.
+
 **Run all unit tests:**
 ```bash
 ./gradlew test --no-daemon
