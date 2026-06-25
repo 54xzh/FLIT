@@ -335,7 +335,8 @@ val SEARCH_AGENT_MAIN_TOOL_PROMPT_TEMPLATE = """
     - Use search_agent first for web search or webpage reading.
     - Use search_agent for latest/current information, time-sensitive facts, or to confirm facts from the web.
     - Use the app-provided current date as the recency reference when judging latest or recent information.
-    - Give it a short task with only necessary context.
+    - Put the full requirement into a single `task` with only necessary context.
+    - Do not issue multiple `search_agent` calls in the same turn.
     - If URLs are already known, pass them in urls.
     - Use search_web or scrape_web directly only when you need raw results, full page content, or search_agent is unavailable.
     - When answering, only cite sources returned by search_agent.
