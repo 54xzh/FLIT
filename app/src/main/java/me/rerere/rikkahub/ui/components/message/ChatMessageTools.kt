@@ -1779,8 +1779,8 @@ private fun StepCard(
                 val navController = LocalNavController.current
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     urls.take(8).forEach { url ->
                         StepUrlChip(
