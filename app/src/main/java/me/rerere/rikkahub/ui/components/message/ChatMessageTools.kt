@@ -1618,9 +1618,14 @@ private fun SearchAgentStepsTab(
     val expandedReasoning = remember { mutableStateMapOf<Int, Boolean>() }
     val lazyListState = rememberLazyListState()
 
-    // 贴底跟随：新步骤出现或卡片高度变化时，若用户贴底且没有主动上滑，
-    // 就动画滚动到底部。用户上滑后打断，滑回底部才恢复。
-    // 参考 ChatList 模式：贴底判断放入 snapshotFlow，确保回到贴底时可靠触发重评。
+    // 贴底跟随：参考 ChatList 模式——只在执行中跟随，用户上滑打断、回到底部恢复。
+    // 关键：跟随用 requestScrollToItem 而非 animateScrollToItem，它把滚动请求排到
+    // 下一帧测量之后才计算目标，从而不会与 StepCard 的 animateContentSize（卡片长高过渡）
+    // 在同一帧内争夺布局，避免"卡片还没长完就滚到位、长完又被挤出屏幕"的跟随错位。
+    // 触发源是可见项变化（卡片长高/新增步骤会改变 visibleItemsInfo）而不是每帧贴底判定，
+    // 避免被弹簧过冲反复触发，连续多次请求会被 request 自动合并到最后一次。
+    val liveRunning = liveProgress?.let { !it.finished } ?: hasLiveTask
+
     val isPinnedToBottom by remember {
         derivedStateOf {
             val layout = lazyListState.layoutInfo
@@ -1631,44 +1636,42 @@ private fun SearchAgentStepsTab(
     }
     var userDetached by remember { mutableStateOf(false) }
 
-    LaunchedEffect(lazyListState, pagerPageVisible) {
-        if (!pagerPageVisible) return@LaunchedEffect
+    // 用户上滑切断 / 回到贴底恢复跟随
+    LaunchedEffect(lazyListState, pagerPageVisible, liveRunning) {
+        if (!pagerPageVisible || !liveRunning) return@LaunchedEffect
 
         var lastIndex = lazyListState.firstVisibleItemIndex
         var lastOffset = lazyListState.firstVisibleItemScrollOffset
 
         snapshotFlow {
-            val atBottom = isPinnedToBottom
             Triple(
-                atBottom,
+                isPinnedToBottom,
                 lazyListState.isScrollInProgress,
-                lazyListState.layoutInfo.visibleItemsInfo,
+                lazyListState.firstVisibleItemIndex,
             )
-        }.collect { (atBottom, scrolling, _) ->
-            val index = lazyListState.firstVisibleItemIndex
+        }.collect { (atBottom, scrolling, index) ->
             val offset = lazyListState.firstVisibleItemScrollOffset
             val movingUp = index < lastIndex || (index == lastIndex && offset < lastOffset)
 
             // 用户主动向上滑动 → 打断跟随
-            if (scrolling && movingUp) {
-                userDetached = true
-            }
-            // 回到贴底且不在滚动 → 恢复跟随（贴底优先于滚动方向）
-            if (atBottom && !scrolling) {
-                userDetached = false
-            }
+            if (scrolling && movingUp) userDetached = true
+            // 回到贴底且不在滚动 → 恢复跟随
+            if (atBottom && !scrolling) userDetached = false
 
-            // 自动跟随：非贴底（新内容推开了 spacer）+ 不在滚动 + 用户未脱离
-            if (!atBottom && !scrolling && !userDetached) {
-                val total = lazyListState.layoutInfo.totalItemsCount
-                if (total > 1) {
-                    // animateScrollToItem 产生平滑动画：上面卡片上移，新卡片淡入
-                    lazyListState.animateScrollToItem(total - 1)
-                }
-            }
+            lastIndex = index
+            lastOffset = offset
+        }
+    }
 
-            lastIndex = lazyListState.firstVisibleItemIndex
-            lastOffset = lazyListState.firstVisibleItemScrollOffset
+    // 跟随：每次可见项变化（含卡片长高导致重排）排一次到末尾的滚动请求。
+    // requestScrollToItem 在下一帧测量后再定滚动位置，连续请求合并，不与高度动画打架。
+    LaunchedEffect(lazyListState, pagerPageVisible, liveRunning) {
+        if (!pagerPageVisible || !liveRunning) return@LaunchedEffect
+
+        snapshotFlow { lazyListState.layoutInfo.visibleItemsInfo }.collect { visible ->
+            if (userDetached || lazyListState.isScrollInProgress || visible.isEmpty()) return@collect
+            val total = lazyListState.layoutInfo.totalItemsCount
+            if (total > 1) lazyListState.requestScrollToItem(total - 1)
         }
     }
 
