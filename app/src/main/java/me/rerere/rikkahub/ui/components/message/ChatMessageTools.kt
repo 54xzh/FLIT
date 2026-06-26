@@ -1,8 +1,12 @@
 package me.rerere.rikkahub.ui.components.message
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -11,6 +15,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Column
@@ -54,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -73,6 +79,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -128,6 +135,17 @@ private fun stepLabelReasoning() = stringResource(R.string.search_agent_step_rea
 
 @Composable
 private fun stepLabelFinal() = stringResource(R.string.search_agent_step_final)
+
+// 新步骤进入动画：淡入 + 弹簧移位（上面卡片被推开时有重量感）。
+private val StepFadeInSpec = spring<Float>(
+    dampingRatio = Spring.DampingRatioMediumBouncy,
+    stiffness = Spring.StiffnessMedium,
+)
+private val StepPlacementSpec: SpringSpec<IntOffset> = spring(
+    // animateItem placementSpec 需要 IntOffset 维度的位移弹簧。
+    dampingRatio = Spring.DampingRatioMediumBouncy,
+    stiffness = Spring.StiffnessMedium,
+)
 
 @Composable
 internal fun toolApprovalDisplayName(toolName: String): String {
@@ -1600,17 +1618,58 @@ private fun SearchAgentStepsTab(
     val expandedReasoning = remember { mutableStateMapOf<Int, Boolean>() }
     val lazyListState = rememberLazyListState()
 
-    // 步骤追加时跟随到最新步骤（瞬时定位，不附加主动运动动画）。
-    var lastStepCount by remember { mutableStateOf(0) }
-    LaunchedEffect(steps.size, pagerPageVisible) {
-        if (pagerPageVisible && steps.size > lastStepCount && steps.isNotEmpty()) {
-            // 用户贴近上一步末尾（含执行卡片已到列表最底部的情况）才跟随，向上浏览时打断不打扰。
-            val prevTail = lastStepCount - 1
-            if (lazyListState.firstVisibleItemIndex >= prevTail - 1) {
-                lazyListState.scrollToItem(steps.lastIndex)
-            }
+    // 贴底跟随：新步骤出现或卡片高度变化时，若用户贴底且没有主动上滑，
+    // 就动画滚动到底部。用户上滑后打断，滑回底部才恢复。
+    // 参考 ChatList 模式：贴底判断放入 snapshotFlow，确保回到贴底时可靠触发重评。
+    val isPinnedToBottom by remember {
+        derivedStateOf {
+            val layout = lazyListState.layoutInfo
+            val lastVisible = layout.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
+            lastVisible.index == layout.totalItemsCount - 1 &&
+                lastVisible.offset + lastVisible.size >= layout.viewportEndOffset - 32
         }
-        lastStepCount = steps.size
+    }
+    var userDetached by remember { mutableStateOf(false) }
+
+    LaunchedEffect(lazyListState, pagerPageVisible) {
+        if (!pagerPageVisible) return@LaunchedEffect
+
+        var lastIndex = lazyListState.firstVisibleItemIndex
+        var lastOffset = lazyListState.firstVisibleItemScrollOffset
+
+        snapshotFlow {
+            val atBottom = isPinnedToBottom
+            Triple(
+                atBottom,
+                lazyListState.isScrollInProgress,
+                lazyListState.layoutInfo.visibleItemsInfo,
+            )
+        }.collect { (atBottom, scrolling, _) ->
+            val index = lazyListState.firstVisibleItemIndex
+            val offset = lazyListState.firstVisibleItemScrollOffset
+            val movingUp = index < lastIndex || (index == lastIndex && offset < lastOffset)
+
+            // 用户主动向上滑动 → 打断跟随
+            if (scrolling && movingUp) {
+                userDetached = true
+            }
+            // 回到贴底且不在滚动 → 恢复跟随（贴底优先于滚动方向）
+            if (atBottom && !scrolling) {
+                userDetached = false
+            }
+
+            // 自动跟随：非贴底（新内容推开了 spacer）+ 不在滚动 + 用户未脱离
+            if (!atBottom && !scrolling && !userDetached) {
+                val total = lazyListState.layoutInfo.totalItemsCount
+                if (total > 1) {
+                    // animateScrollToItem 产生平滑动画：上面卡片上移，新卡片淡入
+                    lazyListState.animateScrollToItem(total - 1)
+                }
+            }
+
+            lastIndex = lazyListState.firstVisibleItemIndex
+            lastOffset = lazyListState.firstVisibleItemScrollOffset
+        }
     }
 
     LazyColumn(
@@ -1620,11 +1679,17 @@ private fun SearchAgentStepsTab(
         contentPadding = PaddingValues(bottom = 16.dp),
     ) {
         itemsIndexed(steps, key = { index, _ -> "step:$index" }) { index, step ->
+            val itemModifier = Modifier.animateItem(
+                fadeInSpec = StepFadeInSpec,
+                fadeOutSpec = StepFadeInSpec,
+                placementSpec = StepPlacementSpec,
+            )
             when (step) {
                 is SearchAgentStep.TaskStep -> StepCard(
                     title = stepLabelTask(),
                     detail = step.text,
                     variant = StepCardVariant.Task,
+                    modifier = itemModifier,
                 )
                     is SearchAgentStep.ReasoningStep -> {
                         val expanded = expandedReasoning[index] ?: false
@@ -1636,6 +1701,7 @@ private fun SearchAgentStepsTab(
                             onToggle = { expandedReasoning[index] = !expanded },
                             collapsedPreview = step.text.take(80),
                             variant = StepCardVariant.Reasoning,
+                            modifier = itemModifier,
                         )
                     }
                     is SearchAgentStep.ToolCallStep -> StepCard(
@@ -1644,16 +1710,19 @@ private fun SearchAgentStepsTab(
                         urls = step.urls,
                         running = step.status == SearchAgentStep.ToolCallStep.Status.Running,
                         variant = StepCardVariant.ToolCall,
+                        modifier = itemModifier,
                     )
                     is SearchAgentStep.ErrorStep -> StepCard(
                         title = "${step.title}",
                         detail = step.detail,
                         variant = StepCardVariant.Error,
+                        modifier = itemModifier,
                     )
                     is SearchAgentStep.FinalStep -> StepCard(
                     title = stepLabelFinal(),
                     detail = step.detail,
                     variant = StepCardVariant.Final,
+                    modifier = itemModifier,
                 )
             }
         }
@@ -1679,6 +1748,12 @@ private fun SearchAgentStepsTab(
                 }
             }
         }
+        // 尾部 spacer：让"滚到最后"等于"最后一步贴底"，步骤页固定有个底部 item。
+        if (steps.isNotEmpty()) {
+            item(key = "bottom") {
+                Spacer(Modifier.fillMaxWidth().height(1.dp))
+            }
+        }
     }
 }
 
@@ -1695,6 +1770,7 @@ private fun StepCard(
     onToggle: () -> Unit = {},
     collapsedPreview: String = "",
     variant: StepCardVariant = StepCardVariant.ToolCall,
+    modifier: Modifier = Modifier,
 ) {
     // running 始终优先（活跃工作态最高语义权重），否则按 variant 取主题色容器。
     val baseColors: CardColors = when (variant) {
@@ -1725,6 +1801,7 @@ private fun StepCard(
     } else baseColors
 
     Card(
+        modifier = modifier,
         shape = AppShapes.CardMedium,
         colors = cardColors,
     ) {
