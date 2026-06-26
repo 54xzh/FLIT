@@ -381,6 +381,16 @@ class GenerationHandler(
                         )
                     )
                 }
+                emit(
+                    GenerationChunk.Messages(
+                        messages.transforms(
+                            transformers = outputTransformers,
+                            context = context,
+                            model = model,
+                            assistant = assistant,
+                        )
+                    )
+                )
             }
 
             suspend fun updateToolApproval(

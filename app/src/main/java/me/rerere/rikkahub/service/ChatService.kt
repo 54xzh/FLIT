@@ -25,8 +25,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -163,6 +165,7 @@ private const val TAG = "ChatService"
 private const val CHAT_GENERATION_DONE_NOTIFICATION_ID = 1
 private const val FALLBACK_TITLE_MAX_CODE_POINTS = 15
 private const val OLDER_HISTORY_LOAD_BATCH_SIZE = 120
+private const val GENERATION_DRAFT_SAVE_INTERVAL_MS = 4_000L
 private const val META_ANTHROPIC_TYPE = "anthropic_type"
 private const val TYPE_SERVER_TOOL_USE = "server_tool_use"
 
@@ -191,6 +194,11 @@ private data class ContinueCandidate(
     val message: UIMessage,
     val nodeIndex: Int,
     val originalText: String,
+)
+
+private data class GenerationDraftPersistenceSnapshot(
+    val messageKeys: List<String>,
+    val processPartKeys: List<String>,
 )
 
 class ChatService(
@@ -317,6 +325,7 @@ class ChatService(
     private val generationJobs: StateFlow<Map<Uuid, Job?>> = _generationJobs
         .asStateFlow()
     private val generationCancelReasons = ConcurrentHashMap<Uuid, GenerationCancelReason>()
+    private val generationDraftSaveJobs = ConcurrentHashMap<Uuid, Job>()
 
     // 错误流
     private val _errorFlow = MutableSharedFlow<Throwable>()
@@ -1990,6 +1999,7 @@ class ChatService(
                     updateAt = Instant.now()
                 )
                 updateConversation(conversationId, updatedConversation)
+                flushGenerationDraftSave(conversationId, nonCancellable = cause is CancellationException)
 
                 // Record quota usage after generation
                 if (cause == null) {
@@ -2038,9 +2048,19 @@ class ChatService(
                         if (chunk.finishReasons.isNotEmpty()) {
                             latestFinishReasons = chunk.finishReasons
                         }
-                        val updatedConversation = getConversationFlow(conversationId).value
+                        val currentConversation = getConversationFlow(conversationId).value
+                        val updatedConversation = currentConversation
                             .updateCurrentMessages(chunk.messages)
+                            .copy(updateAt = Instant.now())
+                        val shouldSaveNow = shouldSaveGenerationDraftImmediately(
+                            previousConversation = currentConversation,
+                            updatedConversation = updatedConversation,
+                        )
                         updateConversation(conversationId, updatedConversation)
+                        persistGenerationDraft(
+                            conversationId = conversationId,
+                            immediate = shouldSaveNow,
+                        )
 
                         if (useLiveUpdate) {
                             val resolvedState = ChatLiveUpdateStateResolver.resolve(updatedConversation.currentMessages)
@@ -2087,6 +2107,7 @@ class ChatService(
             if (!isUserCancelled) {
                 _errorFlow.emit(it)
             }
+            flushGenerationDraftSave(conversationId, nonCancellable = it is CancellationException)
             Logging.log(TAG, "handleMessageComplete: $it")
             Logging.log(TAG, it.stackTraceToString())
         }.onSuccess {
@@ -2590,7 +2611,16 @@ class ChatService(
 
                         val current = getConversationFlow(conversationId).value
                         val updated = current.updateCurrentMessages(updatedMessages)
+                            .copy(updateAt = Instant.now())
+                        val shouldSaveNow = shouldSaveGenerationDraftImmediately(
+                            previousConversation = current,
+                            updatedConversation = updated,
+                        )
                         updateConversation(conversationId, updated)
+                        persistGenerationDraft(
+                            conversationId = conversationId,
+                            immediate = shouldSaveNow,
+                        )
 
                         if (useLiveUpdate) {
                             val resolvedState = ChatLiveUpdateStateResolver.resolve(updated.currentMessages)
@@ -5528,6 +5558,101 @@ class ChatService(
         )
     }
 
+    private fun buildGenerationDraftPersistenceSnapshot(conversation: Conversation): GenerationDraftPersistenceSnapshot {
+        val messages = conversation.currentMessages
+        return GenerationDraftPersistenceSnapshot(
+            messageKeys = messages.map { message ->
+                "${message.id}:${message.role}:${message.speakerAssistantId}:${message.speakerSeatId}"
+            },
+            processPartKeys = messages.flatMapIndexed { messageIndex, message ->
+                message.parts.mapNotNull { part ->
+                    when (part) {
+                        is UIMessagePart.ToolCall -> {
+                            "$messageIndex:call:${part.toolCallId}:${part.toolName}:${part.arguments.hashCode()}:${part.metadata.hashCode()}"
+                        }
+                        is UIMessagePart.ToolApproval -> {
+                            "$messageIndex:approval:${part.toolCallId}:${part.toolName}:${part.state}:${part.metadata.hashCode()}"
+                        }
+                        is UIMessagePart.AskUser -> {
+                            "$messageIndex:ask:${part.toolCallId}:${part.state}:${part.question.hashCode()}:${part.options.hashCode()}:${part.questions.hashCode()}:${part.answer.hashCode()}:${part.answers.hashCode()}:${part.metadata.hashCode()}"
+                        }
+                        is UIMessagePart.ToolResult -> {
+                            "$messageIndex:result:${part.toolCallId}:${part.toolName}:${part.content.hashCode()}:${part.arguments.hashCode()}:${part.metadata.hashCode()}"
+                        }
+                        else -> null
+                    }
+                }
+            },
+        )
+    }
+
+    private fun shouldSaveGenerationDraftImmediately(
+        previousConversation: Conversation,
+        updatedConversation: Conversation,
+    ): Boolean {
+        return buildGenerationDraftPersistenceSnapshot(previousConversation) !=
+            buildGenerationDraftPersistenceSnapshot(updatedConversation)
+    }
+
+    private fun scheduleGenerationDraftSave(conversationId: Uuid) {
+        if (temporaryConversations.contains(conversationId)) return
+        val existingJob = generationDraftSaveJobs[conversationId]
+        if (existingJob?.isActive == true) return
+
+        lateinit var job: Job
+        job = appScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                delay(GENERATION_DRAFT_SAVE_INTERVAL_MS)
+                saveGenerationDraftSnapshot(conversationId)
+            } finally {
+                generationDraftSaveJobs.remove(conversationId, job)
+            }
+        }
+        generationDraftSaveJobs[conversationId] = job
+        job.start()
+    }
+
+    private suspend fun persistGenerationDraft(
+        conversationId: Uuid,
+        immediate: Boolean,
+    ) {
+        if (temporaryConversations.contains(conversationId)) return
+        if (immediate) {
+            flushGenerationDraftSave(conversationId)
+        } else {
+            scheduleGenerationDraftSave(conversationId)
+        }
+    }
+
+    private suspend fun flushGenerationDraftSave(
+        conversationId: Uuid,
+        nonCancellable: Boolean = false,
+    ) {
+        generationDraftSaveJobs.remove(conversationId)?.cancel()
+        saveGenerationDraftSnapshot(
+            conversationId = conversationId,
+            nonCancellable = nonCancellable,
+        )
+    }
+
+    private suspend fun saveGenerationDraftSnapshot(
+        conversationId: Uuid,
+        nonCancellable: Boolean = false,
+    ) {
+        if (temporaryConversations.contains(conversationId)) return
+        val conversation = getConversationFlow(conversationId).value
+        if (conversation.id != conversationId) return
+
+        val context = if (nonCancellable) {
+            Dispatchers.IO + NonCancellable
+        } else {
+            Dispatchers.IO
+        }
+        withContext(context) {
+            saveConversation(conversationId, conversation)
+        }
+    }
+
     // 更新对话
     private fun updateConversation(conversationId: Uuid, conversation: Conversation) {
         if (conversation.id != conversationId) return
@@ -5871,10 +5996,12 @@ class ChatService(
         if (updatedConversation.title.isBlank() && updatedConversation.messageNodes.isEmpty()) return
 
         try {
-            if (conversationRepo.getConversationById(conversation.id) == null) {
-                conversationRepo.insertConversation(updatedConversation)
-            } else {
-                conversationRepo.updateConversation(updatedConversation)
+            withContext(Dispatchers.IO) {
+                if (conversationRepo.getConversationById(conversation.id) == null) {
+                    conversationRepo.insertConversation(updatedConversation)
+                } else {
+                    conversationRepo.updateConversation(updatedConversation)
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
