@@ -255,6 +255,26 @@ private fun UIMessagePart.streamUiPartStructureKey(): String {
     }
 }
 
+private fun List<UIMessage>.withContextSources(
+    usedLorebookEntries: List<UsedLorebookEntry>,
+    usedModes: List<UsedMode>,
+    usedMemories: List<UsedMemory>,
+    usedSessionMemories: List<UsedSessionMemory>,
+): List<UIMessage> {
+    return mapIndexed { index, message ->
+        if (index == lastIndex && message.role == MessageRole.ASSISTANT) {
+            message.copy(
+                usedLorebookEntries = usedLorebookEntries.ifEmpty { null },
+                usedModes = usedModes.ifEmpty { null },
+                usedMemories = usedMemories.ifEmpty { null },
+                usedSessionMemories = usedSessionMemories.ifEmpty { null },
+            )
+        } else {
+            message
+        }
+    }
+}
+
 private fun Throwable.isRetryableHttpOrNetworkError(): Boolean {
     return hasRetryableHttpStatusCode() || hasRetryableNetworkError()
 }
@@ -1635,20 +1655,14 @@ class GenerationHandler(
                 }
 
                 if (hasContextSources) {
-                    messages = messages.mapIndexed { index, message ->
-                        if (index == messages.lastIndex && message.role == MessageRole.ASSISTANT) {
-                            message.copy(
-                                usedLorebookEntries = usedLorebookEntries.ifEmpty { null },
-                                usedModes = usedModes.ifEmpty { null },
-                                usedMemories = usedMemories.ifEmpty { null },
-                                usedSessionMemories = usedSessionMemories.ifEmpty { null },
-                            )
-                        } else {
-                            message
-                        }
-                    }
-                    onUpdateMessages(messages, emptySet())
+                    messages = messages.withContextSources(
+                        usedLorebookEntries = usedLorebookEntries,
+                        usedModes = usedModes,
+                        usedMemories = usedMemories,
+                        usedSessionMemories = usedSessionMemories,
+                    )
                 }
+                onUpdateMessages(messages, emptySet())
             } catch (t: Throwable) {
                 failure = t
                 throw t
@@ -1704,18 +1718,12 @@ class GenerationHandler(
                         }
 
                         if (hasContextSources) {
-                            messages = messages.mapIndexed { index, message ->
-                                if (index == messages.lastIndex && message.role == MessageRole.ASSISTANT) {
-                                    message.copy(
-                                        usedLorebookEntries = usedLorebookEntries.ifEmpty { null },
-                                        usedModes = usedModes.ifEmpty { null },
-                                        usedMemories = usedMemories.ifEmpty { null },
-                                        usedSessionMemories = usedSessionMemories.ifEmpty { null },
-                                    )
-                                } else {
-                                    message
-                                }
-                            }
+                            messages = messages.withContextSources(
+                                usedLorebookEntries = usedLorebookEntries,
+                                usedModes = usedModes,
+                                usedMemories = usedMemories,
+                                usedSessionMemories = usedSessionMemories,
+                            )
                         }
                         val finishReasons = when {
                             chunk.finishReasons.isNotEmpty() -> chunk.finishReasons
