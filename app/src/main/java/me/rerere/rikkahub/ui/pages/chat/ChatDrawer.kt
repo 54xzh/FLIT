@@ -100,6 +100,7 @@ fun ChatDrawerContent(
     vm: ChatVM,
     settings: Settings,
     current: Conversation,
+    currentExistsInStorage: Boolean,
     drawerState: androidx.compose.material3.DrawerState? = null,  // Optional for animated close
 ) {
     val scope = rememberCoroutineScope()
@@ -269,6 +270,7 @@ fun ChatDrawerContent(
 
             ConversationList(
                 current = current,
+                currentExistsInStorage = currentExistsInStorage,
                 conversations = conversations,
                 conversationJobs = conversationJobs.keys,
                 recentlyRestoredIds = recentlyRestoredIds,

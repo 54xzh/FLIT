@@ -457,6 +457,7 @@ fun ChatPage(
 
     val setting by vm.settings.collectAsStateWithLifecycle()
     val conversation by vm.conversation.collectAsStateWithLifecycle()
+    val conversationExistsInStorage by vm.conversationExistsInStorage.collectAsStateWithLifecycle()
     val loadingJob by vm.conversationJob.collectAsStateWithLifecycle()
     val currentChatModel by vm.currentChatModel.collectAsStateWithLifecycle()
     val enableWebSearch by vm.enableWebSearch.collectAsStateWithLifecycle()
@@ -536,6 +537,7 @@ fun ChatPage(
                         current = conversation,
                         vm = vm,
                         settings = setting,
+                        currentExistsInStorage = conversationExistsInStorage,
                         drawerState = null
                     )
                 }
@@ -568,6 +570,7 @@ fun ChatPage(
                         current = conversation,
                         vm = vm,
                         settings = setting,
+                        currentExistsInStorage = conversationExistsInStorage,
                         drawerState = drawerState
                     )
                 }

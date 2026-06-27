@@ -107,6 +107,7 @@ sealed class ConversationListItem {
 @Composable
 fun ColumnScope.ConversationList(
     current: Conversation,
+    currentExistsInStorage: Boolean,
     conversations: LazyPagingItems<ConversationListItem>,
     conversationJobs: Collection<Uuid>,
     recentlyRestoredIds: Set<Uuid> = emptySet(),
@@ -240,8 +241,9 @@ fun ColumnScope.ConversationList(
         return centered
     }
 
-    LaunchedEffect(current.id, searchQuery) {
+    LaunchedEffect(current.id, currentExistsInStorage, searchQuery) {
         if (drawerState == null) return@LaunchedEffect
+        if (!currentExistsInStorage) return@LaunchedEffect
         if (searchQuery.isNotBlank()) return@LaunchedEffect
         lastCenteredConversationId = null
         requestAutoCenter()
@@ -254,8 +256,9 @@ fun ColumnScope.ConversationList(
         }
     }
 
-    LaunchedEffect(drawerState?.targetValue, searchQuery) {
+    LaunchedEffect(drawerState?.targetValue, currentExistsInStorage, searchQuery) {
         if (drawerState == null) return@LaunchedEffect
+        if (!currentExistsInStorage) return@LaunchedEffect
         if (searchQuery.isNotBlank()) return@LaunchedEffect
         if (drawerState.targetValue != DrawerValue.Open) return@LaunchedEffect
         if (autoCentering) return@LaunchedEffect
@@ -265,6 +268,7 @@ fun ColumnScope.ConversationList(
 
     LaunchedEffect(autoCenterRequest) {
         if (drawerState == null) return@LaunchedEffect
+        if (!currentExistsInStorage) return@LaunchedEffect
         if (searchQuery.isNotBlank()) return@LaunchedEffect
         autoCentering = true
         try {
@@ -293,6 +297,7 @@ fun ColumnScope.ConversationList(
             item is ConversationListItem.Item && item.conversation.id == current.id
         }
         val shouldMaskListWhileAutoCentering = drawerState?.targetValue == DrawerValue.Open &&
+            currentExistsInStorage &&
             searchQuery.isBlank() &&
             lastCenteredConversationId != current.id &&
             (

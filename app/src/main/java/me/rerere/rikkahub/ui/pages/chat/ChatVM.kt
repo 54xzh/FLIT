@@ -81,6 +81,8 @@ class ChatVM(
 
     private val _conversationInitialized = MutableStateFlow(false)
     val conversationInitialized: StateFlow<Boolean> = _conversationInitialized.asStateFlow()
+    private val _conversationExistsInStorage = MutableStateFlow(false)
+    val conversationExistsInStorage: StateFlow<Boolean> = _conversationExistsInStorage.asStateFlow()
 
     // 异步任务 (从ChatService获取，响应式)
     val conversationJob: StateFlow<Job?> =
@@ -115,7 +117,9 @@ class ChatVM(
         viewModelScope.launch {
             var initializedOk = false
             try {
-                initializedOk = chatService.initializeConversation(_conversationId)
+                val result = chatService.initializeConversationWithResult(_conversationId)
+                initializedOk = result.initialized
+                _conversationExistsInStorage.value = result.existsInStorage
             } finally {
                 _conversationInitialized.value = true
             }
@@ -405,6 +409,9 @@ class ChatVM(
             isTemporaryChat = isTemporaryChat,
             groupChatSpeakerSeatIdsOverride = groupChatSpeakerSeatIdsOverride,
         )
+        if (!isTemporaryChat) {
+            _conversationExistsInStorage.value = true
+        }
     }
 
     fun handleMessageEdit(parts: List<UIMessagePart>, messageId: Uuid) {
@@ -446,7 +453,7 @@ class ChatVM(
             },
         )
         viewModelScope.launch {
-            chatService.saveConversation(_conversationId, newConversation)
+            saveCurrentConversation(newConversation)
         }
     }
 
@@ -464,7 +471,7 @@ class ChatVM(
                 title = "",
                 chatSuggestions = emptyList(), // 清空建议
             )
-            chatService.saveConversation(conversationId = _conversationId, conversation = newConversation)
+            saveCurrentConversation(newConversation)
         }
     }
 
@@ -587,7 +594,7 @@ class ChatVM(
             conversation.copy(messageNodes = updatedNodes)
         }
         viewModelScope.launch {
-            chatService.saveConversation(_conversationId, newConversation)
+            saveCurrentConversation(newConversation)
         }
     }
 
@@ -648,7 +655,7 @@ class ChatVM(
 
     fun saveConversationAsync() {
         viewModelScope.launch {
-            chatService.saveConversation(_conversationId, conversation.value)
+            saveCurrentConversation(conversation.value)
         }
     }
 
@@ -705,7 +712,7 @@ class ChatVM(
     fun updateTitle(title: String) {
         viewModelScope.launch {
             val updatedConversation = conversation.value.copy(title = title)
-            chatService.saveConversation(_conversationId, updatedConversation)
+            saveCurrentConversation(updatedConversation)
         }
     }
 
@@ -755,8 +762,13 @@ class ChatVM(
 
     fun updateConversation(newConversation: Conversation) {
         viewModelScope.launch {
-            chatService.saveConversation(_conversationId, newConversation)
+            saveCurrentConversation(newConversation)
         }
+    }
+
+    private suspend fun saveCurrentConversation(conversation: Conversation) {
+        chatService.saveConversation(_conversationId, conversation)
+        _conversationExistsInStorage.value = true
     }
 
     // Context Refresh - summarize conversation and update context

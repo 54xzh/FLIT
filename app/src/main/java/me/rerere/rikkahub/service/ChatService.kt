@@ -201,6 +201,11 @@ private data class GenerationDraftPersistenceSnapshot(
     val processPartKeys: List<String>,
 )
 
+data class ConversationInitializationResult(
+    val initialized: Boolean,
+    val existsInStorage: Boolean,
+)
+
 class ChatService(
     private val context: Application,
     private val appScope: AppScope,
@@ -1101,6 +1106,10 @@ class ChatService(
 
     // 初始化对话
     suspend fun initializeConversation(conversationId: Uuid): Boolean {
+        return initializeConversationWithResult(conversationId).initialized
+    }
+
+    suspend fun initializeConversationWithResult(conversationId: Uuid): ConversationInitializationResult {
         // If there is an active generation job, the in-memory StateFlow has the latest
         // streaming data. Loading from DB would overwrite it with stale pre-generation state.
         val activeJob = getGenerationJob(conversationId)
@@ -1114,7 +1123,10 @@ class ChatService(
                 } else {
                     settingsStore.updateAssistant(inMemoryConversation.assistantId)
                 }
-                return true
+                return ConversationInitializationResult(
+                    initialized = true,
+                    existsInStorage = true,
+                )
             }
         }
 
@@ -1134,7 +1146,10 @@ class ChatService(
                     )
                 )
             }
-            return false
+            return ConversationInitializationResult(
+                initialized = false,
+                existsInStorage = false,
+            )
         }
 
         val conversation = loadResult.getOrNull()
@@ -1147,12 +1162,18 @@ class ChatService(
             } else {
                 settingsStore.updateAssistant(conversation.assistantId)
             }
-            return true
+            return ConversationInitializationResult(
+                initialized = true,
+                existsInStorage = true,
+            )
         } else {
             val inMemoryConversation = getConversationFlow(conversationId).value
             if (inMemoryConversation.messageNodes.isNotEmpty()) {
                 updateConversation(conversationId, inMemoryConversation)
-                return true
+                return ConversationInitializationResult(
+                    initialized = true,
+                    existsInStorage = false,
+                )
             }
 
             // 新建对话, 并添加预设消息
@@ -1177,7 +1198,10 @@ class ChatService(
             }
 
             updateConversation(conversationId, initialConversation)
-            return true
+            return ConversationInitializationResult(
+                initialized = true,
+                existsInStorage = false,
+            )
         }
     }
 
