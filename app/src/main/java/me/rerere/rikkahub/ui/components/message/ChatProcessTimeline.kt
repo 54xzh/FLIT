@@ -150,19 +150,25 @@ internal fun ChatProcessTimeline(
     assistant: Assistant?,
     reasoningBodyStates: SnapshotStateMap<String, ReasoningBodyState>? = null,
     onOpenToolPreview: (toolCallId: String, toolName: String, hasResult: Boolean) -> Unit = { _, _, _ -> },
+    streamingContentUpdateIntervalMs: Long = 0L,
     modifier: Modifier = Modifier,
 ) {
     if (processParts.isEmpty()) return
+    val displayedProcessParts = rememberThrottledStreamingValue(
+        value = processParts,
+        intervalMs = streamingContentUpdateIntervalMs,
+        key = conversationId,
+    )
 
     val localReasoningBodyStates = remember { mutableStateMapOf<String, ReasoningBodyState>() }
     val resolvedReasoningBodyStates = reasoningBodyStates ?: localReasoningBodyStates
 
-    val toolApprovalsById = remember(processParts) {
-        processParts.filterIsInstance<UIMessagePart.ToolApproval>()
+    val toolApprovalsById = remember(displayedProcessParts) {
+        displayedProcessParts.filterIsInstance<UIMessagePart.ToolApproval>()
             .associateBy { it.toolCallId }
     }
-    val toolCallArgumentsById = remember(processParts) {
-        processParts.filterIsInstance<UIMessagePart.ToolCall>()
+    val toolCallArgumentsById = remember(displayedProcessParts) {
+        displayedProcessParts.filterIsInstance<UIMessagePart.ToolCall>()
             .associate { toolCall ->
                 val parsedArguments = runCatching {
                     JsonInstant.parseToJsonElement(toolCall.arguments)
@@ -170,14 +176,14 @@ internal fun ChatProcessTimeline(
                 toolCall.toolCallId to parsedArguments
             }
     }
-    val hiddenResolvedToolCallIds = remember(processParts, hiddenToolCallIds) {
-        hiddenToolCallIds + processParts
+    val hiddenResolvedToolCallIds = remember(displayedProcessParts, hiddenToolCallIds) {
+        hiddenToolCallIds + displayedProcessParts
             .filterIsInstance<UIMessagePart.ToolResult>()
             .mapNotNull { it.toolCallId.takeIf(String::isNotBlank) }
             .toSet()
     }
-    val visibleParts = remember(processParts, hiddenResolvedToolCallIds, toolApprovalsById) {
-        processParts.filter { part ->
+    val visibleParts = remember(displayedProcessParts, hiddenResolvedToolCallIds, toolApprovalsById) {
+        displayedProcessParts.filter { part ->
             when (part) {
                 is UIMessagePart.ToolCall -> {
                     val shouldHide = part.toolCallId.isNotBlank() &&
@@ -281,6 +287,7 @@ internal fun ChatProcessTimeline(
                             loading = loading,
                             model = model,
                             assistant = assistant,
+                            streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
                         )
                     }
                 }
@@ -300,6 +307,7 @@ private fun ProcessTimelineStep(
     loading: Boolean,
     model: Model?,
     assistant: Assistant?,
+    streamingContentUpdateIntervalMs: Long,
 ) {
     Box(
         modifier = Modifier.fillMaxWidth(),
@@ -324,6 +332,7 @@ private fun ProcessTimelineStep(
                         reasoningBodyStates = reasoningBodyStates,
                         model = model,
                         assistant = assistant,
+                        streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
                     )
 
                     is UIMessagePart.Thinking -> CompactReasoningTimelineItem(
@@ -337,6 +346,7 @@ private fun ProcessTimelineStep(
                         reasoningBodyStates = reasoningBodyStates,
                         model = model,
                         assistant = assistant,
+                        streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
                     )
 
                     is UIMessagePart.ToolCall -> {
@@ -426,6 +436,7 @@ private fun CompactReasoningTimelineItem(
     reasoningBodyStates: SnapshotStateMap<String, ReasoningBodyState>,
     model: Model?,
     assistant: Assistant?,
+    streamingContentUpdateIntervalMs: Long,
 ) {
     val settings = LocalSettings.current
     val effectiveDisplay = settings.getEffectiveDisplaySetting(assistant)
@@ -468,11 +479,12 @@ private fun CompactReasoningTimelineItem(
         }
     }
 
-    LaunchedEffect(loading) {
+    LaunchedEffect(loading, streamingContentUpdateIntervalMs) {
         if (loading) {
+            val durationUpdateIntervalMs = streamingContentUpdateIntervalMs.takeIf { it > 0L } ?: 50L
             while (isActive) {
                 duration = (reasoning.finishedAt ?: Clock.System.now()) - reasoning.createdAt
-                delay(50)
+                delay(durationUpdateIntervalMs)
             }
         }
     }
@@ -551,6 +563,7 @@ private fun CompactReasoningTimelineItem(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(start = 4.dp, end = 8.dp),
+                                lazyRenderOffscreen = true,
                             )
                         }
                     } else {
@@ -574,6 +587,7 @@ private fun CompactReasoningTimelineItem(
                                     }
                                 )
                                 .padding(start = 4.dp, end = 8.dp),
+                            lazyRenderOffscreen = true,
                         )
                     }
                 }

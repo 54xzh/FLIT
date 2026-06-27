@@ -125,6 +125,11 @@ private fun hasGlyphInConfiguredFont(context: android.content.Context, config: F
     return runCatching { paint.hasGlyph(sample) }.getOrNull()
 }
 
+private data class StreamingMessageDisplayInput(
+    val message: UIMessage,
+    val leadingProcessParts: List<List<UIMessagePart>>,
+)
+
 @Composable
 private fun MarkdownFontDebugInfo(role: MessageRole) {
     val context = LocalContext.current
@@ -182,12 +187,21 @@ fun ChatMessage(
     currentSessionMemories: List<SessionMemory> = emptyList(),
     onUpdateSessionMemory: ((memoryId: Int, content: String) -> Unit)? = null,
     onDeleteSessionMemory: ((memoryId: Int) -> Unit)? = null,
+    streamingContentUpdateIntervalMs: Long = 0L,
 ) {
     val rawMessage = node.messages[node.selectIndex]
-    val displayState = remember(rawMessage, leadingProcessParts) {
-        buildChatMessageDisplayState(
+    val displayInput = rememberThrottledStreamingValue(
+        value = StreamingMessageDisplayInput(
             message = rawMessage,
-            leadingDisplaySegments = leadingProcessParts,
+            leadingProcessParts = leadingProcessParts,
+        ),
+        intervalMs = streamingContentUpdateIntervalMs,
+        key = rawMessage.id,
+    )
+    val displayState = remember(displayInput.message, displayInput.leadingProcessParts) {
+        buildChatMessageDisplayState(
+            message = displayInput.message,
+            leadingDisplaySegments = displayInput.leadingProcessParts,
         )
     }
     val message = displayState.message
@@ -276,6 +290,7 @@ fun ChatMessage(
                 usage = message.usage,
                 generationDurationMs = message.generationDurationMs,
                 showTokenUsage = settings.showTokenUsage && showInlineTokenUsage,
+                streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
             )
         }
 
@@ -393,6 +408,7 @@ private fun MessagePartsBlock(
     usage: me.rerere.ai.core.TokenUsage? = null,
     generationDurationMs: Long? = null,
     showTokenUsage: Boolean = false,
+    streamingContentUpdateIntervalMs: Long = 0L,
 ) {
     val contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
 
@@ -432,6 +448,7 @@ private fun MessagePartsBlock(
                     assistant = assistant,
                     reasoningBodyStates = reasoningBodyStates,
                     onOpenToolPreview = onOpenToolPreview,
+                    streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
                 )
             }
 
@@ -568,6 +585,7 @@ private fun MessageTextPart(
                             visual = true,
                         ),
                         onClickCitation = onCitationClick,
+                        lazyRenderOffscreen = true,
                     )
                 }
                 if (textIndex == 0) {
@@ -594,6 +612,7 @@ private fun MessageTextPart(
                     visual = true,
                 ),
                 onClickCitation = onCitationClick,
+                lazyRenderOffscreen = true,
             )
         }
         if (textIndex == 0) {

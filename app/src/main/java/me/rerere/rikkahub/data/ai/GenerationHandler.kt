@@ -118,6 +118,14 @@ private const val CLAUDE_WEB_SEARCH_TOOL_NAME = "web_search"
 private const val GROK_WEB_SEARCH_TOOL_NAME = "web_search"
 private const val GROK_X_SEARCH_TOOL_NAME = "x_search"
 private val RETRYABLE_HTTP_STATUS_CODES = setOf(408, 429, 500, 502, 503, 504)
+private const val STREAM_UI_UPDATE_UNTHROTTLED_CHARS = 1_000
+private const val STREAM_UI_UPDATE_FIRST_LIMIT_CHARS = 2_500
+private const val STREAM_UI_UPDATE_SECOND_LIMIT_CHARS = 5_000
+private const val STREAM_UI_UPDATE_THIRD_LIMIT_CHARS = 10_000
+private const val STREAM_UI_UPDATE_FIRST_INTERVAL_MS = 120L
+private const val STREAM_UI_UPDATE_SECOND_INTERVAL_MS = 180L
+private const val STREAM_UI_UPDATE_THIRD_INTERVAL_MS = 260L
+private const val STREAM_UI_UPDATE_MAX_INTERVAL_MS = 360L
 
 internal fun shouldIncludeCurrentDateSection(toolNames: Iterable<String>): Boolean {
     return toolNames.any { name ->
@@ -159,6 +167,92 @@ internal fun shouldRetryHttpRequest(
 
 internal fun computeHttpRetryDelayMs(retryDelaySeconds: Int): Long {
     return retryDelaySeconds.coerceIn(1, 30) * 1_000L
+}
+
+internal fun computeStreamUiUpdateIntervalMs(visibleChars: Int): Long {
+    return when {
+        visibleChars <= STREAM_UI_UPDATE_UNTHROTTLED_CHARS -> 0L
+        visibleChars <= STREAM_UI_UPDATE_FIRST_LIMIT_CHARS -> STREAM_UI_UPDATE_FIRST_INTERVAL_MS
+        visibleChars <= STREAM_UI_UPDATE_SECOND_LIMIT_CHARS -> STREAM_UI_UPDATE_SECOND_INTERVAL_MS
+        visibleChars <= STREAM_UI_UPDATE_THIRD_LIMIT_CHARS -> STREAM_UI_UPDATE_THIRD_INTERVAL_MS
+        else -> STREAM_UI_UPDATE_MAX_INTERVAL_MS
+    }
+}
+
+internal class StreamUiUpdateGate(
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
+) {
+    private var lastEmitAtMs: Long? = null
+    private var lastSignature: StreamUiUpdateSignature? = null
+
+    fun shouldEmit(messages: List<UIMessage>, finishReasons: Set<String>): Boolean {
+        val signature = messages.toStreamUiUpdateSignature()
+        val intervalMs = computeStreamUiUpdateIntervalMs(signature.visibleChars)
+        val now = nowMs()
+        val shouldEmit = lastEmitAtMs == null ||
+            finishReasons.isNotEmpty() ||
+            lastSignature?.hasSameStructure(signature) != true ||
+            intervalMs == 0L ||
+            now - (lastEmitAtMs ?: now) >= intervalMs
+
+        if (shouldEmit) {
+            lastEmitAtMs = now
+            lastSignature = signature
+        }
+        return shouldEmit
+    }
+}
+
+private data class StreamUiUpdateSignature(
+    val messageCount: Int,
+    val lastMessageId: Uuid?,
+    val lastRole: MessageRole?,
+    val partStructure: List<String>,
+    val visibleChars: Int,
+) {
+    fun hasSameStructure(other: StreamUiUpdateSignature): Boolean {
+        return messageCount == other.messageCount &&
+            lastMessageId == other.lastMessageId &&
+            lastRole == other.lastRole &&
+            partStructure == other.partStructure
+    }
+}
+
+private fun List<UIMessage>.toStreamUiUpdateSignature(): StreamUiUpdateSignature {
+    val lastMessage = lastOrNull()
+    return StreamUiUpdateSignature(
+        messageCount = size,
+        lastMessageId = lastMessage?.id,
+        lastRole = lastMessage?.role,
+        partStructure = lastMessage?.parts.orEmpty().map { it.streamUiPartStructureKey() },
+        visibleChars = lastMessage?.parts.orEmpty().sumOf { it.streamUiVisibleChars() },
+    )
+}
+
+private fun UIMessagePart.streamUiVisibleChars(): Int {
+    return when (this) {
+        is UIMessagePart.Text -> text.length
+        is UIMessagePart.Reasoning -> reasoning.length
+        is UIMessagePart.Thinking -> thinking.length
+        else -> 0
+    }
+}
+
+private fun UIMessagePart.streamUiPartStructureKey(): String {
+    return when (this) {
+        is UIMessagePart.Text -> "text"
+        is UIMessagePart.Reasoning -> "reasoning:${finishedAt != null}"
+        is UIMessagePart.Thinking -> "thinking:${finishedAt != null}"
+        is UIMessagePart.Image -> "image:${url.hashCode()}"
+        is UIMessagePart.Video -> "video:${url.hashCode()}"
+        is UIMessagePart.Audio -> "audio:${url.hashCode()}"
+        is UIMessagePart.Document -> "document:${url.hashCode()}:$fileName:$mime"
+        is UIMessagePart.ToolCall -> "toolCall:$toolCallId:$toolName:${arguments.hashCode()}:${metadata.hashCode()}"
+        is UIMessagePart.ToolApproval -> "toolApproval:$toolCallId:$toolName:$state:${metadata.hashCode()}"
+        is UIMessagePart.AskUser -> "askUser:$toolCallId:$state:${question.hashCode()}:${options.hashCode()}:${questions.hashCode()}:${answer.hashCode()}:${answers.hashCode()}:${metadata.hashCode()}"
+        is UIMessagePart.ToolResult -> "toolResult:$toolCallId:$toolName:${content.hashCode()}:${arguments.hashCode()}:${metadata.hashCode()}"
+        else -> this::class.simpleName.orEmpty()
+    }
 }
 
 private fun Throwable.isRetryableHttpOrNetworkError(): Boolean {
@@ -1485,6 +1579,7 @@ class GenerationHandler(
             val maxHttpRetries = settings.getHttpRetryMaxRetries()
             val httpRetryDelayMs = computeHttpRetryDelayMs(settings.getHttpRetryDelaySeconds())
             var streamAttempt = 0
+            val uiUpdateGate = StreamUiUpdateGate()
             try {
                 while (true) {
                     streamAttempt += 1
@@ -1520,7 +1615,9 @@ class GenerationHandler(
                                     .filter { reason -> reason.isNotBlank() && reason != "unknown" }
                                     .toSet()
                             }
-                            onUpdateMessages(messages, finishReasons)
+                            if (uiUpdateGate.shouldEmit(messages, finishReasons)) {
+                                onUpdateMessages(messages, finishReasons)
+                            }
                         }
                         break
                     } catch (t: Throwable) {

@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListItemInfo
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -147,6 +148,7 @@ private const val LoadingIndicatorKey = "LoadingIndicator"
 private const val ScrollBottomKey = "ScrollBottomKey"
 private const val SendScrollMaxAnimationRetryCount = 20
 private const val SendScrollAnimationRetryDelayMs = 40L
+private const val OffscreenStreamingUpdateIntervalMs = 1_000L
 private val ChatListItemSpacing = 4.dp
 private val ScrollBottomBaseHeight = 5.dp
 
@@ -187,6 +189,24 @@ private fun parseToolPreviewKey(key: String): Pair<String, String>? {
     val separatorIndex = key.indexOf(':')
     if (separatorIndex <= 0 || separatorIndex == key.lastIndex) return null
     return key.substring(0, separatorIndex) to key.substring(separatorIndex + 1)
+}
+
+private fun resolveStreamingContentUpdateIntervalMs(
+    index: Int,
+    messageCount: Int,
+    loading: Boolean,
+    layoutInfo: LazyListLayoutInfo,
+): Long {
+    if (!loading || index != messageCount - 1) return 0L
+
+    if (layoutInfo.visibleItemsInfo.isEmpty()) return 0L
+
+    val item = layoutInfo.visibleItemsInfo.firstOrNull { item -> item.index == index }
+        ?: return OffscreenStreamingUpdateIntervalMs
+    val streamingBottom = item.offset + item.size
+    val visible = streamingBottom in layoutInfo.viewportStartOffset..layoutInfo.viewportEndOffset
+
+    return if (visible) 0L else OffscreenStreamingUpdateIntervalMs
 }
 
 private fun Conversation.findToolPreviewContent(key: String): ToolPreviewContent? {
@@ -984,6 +1004,16 @@ private fun SharedTransitionScope.ChatListNormal(
                         ?.let { conversation.messageNodes[it].currentMessage }
                     val previousMessage = previousVisibleMessage
                     val isLast = index == conversation.messageNodes.lastIndex
+                    val streamingContentUpdateIntervalMs by remember(index, loading, conversation.messageNodes.size, state) {
+                        derivedStateOf {
+                            resolveStreamingContentUpdateIntervalMs(
+                                index = index,
+                                messageCount = conversation.messageNodes.size,
+                                loading = loading,
+                                layoutInfo = state.layoutInfo,
+                            )
+                        }
+                    }
                     val canContinue = isLast &&
                         message.role == MessageRole.ASSISTANT &&
                         groupChatTemplateForConversation == null
@@ -1073,6 +1103,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                 assistant = standaloneAssistantForMessage ?: assistantForMessage,
                                 reasoningBodyStates = reasoningBodyStates,
                                 onOpenToolPreview = ::openToolPreview,
+                                streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
                             )
                         }
                     }
@@ -1167,6 +1198,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                         onUpdateConversation(updatedConversation)
                                     }
                                 },
+                                streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
                             )
                         }
                     }

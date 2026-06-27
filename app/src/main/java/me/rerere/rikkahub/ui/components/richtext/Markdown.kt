@@ -43,6 +43,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.referentialEqualityPolicy
@@ -50,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,8 +62,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -119,6 +124,8 @@ import org.intellij.markdown.flavours.gfm.GFMElementTypes
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 import org.intellij.markdown.parser.MarkdownParser
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 private val flavour by lazy {
     GFMFlavourDescriptor(
@@ -138,6 +145,11 @@ val THINKING_REGEX = Regex("<think(?:ing)?>([\\s\\S]*?)(?:</think(?:ing)?>|$)", 
 private val ORPHAN_CLOSE_TAG_REGEX = Regex("^([\\s\\S]*?)</think(?:ing)?>", RegexOption.DOT_MATCHES_ALL)
 private val CODE_BLOCK_REGEX = Regex("```[\\s\\S]*?```|`[^`\n]*`", RegexOption.DOT_MATCHES_ALL)
 private val BREAK_LINE_REGEX = Regex("(?i)<br\\s*/?>")
+private const val MARKDOWN_LAZY_RENDER_MIN_CHARS = 4_000
+private const val MARKDOWN_LAZY_RENDER_MIN_BLOCKS = 8
+private const val MARKDOWN_LAZY_INITIAL_RENDER_BLOCKS = 3
+private const val MARKDOWN_ESTIMATED_CHARS_PER_LINE = 42
+private val MarkdownLazyViewportPadding = 1_200.dp
 
 /**
  * CompositionLocal for RP style rules - enables color customization throughout the markdown tree
@@ -475,6 +487,7 @@ fun MarkdownBlock(
     style: TextStyle = LocalTextStyle.current,
     onClickCitation: (String) -> Unit = {},
     exportAssets: MermaidExportAssets? = null,
+    lazyRenderOffscreen: Boolean = false,
 ) {
     // Read rpStyleRules from settings
     val settings = LocalSettings.current
@@ -504,23 +517,166 @@ fun MarkdownBlock(
     }
 
     val (preprocessed, astTree) = data
+    val shouldLazyRenderOffscreen = lazyRenderOffscreen &&
+        exportAssets == null &&
+        preprocessed.length >= MARKDOWN_LAZY_RENDER_MIN_CHARS &&
+        astTree.children.size >= MARKDOWN_LAZY_RENDER_MIN_BLOCKS
     // Provide rpStyleRules to entire tree via CompositionLocal
     CompositionLocalProvider(LocalRpStyleRules provides rpStyleRules) {
         ProvideTextStyle(style) {
             Column(
                 modifier = modifier.padding(start = 4.dp)
             ) {
-                astTree.children.fastForEach { child ->
-                    MarkdownNode(
-                        node = child,
+                if (shouldLazyRenderOffscreen) {
+                    LazyMarkdownChildren(
+                        children = astTree.children,
                         content = preprocessed,
                         onClickCitation = onClickCitation,
-                        exportAssets = exportAssets,
                     )
+                } else {
+                    astTree.children.fastForEach { child ->
+                        MarkdownNode(
+                            node = child,
+                            content = preprocessed,
+                            onClickCitation = onClickCitation,
+                            exportAssets = exportAssets,
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun LazyMarkdownChildren(
+    children: List<ASTNode>,
+    content: String,
+    onClickCitation: (String) -> Unit,
+) {
+    val measuredHeightsPx = remember { mutableStateMapOf<String, Int>() }
+
+    children.forEachIndexed { index, child ->
+        val nodeKey = remember(index, child.type) {
+            "$index:${child.type}"
+        }
+        key(nodeKey) {
+            LazyMarkdownNode(
+                node = child,
+                content = content,
+                nodeKey = nodeKey,
+                measuredHeightsPx = measuredHeightsPx,
+                renderInitially = index < MARKDOWN_LAZY_INITIAL_RENDER_BLOCKS,
+                onClickCitation = onClickCitation,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LazyMarkdownNode(
+    node: ASTNode,
+    content: String,
+    nodeKey: String,
+    measuredHeightsPx: MutableMap<String, Int>,
+    renderInitially: Boolean,
+    onClickCitation: (String) -> Unit,
+) {
+    val density = LocalDensity.current
+    val view = LocalView.current
+    val textStyle = LocalTextStyle.current
+    val lineHeightPx = with(density) {
+        when {
+            textStyle.lineHeight != TextUnit.Unspecified -> textStyle.lineHeight.toPx()
+            textStyle.fontSize != TextUnit.Unspecified -> textStyle.fontSize.toPx() * 1.35f
+            else -> 18.sp.toPx()
+        }
+    }
+    val estimatedHeightPx = remember(node, content, lineHeightPx, density) {
+        estimateMarkdownNodeHeightPx(
+            node = node,
+            content = content,
+            lineHeightPx = lineHeightPx,
+            extraPaddingPx = with(density) { 8.dp.toPx() },
+        )
+    }
+    var isNearViewport by remember(nodeKey) { mutableStateOf(renderInitially) }
+    val cachedHeightPx = measuredHeightsPx[nodeKey]
+    val placeholderHeightPx = cachedHeightPx ?: estimatedHeightPx
+    val shouldRender = isNearViewport
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (shouldRender) {
+                    Modifier
+                } else {
+                    Modifier.height(with(density) { placeholderHeightPx.toDp() })
+                }
+            )
+            .onGloballyPositioned { coordinates ->
+                val viewportHeightPx = view.height
+                    .takeIf { it > 0 }
+                    ?.toFloat()
+                    ?: with(density) { 800.dp.toPx() }
+                val viewportPaddingPx = with(density) { MarkdownLazyViewportPadding.toPx() }
+                val bounds = coordinates.boundsInWindow()
+                val nearViewport = bounds.bottom >= -viewportPaddingPx &&
+                    bounds.top <= viewportHeightPx + viewportPaddingPx
+                if (isNearViewport != nearViewport) {
+                    isNearViewport = nearViewport
+                }
+            }
+    ) {
+        if (shouldRender) {
+            Box(
+                modifier = Modifier.onGloballyPositioned { coordinates ->
+                    val height = coordinates.size.height
+                    if (height > 0 && measuredHeightsPx[nodeKey] != height) {
+                        measuredHeightsPx[nodeKey] = height
+                    }
+                }
+            ) {
+                MarkdownNode(
+                    node = node,
+                    content = content,
+                    onClickCitation = onClickCitation,
+                    exportAssets = null,
+                )
+            }
+        }
+    }
+}
+
+private fun estimateMarkdownNodeHeightPx(
+    node: ASTNode,
+    content: String,
+    lineHeightPx: Float,
+    extraPaddingPx: Float,
+): Int {
+    val text = node.getTextInNode(content)
+    val explicitLines = text.count { it == '\n' } + 1
+    val wrappedLines = (text.length / MARKDOWN_ESTIMATED_CHARS_PER_LINE) + 1
+    val lineCount = max(explicitLines, wrappedLines)
+    val typeMultiplier = when (node.type) {
+        MarkdownElementTypes.ATX_1,
+        MarkdownElementTypes.ATX_2,
+        MarkdownElementTypes.ATX_3,
+        MarkdownElementTypes.ATX_4,
+        MarkdownElementTypes.ATX_5,
+        MarkdownElementTypes.ATX_6,
+            -> 1.35f
+
+        GFMElementTypes.TABLE,
+        MarkdownElementTypes.CODE_FENCE,
+            -> 1.15f
+
+        else -> 1f
+    }
+    return (lineCount * lineHeightPx * typeMultiplier + extraPaddingPx)
+        .roundToInt()
+        .coerceAtLeast((lineHeightPx + extraPaddingPx).roundToInt())
 }
 
 // for debug
