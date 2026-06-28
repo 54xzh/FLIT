@@ -1619,7 +1619,10 @@ class ChatService(
         }
         setGenerationJob(conversationId, job)
         job.invokeOnCompletion {
-            setGenerationJob(conversationId, null)
+            // 只在当前 job 仍是自己时才清空，避免旧任务的回调误清新任务的进度状态
+            if (getGenerationJob(conversationId) == job) {
+                setGenerationJob(conversationId, null)
+            }
             // 取消生成任务后，检查是否有其他任务在进行
             appScope.launch {
                 delay(500)
@@ -1668,7 +1671,10 @@ class ChatService(
 
         setGenerationJob(conversationId, job)
         job.invokeOnCompletion {
-            setGenerationJob(conversationId, null)
+            // 只在当前 job 仍是自己时才清空，避免旧任务的回调误清新任务的进度状态
+            if (getGenerationJob(conversationId) == job) {
+                setGenerationJob(conversationId, null)
+            }
             // 取消生成任务后，检查是否有其他任务在进行
             appScope.launch {
                 delay(500)
@@ -1733,7 +1739,10 @@ class ChatService(
 
         setGenerationJob(conversationId, job)
         job.invokeOnCompletion {
-            setGenerationJob(conversationId, null)
+            // 只在当前 job 仍是自己时才清空，避免旧任务的回调误清新任务的进度状态
+            if (getGenerationJob(conversationId) == job) {
+                setGenerationJob(conversationId, null)
+            }
             appScope.launch {
                 delay(500)
                 checkAllConversationsReferences()
