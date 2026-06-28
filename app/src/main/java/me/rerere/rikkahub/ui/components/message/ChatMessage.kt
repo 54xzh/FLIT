@@ -86,6 +86,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.isEmptyUIMessage
+import me.rerere.ai.ui.stripInterruptedAppContextForDisplay
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.FontConfig
@@ -483,7 +484,7 @@ private fun MessagePartsBlock(
     // Token Statistics (shown after all text parts, for assistant messages only)
     // Just shows immediately when conditions are met - no special delay or animation
     val textParts = parts.filterIsInstance<UIMessagePart.Text>()
-    val hasTextContent = textParts.any { it.text.isNotBlank() }
+    val hasTextContent = textParts.any { it.text.stripInterruptedAppContextForDisplay().isNotBlank() }
     val shouldShowTokenStats = role == MessageRole.ASSISTANT && showTokenUsage && !loading && hasTextContent && usage != null
     
     if (shouldShowTokenStats) {
@@ -606,7 +607,7 @@ private fun MessageTextPart(
             )
         ) {
             MarkdownBlock(
-                content = part.text.replaceRegexes(
+                content = part.text.stripInterruptedAppContextForDisplay().replaceRegexes(
                     assistant = assistant,
                     scope = AssistantAffectScope.ASSISTANT,
                     visual = true,

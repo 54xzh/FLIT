@@ -10,6 +10,7 @@ internal data class ChatProcessDisplayPlan(
     val prefixedDisplaySegmentsByIndex: Map<Int, List<List<UIMessagePart>>> = emptyMap(),
     val standaloneProcessPartsByIndex: Map<Int, List<UIMessagePart>> = emptyMap(),
     val standaloneAssistantOwnerIndexByIndex: Map<Int, Int> = emptyMap(),
+    val visibleTrailingProcessOwnerIndexes: Set<Int> = emptySet(),
     val hiddenNodeIndexes: Set<Int> = emptySet(),
 )
 
@@ -54,11 +55,15 @@ private fun UIMessage.hasSameSpeakerIdentity(other: UIMessage): Boolean {
         modelId == other.modelId
 }
 
-internal fun planChatProcessDisplay(nodes: List<MessageNode>): ChatProcessDisplayPlan {
+internal fun planChatProcessDisplay(
+    nodes: List<MessageNode>,
+    keepTrailingProcessOwnerVisible: Boolean = false,
+): ChatProcessDisplayPlan {
     val prefixedProcessPartsByIndex = mutableMapOf<Int, List<UIMessagePart>>()
     val prefixedDisplaySegmentsByIndex = mutableMapOf<Int, List<List<UIMessagePart>>>()
     val standaloneProcessPartsByIndex = mutableMapOf<Int, List<UIMessagePart>>()
     val standaloneAssistantOwnerIndexByIndex = mutableMapOf<Int, Int>()
+    val visibleTrailingProcessOwnerIndexes = linkedSetOf<Int>()
     val hiddenNodeIndexes = linkedSetOf<Int>()
 
     val pendingNodeIndexes = mutableListOf<Int>()
@@ -75,6 +80,16 @@ internal fun planChatProcessDisplay(nodes: List<MessageNode>): ChatProcessDispla
         val assistantOwnerIndex = pendingNodeIndexes
             .asReversed()
             .firstOrNull { nodes[it].currentMessage.role == MessageRole.ASSISTANT }
+        if (
+            keepTrailingProcessOwnerVisible &&
+            anchorIndex == nodes.lastIndex &&
+            assistantOwnerIndex != null
+        ) {
+            visibleTrailingProcessOwnerIndexes += assistantOwnerIndex
+            hiddenNodeIndexes += pendingNodeIndexes.filter { it != assistantOwnerIndex }
+            clearPending()
+            return
+        }
         standaloneProcessPartsByIndex[anchorIndex] = pendingProcessParts.toList()
         if (assistantOwnerIndex != null) {
             standaloneAssistantOwnerIndexByIndex[anchorIndex] = assistantOwnerIndex
@@ -153,6 +168,7 @@ internal fun planChatProcessDisplay(nodes: List<MessageNode>): ChatProcessDispla
         prefixedDisplaySegmentsByIndex = prefixedDisplaySegmentsByIndex,
         standaloneProcessPartsByIndex = standaloneProcessPartsByIndex,
         standaloneAssistantOwnerIndexByIndex = standaloneAssistantOwnerIndexByIndex,
+        visibleTrailingProcessOwnerIndexes = visibleTrailingProcessOwnerIndexes,
         hiddenNodeIndexes = hiddenNodeIndexes,
     )
 }

@@ -511,8 +511,11 @@ private fun SharedTransitionScope.ChatListNormal(
         conversation.contextSummaryPendingBoundaryIndex
             .takeIf { it in conversation.messageNodes.indices }
     }
-    val processDisplayPlan = remember(conversation.messageNodes) {
-        planChatProcessDisplay(conversation.messageNodes)
+    val processDisplayPlan = remember(conversation.messageNodes, loading) {
+        planChatProcessDisplay(
+            nodes = conversation.messageNodes,
+            keepTrailingProcessOwnerVisible = !loading,
+        )
     }
     val reasoningBodyStates = remember(conversation.id) {
         mutableStateMapOf<String, ReasoningBodyState>()
@@ -1017,16 +1020,20 @@ private fun SharedTransitionScope.ChatListNormal(
                     val canContinue = isLast &&
                         message.role == MessageRole.ASSISTANT &&
                         groupChatTemplateForConversation == null
-                    val hiddenToolCallIds = conversation.messageNodes
-                        .getOrNull(index + 1)
-                        ?.currentMessage
-                        ?.parts
-                        ?.filterIsInstance<UIMessagePart.ToolResult>()
-                        ?.asSequence()
-                        ?.map { it.toolCallId }
-                        ?.filter { it.isNotBlank() }
-                        ?.toSet()
-                        .orEmpty()
+                    val hiddenToolCallIds = if (index in processDisplayPlan.visibleTrailingProcessOwnerIndexes) {
+                        emptySet()
+                    } else {
+                        conversation.messageNodes
+                            .getOrNull(index + 1)
+                            ?.currentMessage
+                            ?.parts
+                            ?.filterIsInstance<UIMessagePart.ToolResult>()
+                            ?.asSequence()
+                            ?.map { it.toolCallId }
+                            ?.filter { it.isNotBlank() }
+                            ?.toSet()
+                            .orEmpty()
+                    }
                     val modelForMessage = message.modelId?.let { settings.findModelById(it) }
                     val assistantForMessage = resolveAssistantForMessage(message)
                     val standaloneModelForMessage = standaloneAssistantOwnerMessage

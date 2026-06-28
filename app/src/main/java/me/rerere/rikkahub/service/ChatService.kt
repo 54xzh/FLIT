@@ -59,6 +59,7 @@ import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
+import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.ensureBuiltInSearchTool
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
@@ -67,9 +68,11 @@ import me.rerere.ai.provider.supportsBuiltInSearch
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.withoutBuiltInSearchTools
 import me.rerere.ai.ui.AskUserState
+import me.rerere.ai.ui.InterruptedGenerationReason
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.finishReasoning
+import me.rerere.ai.ui.finalizeInterruptedGenerationMessages
 import me.rerere.ai.ui.truncate
 import me.rerere.common.android.Logging
 import me.rerere.rikkahub.AppScope
@@ -122,6 +125,7 @@ import me.rerere.rikkahub.data.datastore.getConversationWorkspaceRootTreeUri
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
 import me.rerere.rikkahub.data.datastore.getEffectiveWorkspaceRootTreeUri
+import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.ChatTarget
 import me.rerere.rikkahub.data.model.AssistantSearchMode
 import me.rerere.rikkahub.data.model.Avatar
@@ -168,6 +172,9 @@ private const val OLDER_HISTORY_LOAD_BATCH_SIZE = 120
 private const val GENERATION_DRAFT_SAVE_INTERVAL_MS = 4_000L
 private const val META_ANTHROPIC_TYPE = "anthropic_type"
 private const val TYPE_SERVER_TOOL_USE = "server_tool_use"
+private const val CLAUDE_WEB_SEARCH_TOOL_NAME = "web_search"
+private const val GROK_WEB_SEARCH_TOOL_NAME = "web_search"
+private const val GROK_X_SEARCH_TOOL_NAME = "x_search"
 
 private val inputTransformers by lazy {
     listOf(
@@ -187,6 +194,7 @@ private val outputTransformers by lazy {
 
 private enum class GenerationCancelReason {
     USER,
+    REPLACED,
     NON_USER,
 }
 
@@ -1097,6 +1105,126 @@ class ChatService(
         return generationCancelReasons.remove(conversationId)
     }
 
+    private fun GenerationCancelReason.toInterruptedGenerationReason(): InterruptedGenerationReason {
+        return when (this) {
+            GenerationCancelReason.USER -> InterruptedGenerationReason.UserCancelled
+            GenerationCancelReason.REPLACED,
+            GenerationCancelReason.NON_USER,
+                -> InterruptedGenerationReason.ReplacedByNewRequest
+        }
+    }
+
+    private fun resolveInterruptedGenerationReason(
+        cause: Throwable?,
+        cancelReason: GenerationCancelReason,
+    ): InterruptedGenerationReason? {
+        return when {
+            cause == null -> null
+            cause is CancellationException -> cancelReason.toInterruptedGenerationReason()
+            else -> InterruptedGenerationReason.GenerationFailed
+        }
+    }
+
+    private fun Throwable.interruptedGenerationDetail(): String {
+        return message
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.take(500)
+            ?: javaClass.simpleName
+    }
+
+    private fun UIMessagePart.ToolCall.requiresInterruptedToolResult(model: Model?): Boolean {
+        val isServerToolUseByMetadata = metadata
+            ?.get(META_ANTHROPIC_TYPE)
+            ?.jsonPrimitiveOrNull
+            ?.contentOrNull == TYPE_SERVER_TOOL_USE
+        if (isServerToolUseByMetadata) return false
+        if (model == null) return true
+
+        val isClaudeBuiltInWebSearchToolCall =
+            toolName == CLAUDE_WEB_SEARCH_TOOL_NAME &&
+                model.tools.contains(BuiltInTools.ClaudeWebSearch)
+        val isGrokBuiltInToolCall =
+            (toolName == GROK_WEB_SEARCH_TOOL_NAME && model.tools.contains(BuiltInTools.GrokWebSearch)) ||
+                (toolName == GROK_X_SEARCH_TOOL_NAME && model.tools.contains(BuiltInTools.GrokXSearch))
+        return !isClaudeBuiltInWebSearchToolCall && !isGrokBuiltInToolCall
+    }
+
+    private fun resolveRuntimeModelForInterruptedToolCheck(
+        settings: Settings,
+        assistant: Assistant,
+        model: Model?,
+    ): Model? {
+        if (model == null) return null
+        val modelProvider = model.findProvider(settings.providers)
+        val modelSupportsBuiltIn = model.supportsBuiltInSearch(modelProvider)
+        val useBuiltInSearch = modelSupportsBuiltIn && !assistant.enableSearchAgent && (
+            assistant.searchMode is AssistantSearchMode.BuiltIn ||
+                (assistant.preferBuiltInSearch && assistant.searchMode !is AssistantSearchMode.Off)
+            )
+        return if (useBuiltInSearch) {
+            model.ensureBuiltInSearchTool(modelProvider)
+        } else {
+            model.withoutBuiltInSearchTools()
+        }
+    }
+
+    private fun finalizeInterruptedConversation(
+        conversation: Conversation,
+        reason: InterruptedGenerationReason,
+        detail: String? = null,
+        model: Model? = null,
+    ): Conversation {
+        val currentMessages = conversation.currentMessages
+        val finalizedMessages = currentMessages.finalizeInterruptedGenerationMessages(
+            reason = reason,
+            detail = detail,
+        ) { toolCall ->
+            toolCall.requiresInterruptedToolResult(model)
+        }
+        if (finalizedMessages == currentMessages) return conversation
+        return conversation
+            .updateCurrentMessages(finalizedMessages)
+            .copy(updateAt = Instant.now())
+    }
+
+    private fun finalizeGenerationState(
+        conversationId: Uuid,
+        interruptionReason: InterruptedGenerationReason?,
+        interruptionDetail: String?,
+        model: Model?,
+        generationDurationMs: Long?,
+    ): Conversation {
+        val currentConversation = getConversationFlow(conversationId).value
+        var updatedConversation = currentConversation.copy(
+            messageNodes = currentConversation.messageNodes.mapIndexed { index, node ->
+                val isLastNode = index == currentConversation.messageNodes.lastIndex
+                node.copy(messages = node.messages.map { msg ->
+                    val finishedMsg = msg.finishReasoning()
+                    if (isLastNode && finishedMsg.role == MessageRole.ASSISTANT && finishedMsg.generationDurationMs == null) {
+                        if (finishedMsg.usage == null) {
+                            Log.w(TAG, "Assistant message usage is null in onCompletion")
+                        }
+                        finishedMsg.copy(generationDurationMs = generationDurationMs)
+                    } else {
+                        finishedMsg
+                    }
+                })
+            },
+            updateAt = Instant.now()
+        )
+        if (interruptionReason != null) {
+            updatedConversation = finalizeInterruptedConversation(
+                conversation = updatedConversation,
+                reason = interruptionReason,
+                detail = interruptionDetail,
+                model = model,
+            )
+        }
+        updateConversation(conversationId, updatedConversation)
+        return updatedConversation
+    }
+
     private fun removeGenerationJob(conversationId: Uuid) {
         _generationJobs.value = _generationJobs.value.toMutableMap().apply {
             remove(conversationId)
@@ -1416,11 +1544,27 @@ class ChatService(
         }
         
         // 取消现有的生成任务
-        cancelGenerationJob(conversationId, GenerationCancelReason.NON_USER)
+        cancelGenerationJob(conversationId, GenerationCancelReason.REPLACED)
 
         val job = appScope.launch {
             try {
-                val currentConversation = getConversationFlow(conversationId).value
+                val settingsSnapshot = settingsStore.settingsFlow.value
+                val assistant = settingsSnapshot.getAssistantById(getConversationFlow(conversationId).value.assistantId)
+                    ?: settingsSnapshot.getCurrentAssistant()
+                val runtimeModel = resolveRuntimeModelForInterruptedToolCheck(
+                    settings = settingsSnapshot,
+                    assistant = assistant,
+                    model = settingsSnapshot.getCurrentChatModel(),
+                )
+                val loadedConversation = getConversationFlow(conversationId).value
+                val currentConversation = finalizeInterruptedConversation(
+                    conversation = loadedConversation,
+                    reason = InterruptedGenerationReason.ReplacedByNewRequest,
+                    model = runtimeModel,
+                )
+                if (currentConversation != loadedConversation) {
+                    updateConversation(conversationId, currentConversation)
+                }
 
                 // 添加消息到列表
                 val userMessageNode = UIMessage(
@@ -1490,7 +1634,7 @@ class ChatService(
         message: UIMessage,
         regenerateAssistantMsg: Boolean = true
     ) {
-        cancelGenerationJob(conversationId, GenerationCancelReason.NON_USER)
+        cancelGenerationJob(conversationId, GenerationCancelReason.REPLACED)
 
         val job = appScope.launch {
             try {
@@ -1537,7 +1681,7 @@ class ChatService(
         conversationId: Uuid,
         message: UIMessage,
     ) {
-        cancelGenerationJob(conversationId, GenerationCancelReason.NON_USER)
+        cancelGenerationJob(conversationId, GenerationCancelReason.REPLACED)
 
         val job = appScope.launch {
             try {
@@ -1611,6 +1755,7 @@ class ChatService(
         val useGenerationKeepAlive = shouldUseKeepAliveDuringGeneration(settings)
         var latestFinishReasons: Set<String> = emptySet()
         var generationCancelReason: GenerationCancelReason = GenerationCancelReason.NON_USER
+        var activeRuntimeModel: Model? = null
 
         // Track generation start time for tokens/sec calculation
         // Set on first token arrival to exclude TTFT (time to first token) from the calculation
@@ -1670,14 +1815,19 @@ class ChatService(
                 )
             }
             val welcomePhraseForAppContext = pendingUiWelcomePhraseForAppContext[conversationId]
-            val appContextTransformer = if (!welcomePhraseForAppContext.isNullOrBlank() && baseMessages.any { it.role == MessageRole.USER }) {
+            val shouldInjectWelcomePhrase = !welcomePhraseForAppContext.isNullOrBlank() &&
+                baseMessages.any { it.role == MessageRole.USER }
+            val appContextTransformer = if (shouldInjectWelcomePhrase) {
                 shouldConsumeWelcomePhraseAppContext = true
                 object : me.rerere.rikkahub.data.ai.transformers.InputMessageTransformer {
                     override suspend fun transform(
                         ctx: me.rerere.rikkahub.data.ai.transformers.TransformerContext,
                         messages: List<UIMessage>,
                     ): List<UIMessage> {
-                        return injectWelcomePhraseIntoFirstUserMessage(messages, welcomePhraseForAppContext).messages
+                        return injectWelcomePhraseIntoFirstUserMessage(
+                            messages = messages,
+                            uiWelcomePhrase = welcomePhraseForAppContext,
+                        ).messages
                     }
                 }
             } else {
@@ -1745,6 +1895,7 @@ class ChatService(
             } else {
                 model.withoutBuiltInSearchTools()
             }
+            activeRuntimeModel = runtimeModel
             val hasEnabledLorebooksForAssistant =
                 assistant.localTools.contains(LocalToolOption.LorebooksEditor) &&
                     settings.lorebooks.any { lorebook ->
@@ -2001,28 +2152,21 @@ class ChatService(
                 // Calculate generation duration from first token (excludes TTFT)
                 val generationDurationMs = firstTokenTime?.let { System.currentTimeMillis() - it }
 
-                // 可能被取消了，或者意外结束，兜底更新
-                val currentConversation = getConversationFlow(conversationId).value
-                val updatedConversation = currentConversation.copy(
-                    messageNodes = currentConversation.messageNodes.mapIndexed { index, node ->
-                        val isLastNode = index == currentConversation.messageNodes.lastIndex
-                        node.copy(messages = node.messages.map { msg ->
-                            val finishedMsg = msg.finishReasoning()
-                            // Add generation duration to the last assistant message
-                            if (isLastNode && finishedMsg.role == MessageRole.ASSISTANT && finishedMsg.generationDurationMs == null) {
-                                // Debug usage
-                                if (finishedMsg.usage == null) {
-                                    Log.w(TAG, "Assistant message usage is null in onCompletion")
-                                }
-                                finishedMsg.copy(generationDurationMs = generationDurationMs)
-                            } else {
-                                finishedMsg
-                            }
-                        })
-                    },
-                    updateAt = Instant.now()
+                val interruptionReason = resolveInterruptedGenerationReason(
+                    cause = cause,
+                    cancelReason = generationCancelReason,
                 )
-                updateConversation(conversationId, updatedConversation)
+                val updatedConversation = finalizeGenerationState(
+                    conversationId = conversationId,
+                    interruptionReason = interruptionReason,
+                    interruptionDetail = if (cause != null && cause !is CancellationException) {
+                        cause.interruptedGenerationDetail()
+                    } else {
+                        null
+                    },
+                    model = activeRuntimeModel,
+                    generationDurationMs = generationDurationMs,
+                )
                 flushGenerationDraftSave(conversationId, nonCancellable = cause is CancellationException)
 
                 // Record quota usage after generation
@@ -2131,6 +2275,17 @@ class ChatService(
             if (!isUserCancelled) {
                 _errorFlow.emit(it)
             }
+            finalizeGenerationState(
+                conversationId = conversationId,
+                interruptionReason = if (it is CancellationException) {
+                    resolvedCancelReason.toInterruptedGenerationReason()
+                } else {
+                    InterruptedGenerationReason.GenerationFailed
+                },
+                interruptionDetail = if (it is CancellationException) null else it.interruptedGenerationDetail(),
+                model = activeRuntimeModel,
+                generationDurationMs = firstTokenTime?.let { startedAt -> System.currentTimeMillis() - startedAt },
+            )
             flushGenerationDraftSave(conversationId, nonCancellable = it is CancellationException)
             Logging.log(TAG, "handleMessageComplete: $it")
             Logging.log(TAG, it.stackTraceToString())
@@ -5134,31 +5289,8 @@ class ChatService(
             }
         }
 
-        // Step 3: 移除无效tool call (now safe to access currentMessage)
-        messagesNodes = messagesNodes.mapIndexed { index, node ->
-            val next = if (index < messagesNodes.size - 1) messagesNodes[index + 1] else null
-            val currentMessage = node.currentMessage
-            val toolCalls = currentMessage.getToolCalls()
-            if (toolCalls.isNotEmpty()) {
-                val hasInlineToolResult = currentMessage.getToolResults().isNotEmpty()
-                val nextHasToolResult = next?.currentMessage?.hasPart<UIMessagePart.ToolResult>() == true
-                val hasAnthropicServerToolUse = toolCalls.any { toolCall ->
-                    toolCall.metadata
-                        ?.get(META_ANTHROPIC_TYPE)
-                        ?.jsonPrimitiveOrNull
-                        ?.contentOrNull == TYPE_SERVER_TOOL_USE
-                }
-                if (!hasInlineToolResult && !nextHasToolResult && !hasAnthropicServerToolUse) {
-                    return@mapIndexed node.copy(
-                        messages = node.messages.filter { it.id != currentMessage.id },
-                        selectIndex = node.selectIndex - 1
-                    )
-                }
-            }
-            node
-        }
-
-        // Step 4: Final cleanup after tool call removal
+        // Step 3: Final cleanup. Incomplete tool calls are finalized by the generation lifecycle,
+        // not removed here, so interrupted context is preserved.
         messagesNodes = messagesNodes.filter { it.messages.isNotEmpty() }
         messagesNodes = messagesNodes.map { node ->
             if (node.selectIndex !in node.messages.indices) {

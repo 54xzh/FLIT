@@ -3,6 +3,8 @@ package me.rerere.ai.ui
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
@@ -310,6 +312,245 @@ class MessageTest {
         }
 
         assertEquals(messages, result)
+    }
+
+    @Test
+    fun `finalizeInterruptedGenerationMessages adds missing tool result on user cancel`() {
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Search"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Reasoning("thinking", finishedAt = null),
+                    UIMessagePart.ToolCall("call1", "search_web", """{"query":"LastChat"}"""),
+                )
+            ),
+        )
+
+        val result = messages.finalizeInterruptedGenerationMessages(
+            reason = InterruptedGenerationReason.UserCancelled,
+        )
+
+        // user → assistant(工具调用) → tool(占位结果) → assistant(独立打断标记)
+        assertEquals(4, result.size)
+        val assistant = result[1]
+        val reasoning = assistant.parts.filterIsInstance<UIMessagePart.Reasoning>().single()
+        assertTrue(reasoning.finishedAt != null)
+        assertEquals(listOf("call1"), assistant.getToolCalls().map { it.toolCallId })
+
+        val toolResult = result[2].getToolResults().single()
+        assertEquals("call1", toolResult.toolCallId)
+        assertEquals("search_web", toolResult.toolName)
+        assertEquals("interrupted", toolResult.content.jsonObject["status"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("user_cancelled", toolResult.content.jsonObject["reason"]?.jsonPrimitive?.contentOrNull)
+
+        // 末尾是独立 assistant 打断标记消息
+        val marker = result[3]
+        assertEquals(MessageRole.ASSISTANT, marker.role)
+        val markerText = marker.parts.filterIsInstance<UIMessagePart.Text>().single().text
+        assertTrue(markerText.contains("<app_context>The user stopped the output.</app_context>"))
+        assertEquals("", markerText.stripInterruptedAppContextForDisplay())
+    }
+
+    @Test
+    fun `finalizeInterruptedGenerationMessages only fills missing result in mixed tool batch`() {
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Search twice"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.ToolCall("call1", "search_web", """{"query":"one"}"""),
+                    UIMessagePart.ToolCall("call2", "search_web", """{"query":"two"}"""),
+                )
+            ),
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(
+                    UIMessagePart.ToolResult("call1", "search_web", JsonPrimitive("done"), JsonPrimitive("{}")),
+                )
+            ),
+        )
+
+        val result = messages.finalizeInterruptedGenerationMessages(
+            reason = InterruptedGenerationReason.GenerationFailed,
+            detail = "stream failed",
+        )
+
+        // user → assistant(两个工具调用) → tool(call1真结果 + call2占位) → assistant(独立打断标记)
+        assertEquals(4, result.size)
+        val results = result[2].getToolResults()
+        assertEquals(listOf("call1", "call2"), results.map { it.toolCallId })
+        assertEquals("generation_failed", results[1].content.jsonObject["reason"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("stream failed", results[1].content.jsonObject["message"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(MessageRole.ASSISTANT, result[3].role)
+    }
+
+    @Test
+    fun `finalizeInterruptedGenerationMessages repairs blank id and invalid arguments`() {
+        val partialArguments = """{"query":"""
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Search"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.ToolCall("", "search_web", partialArguments),
+                )
+            ),
+        )
+
+        val result = messages.finalizeInterruptedGenerationMessages(
+            reason = InterruptedGenerationReason.ReplacedByNewRequest,
+        )
+
+        val repairedCall = result[1].getToolCalls().single()
+        assertTrue(repairedCall.toolCallId.startsWith("interrupted_"))
+        assertEquals("{}", repairedCall.arguments)
+
+        val toolResult = result[2].getToolResults().single()
+        assertEquals(repairedCall.toolCallId, toolResult.toolCallId)
+        assertEquals(partialArguments, toolResult.content.jsonObject["partialArguments"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("replaced_by_new_request", toolResult.content.jsonObject["reason"]?.jsonPrimitive?.contentOrNull)
+        // 末尾追加独立 assistant 打断标记
+        assertEquals(4, result.size)
+        assertEquals(MessageRole.ASSISTANT, result[3].role)
+    }
+
+    @Test
+    fun `finalizeInterruptedGenerationMessages preserves server side tool calls`() {
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Search"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.ToolCall("call1", "server_search", "{}"),
+                )
+            ),
+        )
+
+        val result = messages.finalizeInterruptedGenerationMessages(
+            reason = InterruptedGenerationReason.UserCancelled,
+        ) { false }
+
+        assertEquals(messages, result)
+    }
+
+    @Test
+    fun `finalizeInterruptedGenerationMessages appends hidden context to interrupted assistant text`() {
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Search"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Reasoning("thinking", finishedAt = null),
+                    UIMessagePart.Text("半截回复"),
+                )
+            ),
+        )
+
+        val result = messages.finalizeInterruptedGenerationMessages(
+            reason = InterruptedGenerationReason.UserCancelled,
+        )
+
+        val textPart = result[1].parts.filterIsInstance<UIMessagePart.Text>().single()
+        assertEquals(
+            "半截回复\n\n<app_context>The user stopped the output.</app_context>",
+            textPart.text,
+        )
+        assertEquals("半截回复", textPart.text.stripInterruptedAppContextForDisplay())
+    }
+
+    @Test
+    fun `finalizeInterruptedGenerationMessages does not duplicate hidden context on repeated finalization`() {
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Search"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(UIMessagePart.Text("半截回复"))
+            ),
+        )
+
+        val once = messages.finalizeInterruptedGenerationMessages(
+            reason = InterruptedGenerationReason.UserCancelled,
+        )
+        val twice = once.finalizeInterruptedGenerationMessages(
+            reason = InterruptedGenerationReason.UserCancelled,
+        )
+        val text = twice[1].parts.filterIsInstance<UIMessagePart.Text>().single().text
+
+        assertEquals(once, twice)
+        assertEquals(1, Regex("<app_context>").findAll(text).count())
+    }
+
+    @Test
+    fun `stripInterruptedAppContextForDisplay hides interrupted context markers`() {
+        val text = buildString {
+            append("半截回复")
+            append("\n\n<app_context>The user stopped the output.</app_context>")
+            append("\n继续可见")
+            append("\n\n<app_context>The message was interrupted.</app_context>")
+        }
+
+        assertEquals("半截回复\n继续可见", text.stripInterruptedAppContextForDisplay())
+    }
+
+    @Test
+    fun `finalizeInterruptedGenerationMessages inserts standalone interrupted marker for bare tool call`() {
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Search"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.ToolCall("call1", "search_web", """{"query":"LastChat"}"""),
+                )
+            ),
+        )
+
+        val result = messages.finalizeInterruptedGenerationMessages(
+            reason = InterruptedGenerationReason.UserCancelled,
+        )
+
+        // user → assistant(工具调用) → tool(占位结果) → assistant(独立打断标记)
+        assertEquals(4, result.size)
+        // 原 assistant 不含任何标记文本, 保持只有工具调用
+        val assistant = result[1]
+        assertTrue(assistant.parts.filterIsInstance<UIMessagePart.Text>().isEmpty())
+        assertEquals("call1", assistant.getToolCalls().single().toolCallId)
+        // 占位 tool result
+        assertEquals("call1", result[2].getToolResults().single().toolCallId)
+        // 末尾追加独立 assistant 打断标记
+        val marker = result[3]
+        assertEquals(MessageRole.ASSISTANT, marker.role)
+        val markerText = marker.parts.filterIsInstance<UIMessagePart.Text>().single().text
+        assertTrue(markerText.contains("<app_context>The user stopped the output.</app_context>"))
+        assertEquals("", markerText.stripInterruptedAppContextForDisplay())
+    }
+
+    @Test
+    fun `finalizeInterruptedGenerationMessages does not duplicate standalone marker on repeated finalization`() {
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Search"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.ToolCall("call1", "search_web", """{"query":"LastChat"}"""),
+                )
+            ),
+        )
+
+        val once = messages.finalizeInterruptedGenerationMessages(
+            reason = InterruptedGenerationReason.UserCancelled,
+        )
+        val twice = once.finalizeInterruptedGenerationMessages(
+            reason = InterruptedGenerationReason.UserCancelled,
+        )
+        val markerCount = twice.sumOf { msg ->
+            msg.parts
+                .filterIsInstance<UIMessagePart.Text>()
+                .sumOf { Regex("<app_context>").findAll(it.text).count() }
+        }
+
+        assertEquals(once, twice)
+        assertEquals(1, markerCount)
     }
 
     @Test

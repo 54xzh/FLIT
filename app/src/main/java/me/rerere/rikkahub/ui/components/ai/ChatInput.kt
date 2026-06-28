@@ -415,18 +415,6 @@ fun ChatInput(
 
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    fun sendMessage() {
-        keyboardController?.hide()
-        haptics.perform(HapticPattern.Send)
-        if (state.loading) onCancelClick() else onSendClick()
-    }
-
-    fun sendMessageWithoutAnswer() {
-        keyboardController?.hide()
-        haptics.perform(HapticPattern.Thud)
-        if (state.loading) onCancelClick() else onLongSendClick()
-    }
-
     var expand by remember { mutableStateOf(ExpandState.Collapsed) }
     var showContextRefreshDialog by remember { mutableStateOf(false) }
     fun dismissExpand() {
@@ -486,6 +474,31 @@ fun ChatInput(
     
     // Expanded state logic: Expanded if focused OR text is not empty
     val isExpanded = isFocused || state.textContent.text.isNotEmpty()
+    val canInterruptAndSend = shouldInterruptGenerationAndSend(
+        isGenerating = state.loading,
+        isInputRaised = isExpanded,
+        hasDraftText = state.textContent.text.isNotBlank(),
+    )
+
+    fun sendMessage() {
+        keyboardController?.hide()
+        haptics.perform(HapticPattern.Send)
+        when {
+            canInterruptAndSend -> onSendClick()
+            state.loading -> onCancelClick()
+            else -> onSendClick()
+        }
+    }
+
+    fun sendMessageWithoutAnswer() {
+        keyboardController?.hide()
+        haptics.perform(HapticPattern.Thud)
+        when {
+            canInterruptAndSend -> onLongSendClick()
+            state.loading -> onCancelClick()
+            else -> onLongSendClick()
+        }
+    }
 
     Box(
         modifier = modifier.fillMaxWidth(), // Apply passed modifier (alignment) here
@@ -845,21 +858,24 @@ fun ChatInput(
                                                             )
                                                             .background(
                                                                 color = when {
-                                                                    state.loading -> MaterialTheme.colorScheme.errorContainer
+                                                                    state.loading && !canInterruptAndSend -> MaterialTheme.colorScheme.errorContainer
                                                                     state.isEmpty() -> MaterialTheme.colorScheme.surfaceContainerHigh
                                                                     else -> MaterialTheme.colorScheme.primary
                                                                 }
                                                             )
                                                     ) {
                                                         val contentColor = when {
-                                                            state.loading -> MaterialTheme.colorScheme.onErrorContainer
+                                                            state.loading && !canInterruptAndSend -> MaterialTheme.colorScheme.onErrorContainer
                                                             state.isEmpty() -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                                                             else -> MaterialTheme.colorScheme.onPrimary
                                                         }
-                                                        if (state.loading) {
+                                                        if (state.loading && !canInterruptAndSend) {
                                                             KeepScreenOn()
                                                             Icon(Icons.Rounded.Stop, stringResource(R.string.stop), tint = contentColor, modifier = Modifier.size(20.dp))
                                                         } else {
+                                                            if (state.loading) {
+                                                                KeepScreenOn()
+                                                            }
                                                             Icon(Icons.Rounded.ArrowUpward, stringResource(R.string.send), tint = contentColor, modifier = Modifier.size(20.dp))
                                                         }
                                                     }
@@ -2086,6 +2102,11 @@ internal fun FullScreenEditor(
     onSend: () -> Unit,
     onDone: () -> Unit
 ) {
+    val canInterruptAndSend = shouldInterruptGenerationAndSend(
+        isGenerating = state.loading,
+        isInputRaised = true,
+        hasDraftText = state.textContent.text.isNotBlank(),
+    )
     BasicAlertDialog(
         onDismissRequest = {
             onDone()
@@ -2122,7 +2143,7 @@ internal fun FullScreenEditor(
                         TextButton(
                             onClick = {
                                 onSend()
-                                if (!state.loading) {
+                                if (!state.loading || canInterruptAndSend) {
                                     onDone()
                                 }
                             },
@@ -2130,7 +2151,7 @@ internal fun FullScreenEditor(
                         ) {
                             Text(
                                 stringResource(
-                                    if (state.loading) R.string.stop else R.string.send,
+                                    if (state.loading && !canInterruptAndSend) R.string.stop else R.string.send,
                                 )
                             )
                         }

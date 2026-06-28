@@ -7,6 +7,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.provider.Model
@@ -436,7 +439,7 @@ fun List<UIMessagePart>.isEmptyUIMessage(): Boolean {
     if (this.isEmpty()) return true
     return this.all { message ->
         when (message) {
-            is UIMessagePart.Text -> message.text.isBlank()
+            is UIMessagePart.Text -> message.text.stripInterruptedAppContextForDisplay().isBlank()
             is UIMessagePart.Image -> message.url.isBlank()
             is UIMessagePart.Document -> message.url.isBlank()
             is UIMessagePart.Reasoning -> message.reasoning.isBlank()
@@ -495,6 +498,298 @@ fun List<UIMessage>.limitContext(size: Int): List<UIMessage> {
     }
 
     return this.subList(adjustedStartIndex, this.size)
+}
+
+enum class InterruptedGenerationReason {
+    UserCancelled,
+    GenerationFailed,
+    ReplacedByNewRequest,
+}
+
+const val USER_STOPPED_OUTPUT_APP_CONTEXT = "The user stopped the output."
+const val MESSAGE_INTERRUPTED_APP_CONTEXT = "The message was interrupted."
+private const val INTERRUPTED_APP_CONTEXT_START_TAG = "<app_context>"
+private const val INTERRUPTED_APP_CONTEXT_END_TAG = "</app_context>"
+private val INTERRUPTED_APP_CONTEXT_TEXTS = listOf(
+    USER_STOPPED_OUTPUT_APP_CONTEXT,
+    MESSAGE_INTERRUPTED_APP_CONTEXT,
+)
+// 用于识别"只含打断标记"的独立 assistant 消息(独立 marker 的正文 trim 后就是这段).
+private const val APP_CONTEXT_MARKER_ANY_TEXT = "The user stopped the output."
+
+fun List<UIMessage>.finalizeInterruptedGenerationMessages(
+    reason: InterruptedGenerationReason,
+    detail: String? = null,
+    requiresToolResult: (UIMessagePart.ToolCall) -> Boolean = { true },
+): List<UIMessage> {
+    if (isEmpty()) return this
+
+    val messages = map { it.finishReasoning() }.toMutableList()
+
+    // 1) 占位工具结果: 给没有结果的工具调用补占位 result, 保证工具调用序列合法.
+    //    与下方打断标记互不影响, 仅看 "是否已有结果".
+    val assistantWithToolCallsIndex = messages.indexOfLast { message ->
+        message.role == MessageRole.ASSISTANT &&
+            message.getToolCalls().any(requiresToolResult)
+    }
+    if (assistantWithToolCallsIndex >= 0) {
+        appendPlaceholderToolResults(
+            messages = messages,
+            assistantIndex = assistantWithToolCallsIndex,
+            reason = reason,
+            detail = detail,
+            requiresToolResult = requiresToolResult,
+        )
+    }
+
+    // 2) 打断标记: 按 "序列末尾是什么角色" 决定形态.
+    //    - 末尾是 assistant: 直接在它正文尾巴追加隐藏标记, 不另起一条.
+    //    - 末尾是 tool: 在其后追加一条独立的 assistant 消息(只含隐藏标记),
+    //      充当本该有的 assistant 回合, 避免部分 API 不接受 tool 后直接接 user.
+    appendInterruptedAssistantMarker(messages, reason, requiresToolResult)
+
+    return if (messages == this) this else messages
+}
+
+/**
+ * 给"没有结果"的工具调用补占位的 tool result, 保证工具调用序列合法.
+ * 已有真结果的保留, 不影响.
+ */
+private fun appendPlaceholderToolResults(
+    messages: MutableList<UIMessage>,
+    assistantIndex: Int,
+    reason: InterruptedGenerationReason,
+    detail: String?,
+    requiresToolResult: (UIMessagePart.ToolCall) -> Boolean,
+) {
+    var nextIndex = assistantIndex + 1
+    while (nextIndex < messages.size && messages[nextIndex].role == MessageRole.TOOL) {
+        nextIndex++
+    }
+    if (nextIndex < messages.size) return // 后面还有非 tool 消息, 序列已是完成态, 不补
+
+    val assistantMessage = messages[assistantIndex]
+    val followingToolMessageIndexes = ((assistantIndex + 1) until nextIndex).toList()
+    val existingResultIds = (assistantMessage.getToolResults() + followingToolMessageIndexes
+        .flatMap { messages[it].getToolResults() })
+        .mapNotNull { it.toolCallId.takeIf(String::isNotBlank) }
+        .toSet()
+
+    val callStates = mutableListOf<InterruptedToolCallState>()
+    var toolCallIndex = 0
+    val normalizedParts = assistantMessage.parts.map { part ->
+        if (part is UIMessagePart.ToolCall) {
+            val resolvedId = part.toolCallId.ifBlank {
+                "interrupted_${assistantMessage.id}_${toolCallIndex}"
+            }
+            toolCallIndex++
+            val sanitizedArguments = sanitizeToolCallArguments(part.arguments)
+            val normalized = part.copy(
+                toolCallId = resolvedId,
+                arguments = sanitizedArguments,
+            )
+            if (requiresToolResult(part)) {
+                callStates += InterruptedToolCallState(
+                    original = part,
+                    normalized = normalized,
+                    originalArguments = part.arguments,
+                    sanitizedArguments = sanitizedArguments,
+                )
+            }
+            normalized
+        } else {
+            part
+        }
+    }
+    messages[assistantIndex] = assistantMessage.copy(parts = normalizedParts)
+
+    val missingResults = callStates
+        .filter { it.normalized.toolCallId !in existingResultIds }
+        .map { state ->
+            UIMessagePart.ToolResult(
+                toolCallId = state.normalized.toolCallId,
+                toolName = state.normalized.toolName,
+                content = buildInterruptedToolResultContent(
+                    reason = reason,
+                    detail = detail,
+                    originalArguments = state.originalArguments,
+                    sanitizedArguments = state.sanitizedArguments,
+                ),
+                arguments = parseToolArgumentsOrEmpty(state.sanitizedArguments),
+                metadata = state.normalized.metadata ?: state.original.metadata,
+            )
+        }
+
+    if (missingResults.isNotEmpty()) {
+        val targetToolMessageIndex = followingToolMessageIndexes.firstOrNull()
+        if (targetToolMessageIndex != null) {
+            val toolMessage = messages[targetToolMessageIndex]
+            messages[targetToolMessageIndex] = toolMessage.copy(
+                parts = toolMessage.parts + missingResults,
+            )
+        } else {
+            messages += UIMessage(
+                role = MessageRole.TOOL,
+                parts = missingResults,
+            )
+        }
+    }
+}
+
+/**
+ * 按"序列末尾的角色"决定打断标记形态:
+ * - 末尾是 assistant: 直接在它正文尾巴追加隐藏标记, 不另起一条.
+ * - 末尾是 tool: 在其后追加一条独立的 assistant 消息(只含隐藏标记),
+ *   充当本该有的 assistant 回合, 避免 tool 后直接接 user.
+ */
+private fun appendInterruptedAssistantMarker(
+    messages: MutableList<UIMessage>,
+    reason: InterruptedGenerationReason,
+    requiresToolResult: (UIMessagePart.ToolCall) -> Boolean,
+) {
+    val suffix = buildInterruptedAppContextSuffix(reason.appContextText)
+
+    val trailingAssistantIndex = messages.indexOfLast { it.role == MessageRole.ASSISTANT }
+    val trailingIndex = messages.lastIndex
+
+    if (trailingAssistantIndex == trailingIndex) {
+        // 末尾就是 assistant: 追加到正文尾巴. 没有正文则不补(该场景外层不会有).
+        val updated = messages[trailingAssistantIndex]
+            .appendInterruptedAppContext(reason, requiresToolResult)
+        if (updated != messages[trailingAssistantIndex]) {
+            messages[trailingAssistantIndex] = updated
+        }
+        return
+    }
+
+    // 末尾不是 assistant(应是 tool): 追加一条独立的 assistant 标记消息.
+    // 仅在该轮确实调过 "需要本地结果" 的工具时才补, 服务端工具调用不打断标记.
+    val hasLocalToolCall = messages[trailingAssistantIndex]?.getToolCalls()
+        ?.any(requiresToolResult) == true
+    if (!hasLocalToolCall) return
+    if (messages.any { it.isStandaloneInterruptedAppContextMarker() }) return
+
+    messages += UIMessage(
+        role = MessageRole.ASSISTANT,
+        parts = listOf(UIMessagePart.Text(suffix)),
+    )
+}
+
+private fun UIMessage.appendInterruptedAppContext(
+    reason: InterruptedGenerationReason,
+    requiresToolResult: (UIMessagePart.ToolCall) -> Boolean,
+): UIMessage {
+    if (role != MessageRole.ASSISTANT) return this
+    val suffix = buildInterruptedAppContextSuffix(reason.appContextText)
+
+    val textIndex = parts.indexOfLast { part ->
+        part is UIMessagePart.Text && part.text.isNotBlank()
+    }
+    if (textIndex < 0) {
+        // 正文为空但不走 "末尾是 assistant" 分支时, 不在这里补独立标记
+        // (留给 appendInterruptedAssistantMarker 的 tool 分支处理).
+        return this
+    }
+
+    val targetPart = parts[textIndex] as? UIMessagePart.Text ?: return this
+    if (targetPart.text.hasInterruptedAppContext()) return this
+
+    return copy(
+        parts = parts.mapIndexed { index, part ->
+            if (index == textIndex && part is UIMessagePart.Text) {
+                part.copy(text = part.text + suffix)
+            } else {
+                part
+            }
+        }
+    )
+}
+
+private fun UIMessage.isStandaloneInterruptedAppContextMarker(): Boolean {
+    if (role != MessageRole.ASSISTANT) return false
+    val texts = parts.filterIsInstance<UIMessagePart.Text>()
+    if (texts.size != 1) return false
+    return texts.single().text.trim() == buildInterruptedAppContextSuffix(APP_CONTEXT_MARKER_ANY_TEXT)
+}
+
+private data class InterruptedToolCallState(
+    val original: UIMessagePart.ToolCall,
+    val normalized: UIMessagePart.ToolCall,
+    val originalArguments: String,
+    val sanitizedArguments: String,
+)
+
+private fun sanitizeToolCallArguments(arguments: String): String {
+    val normalized = arguments.ifBlank { "{}" }
+    return if (runCatching { json.parseToJsonElement(normalized) }.isSuccess) {
+        normalized
+    } else {
+        "{}"
+    }
+}
+
+private fun parseToolArgumentsOrEmpty(arguments: String): JsonElement {
+    return runCatching {
+        json.parseToJsonElement(arguments.ifBlank { "{}" })
+    }.getOrElse {
+        JsonObject(emptyMap())
+    }
+}
+
+private fun buildInterruptedToolResultContent(
+    reason: InterruptedGenerationReason,
+    detail: String?,
+    originalArguments: String,
+    sanitizedArguments: String,
+): JsonObject {
+    return buildJsonObject {
+        put("status", "interrupted")
+        put("reason", reason.wireValue)
+        put("message", detail?.takeIf { it.isNotBlank() } ?: reason.defaultMessage)
+        if (originalArguments.isNotBlank() && originalArguments != sanitizedArguments) {
+            put("partialArguments", JsonPrimitive(originalArguments))
+        }
+    }
+}
+
+private val InterruptedGenerationReason.wireValue: String
+    get() = when (this) {
+        InterruptedGenerationReason.UserCancelled -> "user_cancelled"
+        InterruptedGenerationReason.GenerationFailed -> "generation_failed"
+        InterruptedGenerationReason.ReplacedByNewRequest -> "replaced_by_new_request"
+    }
+
+private val InterruptedGenerationReason.defaultMessage: String
+    get() = when (this) {
+        InterruptedGenerationReason.UserCancelled -> "Generation was stopped by the user before this tool call finished."
+        InterruptedGenerationReason.GenerationFailed -> "Generation failed before this tool call finished."
+        InterruptedGenerationReason.ReplacedByNewRequest -> "Generation was replaced by a new request before this tool call finished."
+    }
+
+private val InterruptedGenerationReason.appContextText: String
+    get() = when (this) {
+        InterruptedGenerationReason.UserCancelled,
+        InterruptedGenerationReason.ReplacedByNewRequest,
+        -> USER_STOPPED_OUTPUT_APP_CONTEXT
+        InterruptedGenerationReason.GenerationFailed -> MESSAGE_INTERRUPTED_APP_CONTEXT
+    }
+
+private fun buildInterruptedAppContextSuffix(appContext: String): String {
+    return "\n\n$INTERRUPTED_APP_CONTEXT_START_TAG$appContext$INTERRUPTED_APP_CONTEXT_END_TAG"
+}
+
+private fun String.hasInterruptedAppContext(): Boolean {
+    return INTERRUPTED_APP_CONTEXT_TEXTS.any { text ->
+        contains(buildInterruptedAppContextSuffix(text).trimStart())
+    }
+}
+
+fun String.stripInterruptedAppContextForDisplay(): String {
+    return INTERRUPTED_APP_CONTEXT_TEXTS.fold(this) { text, appContext ->
+        text
+            .replace(buildInterruptedAppContextSuffix(appContext), "")
+            .replace(buildInterruptedAppContextSuffix(appContext).trimStart(), "")
+    }
 }
 
 fun List<UIMessage>.repairToolCallMessageSequence(

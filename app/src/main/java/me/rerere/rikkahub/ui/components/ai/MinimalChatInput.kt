@@ -287,11 +287,21 @@ fun MinimalChatInput(
             focusManager.clearFocus()
         }
     }
+    val isInputRaised = isFocused || state.textContent.text.isNotEmpty()
+    val canInterruptAndSend = shouldInterruptGenerationAndSend(
+        isGenerating = state.loading,
+        isInputRaised = isInputRaised,
+        hasDraftText = state.textContent.text.isNotBlank(),
+    )
     
     fun sendMessage() {
         keyboardController?.hide()
         haptics.perform(HapticPattern.Send)
-        if (state.loading) onCancelClick() else onSendClick()
+        when {
+            canInterruptAndSend -> onSendClick()
+            state.loading -> onCancelClick()
+            else -> onSendClick()
+        }
     }
     
     Box(
@@ -574,6 +584,7 @@ fun MinimalChatInput(
                             }
 
                             val currentAction = when {
+                                canInterruptAndSend -> "send"
                                 state.loading -> "loading"
                                 !state.isEmpty() -> "send"
                                 showPicker -> "picker_open"  // New state when picker is visible

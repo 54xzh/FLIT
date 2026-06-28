@@ -78,6 +78,69 @@ class ChatProcessDisplayPlannerTest {
     }
 
     @Test
+    fun `keeps trailing process only assistant visible after generation stops`() {
+        val nodes = listOf(
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(UIMessagePart.Text("读一下文件")),
+            ).toMessageNode(),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Reasoning("准备读文件"),
+                    UIMessagePart.ToolCall("call_1", "workspace_read_file", """{"path":"README.md"}"""),
+                ),
+            ).toMessageNode(),
+        )
+
+        val plan = planChatProcessDisplay(
+            nodes = nodes,
+            keepTrailingProcessOwnerVisible = true,
+        )
+
+        assertTrue(plan.hiddenNodeIndexes.isEmpty())
+        assertEquals(setOf(1), plan.visibleTrailingProcessOwnerIndexes)
+        assertTrue(plan.standaloneProcessPartsByIndex.isEmpty())
+    }
+
+    @Test
+    fun `keeps assistant as owner for finalized trailing tool result`() {
+        val nodes = listOf(
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(UIMessagePart.Text("搜一下")),
+            ).toMessageNode(),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Reasoning("先思考"),
+                    UIMessagePart.ToolCall("call_1", "search_web", """{"query":"LastChat"}"""),
+                ),
+            ).toMessageNode(),
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(
+                    UIMessagePart.ToolResult(
+                        toolCallId = "call_1",
+                        toolName = "search_web",
+                        content = JsonPrimitive("interrupted"),
+                        arguments = JsonPrimitive("""{"query":"LastChat"}"""),
+                    )
+                ),
+            ).toMessageNode(),
+        )
+
+        val plan = planChatProcessDisplay(
+            nodes = nodes,
+            keepTrailingProcessOwnerVisible = true,
+        )
+
+        assertEquals(setOf(2), plan.hiddenNodeIndexes)
+        assertEquals(setOf(1), plan.visibleTrailingProcessOwnerIndexes)
+        assertTrue(plan.standaloneProcessPartsByIndex.isEmpty())
+    }
+
+    @Test
     fun `standalone process block keeps assistant owner when anchored on tool result`() {
         val nodes = listOf(
             UIMessage(
