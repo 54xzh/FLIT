@@ -331,7 +331,7 @@ class MessageTest {
             reason = InterruptedGenerationReason.UserCancelled,
         )
 
-        // user → assistant(工具调用) → tool(占位结果) → assistant(独立打断标记)
+        // user → assistant(工具调用) → tool(占位结果) → user(独立打断标记)
         assertEquals(4, result.size)
         val assistant = result[1]
         val reasoning = assistant.parts.filterIsInstance<UIMessagePart.Reasoning>().single()
@@ -344,9 +344,9 @@ class MessageTest {
         assertEquals("interrupted", toolResult.content.jsonObject["status"]?.jsonPrimitive?.contentOrNull)
         assertEquals("user_cancelled", toolResult.content.jsonObject["reason"]?.jsonPrimitive?.contentOrNull)
 
-        // 末尾是独立 assistant 打断标记消息
+        // 末尾是独立 user 打断标记消息
         val marker = result[3]
-        assertEquals(MessageRole.ASSISTANT, marker.role)
+        assertEquals(MessageRole.USER, marker.role)
         val markerText = marker.parts.filterIsInstance<UIMessagePart.Text>().single().text
         assertTrue(markerText.contains("<app_context>The user stopped the output.</app_context>"))
         assertEquals("", markerText.stripInterruptedAppContextForDisplay())
@@ -376,13 +376,13 @@ class MessageTest {
             detail = "stream failed",
         )
 
-        // user → assistant(两个工具调用) → tool(call1真结果 + call2占位) → assistant(独立打断标记)
+        // user → assistant(两个工具调用) → tool(call1真结果 + call2占位) → user(独立打断标记)
         assertEquals(4, result.size)
         val results = result[2].getToolResults()
         assertEquals(listOf("call1", "call2"), results.map { it.toolCallId })
         assertEquals("generation_failed", results[1].content.jsonObject["reason"]?.jsonPrimitive?.contentOrNull)
         assertEquals("stream failed", results[1].content.jsonObject["message"]?.jsonPrimitive?.contentOrNull)
-        assertEquals(MessageRole.ASSISTANT, result[3].role)
+        assertEquals(MessageRole.USER, result[3].role)
     }
 
     @Test
@@ -410,9 +410,9 @@ class MessageTest {
         assertEquals(repairedCall.toolCallId, toolResult.toolCallId)
         assertEquals(partialArguments, toolResult.content.jsonObject["partialArguments"]?.jsonPrimitive?.contentOrNull)
         assertEquals("replaced_by_new_request", toolResult.content.jsonObject["reason"]?.jsonPrimitive?.contentOrNull)
-        // 末尾追加独立 assistant 打断标记
+        // 末尾追加独立 user 打断标记
         assertEquals(4, result.size)
-        assertEquals(MessageRole.ASSISTANT, result[3].role)
+        assertEquals(MessageRole.USER, result[3].role)
     }
 
     @Test
@@ -435,7 +435,7 @@ class MessageTest {
     }
 
     @Test
-    fun `finalizeInterruptedGenerationMessages appends hidden context to interrupted assistant text`() {
+    fun `finalizeInterruptedGenerationMessages leaves interrupted assistant text untouched and appends standalone user marker`() {
         val messages = listOf(
             UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Search"))),
             UIMessage(
@@ -451,12 +451,19 @@ class MessageTest {
             reason = InterruptedGenerationReason.UserCancelled,
         )
 
+        // 原 assistant 正文保持不变, 不再被追加隐藏标记
         val textPart = result[1].parts.filterIsInstance<UIMessagePart.Text>().single()
+        assertEquals("半截回复", textPart.text)
+        // 末尾追加一条独立 user 打断标记
+        assertEquals(3, result.size)
+        val marker = result[2]
+        assertEquals(MessageRole.USER, marker.role)
+        val markerText = marker.parts.filterIsInstance<UIMessagePart.Text>().single().text
         assertEquals(
-            "半截回复\n\n<app_context>The user stopped the output.</app_context>",
-            textPart.text,
+            "\n\n<app_context>The user stopped the output.</app_context>",
+            markerText,
         )
-        assertEquals("半截回复", textPart.text.stripInterruptedAppContextForDisplay())
+        assertEquals("", markerText.stripInterruptedAppContextForDisplay())
     }
 
     @Test
@@ -475,10 +482,18 @@ class MessageTest {
         val twice = once.finalizeInterruptedGenerationMessages(
             reason = InterruptedGenerationReason.UserCancelled,
         )
-        val text = twice[1].parts.filterIsInstance<UIMessagePart.Text>().single().text
 
         assertEquals(once, twice)
-        assertEquals(1, Regex("<app_context>").findAll(text).count())
+        // 原 assistant 正文仍不含标记
+        val assistantText = twice[1].parts.filterIsInstance<UIMessagePart.Text>().single().text
+        assertFalse(assistantText.contains("<app_context>"))
+        // 整个序列里只有一条 user marker, 且只含一个 <app_context> 标签
+        val markerCount = twice.sumOf { msg ->
+            msg.parts
+                .filterIsInstance<UIMessagePart.Text>()
+                .sumOf { Regex("<app_context>").findAll(it.text).count() }
+        }
+        assertEquals(1, markerCount)
     }
 
     @Test
@@ -509,7 +524,7 @@ class MessageTest {
             reason = InterruptedGenerationReason.UserCancelled,
         )
 
-        // user → assistant(工具调用) → tool(占位结果) → assistant(独立打断标记)
+        // user → assistant(工具调用) → tool(占位结果) → user(独立打断标记)
         assertEquals(4, result.size)
         // 原 assistant 不含任何标记文本, 保持只有工具调用
         val assistant = result[1]
@@ -517,9 +532,9 @@ class MessageTest {
         assertEquals("call1", assistant.getToolCalls().single().toolCallId)
         // 占位 tool result
         assertEquals("call1", result[2].getToolResults().single().toolCallId)
-        // 末尾追加独立 assistant 打断标记
+        // 末尾追加独立 user 打断标记
         val marker = result[3]
-        assertEquals(MessageRole.ASSISTANT, marker.role)
+        assertEquals(MessageRole.USER, marker.role)
         val markerText = marker.parts.filterIsInstance<UIMessagePart.Text>().single().text
         assertTrue(markerText.contains("<app_context>The user stopped the output.</app_context>"))
         assertEquals("", markerText.stripInterruptedAppContextForDisplay())

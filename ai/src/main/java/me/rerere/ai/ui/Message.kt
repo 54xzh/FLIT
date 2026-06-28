@@ -514,8 +514,6 @@ private val INTERRUPTED_APP_CONTEXT_TEXTS = listOf(
     USER_STOPPED_OUTPUT_APP_CONTEXT,
     MESSAGE_INTERRUPTED_APP_CONTEXT,
 )
-// 用于识别"只含打断标记"的独立 assistant 消息(独立 marker 的正文 trim 后就是这段).
-private const val APP_CONTEXT_MARKER_ANY_TEXT = "The user stopped the output."
 
 fun List<UIMessage>.finalizeInterruptedGenerationMessages(
     reason: InterruptedGenerationReason,
@@ -542,11 +540,11 @@ fun List<UIMessage>.finalizeInterruptedGenerationMessages(
         )
     }
 
-    // 2) 打断标记: 按 "序列末尾是什么角色" 决定形态.
-    //    - 末尾是 assistant: 直接在它正文尾巴追加隐藏标记, 不另起一条.
-    //    - 末尾是 tool: 在其后追加一条独立的 assistant 消息(只含隐藏标记),
-    //      充当本该有的 assistant 回合, 避免部分 API 不接受 tool 后直接接 user.
-    appendInterruptedAssistantMarker(messages, reason, requiresToolResult)
+    // 2) 打断标记: 在序列末尾追加一条独立的 user 消息(只含隐藏标记).
+    //    用 user 角色注入, 而不是塞进 assistant 正文 —— 否则模型会把这段标记当成
+    //    自己生成过的内容, 可能在后续回复里自己再吐一遍中断标记.
+    //    仅在该轮确实调过 "需要本地结果" 的工具时才补, 服务端工具调用不打断标记.
+    appendInterruptedUserMarker(messages, reason, requiresToolResult)
 
     return if (messages == this) this else messages
 }
@@ -637,79 +635,57 @@ private fun appendPlaceholderToolResults(
 }
 
 /**
- * 按"序列末尾的角色"决定打断标记形态:
- * - 末尾是 assistant: 直接在它正文尾巴追加隐藏标记, 不另起一条.
- * - 末尾是 tool: 在其后追加一条独立的 assistant 消息(只含隐藏标记),
- *   充当本该有的 assistant 回合, 避免 tool 后直接接 user.
+ * 在序列末尾追加一条独立的 user 打断标记消息(只含隐藏标记).
+ * 用 user 角色, 而非 assistant 正文 —— 避免模型把标记当成自己生成的内容.
+ *
+ * 门控(与 appendInterruptedAssistantMarker 原逻辑一致):
+ * - 末尾是 assistant: 只要有正文就追加(纯文本半截回复也要告知被打断).
+ * - 末尾是 tool: 仅在该轮调过 "需要本地结果" 的工具时才补, 服务端工具调用不打断标记.
  */
-private fun appendInterruptedAssistantMarker(
+private fun appendInterruptedUserMarker(
     messages: MutableList<UIMessage>,
     reason: InterruptedGenerationReason,
     requiresToolResult: (UIMessagePart.ToolCall) -> Boolean,
 ) {
-    val suffix = buildInterruptedAppContextSuffix(reason.appContextText)
+    if (messages.any { it.isStandaloneInterruptedAppContextMarker() }) return
 
     val trailingAssistantIndex = messages.indexOfLast { it.role == MessageRole.ASSISTANT }
     val trailingIndex = messages.lastIndex
 
     if (trailingAssistantIndex == trailingIndex) {
-        // 末尾就是 assistant: 追加到正文尾巴. 没有正文则不补(该场景外层不会有).
-        val updated = messages[trailingAssistantIndex]
-            .appendInterruptedAppContext(reason, requiresToolResult)
-        if (updated != messages[trailingAssistantIndex]) {
-            messages[trailingAssistantIndex] = updated
-        }
+        // 末尾就是 assistant: 有正文才追加(纯标记/空 assistant 不补, 该场景外层也不会有).
+        val hasText = messages[trailingAssistantIndex].parts
+            .filterIsInstance<UIMessagePart.Text>()
+            .any { it.text.isNotBlank() }
+        if (!hasText) return
+        messages += UIMessage(
+            role = MessageRole.USER,
+            parts = listOf(UIMessagePart.Text(buildInterruptedAppContextSuffix(reason.appContextText))),
+        )
         return
     }
 
-    // 末尾不是 assistant(应是 tool): 追加一条独立的 assistant 标记消息.
-    // 仅在该轮确实调过 "需要本地结果" 的工具时才补, 服务端工具调用不打断标记.
+    // 末尾不是 assistant(应是 tool): 仅在该轮确实调过 "需要本地结果" 的工具时才补,
+    // 服务端工具调用不打断标记.
     val hasLocalToolCall = messages[trailingAssistantIndex]?.getToolCalls()
         ?.any(requiresToolResult) == true
     if (!hasLocalToolCall) return
-    if (messages.any { it.isStandaloneInterruptedAppContextMarker() }) return
 
     messages += UIMessage(
-        role = MessageRole.ASSISTANT,
-        parts = listOf(UIMessagePart.Text(suffix)),
+        role = MessageRole.USER,
+        parts = listOf(UIMessagePart.Text(buildInterruptedAppContextSuffix(reason.appContextText))),
     )
 }
 
-private fun UIMessage.appendInterruptedAppContext(
-    reason: InterruptedGenerationReason,
-    requiresToolResult: (UIMessagePart.ToolCall) -> Boolean,
-): UIMessage {
-    if (role != MessageRole.ASSISTANT) return this
-    val suffix = buildInterruptedAppContextSuffix(reason.appContextText)
-
-    val textIndex = parts.indexOfLast { part ->
-        part is UIMessagePart.Text && part.text.isNotBlank()
-    }
-    if (textIndex < 0) {
-        // 正文为空但不走 "末尾是 assistant" 分支时, 不在这里补独立标记
-        // (留给 appendInterruptedAssistantMarker 的 tool 分支处理).
-        return this
-    }
-
-    val targetPart = parts[textIndex] as? UIMessagePart.Text ?: return this
-    if (targetPart.text.hasInterruptedAppContext()) return this
-
-    return copy(
-        parts = parts.mapIndexed { index, part ->
-            if (index == textIndex && part is UIMessagePart.Text) {
-                part.copy(text = part.text + suffix)
-            } else {
-                part
-            }
-        }
-    )
-}
-
-private fun UIMessage.isStandaloneInterruptedAppContextMarker(): Boolean {
-    if (role != MessageRole.ASSISTANT) return false
+fun UIMessage.isStandaloneInterruptedAppContextMarker(): Boolean {
+    if (role != MessageRole.USER) return false
     val texts = parts.filterIsInstance<UIMessagePart.Text>()
     if (texts.size != 1) return false
-    return texts.single().text.trim() == buildInterruptedAppContextSuffix(APP_CONTEXT_MARKER_ANY_TEXT)
+    val markerText = texts.single().text
+    // 单条 Text 且去掉打断标记后为空, 即认定是独立 marker 消息.
+    // 不直接比较含 "\n\n" 的前后缀, 以免疫过 trim/stripping 导致误判(如重复 finalize 去重失败).
+    return markerText.stripInterruptedAppContextForDisplay().isBlank() &&
+        INTERRUPTED_APP_CONTEXT_TEXTS.any { markerText.contains(it) }
 }
 
 private data class InterruptedToolCallState(
@@ -776,12 +752,6 @@ private val InterruptedGenerationReason.appContextText: String
 
 private fun buildInterruptedAppContextSuffix(appContext: String): String {
     return "\n\n$INTERRUPTED_APP_CONTEXT_START_TAG$appContext$INTERRUPTED_APP_CONTEXT_END_TAG"
-}
-
-private fun String.hasInterruptedAppContext(): Boolean {
-    return INTERRUPTED_APP_CONTEXT_TEXTS.any { text ->
-        contains(buildInterruptedAppContextSuffix(text).trimStart())
-    }
 }
 
 fun String.stripInterruptedAppContextForDisplay(): String {

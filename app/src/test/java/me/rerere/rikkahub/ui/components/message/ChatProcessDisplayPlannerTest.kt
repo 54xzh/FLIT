@@ -264,4 +264,44 @@ class ChatProcessDisplayPlannerTest {
         assertEquals(setOf(1), plan.hiddenNodeIndexes)
         assertEquals(listOf(listOf(UIMessagePart.Text("第一段"))), plan.prefixedDisplaySegmentsByIndex[2])
     }
+
+    @Test
+    fun `hides standalone interrupted user marker as a hidden node`() {
+        val markerText = "\n\n<app_context>The user stopped the output.</app_context>"
+        val nodes = listOf(
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(UIMessagePart.Text("帮我搜一下")),
+            ).toMessageNode(),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Reasoning("先想一想"),
+                    UIMessagePart.ToolCall("call_1", "search_web", """{"query":"LastChat"}"""),
+                ),
+            ).toMessageNode(),
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(
+                    UIMessagePart.ToolResult(
+                        toolCallId = "call_1",
+                        toolName = "search_web",
+                        content = JsonPrimitive("interrupted"),
+                        arguments = JsonPrimitive("""{"query":"LastChat"}"""),
+                    )
+                ),
+            ).toMessageNode(),
+            // 打断后追加的独立 user marker: UI 应整条隐藏, 不渲染成空气泡
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(UIMessagePart.Text(markerText)),
+            ).toMessageNode(),
+        )
+
+        val plan = planChatProcessDisplay(nodes)
+
+        assertTrue(plan.hiddenNodeIndexes.contains(3))
+        // marker 不应被当成 process-only 消息产生独立 timeline
+        assertFalse(plan.standaloneProcessPartsByIndex.containsKey(3))
+    }
 }

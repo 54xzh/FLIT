@@ -3,6 +3,7 @@ package me.rerere.rikkahub.ui.components.message
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.isStandaloneInterruptedAppContextMarker
 import me.rerere.rikkahub.data.model.MessageNode
 
 internal data class ChatProcessDisplayPlan(
@@ -100,6 +101,12 @@ internal fun planChatProcessDisplay(
 
     nodes.forEachIndexed { index, node ->
         val message = node.currentMessage
+        // 纯打断标记的独立 user 消息: 整条隐藏, 不渲染成空气泡, 也不参与连续发言头判断.
+        if (message.isStandaloneInterruptedAppContextMarker()) {
+            hiddenNodeIndexes += index
+            clearPending()
+            return@forEachIndexed
+        }
         if (message.isProcessOnlyDisplayMessage()) {
             pendingNodeIndexes += index
             pendingProcessParts += message.processDisplayParts()
