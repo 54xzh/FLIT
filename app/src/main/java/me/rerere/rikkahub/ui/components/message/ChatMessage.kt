@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
@@ -37,23 +38,28 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -76,7 +82,9 @@ import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Videocam
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -111,6 +119,76 @@ import me.rerere.rikkahub.utils.urlDecode
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
+
+private const val LimitedTextGrowthMinChars = 2_500
+private val LimitedTextGrowthMaxAnimatedDelta = 48.dp
+private val LimitedTextGrowthAnimationSpec = spring<Float>(
+    dampingRatio = 0.7f,
+    stiffness = 300f,
+)
+
+private class LimitedTextGrowthAnimationState {
+    var targetHeightPx: Int = 0
+    var job: Job? = null
+}
+
+private fun Modifier.limitedTextGrowthAnimation(contentLength: Int): Modifier = composed {
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val state = remember { LimitedTextGrowthAnimationState() }
+    val animatedHeight = remember { Animatable(0f) }
+    val maxAnimatedDeltaPx = with(density) {
+        LimitedTextGrowthMaxAnimatedDelta.toPx()
+    }
+    val latestContentLength by rememberUpdatedState(contentLength)
+    val latestMaxAnimatedDeltaPx by rememberUpdatedState(maxAnimatedDeltaPx)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            state.job?.cancel()
+        }
+    }
+
+    this
+        .clipToBounds()
+        .layout { measurable, constraints ->
+            val placeable = measurable.measure(constraints)
+            val measuredHeight = placeable.height
+            val previousTargetHeight = state.targetHeightPx
+
+            if (measuredHeight != previousTargetHeight) {
+                state.targetHeightPx = measuredHeight
+                state.job?.cancel()
+                state.job = scope.launch {
+                    if (previousTargetHeight == 0 || animatedHeight.value <= 0f) {
+                        animatedHeight.snapTo(measuredHeight.toFloat())
+                    } else {
+                        val shouldLimitGrowth = latestContentLength >= LimitedTextGrowthMinChars &&
+                            measuredHeight > animatedHeight.value &&
+                            measuredHeight - animatedHeight.value > latestMaxAnimatedDeltaPx
+
+                        if (shouldLimitGrowth) {
+                            animatedHeight.snapTo(measuredHeight - latestMaxAnimatedDeltaPx)
+                        }
+                        animatedHeight.animateTo(
+                            targetValue = measuredHeight.toFloat(),
+                            animationSpec = LimitedTextGrowthAnimationSpec,
+                        )
+                    }
+                }
+            }
+
+            val displayedHeight = when {
+                measuredHeight <= 0 -> 0
+                animatedHeight.value <= 0f -> measuredHeight
+                else -> animatedHeight.value.roundToInt().coerceAtLeast(0)
+            }
+
+            layout(placeable.width, displayedHeight) {
+                placeable.placeRelative(0, 0)
+            }
+        }
+}
 
 private fun hasGlyphInConfiguredFont(context: android.content.Context, config: FontConfig, sample: String): Boolean? {
     val typeface = runCatching {
@@ -568,23 +646,19 @@ private fun MessageTextPart(
     onCitationClick: (String) -> Unit,
 ) {
     if (role == MessageRole.USER) {
+        val displayText = part.text.replaceRegexes(
+            assistant = assistant,
+            scope = AssistantAffectScope.USER,
+            visual = true,
+        )
         Card(
-            modifier = Modifier.animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = 0.7f,
-                    stiffness = 300f
-                )
-            ),
+            modifier = Modifier.limitedTextGrowthAnimation(contentLength = displayText.length),
             shape = me.rerere.rikkahub.ui.theme.AppShapes.CardLarge,
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 SelectionContainer {
                     MarkdownBlock(
-                        content = part.text.replaceRegexes(
-                            assistant = assistant,
-                            scope = AssistantAffectScope.USER,
-                            visual = true,
-                        ),
+                        content = displayText,
                         onClickCitation = onCitationClick,
                         lazyRenderOffscreen = true,
                     )
@@ -597,21 +671,17 @@ private fun MessageTextPart(
         return
     }
 
+    val displayText = part.text.stripInterruptedAppContextForDisplay().replaceRegexes(
+        assistant = assistant,
+        scope = AssistantAffectScope.ASSISTANT,
+        visual = true,
+    )
     Column {
         SelectionContainer(
-            modifier = Modifier.animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = 0.7f,
-                    stiffness = 300f
-                )
-            )
+            modifier = Modifier.limitedTextGrowthAnimation(contentLength = displayText.length)
         ) {
             MarkdownBlock(
-                content = part.text.stripInterruptedAppContextForDisplay().replaceRegexes(
-                    assistant = assistant,
-                    scope = AssistantAffectScope.ASSISTANT,
-                    visual = true,
-                ),
+                content = displayText,
                 onClickCitation = onCitationClick,
                 lazyRenderOffscreen = true,
             )
