@@ -120,6 +120,7 @@ enum class ExaSearchType(val value: String) {
 data class SearchCommonOptions(
     val resultSize: Int = 5,
     val multiSearchStrategy: MultiSearchStrategy = MultiSearchStrategy.PARALLEL,
+    val searchAgentMaxSteps: Int = 16,
 )
 
 @Serializable

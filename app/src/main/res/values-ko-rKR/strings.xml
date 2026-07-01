@@ -467,6 +467,8 @@
   <string name="setting_page_search_providers">검색 제공업체</string>
   <string name="setting_page_search_result_size">결과 크기</string>
   <string name="setting_page_search_result_size_desc">검색마다 각 제공자가 반환하는 결과 수</string>
+  <string name="setting_page_search_agent_max_steps">서브 에이전트 스텝 수</string>
+  <string name="setting_page_search_agent_max_steps_desc">서브 에이전트가 작업당 수행할 수 있는 최대 검색 라운드 수</string>
   <string name="setting_page_search_multi_strategy">다중 제공자 전략</string>
   <string name="setting_page_search_multi_strategy_parallel">병렬</string>
   <string name="setting_page_search_multi_strategy_sequential">순차 폴백</string>

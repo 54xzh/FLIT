@@ -42,7 +42,8 @@ import kotlin.coroutines.coroutineContext
 import kotlin.uuid.Uuid
 
 private const val SEARCH_AGENT_TOOL_NAME = "search_agent"
-private const val SEARCH_AGENT_MAX_STEPS = 16
+private const val SEARCH_AGENT_MAX_STEPS_MIN = 2
+private const val SEARCH_AGENT_MAX_STEPS_MAX = 32
 private const val SEARCH_AGENT_IDLE_TIMEOUT_MS = 60_000L
 private const val SEARCH_AGENT_STEP_LIMIT_CODE = "search_agent_step_limit_reached"
 private const val FALLBACK_SOURCE_LIMIT = 12
@@ -194,9 +195,12 @@ private class SearchAgentRunner(
             .mapNotNull { tool -> tool.systemPrompt(model, emptyList()).takeIf { it.isNotBlank() } }
             .joinToString(separator = "\n\n")
 
+        val maxSteps = settings.searchCommonOptions.searchAgentMaxSteps
+            .coerceIn(SEARCH_AGENT_MAX_STEPS_MIN, SEARCH_AGENT_MAX_STEPS_MAX)
+
         var messages = listOf(
             UIMessage.system(
-                buildSystemPrompt(toolInstructions = toolInstructions)
+                buildSystemPrompt(toolInstructions = toolInstructions, maxSteps = maxSteps)
             ),
             UIMessage.user(
                 buildUserPrompt(task = task, urls = urls)
@@ -204,7 +208,7 @@ private class SearchAgentRunner(
         )
         var stepLimitReached = false
 
-        repeat(SEARCH_AGENT_MAX_STEPS + 1) { stepIndex ->
+        repeat(maxSteps + 1) { stepIndex ->
             var requestBodyJson: String? = null
             val toolsForStep = if (stepLimitReached) emptyList() else internalTools
             val params = TextGenerationParams(
@@ -254,7 +258,7 @@ private class SearchAgentRunner(
             if (toolCalls.isEmpty()) {
                 val finalText = messages.lastOrNull()?.toContentText().orEmpty()
                 val finalResult = normalizeFinalResult(finalText).let { result ->
-                    if (stepLimitReached) result.withAdditionalNote(stepLimitNote()) else result
+                    if (stepLimitReached) result.withAdditionalNote(stepLimitNote(maxSteps)) else result
                 }
                 appendStep(
                     SearchAgentStep.FinalStep(
@@ -268,7 +272,7 @@ private class SearchAgentRunner(
             }
 
             if (stepLimitReached) {
-                val message = stepLimitNote()
+                val message = stepLimitNote(maxSteps)
                 appendStep(SearchAgentStep.ErrorStep(title = "已达到搜索轮数上限", detail = message))
                 progressStore.finish(toolCallId)
                 return buildAgentResult(
@@ -289,9 +293,9 @@ private class SearchAgentRunner(
                 messages = messages.replaceLastToolCalls(resolvedToolCalls)
             }
 
-            val reachedStepLimit = stepIndex == SEARCH_AGENT_MAX_STEPS - 1
+            val reachedStepLimit = stepIndex == maxSteps - 1
             val results = if (reachedStepLimit) {
-                appendStep(buildStepLimitNoticeStep())
+                appendStep(buildStepLimitNoticeStep(maxSteps))
                 stepLimitReached = true
                 resolvedToolCalls.map(::buildStepLimitToolResult)
             } else {
@@ -391,21 +395,21 @@ private class SearchAgentRunner(
         )
     }
 
-    private fun buildStepLimitNoticeStep(): SearchAgentStep.ToolCallStep {
+    private fun buildStepLimitNoticeStep(maxSteps: Int): SearchAgentStep.ToolCallStep {
         return SearchAgentStep.ToolCallStep(
             toolName = SEARCH_AGENT_TOOL_NAME,
             title = "已达到搜索轮数上限",
-            detail = "搜索子代理已执行 ${SEARCH_AGENT_MAX_STEPS} 轮，已要求它基于已有资料总结。",
+            detail = "搜索子代理已执行 ${maxSteps} 轮，已要求它基于已有资料总结。",
             urls = emptyList(),
             status = SearchAgentStep.ToolCallStep.Status.Done,
         )
     }
 
-    private fun stepLimitNote(): String {
-        return "搜索子代理已达到 ${SEARCH_AGENT_MAX_STEPS} 轮上限，已基于已有资料总结，结果可能不完整。"
+    private fun stepLimitNote(maxSteps: Int): String {
+        return "搜索子代理已达到 ${maxSteps} 轮上限，已基于已有资料总结，结果可能不完整。"
     }
 
-    private fun buildSystemPrompt(toolInstructions: String): String = """
+    private fun buildSystemPrompt(toolInstructions: String, maxSteps: Int): String = """
         You are a web search sub-agent.
         Today is ${LocalDate.now()}.
 
@@ -418,6 +422,7 @@ private class SearchAgentRunner(
         - Do not invent sources or citation IDs.
         - If sources conflict or are weak, say that in `notes`.
         - For medical, legal, financial, or other high-risk topics, summarize sources but note that it is not professional advice.
+        - You have at most ${maxSteps} search rounds. Search broad first, then refine. Once you have enough, stop and return final JSON.
 
         Return JSON only:
         {

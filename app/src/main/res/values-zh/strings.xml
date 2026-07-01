@@ -930,6 +930,8 @@
   <string name="setting_page_search_multi_strategy_sequential">顺序回退</string>
   <string name="setting_page_search_result_size">结果数量</string>
   <string name="setting_page_search_result_size_desc">每次搜索每个提供商返回的结果数量</string>
+  <string name="setting_page_search_agent_max_steps">子代理步数</string>
+  <string name="setting_page_search_agent_max_steps_desc">子代理每次任务最多可进行的搜索轮数</string>
   <string name="setting_page_search_multi_strategy_desc">多个已选服务商的组合方式</string>
   <string name="setting_search_page_enable_search_agent">启用搜索子代理</string>
   <string name="setting_search_page_enable_search_agent_desc">使用子代理进行搜索、读取网页并总结结果</string>

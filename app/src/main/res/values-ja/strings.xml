@@ -467,6 +467,8 @@
   <string name="setting_page_search_providers">検索プロバイダー</string>
   <string name="setting_page_search_result_size">結果数</string>
   <string name="setting_page_search_result_size_desc">検索ごとに各プロバイダが返す結果の数</string>
+  <string name="setting_page_search_agent_max_steps">サブエージェントのステップ数</string>
+  <string name="setting_page_search_agent_max_steps_desc">サブエージェントがタスクごとに実行できる最大検索ラウンド数</string>
   <string name="setting_page_search_multi_strategy">複数プロバイダ戦略</string>
   <string name="setting_page_search_multi_strategy_parallel">並列</string>
   <string name="setting_page_search_multi_strategy_sequential">順次フォールバック</string>

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -32,6 +33,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -522,9 +525,13 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
             // Sheet content: single grouped card. SettingsGroup already applies
             // its own 16dp horizontal padding, so no extra padding here (avoids
             // double indent). Sheet wraps content height (no fillMaxHeight).
+            // 内容可能超出屏幕高度，加 verticalScroll 让它可滚动；
+            // heightIn 限制最大高度，避免内容过长时把 sheet 撑到顶。
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(max = 600.dp)
+                    .verticalScroll(rememberScrollState())
                     .padding(bottom = 24.dp)
             ) {
                 // Big centered title
@@ -1328,6 +1335,60 @@ private fun CommonOptionsContent(
                 },
                 valueRange = 1f..32f,
                 steps = 30,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+
+    // Sub-agent max steps slider — same card style as the result size slider above.
+    Surface(
+        color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow
+        else MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.setting_page_search_agent_max_steps),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = stringResource(R.string.setting_page_search_agent_max_steps_desc),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    text = "${commonOptions.searchAgentMaxSteps}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Slider(
+                value = commonOptions.searchAgentMaxSteps.toFloat(),
+                onValueChange = {
+                    commonOptions = commonOptions.copy(
+                        searchAgentMaxSteps = it.toInt()
+                    )
+                    onUpdate(commonOptions)
+                },
+                valueRange = 2f..32f,
+                steps = 29,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

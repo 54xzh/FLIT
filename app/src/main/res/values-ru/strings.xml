@@ -467,6 +467,8 @@
   <string name="setting_page_search_providers">Поисковые провайдеры</string>
   <string name="setting_page_search_result_size">Размер результата</string>
   <string name="setting_page_search_result_size_desc">Количество результатов от каждого провайдера за запрос</string>
+  <string name="setting_page_search_agent_max_steps">Шаги под-агента</string>
+  <string name="setting_page_search_agent_max_steps_desc">Максимальное число раундов поиска под-агента на задачу</string>
   <string name="setting_page_search_multi_strategy">Стратегия нескольких провайдеров</string>
   <string name="setting_page_search_multi_strategy_parallel">Параллельно</string>
   <string name="setting_page_search_multi_strategy_sequential">Последовательно</string>
