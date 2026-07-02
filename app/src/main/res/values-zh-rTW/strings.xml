@@ -1609,7 +1609,7 @@
   <string name="developer_option_markdown_font_debug_title">顯示 Markdown 字型診斷</string>
   <string name="developer_option_markdown_font_debug_desc">在聊天氣泡下顯示字型來源與字重等診斷資訊。</string>
   <string name="developer_option_auto_continue_on_truncation_title">截斷時自動續寫一次</string>
-  <string name="developer_option_auto_continue_on_truncation_desc">當生成因 token 上限截斷（非手動取消）時，自動續寫一次。</string>
+  <string name="developer_option_auto_continue_on_truncation_desc">當生成因 token 上限截斷或網路波動中斷（非手動取消）時，自動續寫一次。</string>
   <string name="developer_option_markdown_font_debug_tip">啟用後回到聊天頁，發送包含 **粗體** 的訊息觀察效果。</string>
   <string name="developer_option_request_logs_title">打開請求日誌</string>
   <string name="developer_option_ipv6_probe_title">IPv6 偵測</string>

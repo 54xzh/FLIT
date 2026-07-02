@@ -14,7 +14,7 @@
     <string name="developer_option_markdown_font_debug_title">Show Markdown font diagnostics</string>
     <string name="developer_option_markdown_font_debug_desc">Display debug text under chat bubbles for font source and weight.</string>
     <string name="developer_option_auto_continue_on_truncation_title">Auto-continue once on truncation</string>
-    <string name="developer_option_auto_continue_on_truncation_desc">When generation stops due to token limit (not manual cancel), automatically continue once.</string>
+    <string name="developer_option_auto_continue_on_truncation_desc">When generation stops due to token limit or a network drop (not manual cancel), automatically continue once.</string>
     <string name="developer_option_markdown_font_debug_tip">After enabling, go back to chat and send a message with **bold** to compare rendering.</string>
     <string name="developer_option_request_logs_title">Open request logs</string>
     <string name="developer_option_ipv6_probe_title">IPv6 detection</string>

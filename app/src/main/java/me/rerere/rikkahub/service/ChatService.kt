@@ -81,6 +81,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.RouteActivity
 import me.rerere.rikkahub.data.ai.GenerationChunk
 import me.rerere.rikkahub.data.ai.GenerationHandler
+import me.rerere.rikkahub.data.ai.shouldAutoContinueOnNetworkError
 import me.rerere.rikkahub.data.ai.AIRequestLogManager
 import me.rerere.rikkahub.data.ai.AIRequestSource
 import me.rerere.rikkahub.data.ai.ToolApprovalHandler
@@ -1774,6 +1775,10 @@ class ChatService(
         var keepAliveStarted = false
         var keepAliveFinalized = false
 
+        // 网络波动续写：在 onCompletion 内判别命中后置位，
+        // 跳过 interrupted 标记收尾，并在 onFailure 顶部执行续写。
+        var networkAutoContinueTriggered = false
+
         fun finalizeGenerationKeepAlive(cause: Throwable?) {
             if (!useGenerationKeepAlive) return
             if (!keepAliveStarted) return
@@ -2158,61 +2163,84 @@ class ChatService(
                 } else {
                     consumeGenerationCancelReason(conversationId)
                 }
-                // Calculate generation duration from first token (excludes TTFT)
-                val generationDurationMs = firstTokenTime?.let { System.currentTimeMillis() - it }
 
-                val interruptionReason = resolveInterruptedGenerationReason(
-                    cause = cause,
-                    cancelReason = generationCancelReason,
-                )
-                val updatedConversation = finalizeGenerationState(
-                    conversationId = conversationId,
-                    interruptionReason = interruptionReason,
-                    interruptionDetail = if (cause != null && cause !is CancellationException) {
-                        cause.interruptedGenerationDetail()
-                    } else {
-                        null
-                    },
-                    model = activeRuntimeModel,
-                    generationDurationMs = generationDurationMs,
-                )
-                flushGenerationDraftSave(conversationId, nonCancellable = cause is CancellationException)
-
-                // Record quota usage after generation
-                if (cause == null) {
-                    try {
-                        val tokenUsage = calculateQuotaTokenUsageDelta(
-                            baselineMessages = quotaBaselineMessages,
-                            finalMessages = updatedConversation.currentMessages,
+                // 网络波动续写判别：非取消异常 + 设置开启 + 仍有续写配额 + 非群聊 + 是网络 IO 错误 +
+                // 半截 assistant 文本存在且没有未完成 tool call。命中则跳过 interrupted 标记收尾，
+                // 改由 onFailure 顶部执行续写。
+                if (cause != null && cause !is CancellationException &&
+                    settings.autoContinueOnTruncation &&
+                    autoContinueAttemptsRemaining > 0 &&
+                    shouldAutoContinueForNetworkError(cause)
+                ) {
+                    val convNow = getConversationFlow(conversationId).value
+                    val isNotGroupChat = settings.groupChatTemplates.none { it.id == convNow.assistantId }
+                    val candidate = if (isNotGroupChat) resolveContinueCandidate(convNow) else null
+                    if (candidate != null && candidate.message.getToolCalls().isEmpty()) {
+                        networkAutoContinueTriggered = true
+                        Log.i(
+                            TAG,
+                            "Network error auto-continue eligible: conversationId=$conversationId error=${cause::class.simpleName}"
                         )
-                        val chatModelId = updatedConversation.currentMessages
-                            .lastOrNull { it.role == MessageRole.ASSISTANT && it.modelId != null }
-                            ?.modelId
-                            ?: settings.getCurrentChatModel()?.id
-                        val currentModel = settings.getCurrentChatModel()
-                        if (!tokenUsage.isEmpty && chatModelId != null && currentModel != null) {
-                            modelQuotaRepo.recordUsage(
-                                modelId = chatModelId,
-                                inputTokens = tokenUsage.inputTokens,
-                                outputTokens = tokenUsage.outputTokens,
-                                cachedTokens = tokenUsage.cachedTokens,
-                            )
-                            val updatedQuota = modelQuotaRepo.getQuotaUsageForProviders(
-                                currentModel,
-                                settings.providers
-                            )
-                            if (updatedQuota != null && updatedQuota.isAtReminder) {
-                                _quotaWarningFlow.emit(updatedQuota)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "quota recording failed (${e.message})", e)
                     }
                 }
 
-                val generationFinishedNormally = cause == null
-                if (generationFinishedNormally) {
-                    liveUpdateStates.remove(conversationId)
+                if (!networkAutoContinueTriggered) {
+                    // Calculate generation duration from first token (excludes TTFT)
+                    val generationDurationMs = firstTokenTime?.let { System.currentTimeMillis() - it }
+
+                    val interruptionReason = resolveInterruptedGenerationReason(
+                        cause = cause,
+                        cancelReason = generationCancelReason,
+                    )
+                    val updatedConversation = finalizeGenerationState(
+                        conversationId = conversationId,
+                        interruptionReason = interruptionReason,
+                        interruptionDetail = if (cause != null && cause !is CancellationException) {
+                            cause.interruptedGenerationDetail()
+                        } else {
+                            null
+                        },
+                        model = activeRuntimeModel,
+                        generationDurationMs = generationDurationMs,
+                    )
+                    flushGenerationDraftSave(conversationId, nonCancellable = cause is CancellationException)
+
+                    // Record quota usage after generation
+                    if (cause == null) {
+                        try {
+                            val tokenUsage = calculateQuotaTokenUsageDelta(
+                                baselineMessages = quotaBaselineMessages,
+                                finalMessages = updatedConversation.currentMessages,
+                            )
+                            val chatModelId = updatedConversation.currentMessages
+                                .lastOrNull { it.role == MessageRole.ASSISTANT && it.modelId != null }
+                                ?.modelId
+                                ?: settings.getCurrentChatModel()?.id
+                            val currentModel = settings.getCurrentChatModel()
+                            if (!tokenUsage.isEmpty && chatModelId != null && currentModel != null) {
+                                modelQuotaRepo.recordUsage(
+                                    modelId = chatModelId,
+                                    inputTokens = tokenUsage.inputTokens,
+                                    outputTokens = tokenUsage.outputTokens,
+                                    cachedTokens = tokenUsage.cachedTokens,
+                                )
+                                val updatedQuota = modelQuotaRepo.getQuotaUsageForProviders(
+                                    currentModel,
+                                    settings.providers
+                                )
+                                if (updatedQuota != null && updatedQuota.isAtReminder) {
+                                    _quotaWarningFlow.emit(updatedQuota)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "quota recording failed (${e.message})", e)
+                        }
+                    }
+
+                    val generationFinishedNormally = cause == null
+                    if (generationFinishedNormally) {
+                        liveUpdateStates.remove(conversationId)
+                    }
                 }
             }.collect { chunk ->
                 // Set first token time on first chunk arrival (excludes TTFT from tok/s)
@@ -2254,6 +2282,29 @@ class ChatService(
                 }
             }
         }.onFailure {
+            if (networkAutoContinueTriggered) {
+                // onCompletion 已判别命中网络波动续写，跳过 interrupted 收尾，此处执行续写。
+                val finalConversation = getConversationFlow(conversationId).value
+                val candidate = resolveContinueCandidate(finalConversation)
+                if (candidate != null && candidate.message.getToolCalls().isEmpty()) {
+                    val continuePrompt = buildHiddenContinuePrompt(
+                        previousAssistantText = candidate.originalText,
+                        tailChars = CONTINUE_TAIL_CHARS_DEFAULT,
+                    )
+                    Log.i(TAG, "Auto-continue on network error: conversationId=$conversationId")
+                    handleMessageComplete(
+                        conversationId = conversationId,
+                        messageRange = 0..candidate.nodeIndex,
+                        continueRequest = HiddenContinueRequestConfig(prompt = continuePrompt),
+                        continuationDedupeConfig = ContinuationDedupeConfig(
+                            targetMessageId = candidate.message.id,
+                            originalText = candidate.originalText,
+                        ),
+                        autoContinueAttemptsRemaining = autoContinueAttemptsRemaining - 1,
+                    )
+                }
+                return@onFailure
+            }
             finalizeGenerationKeepAlive(it)
             val resolvedCancelReason = if (it is CancellationException) {
                 if (generationCancelReason != GenerationCancelReason.NON_USER) {
@@ -2299,6 +2350,7 @@ class ChatService(
             Logging.log(TAG, "handleMessageComplete: $it")
             Logging.log(TAG, it.stackTraceToString())
         }.onSuccess {
+            if (networkAutoContinueTriggered) return@onSuccess
             consumeGenerationCancelReason(conversationId)
             if (useLiveUpdate) {
                 clearLiveUpdateSession(conversationId)
@@ -2406,6 +2458,9 @@ class ChatService(
             }
         }
     }
+
+    private fun shouldAutoContinueForNetworkError(throwable: Throwable): Boolean =
+        throwable.shouldAutoContinueOnNetworkError()
 
     private fun shouldAutoResumeForPauseTurn(finishReasons: Set<String>): Boolean {
         if (finishReasons.isEmpty()) return false

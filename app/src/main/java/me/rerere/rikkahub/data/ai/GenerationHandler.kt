@@ -279,6 +279,15 @@ private fun Throwable.isRetryableHttpOrNetworkError(): Boolean {
     return hasRetryableHttpStatusCode() || hasRetryableNetworkError()
 }
 
+/**
+ * 网络波动导致的流式中断是否应该自动续写一次。
+ * 仅覆盖真实网络 IO 错误（已排除 SSE 取消产生的 "canceled"/"cancelled" IO），
+ * 不含 HTTP 状态码错（5xx/429 等），并显式排除手动停止产生的 CancellationException。
+ */
+internal fun Throwable.shouldAutoContinueOnNetworkError(): Boolean {
+    return !hasCancellationException() && hasRetryableNetworkError()
+}
+
 private fun Throwable.hasCancellationException(): Boolean {
     val visited = HashSet<Throwable>()
     var current: Throwable? = this

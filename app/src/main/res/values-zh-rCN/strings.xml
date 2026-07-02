@@ -365,7 +365,7 @@
     <string name="request_log_source_model_name_generation">模型名称生成</string>
     <string name="request_log_source_search_agent">搜索子代理</string>
     <string name="developer_option_auto_continue_on_truncation_title">截断时自动续写一次</string>
-    <string name="developer_option_auto_continue_on_truncation_desc">当生成因 token 上限截断（非手动取消）时，自动续写一次。</string>
+    <string name="developer_option_auto_continue_on_truncation_desc">当生成因 token 上限截断或网络波动中断（非手动取消）时，自动续写一次。</string>
     <string name="developer_option_ipv6_probe_title">IPv6 检测</string>
     <string name="developer_option_ipv6_probe_desc">分别检查 6.ipw.cn 返回的 IPv6 和系统默认网络实际会使用的 IPv6。</string>
     <string name="developer_option_ipv6_probe_action">立即检测</string>
