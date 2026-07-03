@@ -23,6 +23,7 @@ import me.rerere.rikkahub.data.db.entity.ConversationEntity
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -31,9 +32,18 @@ import java.time.format.DateTimeFormatter
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.uuid.Uuid
+import me.rerere.rikkahub.data.repository.StorageScanUtils
 
 private const val TAG = "CompatExporter"
 private const val COMPAT_DB_PREFIX = "compat_v24_"
+
+// 目标 = 用户安装的原版 RikkaHub 2.3.4 发布版 (release, applicationId 无后缀)。
+// 本机头像 / 聊天附件图片以 file:///data/data/<本机包>/files/... 存储, 直接拷给原版时
+// Coil 按绝对路径读取, 路径里的包名是本机的, 原版读不到自己私有目录之外的文件。
+// 导出时把这些 file:// 绝对路径重写成原版 filesDir/upload/ 下的路径, 并把对应文件
+// 打进 zip 的 upload/ 目录 (原版恢复时会把 upload/* 落到它自己的 filesDir/upload/)。
+private const val TARGET_UPSTREAM_PACKAGE = "me.rerere.rikkahub"
+private const val TARGET_UPSTREAM_FILES_DIR = "/data/data/$TARGET_UPSTREAM_PACKAGE/files"
 
 /**
  * 导出"原版 RikkaHub 客户端兼容"的备份包。
@@ -61,7 +71,41 @@ class CompatExporter(
         val conversationCount: Int,
         val messageNodeCount: Int,
         val skippedGroupChatCount: Int,
+        val avatarCount: Int,
     )
+
+    /**
+     * 跨包文件重映射表。
+     * key   = 本机 filesDir 下源文件的真实绝对路径 (canonical)
+     * value = 重写后该文件在原版备份里对应的相对名 (会放进 zip 的 upload/ 目录)
+     *
+     * 导出过程中遇到的每个本地 file:// 路径 (头像 / 消息附件), 都会在这里登记一份,
+     * 统一在 zip 里以 upload/<uuid>.<ext> 落盘, 并把引用处的 URL 改写成原版路径。
+     */
+    private val sourcePathToTargetName = LinkedHashMap<String, String>()
+
+    /** 反向: 原版 upload 目标名 -> 本地源文件 (打包用)。 */
+    private val targetNameToSourceFile = LinkedHashMap<String, File>()
+
+    /**
+     * 把一个本地 file:// / 绝对路径 / 相对路径 注册进重映射表, 返回改写后的原版 file:// 路径。
+     * 多次注册同一个文件会复用已分配的目标名 (幂等)。
+     * 解析失败 / 指向 filesDir 之外 / 文件不存在时返回 null (调用方保留原 URL)。
+     */
+    private fun remapLocalUriToUpstream(rawUrl: String?): String? {
+        if (rawUrl.isNullOrBlank()) return null
+        val srcFile = StorageScanUtils.toLocalFileOrNull(rawUrl, context.filesDir.canonicalFile)
+            ?: return null
+        // 只重映射落在本机 filesDir 下的本地文件, 不动 http(s) / 外部 content:// 等
+        if (!StorageScanUtils.isInChildOf(srcFile, context.filesDir.canonicalFile)) return null
+        if (!srcFile.isFile || !srcFile.exists()) return null
+        val canonical = StorageScanUtils.normalizePath(srcFile)
+        val targetName = sourcePathToTargetName.getOrPut(canonical) {
+            val ext = srcFile.extension.ifBlank { "bin" }
+            "avatar_${Uuid.random()}.$ext".also { targetNameToSourceFile[it] = srcFile }
+        }
+        return "file://$TARGET_UPSTREAM_FILES_DIR/upload/$targetName"
+    }
 
     suspend fun exportRikkaHubCompat(): ExportResult = withContext(Dispatchers.IO) {
         val settings = settingsStore.settingsFlow.value
@@ -150,6 +194,7 @@ class CompatExporter(
             TAG,
             "exportRikkaHubCompat: done. conversations=${normalConversations.size}, " +
                 "nodes=$messageNodeCount, skippedGroupChats=$skippedCount, " +
+                "avatarFiles=${targetNameToSourceFile.size}, " +
                 "file=${zipFile.name} (${zipFile.length()} bytes)"
         )
 
@@ -158,6 +203,7 @@ class CompatExporter(
             conversationCount = normalConversations.size,
             messageNodeCount = messageNodeCount,
             skippedGroupChatCount = skippedCount,
+            avatarCount = targetNameToSourceFile.size,
         )
     }
 
@@ -577,26 +623,99 @@ class CompatExporter(
         }.getOrNull()
     }
 
-    /** 把单个 UIMessage 的 parts discriminator 改成原版短名,剔除原版不认识的 part 类型。 */
+    /** 把单个 UIMessage 的 parts discriminator 改成原版短名,剔除原版不认识的 part 类型。
+     *  同时:
+     *  - 重写 url/file:// 形式的本地路径指向原版 filesDir/upload/ (跨包名可读);
+     *  - 对 parts 顺序做一次"推理前置"归一化 (等价于本地 normalizeMessagePartsForDisplay),
+     *    否则原版按数组原序渲染时, 排在正文之后的推理块会显示在正文后面。 */
     private fun convertMessage(msg: JsonObject): JsonElement {
+        val rawParts = msg["parts"]
+        val convertedParts = if (rawParts is JsonArray) {
+            rawParts.jsonArray.mapNotNull { partEl ->
+                if (partEl !is JsonObject) return@mapNotNull null
+                val type = partEl["type"]?.jsonPrimitive?.contentOrNull
+                val mapped = mapPartType(type) ?: return@mapNotNull null
+                buildJsonObject {
+                    put("type", JsonPrimitive(mapped))
+                    partEl.entries.forEach { (pk, pv) ->
+                        if (pk == "type") return@forEach
+                        if (pk == "url") {
+                            // Image / Video / Audio / Document 的 url 重写
+                            val url = pv.jsonPrimitiveOrNull?.contentOrNull
+                            val remapped = remapLocalUriToUpstream(url)
+                            put("url", JsonPrimitive(remapped ?: url))
+                        } else if (pk == "text" && mapped == "text") {
+                            // Text 正文里可能内嵌 file:// 引用 (markdown 图片), 一并重写
+                            put("text", JsonPrimitive(rewriteFileUrlsInText(pv.jsonPrimitiveOrNull?.contentOrNull ?: "")))
+                        } else {
+                            put(pk, pv)
+                        }
+                    }
+                }
+            }
+        } else {
+            null
+        }
+        val orderedParts = convertedParts?.let(::normalizeReasoningToFront)
         return buildJsonObject {
             msg.entries.forEach { (key, value) ->
-                if (key == "parts" && value is JsonArray) {
-                    put("parts", JsonArray(value.jsonArray.mapNotNull { partEl ->
-                        if (partEl !is JsonObject) return@mapNotNull null
-                        val type = partEl["type"]?.jsonPrimitive?.contentOrNull
-                        val mapped = mapPartType(type) ?: return@mapNotNull null
-                        buildJsonObject {
-                            put("type", JsonPrimitive(mapped))
-                            partEl.entries.forEach { (pk, pv) ->
-                                if (pk != "type") put(pk, pv)
-                            }
-                        }
-                    }))
+                if (key == "parts" && orderedParts != null) {
+                    put("parts", JsonArray(orderedParts))
                 } else {
                     put(key, value)
                 }
             }
+            // 兜底: 原 msg 没有 parts 字段时也补一个空数组 (不应发生, 但防 NPE)
+            if (orderedParts != null && !msg.keys.contains("parts")) {
+                put("parts", JsonArray(emptyList()))
+            }
+        }
+    }
+
+    /**
+     * 把排在第一个"可渲染正文"之后的 Reasoning 块提到它前面, 等价于本地
+     * [me.rerere.rikkahub.ui.components.message.normalizeMessagePartsForDisplay] 的行为。
+     * 原版 groupMessageParts 按数组原序分块渲染, 不做这种归一化; 不重排就会导致
+     * 流式生成时附在正文后的推理块在原版里显示在正文之后。
+     */
+    private fun normalizeReasoningToFront(parts: List<JsonElement>): List<JsonElement> {
+        if (parts.size < 2) return parts
+        fun isReasoning(el: JsonElement): Boolean {
+            val t = (el as? JsonObject)?.get("type")?.jsonPrimitiveOrNull?.contentOrNull
+            return t == "reasoning"
+        }
+        fun isRenderableContent(el: JsonElement): Boolean {
+            val obj = el as? JsonObject ?: return false
+            return when (obj["type"]?.jsonPrimitiveOrNull?.contentOrNull) {
+                "text" -> obj["text"]?.jsonPrimitiveOrNull?.contentOrNull?.isNotBlank() == true
+                "image", "video", "audio", "document" ->
+                    obj["url"]?.jsonPrimitiveOrNull?.contentOrNull?.isNotBlank() == true
+                else -> false
+            }
+        }
+        val firstContent = parts.indexOfFirst { isRenderableContent(it) }
+        if (firstContent < 0) return parts
+        // 收集所有排在第一个正文之后的推理块 (本地会把这些前置)
+        val deferred = parts.withIndex()
+            .filter { (i, p) -> i > firstContent && isReasoning(p) }
+            .map { it.value }
+        if (deferred.isEmpty()) return parts
+        val out = ArrayList<JsonElement>(parts.size)
+        parts.forEachIndexed { index, part ->
+            if (index == firstContent) out.addAll(deferred)
+            if (index > firstContent && isReasoning(part)) return@forEachIndexed
+            out.add(part)
+        }
+        return out
+    }
+
+    private val fileUrlInTextRegex = Regex("""file:[^\s")\]]+""")
+
+    /** Text 正文里内嵌的 file:// 引用 (如 markdown 图片) 重写到原版 upload/ 路径。 */
+    private fun rewriteFileUrlsInText(text: String): String {
+        if (!text.contains("file:")) return text
+        return fileUrlInTextRegex.replace(text) { m ->
+            remapLocalUriToUpstream(m.value) ?: m.value
         }
     }
 
@@ -749,19 +868,33 @@ class CompatExporter(
         })
     }
 
-    /** Avatar: 本地多的 Resource 子类原版没有。遇到则替换成原版能解析的 Dummy
+    /** Avatar: 本地多的 Resource 子类原版没有, 替换成原版能解析的 Dummy;
+     *  Avatar.Image 的 url 是本机 file:// 绝对路径 (含本机包名), 原版 Coil 读不到,
+     *  把 url 重写成原版 filesDir/upload/ 路径, 并把对应头像文件登记进重映射表 (后续打进 zip)。
      *  (sealed class 多态判别器: 不命中会直接抛异常, ignoreUnknownKeys 救不了。
-     *   这里显式写入原版认识的 Dummy 判别器, 保证整条 assistants 列表能被解析)。 */
+     *   这里显式写入原版认识的判别器, 保证整条 assistants 列表能被解析)。 */
     private fun sanitizeAvatar(element: JsonElement): JsonElement {
         if (element !is JsonObject) return element
         val type = element["type"]?.jsonPrimitive?.contentOrNull
-        // Avatar 子类均无 @SerialName, discriminator 默认用全限定类名
-        if (type == "Resource") {
-            return buildJsonObject {
+        return when {
+            // Avatar 子类均无 @SerialName, discriminator 默认用全限定类名
+            type?.endsWith(".Avatar.Resource") == true -> buildJsonObject {
                 put("type", JsonPrimitive("me.rerere.rikkahub.data.model.Avatar.Dummy"))
             }
+            type?.endsWith(".Avatar.Image") == true -> {
+                val url = element["url"]?.jsonPrimitive?.contentOrNull
+                val remapped = remapLocalUriToUpstream(url)
+                if (remapped == null) return element // 原样保留 (Coil 可能是 http url, 不必动)
+                buildJsonObject {
+                    put("type", element["type"]!!) // 保持 Discriminator 全限定类名不动 (两边一致)
+                    put("url", JsonPrimitive(remapped))
+                    element.entries.forEach { (k, v) ->
+                        if (k != "type" && k != "url") put(k, v)
+                    }
+                }
+            }
+            else -> element
         }
-        return element
     }
 
     /** LocalToolOption: 剔除原版不认识的工具。 */
@@ -880,13 +1013,12 @@ class CompatExporter(
     }
 
     private fun addUploadDirToZip(zipOut: ZipOutputStream) {
-        val uploadDir = File(context.filesDir, "upload")
-        if (!uploadDir.exists() || !uploadDir.isDirectory) return
-        uploadDir.listFiles()?.forEach { file ->
-            // 原版恢复 upload/ 时要求扁平结构(fileName 不能含 '/'),只拷贝直接子文件
-            if (file.isFile) {
-                addFileToZip(zipOut, file, "upload/${file.name}")
-            }
+        // 用重映射表里登记的目标名落盘: 头像 / 聊天附件在 settings/nodes JSON 里都已改写成
+        // file://<原版filesDir>/upload/<targetName>, 这里必须用同名文件对应, 否则原版读不到。
+        // 没被任何 JSON 引用的本地 upload/ 文件不带 (原版恢复时也不需要它们)。
+        for ((targetName, sourceFile) in targetNameToSourceFile) {
+            if (!sourceFile.isFile || !sourceFile.exists()) continue
+            addFileToZip(zipOut, sourceFile, "upload/$targetName")
         }
     }
 }
