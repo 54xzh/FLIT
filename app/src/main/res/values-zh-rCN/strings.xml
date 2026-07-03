@@ -388,6 +388,8 @@
     <string name="developer_option_model_capability_refresh_success">模型能力数据库已刷新</string>
     <string name="developer_option_model_capability_refresh_failed">刷新模型能力数据库失败：%1$s</string>
 
+    <string name="backup_page_compat_export">导出 RikkaHub 兼容备份</string>
+    <string name="backup_page_compat_export_desc">可被原版 RikkaHub 客户端导入，仅含提供商配置与普通对话（不含群聊）</string>
     <string name="backup_page_object_storage_backup">对象存储备份</string>
     <string name="backup_page_object_storage_backup_files">对象存储备份文件列表</string>
     <string name="backup_page_object_storage_endpoint">端点</string>

@@ -12,6 +12,7 @@ import me.rerere.rikkahub.data.ai.AIRequestLogManager
 import me.rerere.rikkahub.data.backup.BackupCoordinator
 import me.rerere.rikkahub.data.backup.BackupLogManager
 import me.rerere.rikkahub.data.backup.BackupTaskMutex
+import me.rerere.rikkahub.data.backup.CompatExporter
 import me.rerere.rikkahub.data.ai.tools.LocalTools
 import me.rerere.rikkahub.data.ai.tools.SearchAgentProgressStore
 import me.rerere.rikkahub.service.ChatService
@@ -87,6 +88,16 @@ val appModule = module {
     }
 
     single {
+        CompatExporter(
+            context = get(),
+            settingsStore = get(),
+            conversationDAO = get(),
+            memoryDAO = get(),
+            genMediaDAO = get(),
+        )
+    }
+
+    single {
         BackupCoordinator(
             context = get(),
             settingsStore = get(),
@@ -94,6 +105,7 @@ val appModule = module {
             objectStorageSync = get(),
             backupLogManager = get(),
             backupTaskMutex = get(),
+            compatExporter = get(),
         )
     }
 

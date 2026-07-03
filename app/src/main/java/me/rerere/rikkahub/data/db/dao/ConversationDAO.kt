@@ -165,6 +165,9 @@ interface ConversationDAO {
     @Query("SELECT * FROM conversationentity WHERE is_pinned = 1 ORDER BY update_at DESC")
     fun getPinnedConversations(): Flow<List<ConversationEntity>>
 
+    @Query("SELECT * FROM conversationentity ORDER BY update_at DESC")
+    suspend fun getAllConversationsSuspend(): List<ConversationEntity>
+
     @Query("UPDATE conversationentity SET is_pinned = :isPinned WHERE id = :id")
     suspend fun updatePinStatus(id: String, isPinned: Boolean)
 

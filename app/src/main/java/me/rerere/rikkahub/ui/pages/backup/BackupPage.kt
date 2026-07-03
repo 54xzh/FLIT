@@ -1407,10 +1407,42 @@ private fun ImportExportPage(
         }
     }
 
+    // RikkaHub 兼容导出 launcher (文件名用原版 backup_ 前缀)
+    val createCompatDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        uri?.let { targetUri ->
+            scope.launch {
+                isExporting = true
+                runCatching {
+                    val exportFile = vm.exportRikkaHubCompat()
+                    context.contentResolver.openOutputStream(targetUri)?.use { outputStream ->
+                        FileInputStream(exportFile).use { inputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
+                    }
+                    exportFile.delete()
+                    toaster.show(
+                        context.getString(R.string.backup_page_backup_success),
+                        type = ToastType.Success
+                    )
+                }.onFailure { e ->
+                    e.printStackTrace()
+                    toaster.show(
+                        context.getString(R.string.backup_page_restore_failed, e.message ?: ""),
+                        type = ToastType.Error
+                    )
+                }
+                isExporting = false
+            }
+        }
+    }
+
     // 创建文件选择的launcher
     val openDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
+
         uri?.let { sourceUri ->
             scope.launch {
                 isRestoring = true
@@ -1535,6 +1567,45 @@ private fun ImportExportPage(
                             )
                         } else {
                             Icon(Icons.Rounded.SystemUpdateAlt, null)
+                        }
+                    }
+                )
+            }
+        }
+
+        item {
+            Card(
+                shape = me.rerere.rikkahub.ui.theme.AppShapes.CardLarge,
+                colors = androidx.compose.material3.CardDefaults.cardColors(
+                    containerColor = if (me.rerere.rikkahub.ui.theme.LocalDarkMode.current) androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerLow else androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                onClick = {
+                    if (!isExporting) {
+                        val timestamp = LocalDateTime.now()
+                            .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
+                        createCompatDocumentLauncher.launch("backup_$timestamp.zip")
+                    }
+                }
+            ) {
+                ListItem(
+                    headlineContent = {
+                        Text(stringResource(R.string.backup_page_compat_export))
+                    },
+                    supportingContent = {
+                        Text(
+                            if (isExporting) stringResource(R.string.backup_page_exporting) else stringResource(
+                                R.string.backup_page_compat_export_desc
+                            )
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    leadingContent = {
+                        if (isExporting) {
+                            CircularWavyProgressIndicator(
+                                modifier = Modifier.size(24.dp)
+                            )
+                        } else {
+                            Icon(Icons.Rounded.FileUpload, null)
                         }
                     }
                 )

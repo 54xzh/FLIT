@@ -14,6 +14,7 @@ import me.rerere.rikkahub.data.sync.ObjectStorageBackupItem
 import me.rerere.rikkahub.data.sync.ObjectStorageSync
 import me.rerere.rikkahub.data.sync.WebDavBackupItem
 import me.rerere.rikkahub.data.sync.WebdavSync
+import java.io.File
 
 private const val AUTO_SUBFOLDER = "auto"
 
@@ -24,6 +25,7 @@ class BackupCoordinator(
     private val objectStorageSync: ObjectStorageSync,
     private val backupLogManager: BackupLogManager,
     private val backupTaskMutex: BackupTaskMutex,
+    private val compatExporter: CompatExporter,
 ) {
     fun isNetworkAvailable(): Boolean {
         return runCatching {
@@ -107,6 +109,16 @@ class BackupCoordinator(
         val settingsSnapshot = settingsStore.settingsFlow.value
         if (settingsSnapshot.init) throw IllegalStateException("Settings not ready")
         webdavSync.prepareBackupFile(settingsSnapshot.webDavConfig.copy())
+    }
+
+    /**
+     * 导出原版 RikkaHub 客户端兼容的备份包(v24 schema,只含普通对话+提供商配置)。
+     * 返回 cacheDir 中的临时 zip 文件,调用方负责拷贝到目标位置后删除。
+     */
+    suspend fun exportRikkaHubCompat(): File = backupTaskMutex.mutex.withLock {
+        val settingsSnapshot = settingsStore.settingsFlow.value
+        if (settingsSnapshot.init) throw IllegalStateException("Settings not ready")
+        compatExporter.exportRikkaHubCompat().file
     }
 
     suspend fun restoreWebDav(item: WebDavBackupItem): WebdavSync.RestoreResult = backupTaskMutex.mutex.withLock {

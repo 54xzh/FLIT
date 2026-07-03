@@ -128,6 +128,9 @@ interface MemoryDAO {
     @Query("SELECT * FROM memoryentity WHERE id = :id")
     suspend fun getMemoryById(id: Int): MemoryEntity?
 
+    @Query("SELECT * FROM memoryentity")
+    suspend fun getAllMemoriesSuspend(): List<MemoryEntity>
+
     @Insert
     suspend fun insertMemory(memory: MemoryEntity): Long
 

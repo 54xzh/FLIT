@@ -130,6 +130,10 @@ class BackupVM(
         return backupCoordinator.exportToFile()
     }
 
+    suspend fun exportRikkaHubCompat(): File {
+        return backupCoordinator.exportRikkaHubCompat()
+    }
+
     suspend fun restoreFromLocalFile(file: File): WebdavSync.RestoreResult {
         return backupCoordinator.restoreFromLocalFile(file)
     }
