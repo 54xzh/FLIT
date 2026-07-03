@@ -136,6 +136,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.isStandaloneInterruptedAppContextMarker
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.context.LocalNavController
@@ -1563,10 +1564,15 @@ private fun SharedTransitionScope.ChatListPreview(
 
     // Filter messages
     val filteredMessages = remember(conversation.messageNodes, searchQuery) {
+        // 独立打断标记节点(只含 <app_context>...</app_context> 的隐藏 user 消息)不参与消息地图,
+        // 否则用户在搜索/消息列表里会看到这条无意义的"空气消息".
+        val candidates = conversation.messageNodes.filterNot { node ->
+            node.currentMessage.isStandaloneInterruptedAppContextMarker()
+        }
         if (searchQuery.isBlank()) {
-            conversation.messageNodes
+            candidates
         } else {
-            conversation.messageNodes.filterIndexed { index, node ->
+            candidates.filter { node ->
                 node.currentMessage.toContentText().contains(searchQuery, ignoreCase = true)
             }
         }

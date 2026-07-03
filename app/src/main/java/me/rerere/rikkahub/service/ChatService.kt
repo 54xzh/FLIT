@@ -1544,8 +1544,10 @@ class ChatService(
             temporaryConversations.add(conversationId)
         }
         
-        // 取消现有的生成任务
-        cancelGenerationJob(conversationId, GenerationCancelReason.REPLACED)
+        // 取消现有的生成任务; 仅当确有在跑的生成被取消时, 才需要把上一轮按"被打断"收尾.
+        // 无条件 finalize 会在正常完成的助理消息后误插一条独立 user 中断标记, 污染消息序列索引,
+        // 导致后续用户消息定位偏移(表现为发送后气泡未被正确顶到屏幕上方).
+        val hadActiveGeneration = cancelGenerationJob(conversationId, GenerationCancelReason.REPLACED)
 
         val job = appScope.launch {
             try {
@@ -1558,11 +1560,15 @@ class ChatService(
                     model = settingsSnapshot.getCurrentChatModel(),
                 )
                 val loadedConversation = getConversationFlow(conversationId).value
-                val currentConversation = finalizeInterruptedConversation(
-                    conversation = loadedConversation,
-                    reason = InterruptedGenerationReason.ReplacedByNewRequest,
-                    model = runtimeModel,
-                )
+                val currentConversation = if (hadActiveGeneration) {
+                    finalizeInterruptedConversation(
+                        conversation = loadedConversation,
+                        reason = InterruptedGenerationReason.ReplacedByNewRequest,
+                        model = runtimeModel,
+                    )
+                } else {
+                    loadedConversation
+                }
                 if (currentConversation != loadedConversation) {
                     updateConversation(conversationId, currentConversation)
                 }

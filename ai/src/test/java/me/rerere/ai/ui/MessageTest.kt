@@ -460,7 +460,7 @@ class MessageTest {
         assertEquals(MessageRole.USER, marker.role)
         val markerText = marker.parts.filterIsInstance<UIMessagePart.Text>().single().text
         assertEquals(
-            "\n\n<app_context>The user stopped the output.</app_context>",
+            "<app_context>The user stopped the output.</app_context>",
             markerText,
         )
         assertEquals("", markerText.stripInterruptedAppContextForDisplay())
@@ -566,6 +566,27 @@ class MessageTest {
 
         assertEquals(once, twice)
         assertEquals(1, markerCount)
+    }
+
+    @Test
+    fun `finalizeInterruptedGenerationMessages is a no-op on user-only sequence`() {
+        // 连发场景: 上一条尚停在前 user 阶段(还未真正生成 assistant), 不应崩溃也不应补打断标记.
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("第一条"))),
+        )
+        val result = messages.finalizeInterruptedGenerationMessages(
+            reason = InterruptedGenerationReason.ReplacedByNewRequest,
+        )
+        assertEquals(messages, result)
+        assertFalse(result.any { it.isStandaloneInterruptedAppContextMarker() })
+    }
+
+    @Test
+    fun `finalizeInterruptedGenerationMessages is a no-op on empty sequence`() {
+        val result = emptyList<UIMessage>().finalizeInterruptedGenerationMessages(
+            reason = InterruptedGenerationReason.ReplacedByNewRequest,
+        )
+        assertTrue(result.isEmpty())
     }
 
     @Test

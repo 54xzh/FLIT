@@ -652,6 +652,10 @@ private fun appendInterruptedUserMarker(
     val trailingAssistantIndex = messages.indexOfLast { it.role == MessageRole.ASSISTANT }
     val trailingIndex = messages.lastIndex
 
+    // 没有任何 assistant 消息(例如连发时上一条还停在 user 阶段, 未真正开始生成):
+    // 不存在可打断的上下文, 直接返回, 避免访问 messages[-1] 导致 IndexOutOfBoundsException.
+    if (trailingAssistantIndex < 0) return
+
     if (trailingAssistantIndex == trailingIndex) {
         // 末尾就是 assistant: 有正文才追加(纯标记/空 assistant 不补, 该场景外层也不会有).
         val hasText = messages[trailingAssistantIndex].parts
@@ -751,14 +755,16 @@ private val InterruptedGenerationReason.appContextText: String
     }
 
 private fun buildInterruptedAppContextSuffix(appContext: String): String {
-    return "\n\n$INTERRUPTED_APP_CONTEXT_START_TAG$appContext$INTERRUPTED_APP_CONTEXT_END_TAG"
+    // 标记现在是独立的 user 消息, 不再贴在 assistant 正文后面, 不需要前置换行与正文隔开.
+    return "$INTERRUPTED_APP_CONTEXT_START_TAG$appContext$INTERRUPTED_APP_CONTEXT_END_TAG"
 }
 
 fun String.stripInterruptedAppContextForDisplay(): String {
     return INTERRUPTED_APP_CONTEXT_TEXTS.fold(this) { text, appContext ->
-        text
-            .replace(buildInterruptedAppContextSuffix(appContext), "")
-            .replace(buildInterruptedAppContextSuffix(appContext).trimStart(), "")
+        // 兼容新旧两种写法: 旧版标记可能贴在 assistant 正文后(带前导换行), 新版为裸标记.
+        // \\n* 同时吃掉可能的 0 个或多个前导换行, 避免剥离后残留空行.
+        val bare = buildInterruptedAppContextSuffix(appContext)
+        text.replace(Regex("\\n*" + Regex.escape(bare)), "")
     }
 }
 
