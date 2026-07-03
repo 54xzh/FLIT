@@ -219,7 +219,7 @@
   <string name="backup_page_export_desc">導出APP數據為檔案</string>
   <string name="backup_page_exporting">正在導出...</string>
   <string name="backup_page_compat_export">匯出 RikkaHub 相容備份</string>
-  <string name="backup_page_compat_export_desc">可被原版 RikkaHub 客戶端匯入，僅含提供商配置與普通對話（不含群聊）</string>
+  <string name="backup_page_compat_export_desc">部分資料不會被匯出</string>
   <string name="backup_page_files">檔案</string>
   <string name="backup_page_import_chatbox_desc">導入ChatBox數據</string>
   <string name="backup_page_import_desc">導入本地備份檔案</string>
