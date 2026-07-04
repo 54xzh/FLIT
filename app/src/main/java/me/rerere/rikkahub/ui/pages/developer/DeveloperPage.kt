@@ -13,8 +13,10 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FontDownload
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
@@ -70,6 +72,7 @@ import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupInputItem
 import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.UiState
+import me.rerere.rikkahub.utils.SoCInfo
 import me.rerere.rikkahub.utils.UpdateChecker
 import me.rerere.rikkahub.utils.UpdateDownload
 import me.rerere.rikkahub.utils.UpdateSource
@@ -194,6 +197,51 @@ private fun DeveloperToolsPage(vm: DeveloperVM) {
                                 current.copy(showMarkdownFontDebugInfo = enabled)
                             }
                         }
+                    )
+                },
+                onClick = null
+            )
+        }
+
+        item {
+            // SoC 代号诊断：展示本机能读到的 SoC 信息，便于后续性能白名单判定采数。
+            val socSubtitle = buildString {
+                appendLine("Manufacturer: ${SoCInfo.manufacturer}")
+                appendLine("Model (codename): ${SoCInfo.model}")
+                appendLine("Board platform: ${SoCInfo.boardPlatform}")
+                appendLine("Chip name: ${SoCInfo.chipName}")
+                append("Hardware: ${SoCInfo.hardware}")
+            }
+            SettingGroupItem(
+                title = stringResource(R.string.developer_option_soc_info_title),
+                subtitle = socSubtitle,
+                icon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Memory,
+                        contentDescription = null,
+                    )
+                },
+                onClick = null
+            )
+        }
+
+        item {
+            // SoC 性能档位判定：展示白名单规则对本机的判定结果，便于验证默认模糊开关策略。
+            val tierText = when (SoCInfo.tier) {
+                SoCInfo.Tier.SUFFICIENT ->
+                    stringResource(R.string.developer_option_soc_tier_sufficient)
+                SoCInfo.Tier.INSUFFICIENT_DEFAULT_OFF ->
+                    stringResource(R.string.developer_option_soc_tier_insufficient)
+                SoCInfo.Tier.UNKNOWN ->
+                    stringResource(R.string.developer_option_soc_tier_unknown)
+            }
+            SettingGroupItem(
+                title = stringResource(R.string.developer_option_soc_tier_title),
+                subtitle = tierText,
+                icon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Speed,
+                        contentDescription = null,
                     )
                 },
                 onClick = null

@@ -1613,6 +1613,11 @@
   <string name="developer_option_auto_continue_on_truncation_title">截斷時自動續寫一次</string>
   <string name="developer_option_auto_continue_on_truncation_desc">當生成因 token 上限截斷或網路波動中斷（非手動取消）時，自動續寫一次。</string>
   <string name="developer_option_markdown_font_debug_tip">啟用後回到聊天頁，發送包含 **粗體** 的訊息觀察效果。</string>
+  <string name="developer_option_soc_info_title">SoC 資訊</string>
+  <string name="developer_option_soc_tier_title">SoC 效能等級</string>
+  <string name="developer_option_soc_tier_sufficient">效能足夠 — 模糊預設開啟</string>
+  <string name="developer_option_soc_tier_insufficient">效能不足 — 模糊預設關閉</string>
+  <string name="developer_option_soc_tier_unknown">無法識別 — 需走兜底判定</string>
   <string name="developer_option_request_logs_title">打開請求日誌</string>
   <string name="developer_option_ipv6_probe_title">IPv6 偵測</string>
   <string name="developer_option_ipv6_probe_desc">分別檢查 6.ipw.cn 回傳的 IPv6 和系統預設網路實際會使用的 IPv6。</string>

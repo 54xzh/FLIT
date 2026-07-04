@@ -12,6 +12,9 @@ import at.bitfire.dav4jvm.property.webdav.GetLastModified
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import me.rerere.rikkahub.data.backup.BackupRemoteResult
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
@@ -47,6 +50,57 @@ private val FILES_DIR_BACKUP_PATHS = listOf(
     "chat_files",
     "custom_icons",
 )
+
+/**
+ * 构造写入备份 zip 的 settings.json 文本。
+ *
+ * 与直接 [Json.encodeToString] 的差异: 当用户从未手动设置过顶栏模糊开关
+ * (displaySetting.topBarBlurUserSet == false) 时, 从 displaySetting 子树中剔除
+ * topBarBlur / topBarBlurUserSet 两个键, 让目标设备在恢复后按自身 SoC 重新判定默认值,
+ * 而不是被导出设备当前的自动默认值绑定。
+ *
+ * JsonInstant 配置了 encodeDefaults = true, 这里在 JSON 树层级做一次后处理剔除。
+ *
+ * ⚠️ 字段名 "topBarBlur" / "topBarBlurUserSet" 硬编码, 需与
+ * [me.rerere.rikkahub.data.datastore.DisplaySetting] 的属性名(即序列化键名)保持同步;
+ * 若 DisplaySetting 改名, 这里要一起改, 否则会静默失效。恢复侧的
+ * [backupHasTopBarBlurKey] 同理。
+ */
+private fun Json.buildBackupSettingsJson(settings: Settings): String {
+    val raw = encodeToString(Settings.serializer(), settings)
+    if (settings.displaySetting.topBarBlurUserSet) return raw
+    val root = runCatching { parseToJsonElement(raw) as? JsonObject }.getOrNull() ?: return raw
+    val displaySettingEl = root["displaySetting"] ?: return raw
+    if (displaySettingEl !is JsonObject) return raw
+
+    val cleanedDisplaySetting = buildJsonObject {
+        displaySettingEl.entries.forEach { (k, v) ->
+            if (k != "topBarBlur" && k != "topBarBlurUserSet") put(k, v)
+        }
+    }
+    val cleanedRoot = buildJsonObject {
+        root.entries.forEach { (k, v) ->
+            if (k == "displaySetting") put(k, cleanedDisplaySetting) else put(k, v)
+        }
+    }
+    return encodeToString(JsonElement.serializer(), cleanedRoot)
+}
+
+/**
+ * 判断备份 settings.json 文本里 displaySetting 子树是否显式含 topBarBlur 键。
+ * - 含: 导出设备已手动设置过 (topBarBlurUserSet=true), 恢复后不该清"已应用"标志。
+ * - 不含: 导出设备从未手动设置, 备份按设计剔除了该项, 恢复后应清标志让目标机按自身 SoC 重判。
+ *
+ * 仅做存在性检查, 不关心值; 解析失败时保守返回 true (视为已设置, 不清标志, 避免误重判覆盖用户选择)。
+ */
+private fun Json.backupHasTopBarBlurKey(settingsJson: String): Boolean {
+    return runCatching {
+        val root = parseToJsonElement(settingsJson) as? JsonObject ?: return true
+        val displaySetting = root["displaySetting"] ?: return false
+        if (displaySetting !is JsonObject) return true
+        displaySetting.keys.contains("topBarBlur")
+    }.getOrDefault(true)
+}
 
 class WebdavSync(
     private val settingsStore: SettingsStore,
@@ -248,7 +302,7 @@ class WebdavSync(
             addVirtualFileToZip(
                 zipOut = zipOut,
                 name = "settings.json",
-                content = json.encodeToString(settingsStore.settingsFlow.value)
+                content = json.buildBackupSettingsJson(settingsStore.settingsFlow.value)
             )
 
             // 备份数据库
@@ -389,6 +443,16 @@ class WebdavSync(
                                         val (cleanedSettings, cleanupResult) = settings.sanitize(context)
                                         settingsCleanupResult = cleanupResult
                                         settingsStore.update(cleanedSettings)
+                                        // 备份里 displaySetting 不含 topBarBlur 键 = 导出设备从未手动设置过模糊开关,
+                                        // 这条备份按设计就不该绑定导出设备的自动默认值。清掉本机"已应用"标志,
+                                        // 让下次启动按本机 SoC 重新判定一次 (用户手动设过的备份含 topBarBlur + topBarBlurUserSet=true, 走不到这分支)。
+                                        if (!json.backupHasTopBarBlurKey(settingsJson)) {
+                                            settingsStore.resetTopBarBlurDefaultApplied()
+                                            Log.i(
+                                                TAG,
+                                                "restoreFromBackupFile: backup missing topBarBlur, reset TOP_BAR_BLUR_DEFAULT_APPLIED for re-detection"
+                                            )
+                                        }
                                         Log.i(
                                             TAG,
                                             "restoreFromBackupFile: Settings restored and sanitized (issues fixed: ${cleanupResult.totalIssuesFixed})"
