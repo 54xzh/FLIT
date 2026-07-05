@@ -561,6 +561,7 @@ private fun MessagePartsBlock(
                     part = block.part,
                     textIndex = block.textIndex,
                     onCitationClick = ::handleClickCitation,
+                    loading = loading,
                 )
             }
 
@@ -667,6 +668,7 @@ private fun MessageTextPart(
     part: UIMessagePart.Text,
     textIndex: Int,
     onCitationClick: (String) -> Unit,
+    loading: Boolean,
 ) {
     if (role == MessageRole.USER) {
         val displayText = part.text.replaceRegexes(
@@ -679,12 +681,24 @@ private fun MessageTextPart(
             shape = me.rerere.rikkahub.ui.theme.AppShapes.CardLarge,
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                SelectionContainer {
+                // 流式生成期间不启用 SelectionContainer：Markdown 在不断重渲染，
+                // 内部可选择的 Text 会频繁注册/注销，与 Compose 选择工具栏在绘制阶段
+                // 对 selectable 列表的排序产生并发修改，导致 ConcurrentModificationException。
+                // 生成结束后内容稳定，再启用文本选择。对齐上游行为。
+                if (loading) {
                     MarkdownBlock(
                         content = displayText,
                         onClickCitation = onCitationClick,
                         lazyRenderOffscreen = true,
                     )
+                } else {
+                    SelectionContainer {
+                        MarkdownBlock(
+                            content = displayText,
+                            onClickCitation = onCitationClick,
+                            lazyRenderOffscreen = true,
+                        )
+                    }
                 }
                 if (textIndex == 0) {
                     MarkdownFontDebugInfo(role = role)
@@ -700,14 +714,23 @@ private fun MessageTextPart(
         visual = true,
     )
     Column {
-        SelectionContainer(
-            modifier = Modifier.limitedTextGrowthAnimation(contentLength = displayText.length)
-        ) {
+        if (loading) {
             MarkdownBlock(
                 content = displayText,
                 onClickCitation = onCitationClick,
+                modifier = Modifier.limitedTextGrowthAnimation(contentLength = displayText.length),
                 lazyRenderOffscreen = true,
             )
+        } else {
+            SelectionContainer(
+                modifier = Modifier.limitedTextGrowthAnimation(contentLength = displayText.length)
+            ) {
+                MarkdownBlock(
+                    content = displayText,
+                    onClickCitation = onCitationClick,
+                    lazyRenderOffscreen = true,
+                )
+            }
         }
         if (textIndex == 0) {
             MarkdownFontDebugInfo(role = role)
