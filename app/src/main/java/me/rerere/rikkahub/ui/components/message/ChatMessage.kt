@@ -689,14 +689,14 @@ private fun MessageTextPart(
                     MarkdownBlock(
                         content = displayText,
                         onClickCitation = onCitationClick,
-                        lazyRenderOffscreen = true,
+                        lazyRenderOffscreen = loading,
                     )
                 } else {
                     SelectionContainer {
                         MarkdownBlock(
                             content = displayText,
                             onClickCitation = onCitationClick,
-                            lazyRenderOffscreen = true,
+                            lazyRenderOffscreen = loading,
                         )
                     }
                 }
@@ -719,7 +719,7 @@ private fun MessageTextPart(
                 content = displayText,
                 onClickCitation = onCitationClick,
                 modifier = Modifier.limitedTextGrowthAnimation(contentLength = displayText.length),
-                lazyRenderOffscreen = true,
+                lazyRenderOffscreen = loading,
             )
         } else {
             SelectionContainer(
@@ -728,7 +728,7 @@ private fun MessageTextPart(
                 MarkdownBlock(
                     content = displayText,
                     onClickCitation = onCitationClick,
-                    lazyRenderOffscreen = true,
+                    lazyRenderOffscreen = loading,
                 )
             }
         }
