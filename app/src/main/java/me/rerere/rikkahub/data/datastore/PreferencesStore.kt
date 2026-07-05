@@ -1210,6 +1210,61 @@ enum class MessageInputStyle {
     MINIMAL,
 }
 
+/**
+ * 消息底部工具栏里可配置的按钮。
+ *
+ * 注意：更多按钮(⋮)和分支选择器不在此枚举内，它们永远显示，不可关闭。
+ */
+@Serializable
+enum class MessageToolbarButton {
+    COPY,             // 复制
+    FORK,             // 创建 Fork
+    REGENERATE,       // 重新生成（长按=继续）
+    TTS,              // 朗读（仅助手消息有效）
+    EDIT,             // 编辑
+    SHARE,            // 分享
+    SELECT_AND_COPY,  // 选择并复制
+    WEB_VIEW_PREVIEW, // WebView 预览
+    DELETE,           // 删除
+}
+
+/**
+ * 单一角色（用户/助手）的消息工具栏配置。
+ *
+ * 约定：出现在 [toolbarButtons] 里的按钮直接显示在工具栏；不在里的按钮收进"更多"菜单。
+ * 同一个按钮不会同时出现在两处（天然不重复）。每个按钮永远显示在某一处，无法被完全关闭。
+ */
+@Serializable
+data class MessageToolbarConfig(
+    val toolbarButtons: Set<MessageToolbarButton> = emptySet(),
+) {
+    fun isOnToolbar(button: MessageToolbarButton): Boolean = button in toolbarButtons
+
+    fun toggle(button: MessageToolbarButton): MessageToolbarConfig =
+        if (button in toolbarButtons) copy(toolbarButtons = toolbarButtons - button)
+        else copy(toolbarButtons = toolbarButtons + button)
+
+    companion object {
+        // 默认值复刻当前硬编码行为：复制/Fork/重新生成 在工具栏，其余在更多菜单。
+        // 注意：Fork 不再同时出现在更多菜单（避免与工具栏重复）。
+        val DEFAULT_USER = MessageToolbarConfig(
+            toolbarButtons = setOf(
+                MessageToolbarButton.COPY,
+                MessageToolbarButton.FORK,
+                MessageToolbarButton.REGENERATE,
+            )
+        )
+        val DEFAULT_ASSISTANT = MessageToolbarConfig(
+            toolbarButtons = setOf(
+                MessageToolbarButton.COPY,
+                MessageToolbarButton.FORK,
+                MessageToolbarButton.REGENERATE,
+                MessageToolbarButton.TTS,
+            )
+        )
+    }
+}
+
 @Serializable
 data class DisplaySetting(
     val userAvatar: Avatar = Avatar.Dummy,
@@ -1258,6 +1313,9 @@ data class DisplaySetting(
     // false = 仍走 SoC 自动判定默认值;导出备份时若仍为 false,则不导出 topBarBlur,
     // 让目标设备在恢复后按自身 SoC 重新判定。
     val topBarBlurUserSet: Boolean = false,
+    // 消息底部工具栏自定义：每个按钮显示在工具栏还是收进"更多"菜单
+    val userMessageToolbar: MessageToolbarConfig = MessageToolbarConfig.DEFAULT_USER,
+    val assistantMessageToolbar: MessageToolbarConfig = MessageToolbarConfig.DEFAULT_ASSISTANT,
 )
 
 fun DisplaySetting.coerceForConflicts(): DisplaySetting {

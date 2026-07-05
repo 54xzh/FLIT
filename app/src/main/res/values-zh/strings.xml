@@ -715,6 +715,11 @@
   <string name="setting_page_built_in_tools_url_context">URL 上下文</string>
   <string name="setting_page_built_in_tools_url_context_desc">启用 URL 内容处理</string>
   <string name="setting_page_chat_settings">聊天设置</string>
+  <string name="setting_page_message_toolbar">消息底部工具栏</string>
+  <string name="setting_page_message_toolbar_desc">选择哪些按钮显示在工具栏、哪些收进更多菜单</string>
+  <string name="setting_page_message_toolbar_preview">预览</string>
+  <string name="setting_page_message_toolbar_user">用户消息工具栏</string>
+  <string name="setting_page_message_toolbar_assistant">助手消息工具栏</string>
   <string name="setting_page_chat_storage">聊天记录存储</string>
   <string name="setting_page_chat_storage_desc">%1$d 个文件，%2$.2f MB</string>
 
@@ -1179,6 +1184,8 @@
     <string name="group_chat_model_default">默认模型</string>
     <string name="conversation_deleted">会话已删除</string>
     <string name="message_deleted">消息已删除</string>
+  <string name="message_delete_confirm_title">删除这条消息？</string>
+  <string name="message_delete_confirm_message">这条消息将从对话中移除，操作无法撤销。</string>
     <string name="chat_page_consolidate">整合</string>
     <string name="mermaid_diagram">Mermaid 图表</string>
     <string name="mermaid_preview">预览</string>

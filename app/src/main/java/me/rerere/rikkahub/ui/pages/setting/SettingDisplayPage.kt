@@ -267,6 +267,11 @@ fun SettingDisplayPage(vm: SettingVM = koinViewModel()) {
                     title = stringResource(R.string.setting_page_chat_settings)
                 ) {
                     SettingGroupItem(
+                        title = stringResource(R.string.setting_page_message_toolbar),
+                        subtitle = stringResource(R.string.setting_page_message_toolbar_desc),
+                        onClick = { navController.navigate(me.rerere.rikkahub.Screen.SettingMessageToolbar) }
+                    )
+                    SettingGroupItem(
                         title = stringResource(R.string.setting_display_page_show_user_avatar_title),
                         subtitle = stringResource(R.string.setting_display_page_show_user_avatar_desc),
                         trailing = {

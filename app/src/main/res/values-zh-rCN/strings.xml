@@ -615,4 +615,11 @@
     <string name="injection_picker_tab_lorebooks">世界书 %1$s</string>
     <string name="injection_picker_tab_modes">模式 %1$s</string>
     <string name="injection_picker_empty_skills">请先在助手设置里启用技能。</string>
+    <string name="setting_page_message_toolbar">消息底部工具栏</string>
+    <string name="setting_page_message_toolbar_desc">选择哪些按钮显示在工具栏、哪些收进更多菜单</string>
+    <string name="setting_page_message_toolbar_preview">预览</string>
+    <string name="setting_page_message_toolbar_user">用户消息工具栏</string>
+    <string name="setting_page_message_toolbar_assistant">助手消息工具栏</string>
+    <string name="message_delete_confirm_title">删除这条消息？</string>
+    <string name="message_delete_confirm_message">这条消息将从对话中移除，操作无法撤销。</string>
 </resources>

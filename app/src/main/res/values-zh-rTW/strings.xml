@@ -657,6 +657,11 @@
   <string name="setting_page_built_in_tools_grok_x_search">Grok X 搜尋</string>
   <string name="setting_page_built_in_tools_grok_x_search_desc">啟用 xAI 內建 X（Twitter）搜尋</string>
   <string name="setting_page_chat_settings">聊天設定</string>
+  <string name="setting_page_message_toolbar">訊息底部工具列</string>
+  <string name="setting_page_message_toolbar_desc">選擇哪些按鈕顯示在工具列、哪些收進更多選單</string>
+  <string name="setting_page_message_toolbar_preview">預覽</string>
+  <string name="setting_page_message_toolbar_user">使用者訊息工具列</string>
+  <string name="setting_page_message_toolbar_assistant">助手訊息工具列</string>
   <string name="setting_page_chat_storage">聊天記錄儲存</string>
   <string name="setting_page_chat_storage_desc">%1$d 個檔案，%2$.2f MB</string>
 
@@ -1139,6 +1144,8 @@
     <string name="group_chat_model_default">預設模型</string>
     <string name="conversation_deleted">對話已刪除</string>
     <string name="message_deleted">訊息已刪除</string>
+    <string name="message_delete_confirm_title">刪除這則訊息？</string>
+    <string name="message_delete_confirm_message">這則訊息將從對話中移除，操作無法復原。</string>
     <string name="chat_page_consolidate">整合</string>
     <string name="mermaid_diagram">Mermaid 圖表</string>
     <string name="mermaid_preview">預覽</string>

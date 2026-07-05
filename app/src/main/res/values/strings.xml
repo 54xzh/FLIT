@@ -490,6 +490,8 @@
     <string name="chat_page_delete">Delete</string>
     <string name="conversation_deleted">Conversation deleted</string>
     <string name="message_deleted">Message deleted</string>
+    <string name="message_delete_confirm_title">Delete this message?</string>
+    <string name="message_delete_confirm_message">This message will be removed from the conversation. This action cannot be undone.</string>
     <string name="chat_page_edit_nickname">Edit Nickname</string>
     <string name="chat_page_edit_title">Edit Title</string>
     <string name="chat_page_edit_title_warning">Please chat first before editing title</string>
@@ -925,6 +927,11 @@
     <string name="setting_page_built_in_tools_grok_x_search">Grok X Search</string>
     <string name="setting_page_built_in_tools_grok_x_search_desc">Enable xAI built-in X (Twitter) search</string>
     <string name="setting_page_chat_settings">Chat Settings</string>
+    <string name="setting_page_message_toolbar">Message Bottom Toolbar</string>
+    <string name="setting_page_message_toolbar_desc">Choose which buttons show on the message toolbar and which go into the more menu</string>
+    <string name="setting_page_message_toolbar_preview">Preview</string>
+    <string name="setting_page_message_toolbar_user">User Message Toolbar</string>
+    <string name="setting_page_message_toolbar_assistant">Assistant Message Toolbar</string>
     <string name="setting_page_chat_storage">Chat Storage</string>
     <string name="setting_page_chat_storage_desc">%1$d files, %2$.2f MB</string>
 

@@ -99,6 +99,7 @@ import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
 import me.rerere.rikkahub.ui.pages.setting.SettingAndroidIntegrationPage
 import me.rerere.rikkahub.ui.pages.setting.SettingFontsPage
+import me.rerere.rikkahub.ui.pages.setting.SettingMessageToolbarPage
 import me.rerere.rikkahub.ui.pages.setting.SettingWebPage
 import me.rerere.rikkahub.ui.motion.LocalMotionPolicy
 import me.rerere.rikkahub.ui.motion.rememberSystemMotionPolicy
@@ -638,6 +639,9 @@ class RouteActivity : ComponentActivity() {
                         WebViewPage(route.url, route.content)
                     }
 
+                    composable<Screen.SettingMessageToolbar> {
+                        SettingMessageToolbarPage()
+                    }
                     composable<Screen.SettingDisplay> {
                         SettingDisplayPage()
                     }
@@ -814,6 +818,9 @@ sealed interface Screen {
 
     @Serializable
     data object SettingDisplay : Screen
+
+    @Serializable
+    data object SettingMessageToolbar : Screen
 
     @Serializable
     data object SettingAdvanced : Screen

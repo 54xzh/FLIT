@@ -113,6 +113,7 @@ import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.theme.extendColors
 import me.rerere.rikkahub.utils.base64Encode
+import me.rerere.rikkahub.utils.writeClipboardText
 import me.rerere.rikkahub.utils.formatNumber
 import me.rerere.rikkahub.utils.openUrl
 import me.rerere.rikkahub.utils.urlDecode
@@ -420,6 +421,21 @@ fun ChatMessage(
                 onOpenActionSheet = {
                     showActionsSheet = true
                 },
+                onEdit = onEdit,
+                onShare = onShare,
+                onDelete = onDelete,
+                onSelectAndCopy = { showSelectCopySheet = true },
+                onWebViewPreview = {
+                    val textContent = displayState.previewText
+                    if (textContent.isNotBlank()) {
+                        val htmlContent = buildMarkdownPreviewHtml(
+                            context = context,
+                            markdown = textContent,
+                            colorScheme = colorScheme
+                        )
+                        navController.navigate(Screen.WebView(content = htmlContent.base64Encode()))
+                    }
+                },
                 onEditLorebookEntry = onEditLorebookEntry,
                 onModeClick = onModeClick,
                 onMemoryClick = onMemoryClick,
@@ -450,6 +466,12 @@ fun ChatMessage(
                     )
                     navController.navigate(Screen.WebView(content = htmlContent.base64Encode()))
                 }
+            },
+            onRegenerate = onRegenerate,
+            copyText = displayState.selectionCopyText,
+            ttsText = displayState.ttsText,
+            onCustomizeToolbar = {
+                navController.navigate(Screen.SettingMessageToolbar)
             },
             onDismissRequest = {
                 showActionsSheet = false

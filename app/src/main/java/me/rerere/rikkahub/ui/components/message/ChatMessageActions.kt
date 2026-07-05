@@ -18,9 +18,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -28,7 +30,6 @@ import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,8 +53,8 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.StopCircle
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import kotlinx.coroutines.delay
 import kotlinx.datetime.toJavaLocalDateTime
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.provider.Model
@@ -61,6 +62,8 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.UsedLorebookEntry
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.MessageToolbarButton
+import me.rerere.rikkahub.data.datastore.MessageToolbarConfig
 import me.rerere.rikkahub.data.datastore.getEffectiveDisplaySetting
 import me.rerere.rikkahub.data.model.SessionMemory
 import me.rerere.rikkahub.data.model.MessageNode
@@ -83,6 +86,11 @@ fun ColumnScope.ChatMessageActionButtons(
     canContinue: Boolean,
     onFork: () -> Unit,
     onOpenActionSheet: () -> Unit,
+    onEdit: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
+    onSelectAndCopy: (() -> Unit)? = null,
+    onWebViewPreview: (() -> Unit)? = null,
     onEditLorebookEntry: ((UsedLorebookEntry) -> Unit)? = null,
     onModeClick: ((me.rerere.ai.ui.UsedMode) -> Unit)? = null,
     onMemoryClick: ((me.rerere.ai.ui.UsedMemory) -> Unit)? = null,
@@ -93,8 +101,14 @@ fun ColumnScope.ChatMessageActionButtons(
     val context = LocalContext.current
     val settings = LocalSettings.current
     val effectiveDisplay = settings.getEffectiveDisplaySetting()
+    val toolbarConfig: MessageToolbarConfig = if (message.role == MessageRole.ASSISTANT) {
+        effectiveDisplay.assistantMessageToolbar
+    } else {
+        effectiveDisplay.userMessageToolbar
+    }
     val haptics = rememberPremiumHaptics(enabled = effectiveDisplay.enableUIHaptics)
-    var isPendingDelete by remember { mutableStateOf(false) }
+    // 仅工具栏上的删除按钮需要二次确认弹窗；更多菜单里的删除保持原样直接删。
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     var showContextSheet by remember { mutableStateOf(false) }
     
     val usedEntries = message.usedLorebookEntries ?: emptyList()
@@ -114,13 +128,28 @@ fun ColumnScope.ChatMessageActionButtons(
         label = "message_regenerate_scale"
     )
 
-    LaunchedEffect(isPendingDelete) {
-        if (isPendingDelete) {
-            delay(3000) // 3秒后自动取消
-            isPendingDelete = false
-        }
+    // 工具栏删除二次确认弹窗
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text(stringResource(R.string.message_delete_confirm_title)) },
+            text = { Text(stringResource(R.string.message_delete_confirm_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    if (onDelete != null) onDelete.invoke()
+                }) {
+                    Text(stringResource(R.string.confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
     }
-    
+
     // Context sources sheet
     if (showContextSheet && hasContextSources) {
         ContextSourcesSheet(
@@ -163,74 +192,80 @@ fun ColumnScope.ChatMessageActionButtons(
             )
         }
         
-        Icon(
-            Icons.Rounded.ContentCopy, stringResource(R.string.copy), modifier = Modifier
-                .clip(CircleShape)
-                .clickable {
-                    context.writeClipboardText(copyText.ifBlank { message.toContentText() })
-                }
-                .padding(8.dp)
-                .size(16.dp)
-        )
-
-        val forkInteractionSource = remember { MutableInteractionSource() }
-        val isForkPressed by forkInteractionSource.collectIsPressedAsState()
-        val forkScale by animateFloatAsState(
-            targetValue = if (isForkPressed) 0.85f else 1f,
-            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
-            label = "message_fork_scale"
-        )
-        Icon(
-            imageVector = Icons.AutoMirrored.Rounded.CallSplit,
-            contentDescription = stringResource(R.string.create_fork),
-            modifier = Modifier
-                .graphicsLayer {
-                    scaleX = forkScale
-                    scaleY = forkScale
-                }
-                .clip(CircleShape)
-                .combinedClickable(
-                    interactionSource = forkInteractionSource,
-                    indication = LocalIndication.current,
-                    onClick = {
-                        haptics.perform(HapticPattern.Pop)
-                        onFork()
-                    },
-                )
-                .padding(8.dp)
-                .size(16.dp),
-        )
-
-        Icon(
-            Icons.Rounded.Refresh, stringResource(R.string.regenerate), modifier = Modifier
-                .graphicsLayer {
-                    scaleX = regenerateScale
-                    scaleY = regenerateScale
-                }
-                .clip(CircleShape)
-                .combinedClickable(
-                    interactionSource = regenerateInteractionSource,
-                    indication = LocalIndication.current,
-                    onClick = { onRegenerate() },
-                    onLongClick = if (canContinue) {
-                        {
-                            haptics.perform(HapticPattern.Pop)
-                            onContinue()
-                        }
-                    } else {
-                        null
-                    },
-                    onLongClickLabel = if (canContinue) {
-                        stringResource(R.string.a11y_continue_generation)
-                    } else {
-                        null
+        if (toolbarConfig.isOnToolbar(MessageToolbarButton.COPY)) {
+            Icon(
+                Icons.Rounded.ContentCopy, stringResource(R.string.copy), modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable {
+                        context.writeClipboardText(copyText.ifBlank { message.toContentText() })
                     }
-                )
-                .padding(8.dp)
-                .size(16.dp)
-        )
+                    .padding(8.dp)
+                    .size(16.dp)
+            )
+        }
 
-        if (message.role == MessageRole.ASSISTANT) {
+        if (toolbarConfig.isOnToolbar(MessageToolbarButton.FORK)) {
+            val forkInteractionSource = remember { MutableInteractionSource() }
+            val isForkPressed by forkInteractionSource.collectIsPressedAsState()
+            val forkScale by animateFloatAsState(
+                targetValue = if (isForkPressed) 0.85f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+                label = "message_fork_scale"
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.CallSplit,
+                contentDescription = stringResource(R.string.create_fork),
+                modifier = Modifier
+                    .graphicsLayer {
+                        scaleX = forkScale
+                        scaleY = forkScale
+                    }
+                    .clip(CircleShape)
+                    .combinedClickable(
+                        interactionSource = forkInteractionSource,
+                        indication = LocalIndication.current,
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            onFork()
+                        },
+                    )
+                    .padding(8.dp)
+                    .size(16.dp),
+            )
+        }
+
+        if (toolbarConfig.isOnToolbar(MessageToolbarButton.REGENERATE)) {
+            Icon(
+                Icons.Rounded.Refresh, stringResource(R.string.regenerate), modifier = Modifier
+                    .graphicsLayer {
+                        scaleX = regenerateScale
+                        scaleY = regenerateScale
+                    }
+                    .clip(CircleShape)
+                    .combinedClickable(
+                        interactionSource = regenerateInteractionSource,
+                        indication = LocalIndication.current,
+                        onClick = { onRegenerate() },
+                        onLongClick = if (canContinue) {
+                            {
+                                haptics.perform(HapticPattern.Pop)
+                                onContinue()
+                            }
+                        } else {
+                            null
+                        },
+                        onLongClickLabel = if (canContinue) {
+                            stringResource(R.string.a11y_continue_generation)
+                        } else {
+                            null
+                        }
+                    )
+                    .padding(8.dp)
+                    .size(16.dp)
+            )
+        }
+
+        if (message.role == MessageRole.ASSISTANT && toolbarConfig.isOnToolbar(MessageToolbarButton.TTS)) {
             val tts = LocalTTSState.current
             val isSpeaking by tts.isSpeaking.collectAsState()
             val isAvailable by tts.isAvailable.collectAsState()
@@ -254,6 +289,163 @@ fun ColumnScope.ChatMessageActionButtons(
                     .padding(8.dp)
                     .size(16.dp),
                 tint = if (isAvailable) LocalContentColor.current else LocalContentColor.current.copy(alpha = 0.38f)
+            )
+        }
+
+        // —— 以下按钮默认收在更多菜单；当用户把它们开关打开时显示在工具栏 ——
+        if (toolbarConfig.isOnToolbar(MessageToolbarButton.EDIT) && onEdit != null) {
+            val editInteractionSource = remember { MutableInteractionSource() }
+            val isEditPressed by editInteractionSource.collectIsPressedAsState()
+            val editScale by animateFloatAsState(
+                targetValue = if (isEditPressed) 0.85f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+                label = "message_edit_scale"
+            )
+            Icon(
+                imageVector = Icons.Rounded.Edit,
+                contentDescription = stringResource(R.string.edit),
+                modifier = Modifier
+                    .graphicsLayer {
+                        scaleX = editScale
+                        scaleY = editScale
+                    }
+                    .clip(CircleShape)
+                    .combinedClickable(
+                        interactionSource = editInteractionSource,
+                        indication = LocalIndication.current,
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            onEdit.invoke()
+                        },
+                    )
+                    .padding(8.dp)
+                    .size(16.dp)
+            )
+        }
+
+        if (toolbarConfig.isOnToolbar(MessageToolbarButton.SHARE) && onShare != null) {
+            val shareInteractionSource = remember { MutableInteractionSource() }
+            val isSharePressed by shareInteractionSource.collectIsPressedAsState()
+            val shareScale by animateFloatAsState(
+                targetValue = if (isSharePressed) 0.85f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+                label = "message_share_scale"
+            )
+            Icon(
+                imageVector = Icons.Rounded.Share,
+                contentDescription = stringResource(R.string.share),
+                modifier = Modifier
+                    .graphicsLayer {
+                        scaleX = shareScale
+                        scaleY = shareScale
+                    }
+                    .clip(CircleShape)
+                    .combinedClickable(
+                        interactionSource = shareInteractionSource,
+                        indication = LocalIndication.current,
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            onShare.invoke()
+                        },
+                    )
+                    .padding(8.dp)
+                    .size(16.dp)
+            )
+        }
+
+        if (toolbarConfig.isOnToolbar(MessageToolbarButton.SELECT_AND_COPY) && onSelectAndCopy != null) {
+            val selectInteractionSource = remember { MutableInteractionSource() }
+            val isSelectPressed by selectInteractionSource.collectIsPressedAsState()
+            val selectScale by animateFloatAsState(
+                targetValue = if (isSelectPressed) 0.85f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+                label = "message_select_scale"
+            )
+            Icon(
+                imageVector = Icons.Rounded.SelectAll,
+                contentDescription = stringResource(R.string.select_and_copy),
+                modifier = Modifier
+                    .graphicsLayer {
+                        scaleX = selectScale
+                        scaleY = selectScale
+                    }
+                    .clip(CircleShape)
+                    .combinedClickable(
+                        interactionSource = selectInteractionSource,
+                        indication = LocalIndication.current,
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            onSelectAndCopy.invoke()
+                        },
+                    )
+                    .padding(8.dp)
+                    .size(16.dp)
+            )
+        }
+
+        if (toolbarConfig.isOnToolbar(MessageToolbarButton.WEB_VIEW_PREVIEW) && onWebViewPreview != null) {
+            val hasTextContent = message.parts.filterIsInstance<UIMessagePart.Text>()
+                .any { it.text.isNotBlank() }
+            if (hasTextContent) {
+                val webInteractionSource = remember { MutableInteractionSource() }
+                val isWebPressed by webInteractionSource.collectIsPressedAsState()
+                val webScale by animateFloatAsState(
+                    targetValue = if (isWebPressed) 0.85f else 1f,
+                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+                    label = "message_web_scale"
+                )
+                Icon(
+                    imageVector = Icons.Rounded.OpenInBrowser,
+                    contentDescription = stringResource(R.string.render_with_webview),
+                    modifier = Modifier
+                        .graphicsLayer {
+                            scaleX = webScale
+                            scaleY = webScale
+                        }
+                        .clip(CircleShape)
+                        .combinedClickable(
+                            interactionSource = webInteractionSource,
+                            indication = LocalIndication.current,
+                            onClick = {
+                                haptics.perform(HapticPattern.Pop)
+                                onWebViewPreview.invoke()
+                            },
+                        )
+                        .padding(8.dp)
+                        .size(16.dp)
+                )
+            }
+        }
+
+        if (toolbarConfig.isOnToolbar(MessageToolbarButton.DELETE) && onDelete != null) {
+            val deleteInteractionSource = remember { MutableInteractionSource() }
+            val isDeletePressed by deleteInteractionSource.collectIsPressedAsState()
+            val deleteScale by animateFloatAsState(
+                targetValue = if (isDeletePressed) 0.85f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+                label = "message_delete_scale"
+            )
+            Icon(
+                imageVector = Icons.Rounded.Delete,
+                contentDescription = stringResource(R.string.delete),
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .graphicsLayer {
+                        scaleX = deleteScale
+                        scaleY = deleteScale
+                    }
+                    .clip(CircleShape)
+                    .combinedClickable(
+                        interactionSource = deleteInteractionSource,
+                        indication = LocalIndication.current,
+                        onClick = {
+                            // 工具栏删除：先弹确认框，避免误点。更多菜单里的删除保持原样直接删。
+                            haptics.perform(HapticPattern.Thud)
+                            showDeleteConfirm = true
+                        },
+                    )
+                    .padding(8.dp)
+                    .size(16.dp)
             )
         }
 
@@ -290,12 +482,27 @@ fun ChatMessageActionsSheet(
     onFork: () -> Unit,
     onSelectAndCopy: () -> Unit,
     onWebViewPreview: () -> Unit,
-    onDismissRequest: () -> Unit
+    onDismissRequest: () -> Unit,
+    onRegenerate: () -> Unit = {},
+    copyText: String = "",
+    ttsText: String = "",
+    onCustomizeToolbar: () -> Unit = {},
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
+        val context = LocalContext.current
+        val settings = LocalSettings.current
+        val effectiveDisplay = settings.getEffectiveDisplaySetting()
+        val toolbarConfig = if (message.role == MessageRole.ASSISTANT) {
+            effectiveDisplay.assistantMessageToolbar
+        } else {
+            effectiveDisplay.userMessageToolbar
+        }
+        // 更多菜单只显示"未放在工具栏上"的按钮，避免与工具栏重复
+        fun showInMore(button: MessageToolbarButton): Boolean = !toolbarConfig.isOnToolbar(button)
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -304,7 +511,8 @@ fun ChatMessageActionsSheet(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Select and Copy
-            Card(
+            if (showInMore(MessageToolbarButton.SELECT_AND_COPY)) {
+                Card(
                 onClick = {
                     onDismissRequest()
                     onSelectAndCopy()
@@ -333,12 +541,117 @@ fun ChatMessageActionsSheet(
                     )
                 }
             }
+            }
+
+            // Copy (whole message to clipboard)
+            if (showInMore(MessageToolbarButton.COPY)) {
+                Card(
+                    onClick = {
+                        onDismissRequest()
+                        context.writeClipboardText(copyText.ifBlank { message.toContentText() })
+                    },
+                    shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+                    colors = CardDefaults.cardColors(
+                        containerColor = if(me.rerere.rikkahub.ui.theme.LocalDarkMode.current) androidx.compose.ui.graphics.Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.padding(4.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.copy),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                }
+            }
+
+            // Regenerate
+            if (showInMore(MessageToolbarButton.REGENERATE)) {
+                Card(
+                    onClick = {
+                        onDismissRequest()
+                        onRegenerate()
+                    },
+                    shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+                    colors = CardDefaults.cardColors(
+                        containerColor = if(me.rerere.rikkahub.ui.theme.LocalDarkMode.current) androidx.compose.ui.graphics.Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.padding(4.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.regenerate),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                }
+            }
+
+            // TTS (assistant only)
+            if (message.role == MessageRole.ASSISTANT && showInMore(MessageToolbarButton.TTS)) {
+                val tts = LocalTTSState.current
+                val isSpeaking by tts.isSpeaking.collectAsState()
+                val isAvailable by tts.isAvailable.collectAsState()
+                Card(
+                    onClick = {
+                        onDismissRequest()
+                        if (!isSpeaking) {
+                            tts.speak(ttsText.ifBlank { message.toContentText() })
+                        } else {
+                            tts.stop()
+                        }
+                    },
+                    shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+                    colors = CardDefaults.cardColors(
+                        containerColor = if(me.rerere.rikkahub.ui.theme.LocalDarkMode.current) androidx.compose.ui.graphics.Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = if (isSpeaking) Icons.Rounded.StopCircle else Icons.AutoMirrored.Rounded.VolumeUp,
+                            contentDescription = null,
+                            modifier = Modifier.padding(4.dp),
+                            tint = if (isAvailable) LocalContentColor.current else LocalContentColor.current.copy(alpha = 0.38f)
+                        )
+                        Text(
+                            text = stringResource(R.string.tts),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                }
+            }
 
             // WebView Preview (only show if message has text content)
             val hasTextContent = message.parts.filterIsInstance<UIMessagePart.Text>()
                 .any { it.text.isNotBlank() }
 
-            if (hasTextContent) {
+            if (hasTextContent && showInMore(MessageToolbarButton.WEB_VIEW_PREVIEW)) {
                 Card(
                     onClick = {
                         onDismissRequest()
@@ -371,71 +684,140 @@ fun ChatMessageActionsSheet(
             }
 
             // Edit
-            Card(
-                onClick = {
-                    onDismissRequest()
-                    onEdit()
-                },
+            if (showInMore(MessageToolbarButton.EDIT)) {
+                Card(
+                    onClick = {
+                        onDismissRequest()
+                        onEdit()
+                    },
 
-                shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
-                colors = CardDefaults.cardColors(
-                    containerColor = if(me.rerere.rikkahub.ui.theme.LocalDarkMode.current) androidx.compose.ui.graphics.Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
-                )
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxWidth()
+                    shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+                    colors = CardDefaults.cardColors(
+                        containerColor = if(me.rerere.rikkahub.ui.theme.LocalDarkMode.current) androidx.compose.ui.graphics.Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Edit,
-                        contentDescription = null,
-                        modifier = Modifier.padding(4.dp)
-                    )
-                    Text(
-                        text = stringResource(R.string.edit),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Edit,
+                            contentDescription = null,
+                            modifier = Modifier.padding(4.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.edit),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
                 }
             }
 
             // Share
-            Card(
-                onClick = {
-                    onDismissRequest()
-                    onShare()
-                },
-                shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
-                colors = CardDefaults.cardColors(
-                    containerColor = if(me.rerere.rikkahub.ui.theme.LocalDarkMode.current) androidx.compose.ui.graphics.Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
-                )
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxWidth()
+            if (showInMore(MessageToolbarButton.SHARE)) {
+                Card(
+                    onClick = {
+                        onDismissRequest()
+                        onShare()
+                    },
+                    shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+                    colors = CardDefaults.cardColors(
+                        containerColor = if(me.rerere.rikkahub.ui.theme.LocalDarkMode.current) androidx.compose.ui.graphics.Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Share,
-                        contentDescription = null,
-                        modifier = Modifier.padding(4.dp)
-                    )
-                    Text(
-                        text = stringResource(R.string.share),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Share,
+                            contentDescription = null,
+                            modifier = Modifier.padding(4.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.share),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
                 }
             }
 
             // Create a Fork
+            if (showInMore(MessageToolbarButton.FORK)) {
+                Card(
+                    onClick = {
+                        onDismissRequest()
+                        onFork()
+                    },
+                    shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+                    colors = CardDefaults.cardColors(
+                        containerColor = if(me.rerere.rikkahub.ui.theme.LocalDarkMode.current) androidx.compose.ui.graphics.Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.CallSplit,
+                            contentDescription = null,
+                            modifier = Modifier.padding(4.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.create_fork),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                }
+            }
+
+            // Delete
+            if (showInMore(MessageToolbarButton.DELETE)) {
+                Card(
+                    onClick = {
+                        onDismissRequest()
+                        onDelete()
+                    },
+
+                    shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = null,
+                            modifier = Modifier.padding(4.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.delete),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                }
+            }
+
+            // Customize toolbar shortcut
             Card(
                 onClick = {
                     onDismissRequest()
-                    onFork()
+                    onCustomizeToolbar()
                 },
                 shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
                 colors = CardDefaults.cardColors(
@@ -450,43 +832,12 @@ fun ChatMessageActionsSheet(
                         .fillMaxWidth()
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.CallSplit,
+                        imageVector = Icons.Rounded.Tune,
                         contentDescription = null,
                         modifier = Modifier.padding(4.dp)
                     )
                     Text(
-                        text = stringResource(R.string.create_fork),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                }
-            }
-
-            // Delete
-            Card(
-                onClick = {
-                    onDismissRequest()
-                    onDelete()
-                },
-
-                shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
-                )
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Delete,
-                        contentDescription = null,
-                        modifier = Modifier.padding(4.dp)
-                    )
-                    Text(
-                        text = stringResource(R.string.delete),
+                        text = stringResource(R.string.setting_page_message_toolbar),
                         style = MaterialTheme.typography.titleMedium,
                     )
                 }
