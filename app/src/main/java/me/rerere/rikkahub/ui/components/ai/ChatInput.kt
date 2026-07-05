@@ -87,6 +87,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -95,6 +96,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -966,6 +969,22 @@ private fun TextInputRow(
 ) {
     val settings = LocalSettings.current
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
+    // 用于在 fork 用户消息进入分支会话后, 主动请求焦点并弹出输入法
+    val chatFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(state.requestFocusSignal) {
+        if (state.requestFocusSignal > 0) {
+            // 等若干帧让 editingMessage 切换后的 TextField 完成组合与布局,
+            // 否则 requestFocus 可能落到尚未挂载/布局的节点上导致 IME 不弹出
+            repeat(2) { withFrameNanos { } }
+            try {
+                chatFocusRequester.requestFocus()
+            } catch (e: Exception) {
+                // 焦点请求失败时不影响主流程, 键盘仍尝试弹出
+            }
+            keyboardController?.show()
+        }
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
@@ -1044,6 +1063,7 @@ private fun TextInputRow(
                     .fillMaxWidth()
                     .wrapContentHeight()
                     .contentReceiver(receiveContentListener)
+                    .focusRequester(chatFocusRequester)
                     .onFocusChanged {
                         onFocusChange(it.isFocused)
                     },

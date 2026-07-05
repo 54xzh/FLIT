@@ -552,6 +552,7 @@ class RouteActivity : ComponentActivity() {
                             files = route.files.map { it.toUri() },
                             searchQuery = route.searchQuery,
                             autoSend = route.autoSend,
+                            forkEdit = route.forkEdit,
                         )
                     }
 
@@ -760,6 +761,7 @@ sealed interface Screen {
         val files: List<String> = emptyList(),
         val searchQuery: String? = null,
         val autoSend: Boolean = false,
+        val forkEdit: Boolean = false,
     ) : Screen
 
     @Serializable

@@ -1,7 +1,6 @@
 ﻿package me.rerere.rikkahub.ui.components.ai
 
 import android.net.Uri
-import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -96,6 +95,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -107,6 +107,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -200,6 +201,19 @@ fun MinimalChatInput(
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     val defaultAssistantName = stringResource(R.string.assistant_page_default_assistant)
     val keyboardController = LocalSoftwareKeyboardController.current
+    val chatFocusRequester = remember { FocusRequester() }
+    // fork 用户消息进入分支会话后, 主动请求焦点并弹出输入法
+    LaunchedEffect(state.requestFocusSignal) {
+        if (state.requestFocusSignal > 0) {
+            repeat(2) { withFrameNanos { } }
+            try {
+                chatFocusRequester.requestFocus()
+            } catch (e: Exception) {
+                // 焦点请求失败时不影响主流程, 键盘仍尝试弹出
+            }
+            keyboardController?.show()
+        }
+    }
     val localSettings = LocalSettings.current
     
     // OLED dark mode handling for picker sheet
@@ -391,13 +405,52 @@ fun MinimalChatInput(
                         val showFullscreenInputButton = settings.displaySetting.showFullscreenInputButton &&
                             (isFocused || state.textContent.text.isNotEmpty())
                         val endPadding = if (showFullscreenInputButton) 96.dp else 48.dp
+                        val isEditing = state.isEditing()
 
-                        // Text input
+                        // 编辑态时胶囊向上延伸一行, 内部顶端放编辑标签 + 取消按钮
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (isEditing) {
+                                // 与标准模式一致的胶囊标签: 带圆角背景 + tonalElevation 的小药丸
+                                Surface(
+                                    tonalElevation = 8.dp,
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.editing),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            modifier = Modifier.padding(end = 8.dp)
+                                        )
+                                        IconButton(
+                                            onClick = {
+                                                state.editingMessage = null
+                                                state.clearInput()
+                                            },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Close,
+                                                contentDescription = stringResource(R.string.cancel),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Text input
                             TextField(
                                 state = state.textContent,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .defaultMinSize(minHeight = 1.dp)  // Override internal min height (56dp)
+                                    .focusRequester(chatFocusRequester)
                                     .onFocusChanged { isFocused = it.isFocused },
                                 placeholder = {
                                     Text(
@@ -416,10 +469,11 @@ fun MinimalChatInput(
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                                 start = 16.dp,
                                 end = endPadding,  // Space for action buttons + padding
-                                top = 12.dp,  // (48dp height - 24dp text) / 2 = 12dp
+                                top = if (isEditing) 4.dp else 12.dp,  // 编辑态顶部空间留给上面的标签行
                                 bottom = 12.dp
                             )
                         )
+                        }  // Column ends
 
                         val enableMentionSuggestions = groupChatMentionKeys.isNotEmpty()
                         if (enableMentionSuggestions) {

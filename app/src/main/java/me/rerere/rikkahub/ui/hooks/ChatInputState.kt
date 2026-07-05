@@ -41,11 +41,20 @@ class ChatInputState {
     var messageContent by mutableStateOf(listOf<UIMessagePart>())
     var editingMessage by mutableStateOf<Uuid?>(null)
     var loading by mutableStateOf(false)
+    // fork 用户消息后进入的"编辑并发送"模式: 发送时覆盖目标用户消息并直接触发 AI 补全
+    var forkEditMode by mutableStateOf(false)
+    // 自增信号: 变化时驱动 ChatInput 主动请求焦点并弹出输入法
+    var requestFocusSignal by mutableStateOf(0)
 
     fun clearInput() {
         textContent.setTextAndPlaceCursorAtEnd("")
         messageContent = emptyList()
         editingMessage = null
+        forkEditMode = false
+    }
+
+    fun requestFocus() {
+        requestFocusSignal += 1
     }
 
     fun isEditing() = editingMessage != null
@@ -131,9 +140,11 @@ object ChatInputStateSaver : Saver<ChatInputState, String> {
             Uuid.parse(it)
         }
         val textContent = jsonObject["textContent"]?.jsonPrimitive?.contentOrNull ?: ""
+        val forkEditMode = jsonObject["forkEditMode"]?.jsonPrimitive?.contentOrNull?.toBoolean() ?: false
         val state = ChatInputState()
         state.messageContent = messageContent ?: emptyList()
         state.editingMessage = editingMessage
+        state.forkEditMode = forkEditMode
         state.setMessageText(textContent)
         return state
     }
@@ -143,6 +154,7 @@ object ChatInputStateSaver : Saver<ChatInputState, String> {
             put("textContent", value.textContent.text.toString())
             put("messageContent", JsonInstant.encodeToJsonElement(value.messageContent))
             put("editingMessage", JsonInstant.encodeToJsonElement(value.editingMessage))
+            put("forkEditMode", value.forkEditMode.toString())
         })
     }
 }

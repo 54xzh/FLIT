@@ -81,6 +81,7 @@ fun ColumnScope.ChatMessageActionButtons(
     onRegenerate: () -> Unit,
     onContinue: () -> Unit,
     canContinue: Boolean,
+    onFork: () -> Unit,
     onOpenActionSheet: () -> Unit,
     onEditLorebookEntry: ((UsedLorebookEntry) -> Unit)? = null,
     onModeClick: ((me.rerere.ai.ui.UsedMode) -> Unit)? = null,
@@ -170,6 +171,34 @@ fun ColumnScope.ChatMessageActionButtons(
                 }
                 .padding(8.dp)
                 .size(16.dp)
+        )
+
+        val forkInteractionSource = remember { MutableInteractionSource() }
+        val isForkPressed by forkInteractionSource.collectIsPressedAsState()
+        val forkScale by animateFloatAsState(
+            targetValue = if (isForkPressed) 0.85f else 1f,
+            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+            label = "message_fork_scale"
+        )
+        Icon(
+            imageVector = Icons.AutoMirrored.Rounded.CallSplit,
+            contentDescription = stringResource(R.string.create_fork),
+            modifier = Modifier
+                .graphicsLayer {
+                    scaleX = forkScale
+                    scaleY = forkScale
+                }
+                .clip(CircleShape)
+                .combinedClickable(
+                    interactionSource = forkInteractionSource,
+                    indication = LocalIndication.current,
+                    onClick = {
+                        haptics.perform(HapticPattern.Pop)
+                        onFork()
+                    },
+                )
+                .padding(8.dp)
+                .size(16.dp),
         )
 
         Icon(

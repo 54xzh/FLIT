@@ -457,6 +457,40 @@ class ChatVM(
         }
     }
 
+    // fork 用户消息进入分支会话后的"编辑并发送": 覆盖目标用户消息为新版本并直接触发 AI 补全
+    fun handleForkEditSend(parts: List<UIMessagePart>, messageId: Uuid) {
+        if (parts.isEmptyInputMessage()) return
+        analytics.logEvent("ai_fork_edit_send", null)
+
+        val assistant = settings.value.assistants.find { it.id == settings.value.assistantId }
+        val processedParts = if (assistant != null) {
+            parts.map { part ->
+                when (part) {
+                    is UIMessagePart.Text -> {
+                        part.copy(
+                            text = part.text.replaceRegexes(
+                                assistant = assistant,
+                                scope = AssistantAffectScope.USER,
+                                visual = false
+                            )
+                        )
+                    }
+
+                    else -> part
+                }
+            }
+        } else {
+            parts
+        }
+
+        chatService.editUserMessageAndComplete(
+            conversationId = _conversationId,
+            messageId = messageId,
+            content = processedParts,
+        )
+        _conversationExistsInStorage.value = true
+    }
+
     fun handleMessageTruncate() {
         viewModelScope.launch {
             val currentConversation = conversation.value

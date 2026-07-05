@@ -414,6 +414,7 @@ fun ChatMessage(
                 onRegenerate = onRegenerate,
                 onContinue = onContinue,
                 canContinue = canContinue,
+                onFork = onFork,
                 node = node,
                 onUpdate = onUpdate,
                 onOpenActionSheet = {

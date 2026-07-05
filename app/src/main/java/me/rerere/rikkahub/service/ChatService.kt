@@ -1690,6 +1690,53 @@ class ChatService(
         }
     }
 
+    // 编辑某条用户消息后, 在其所在 MessageNode 内追加新版本并切换 selectIndex,
+    // 随后直接触发 AI 补全. 用于 fork 用户消息进入分支会话后的"编辑并发送".
+    fun editUserMessageAndComplete(
+        conversationId: Uuid,
+        messageId: Uuid,
+        content: List<UIMessagePart>,
+    ) {
+        cancelGenerationJob(conversationId, GenerationCancelReason.REPLACED)
+
+        val job = appScope.launch {
+            try {
+                val conversation = getConversationFlow(conversationId).value
+                val newConversation = conversation.copy(
+                    messageNodes = conversation.messageNodes.map { node ->
+                        if (!node.messages.any { it.id == messageId }) {
+                            return@map node
+                        }
+                        node.copy(
+                            messages = node.messages + UIMessage(
+                                role = node.role,
+                                parts = content,
+                            ),
+                            selectIndex = node.messages.size,
+                        )
+                    },
+                )
+                saveConversation(conversationId, newConversation)
+                handleMessageComplete(conversationId)
+                _generationDoneFlow.emit(conversationId)
+            } catch (e: Exception) {
+                if (e is CancellationException) return@launch
+                _errorFlow.emit(e)
+            }
+        }
+
+        setGenerationJob(conversationId, job)
+        job.invokeOnCompletion {
+            if (getGenerationJob(conversationId) == job) {
+                setGenerationJob(conversationId, null)
+            }
+            appScope.launch {
+                delay(500)
+                checkAllConversationsReferences()
+            }
+        }
+    }
+
     fun continueAtMessage(
         conversationId: Uuid,
         message: UIMessage,

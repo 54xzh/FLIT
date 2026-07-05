@@ -108,6 +108,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.Model
+import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.service.selectWelcomePhrase
@@ -417,6 +418,7 @@ fun ChatPage(
     files: List<Uri>,
     searchQuery: String? = null,
     autoSend: Boolean = false,
+    forkEdit: Boolean = false,
 ) {
     val vm: ChatVM = koinViewModel(
         parameters = {
@@ -557,6 +559,7 @@ fun ChatPage(
                     bigScreen = true,
                     initialSearchQuery = searchQuery,
                     autoSend = autoSend,
+                    forkEdit = forkEdit,
                 )
             }
         }
@@ -590,6 +593,7 @@ fun ChatPage(
                     bigScreen = false,
                     initialSearchQuery = searchQuery,
                     autoSend = autoSend,
+                    forkEdit = forkEdit,
                 )
             }
             BackHandler(drawerState.isOpen) {
@@ -616,6 +620,7 @@ private fun ChatPageContent(
     currentChatModel: Model?,
     initialSearchQuery: String? = null,
     autoSend: Boolean = false,
+    forkEdit: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
@@ -1044,10 +1049,18 @@ private fun ChatPageContent(
                         return false
                     }
                     if (inputState.isEditing()) {
-                        vm.handleMessageEdit(
-                            parts = inputState.getContents(),
-                            messageId = inputState.editingMessage!!,
-                        )
+                        if (inputState.forkEditMode) {
+                            // fork 用户消息进入分支会话后的"编辑并发送": 覆盖该用户消息并直接触发 AI
+                            vm.handleForkEditSend(
+                                parts = inputState.getContents(),
+                                messageId = inputState.editingMessage!!,
+                            )
+                        } else {
+                            vm.handleMessageEdit(
+                                parts = inputState.getContents(),
+                                messageId = inputState.editingMessage!!,
+                            )
+                        }
                         inputState.clearInput()
                         return true
                     }
@@ -1115,6 +1128,36 @@ private fun ChatPageContent(
                     }
                 }
 
+                // fork 用户消息进入分支会话: 会话加载完成后, 定位最后一条用户消息,
+                // 从节点原生取 parts (文本+附件) 预填输入框, 进入"编辑并发送"模式, 自动聚焦并弹出输入法
+                // 用 editingMessage 是否就位作为幂等闸门, 不再用 rememberSaveable 标记 ——
+                // 后者在进程恢复后仍为 true, 会阻止重新定位, 导致 fork 编辑模式丢失
+                LaunchedEffect(
+                    conversation.id,
+                    forkEdit,
+                    conversationInitialized,
+                    loadingJob,
+                    inputState.editingMessage,
+                ) {
+                    if (!forkEdit || !conversationInitialized || loadingJob != null) {
+                        return@LaunchedEffect
+                    }
+                    // editingMessage 已就位 (本次会话已设过, 或进程恢复后由 Saver 还原) -> 无需再补
+                    if (inputState.editingMessage != null) {
+                        return@LaunchedEffect
+                    }
+                    val targetNode = conversation.messageNodes
+                        .lastOrNull { it.role == MessageRole.USER }
+                        ?: conversation.messageNodes.lastOrNull()
+                    val targetMessage = targetNode?.currentMessage
+                    if (targetMessage != null) {
+                        inputState.setContents(targetMessage.parts)
+                        inputState.editingMessage = targetMessage.id
+                        inputState.forkEditMode = true
+                        inputState.requestFocus()
+                    }
+                }
+
                 val hazeStateLocal = hazeState
                 ChatList(
                     modifier = Modifier
@@ -1153,6 +1196,8 @@ private fun ChatPageContent(
                     onEdit = {
                         inputState.editingMessage = it.id
                         inputState.setContents(it.parts)
+                        // 与 fork 编辑一致, 主动请求焦点并弹出输入法
+                        inputState.requestFocus()
                     },
 
                     onDelete = {
@@ -1194,7 +1239,19 @@ private fun ChatPageContent(
                     onForkMessage = {
                         scope.launch {
                             val forkedConversation = vm.forkMessage(it)
-                            navController.navigate(Screen.Chat(forkedConversation.id.toString()))
+                            if (it.role == MessageRole.USER) {
+                                // fork 用户消息: 进入分支会话, 预填文本与附件由 forkEdit LaunchedEffect
+                                // 在新会话加载完成后从目标节点原生取 (不经过路由参数, 避免 Bundle 过大)
+                                navController.navigate(
+                                    Screen.Chat(
+                                        id = forkedConversation.id.toString(),
+                                        forkEdit = true,
+                                    )
+                                )
+                            } else {
+                                // fork 助手消息: 直接进入分支会话, 不预填
+                                navController.navigate(Screen.Chat(forkedConversation.id.toString()))
+                            }
                         }
                     },
                     canLoadOlderHistory = conversation.hasOlderHistoryNodes,
