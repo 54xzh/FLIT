@@ -1027,6 +1027,14 @@ private fun ChatPageContent(
                     mutableStateOf(!autoSend)
                 }
                 var nextSendScrollRequestId by rememberSaveable(conversation.id) { mutableStateOf(0L) }
+                // fork 编辑预填的一次性消费标记: 防止发送后 editingMessage 被清空导致
+                // forkEdit LaunchedEffect 重新触发, 把用户又塞回编辑态 (循环 bug).
+                // key 含 conversation.id 与 forkEdit: 新会话/重新 fork 时重置为 false;
+                // 同一会话进程恢复时, editingMessage 由 Saver 还原, 第一道闸门即可挡住,
+                // 此处保持 true 不会阻止重新定位.
+                var forkEditHandled by rememberSaveable(conversation.id, forkEdit) {
+                    mutableStateOf(!forkEdit)
+                }
                 var sendScrollRequest by remember(conversation.id) { mutableStateOf<ChatSendScrollRequest?>(null) }
 
                 fun requestSendScrollForNextUserMessage() {
@@ -1130,8 +1138,9 @@ private fun ChatPageContent(
 
                 // fork 用户消息进入分支会话: 会话加载完成后, 定位最后一条用户消息,
                 // 从节点原生取 parts (文本+附件) 预填输入框, 进入"编辑并发送"模式, 自动聚焦并弹出输入法
-                // 用 editingMessage 是否就位作为幂等闸门, 不再用 rememberSaveable 标记 ——
-                // 后者在进程恢复后仍为 true, 会阻止重新定位, 导致 fork 编辑模式丢失
+                // 双闸门: editingMessage 是否就位 + forkEditHandled 一次性消费标记.
+                // 后者防止发送后 clearInput() 把 editingMessage 置空导致 effect 重触发而循环;
+                // 进程恢复时 editingMessage 由 Saver 还原, 第一道闸门即可挡住, 不会因 forkEditHandled 仍为 true 而卡死.
                 LaunchedEffect(
                     conversation.id,
                     forkEdit,
@@ -1146,6 +1155,10 @@ private fun ChatPageContent(
                     if (inputState.editingMessage != null) {
                         return@LaunchedEffect
                     }
+                    // 已消费过本次 forkEdit 预填 (发送后 clearInput 触发重跑时挡住) -> 不再预填, 避免循环
+                    if (forkEditHandled) {
+                        return@LaunchedEffect
+                    }
                     val targetNode = conversation.messageNodes
                         .lastOrNull { it.role == MessageRole.USER }
                         ?: conversation.messageNodes.lastOrNull()
@@ -1155,6 +1168,7 @@ private fun ChatPageContent(
                         inputState.editingMessage = targetMessage.id
                         inputState.forkEditMode = true
                         inputState.requestFocus()
+                        forkEditHandled = true
                     }
                 }
 
@@ -1196,6 +1210,8 @@ private fun ChatPageContent(
                     onEdit = {
                         inputState.editingMessage = it.id
                         inputState.setContents(it.parts)
+                        // 切换编辑目标时退出 fork 编辑模式, 避免误走 handleForkEditSend
+                        inputState.forkEditMode = false
                         // 与 fork 编辑一致, 主动请求焦点并弹出输入法
                         inputState.requestFocus()
                     },

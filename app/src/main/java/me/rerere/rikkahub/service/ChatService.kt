@@ -1697,11 +1697,29 @@ class ChatService(
         messageId: Uuid,
         content: List<UIMessagePart>,
     ) {
+        // 先取旧 job 引用再 cancel: 新一轮 launch 内部会 join() 它,
+        // 等旧 assistant 流的 onCompletion 收尾 (finalizeGenerationState / flushGenerationDraftSave)
+        // 跑完再开始新一轮, 避免旧半截回复脏数据喂给下一轮补全.
+        val previousJob = getGenerationJob(conversationId)
         cancelGenerationJob(conversationId, GenerationCancelReason.REPLACED)
 
         val job = appScope.launch {
             try {
+                // 等旧生成流彻底收尾. join() 不会让 AI 把话继续说完, 只等"标 interrupted + 落盘草稿"
+                // 这几步本地收尾 (毫秒级). 若无旧 job 或已结束则立即返回.
+                previousJob?.join()
                 val conversation = getConversationFlow(conversationId).value
+                val hit = conversation.messageNodes.any { node ->
+                    node.messages.any { it.id == messageId }
+                }
+                if (!hit) {
+                    // messageId 已失效 (过期/被删/不属于本会话): 不追加版本, 不触发补全,
+                    // 避免无意义再跑一轮 AI (与 continueAtMessage 的防御式 return 风格一致).
+                    _errorFlow.emit(
+                        IllegalStateException("editUserMessageAndComplete: messageId $messageId not found in conversation $conversationId")
+                    )
+                    return@launch
+                }
                 val newConversation = conversation.copy(
                     messageNodes = conversation.messageNodes.map { node ->
                         if (!node.messages.any { it.id == messageId }) {

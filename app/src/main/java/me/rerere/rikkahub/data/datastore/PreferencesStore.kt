@@ -357,8 +357,11 @@ class SettingsStore(
                 val currentDisplaySetting = decodeDisplaySettingCompat(rawDisplaySetting)
 
                 dataStore.edit { preferences ->
+                    // 在 edit 内重新解码最新值再 copy, 避免与并行 init 协程 (#2/#4) 互相覆盖:
+                    // DataStore edit 串行化, 此时 preferences[DISPLAY_SETTING] 已含别处写入, 不会丢字段.
+                    val latest = decodeDisplaySettingCompat(preferences[DISPLAY_SETTING])
                     preferences[DISPLAY_SETTING] = JsonInstant.encodeToString(
-                        currentDisplaySetting.copy(enableLiveUpdate = true)
+                        latest.copy(enableLiveUpdate = true)
                     )
                     preferences[LIVE_UPDATE_DEFAULT_APPLIED] = true
                 }
@@ -391,8 +394,10 @@ class SettingsStore(
                 }
 
                 dataStore.edit { preferences ->
+                    // 在 edit 内重新解码最新值再 copy, 避免与并行 init 协程 (#1/#4) 互相覆盖.
+                    val latest = decodeDisplaySettingCompat(preferences[DISPLAY_SETTING])
                     preferences[DISPLAY_SETTING] = JsonInstant.encodeToString(
-                        currentDisplaySetting.copy(topBarBlur = suggested)
+                        latest.copy(topBarBlur = suggested)
                     )
                     preferences[TOP_BAR_BLUR_DEFAULT_APPLIED] = true
                 }
@@ -445,8 +450,10 @@ class SettingsStore(
                 if (!shouldMigrate) return@launch
 
                 dataStore.edit { preferences ->
+                    // 在 edit 内重新解码最新值再 copy, 避免与并行 init 协程 (#1/#2) 互相覆盖.
+                    val latest = decodeDisplaySettingCompat(preferences[DISPLAY_SETTING])
                     preferences[DISPLAY_SETTING] = JsonInstant.encodeToString(
-                        currentDisplaySetting.copy(keepAliveMode = KeepAliveMode.GENERATION)
+                        latest.copy(keepAliveMode = KeepAliveMode.GENERATION)
                     )
                 }
             }.onFailure {
