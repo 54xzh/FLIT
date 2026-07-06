@@ -82,7 +82,15 @@ fun AssistantToolsSubPage(
             val newLocalTools = assistant.localTools + LocalToolOption.DeviceControl
             onUpdate(assistant.copy(localTools = newLocalTools))
         }
-        
+
+        // Workspace binding state — used inside the code-execution group; the bound
+        // id is preserved even when Workspace Files is toggled off (only hidden).
+        val workspaceRepository: me.rerere.rikkahub.data.repository.WorkspaceRepository = org.koin.compose.koinInject()
+        val workspaces by remember(workspaceRepository) { workspaceRepository.listFlow() }
+            .collectAsStateWithLifecycle(emptyList())
+        val boundWorkspace = workspaces.firstOrNull { it.id == assistant.workspaceId }
+        var showWorkspaceSheet by remember { mutableStateOf(false) }
+
         SettingsGroup(title = stringResource(R.string.assistant_page_local_tools_group_code_files)) {
             // JavaScript Engine
             SettingGroupItem(
@@ -140,6 +148,28 @@ fun AssistantToolsSubPage(
                     )
                 }
             )
+
+            // Workspace binding — only visible when Workspace Files is enabled.
+            // The bound workspace id is intentionally kept when hidden (not cleared),
+            // so re-enabling Workspace Files restores the previous selection.
+            val workspaceFilesEnabled = assistant.localTools.contains(LocalToolOption.WorkspaceFiles)
+            AnimatedVisibility(
+                visible = workspaceFilesEnabled,
+                enter = expandVertically(
+                    animationSpec = spring(dampingRatio = 0.7f, stiffness = 300f)
+                ) + fadeIn(
+                    animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f)
+                ),
+                exit = shrinkVertically(
+                    animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f)
+                ) + fadeOut(),
+            ) {
+                SettingGroupItem(
+                    title = boundWorkspace?.name ?: stringResource(R.string.workspace_unbound),
+                    subtitle = stringResource(R.string.assistant_page_workspace_binding_desc),
+                    onClick = { showWorkspaceSheet = true },
+                )
+            }
         }
 
         SettingsGroup(title = stringResource(R.string.assistant_page_local_tools_group_memory_search)) {
@@ -287,23 +317,6 @@ fun AssistantToolsSubPage(
                         }
                     )
                 }
-            )
-        }
-
-        // ═══════════════════════════════════════════════════════════════════
-        // WORKSPACE GROUP
-        // ═══════════════════════════════════════════════════════════════════
-        val workspaceRepository: me.rerere.rikkahub.data.repository.WorkspaceRepository = org.koin.compose.koinInject()
-        val workspaces by remember(workspaceRepository) { workspaceRepository.listFlow() }
-            .collectAsStateWithLifecycle(emptyList())
-        val boundWorkspace = workspaces.firstOrNull { it.id == assistant.workspaceId }
-        var showWorkspaceSheet by remember { mutableStateOf(false) }
-
-        SettingsGroup(title = stringResource(R.string.extensions_page_workspace)) {
-            SettingGroupItem(
-                title = boundWorkspace?.name ?: stringResource(R.string.workspace_unbound),
-                subtitle = stringResource(R.string.extensions_page_workspace_desc),
-                onClick = { showWorkspaceSheet = true },
             )
         }
 

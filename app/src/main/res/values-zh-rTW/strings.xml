@@ -663,7 +663,7 @@
   <string name="setting_page_built_in_tools_grok_x_search_desc">啟用 xAI 內建 X（Twitter）搜尋</string>
   <string name="setting_page_chat_settings">聊天設定</string>
   <string name="setting_page_message_toolbar">訊息底部工具列</string>
-  <string name="setting_page_message_toolbar_desc">選擇哪些按鈕顯示在工具列、哪些收進更多選單</string>
+  <string name="setting_page_message_toolbar_desc">調整顯示在訊息底部工具列的按鈕</string>
   <string name="setting_page_message_toolbar_preview">預覽</string>
   <string name="setting_page_message_toolbar_user">使用者訊息工具列</string>
   <string name="setting_page_message_toolbar_assistant">助手訊息工具列</string>
@@ -2232,7 +2232,8 @@
     <string name="extensions_page_prompts">模式與 Lorebook</string>
     <string name="extensions_page_prompts_desc">模式和 Lorebook</string>
     <string name="extensions_page_workspace">工作區</string>
-    <string name="extensions_page_workspace_desc">將 SAF 資料夾綁定到助手</string>
+    <string name="extensions_page_workspace_desc">管理工作區</string>
+    <string name="assistant_page_workspace_binding_desc">選擇助手的工作區</string>
     <string name="extensions_page_scripts">腳本</string>
     <string name="extensions_page_scripts_desc">Python 腳本執行與相依套件</string>
 
@@ -2243,7 +2244,7 @@
     <string name="workspace_page_delete">刪除</string>
     <string name="workspace_page_delete_confirm">刪除此工作區？綁定到它的助手將解除綁定。</string>
     <string name="workspace_page_empty">還沒有工作區</string>
-    <string name="workspace_page_empty_desc">點擊 + 從 SAF 資料夾建立工作區。</string>
+    <string name="workspace_page_empty_desc">點擊 + 從資料夾建立工作區。</string>
     <string name="workspace_page_name">名稱</string>
     <string name="workspace_page_name_duplicate">名稱已存在</string>
     <string name="workspace_page_uri_duplicate">該資料夾已被其他工作區使用</string>
@@ -2272,7 +2273,7 @@
 
     <!-- Workspace select sheet (assistant binding) -->
     <string name="workspace_select">選擇工作區</string>
-    <string name="workspace_no_binding">未綁定</string>
+    <string name="workspace_no_binding">無</string>
     <string name="workspace_manage">管理工作區</string>
     <string name="workspace_bound_current">目前工作區</string>
     <string name="workspace_unbound">無工作區</string>

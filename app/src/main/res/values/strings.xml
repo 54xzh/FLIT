@@ -933,7 +933,7 @@
     <string name="setting_page_built_in_tools_grok_x_search_desc">Enable xAI built-in X (Twitter) search</string>
     <string name="setting_page_chat_settings">Chat Settings</string>
     <string name="setting_page_message_toolbar">Message Bottom Toolbar</string>
-    <string name="setting_page_message_toolbar_desc">Choose which buttons show on the message toolbar and which go into the more menu</string>
+    <string name="setting_page_message_toolbar_desc">Choose which buttons show on the message toolbar</string>
     <string name="setting_page_message_toolbar_preview">Preview</string>
     <string name="setting_page_message_toolbar_user">User Message Toolbar</string>
     <string name="setting_page_message_toolbar_assistant">Assistant Message Toolbar</string>
@@ -2242,7 +2242,8 @@
     <string name="extensions_page_prompts">Modes &amp; Lorebooks</string>
     <string name="extensions_page_prompts_desc">Modes and lorebooks</string>
     <string name="extensions_page_workspace">Workspaces</string>
-    <string name="extensions_page_workspace_desc">Bind a SAF folder to an assistant</string>
+    <string name="extensions_page_workspace_desc">Manage workspaces</string>
+    <string name="assistant_page_workspace_binding_desc">Choose the assistant\'s workspace</string>
     <string name="extensions_page_scripts">Scripts</string>
     <string name="extensions_page_scripts_desc">Python script execution and dependencies</string>
 
@@ -2253,7 +2254,7 @@
     <string name="workspace_page_delete">Delete</string>
     <string name="workspace_page_delete_confirm">Delete this workspace? Assistants bound to it will be unbound.</string>
     <string name="workspace_page_empty">No workspaces yet</string>
-    <string name="workspace_page_empty_desc">Tap + to create a workspace from a SAF folder.</string>
+    <string name="workspace_page_empty_desc">Tap + to create a workspace from a folder.</string>
     <string name="workspace_page_name">Name</string>
     <string name="workspace_page_name_duplicate">Name already exists</string>
     <string name="workspace_page_uri_duplicate">This folder is already used by another workspace</string>
@@ -2282,7 +2283,7 @@
 
     <!-- Workspace select sheet (assistant binding) -->
     <string name="workspace_select">Select workspace</string>
-    <string name="workspace_no_binding">Not bound</string>
+    <string name="workspace_no_binding">None</string>
     <string name="workspace_manage">Manage workspaces</string>
     <string name="workspace_bound_current">Current workspace</string>
     <string name="workspace_unbound">No workspace</string>

@@ -721,7 +721,7 @@
   <string name="setting_page_built_in_tools_url_context_desc">启用 URL 内容处理</string>
   <string name="setting_page_chat_settings">聊天设置</string>
   <string name="setting_page_message_toolbar">消息底部工具栏</string>
-  <string name="setting_page_message_toolbar_desc">选择哪些按钮显示在工具栏、哪些收进更多菜单</string>
+  <string name="setting_page_message_toolbar_desc">调整显示在消息底部工具栏的按钮</string>
   <string name="setting_page_message_toolbar_preview">预览</string>
   <string name="setting_page_message_toolbar_user">用户消息工具栏</string>
   <string name="setting_page_message_toolbar_assistant">助手消息工具栏</string>
@@ -1961,7 +1961,8 @@
     <string name="extensions_page_prompts">模式与 Lorebook</string>
     <string name="extensions_page_prompts_desc">模式和 Lorebook</string>
     <string name="extensions_page_workspace">工作区</string>
-    <string name="extensions_page_workspace_desc">把 SAF 文件夹绑定到助手</string>
+    <string name="extensions_page_workspace_desc">管理工作区</string>
+    <string name="assistant_page_workspace_binding_desc">选择助手的工作区</string>
     <string name="extensions_page_scripts">脚本</string>
     <string name="extensions_page_scripts_desc">Python 脚本执行与依赖</string>
 
@@ -1972,7 +1973,7 @@
     <string name="workspace_page_delete">删除</string>
     <string name="workspace_page_delete_confirm">删除此工作区？绑定到它的助手将解除绑定。</string>
     <string name="workspace_page_empty">还没有工作区</string>
-    <string name="workspace_page_empty_desc">点击 + 从 SAF 文件夹创建工作区。</string>
+    <string name="workspace_page_empty_desc">点击 + 从文件夹创建工作区。</string>
     <string name="workspace_page_name">名称</string>
     <string name="workspace_page_name_duplicate">名称已存在</string>
     <string name="workspace_page_uri_duplicate">该文件夹已被其他工作区使用</string>
@@ -2001,7 +2002,7 @@
 
     <!-- Workspace select sheet (assistant binding) -->
     <string name="workspace_select">选择工作区</string>
-    <string name="workspace_no_binding">未绑定</string>
+    <string name="workspace_no_binding">无</string>
     <string name="workspace_manage">管理工作区</string>
     <string name="workspace_bound_current">当前工作区</string>
     <string name="workspace_unbound">无工作区</string>
