@@ -625,6 +625,7 @@
 
     <!-- Extensions page -->
     <string name="extensions_page_title">扩展</string>
+    <string name="setting_extensions_subtitle">管理 Skills、注入、工作区等</string>
     <string name="extensions_page_section_extensions">扩展</string>
     <string name="extensions_page_skills">Skills</string>
     <string name="extensions_page_skills_desc">导入和管理 Skill 包</string>

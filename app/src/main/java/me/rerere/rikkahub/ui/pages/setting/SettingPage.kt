@@ -197,7 +197,7 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
 
                     SettingGroupItem(
                         title = stringResource(R.string.extensions_page_title),
-                        subtitle = stringResource(R.string.extensions_page_section_extensions),
+                        subtitle = stringResource(R.string.setting_extensions_subtitle),
                         icon = { Icon(Icons.Rounded.Extension, null, modifier = Modifier.size(20.dp)) },
                         onClick = { navController.navigate(Screen.Extensions) }
                     )

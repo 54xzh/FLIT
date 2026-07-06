@@ -27,6 +27,8 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -163,6 +165,25 @@ fun SettingScriptsWorkspacePage(vm: SettingVM = koinViewModel()) {
             ),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
+            item(key = "chaquopy_deprecation_notice") {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    shape = AppShapes.CardLarge,
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    ),
+                ) {
+                    Text(
+                        text = stringResource(R.string.skill_scripts_chaquopy_deprecation_notice),
+                        modifier = Modifier.padding(16.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
             item(key = "scripts_group") {
                 SettingsGroup(title = stringResource(R.string.skills_scripts_workspace_section_scripts)) {
                     SettingGroupItem(

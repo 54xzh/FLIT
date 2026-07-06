@@ -1082,13 +1082,14 @@
     <string name="skills_delete_desc">This will remove “%1$s” from device storage.</string>
     <string name="skills_unnamed">Unnamed skill</string>
     <string name="skills_no_description">No description</string>
-    <string name="skills_scripts_workspace_title">Scripts &amp; workspace</string>
+    <string name="skills_scripts_workspace_title">Scripts</string>
     <string name="skills_scripts_workspace_desc">Skill scripts, workspace root, and Python dependencies</string>
     <string name="skills_scripts_workspace_section_scripts">Scripts</string>
     <string name="skills_scripts_workspace_section_workspace">Workspace</string>
     <string name="skills_scripts_workspace_installed_deps_title">Installed dependencies</string>
     <string name="skill_scripts_title">Skill scripts</string>
     <string name="skill_scripts_description">Execute scripts/*.py inside Skill packages (Python)</string>
+    <string name="skill_scripts_chaquopy_deprecation_notice">The Python runtime (Chaquopy) used by Skill scripts will be removed in a future version and replaced with a sandbox environment.</string>
     <string name="workspace_root_title">Workspace root</string>
     <string name="workspace_root_not_set">Not set</string>
     <string name="workspace_root_set">Set</string>
@@ -2228,6 +2229,7 @@
 
     <!-- Extensions page -->
     <string name="extensions_page_title">Extensions</string>
+    <string name="setting_extensions_subtitle">Manage Skills, injections, workspaces, and more</string>
     <string name="extensions_page_section_extensions">Extensions</string>
     <string name="extensions_page_skills">Skills</string>
     <string name="extensions_page_skills_desc">Import and manage Skill packages</string>
