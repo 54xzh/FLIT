@@ -76,7 +76,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
-import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.model.Skill
 import me.rerere.rikkahub.data.model.SkillFolder
 import me.rerere.rikkahub.ui.components.nav.BackButton
@@ -84,7 +83,6 @@ import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
 import me.rerere.rikkahub.ui.components.ui.ItemPosition
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.PhysicsSwipeToDelete
-import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
@@ -100,7 +98,6 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
-    val navController = LocalNavController.current
     val toaster = LocalToaster.current
     val haptics = rememberPremiumHaptics()
 
@@ -465,14 +462,6 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    TextButton(
-                        onClick = {
-                            haptics.perform(HapticPattern.Pop)
-                            navController.navigate(Screen.SettingScriptsWorkspace)
-                        }
-                    ) {
-                        Text(stringResource(R.string.skills_scripts_workspace_title))
-                    }
                     Spacer(Modifier.width(1.dp))
                 }
             }
@@ -492,50 +481,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (!isSelectionMode) {
-                        item(key = "scripts_workspace_entry") {
-                            Card(
-                                onClick = {
-                                    haptics.perform(HapticPattern.Pop)
-                                    navController.navigate(Screen.SettingScriptsWorkspace)
-                                },
-                                shape = AppShapes.CardLarge,
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                                ),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = stringResource(R.string.skills_scripts_workspace_title),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                        )
-                                        Text(
-                                            text = stringResource(R.string.skills_scripts_workspace_desc),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
-                        }
-                    }
-
-                    settings.skillFolders.forEachIndexed { folderIndex, folder ->
+                settings.skillFolders.forEachIndexed { folderIndex, folder ->
                     val skillsInFolder = settings.skills.filter { it.folderId == folder.id }
 
                     item(key = "folder_group_${folder.id}") {

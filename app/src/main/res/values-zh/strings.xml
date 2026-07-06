@@ -347,7 +347,6 @@
   <string name="chat_page_no_conversations">没有对话记录</string>
   <string name="chat_page_recent">最近</string>
   <string name="chat_page_regenerate_title">重新生成标题</string>
-  <string name="chat_page_manage_work_dir">工作目录管理</string>
   <string name="workdir_manage_title">工作目录管理</string>
   <string name="workdir_current_auto">模式：自动（按对话标题）</string>
   <string name="workdir_current_manual">模式：自定义目录（%1$s）</string>

@@ -516,7 +516,6 @@
     <string name="chat_page_no_conversations">No conversations</string>
     <string name="chat_page_recent">Recent</string>
     <string name="chat_page_regenerate_title">Regenerate Title</string>
-    <string name="chat_page_manage_work_dir">Work directory</string>
     <string name="workdir_manage_title">Work directory</string>
     <string name="workdir_current_auto">Mode: Auto (by conversation title)</string>
     <string name="workdir_current_manual">Mode: Custom (%1$s)</string>

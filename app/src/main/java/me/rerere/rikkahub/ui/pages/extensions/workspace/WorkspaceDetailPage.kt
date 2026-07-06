@@ -53,6 +53,7 @@ fun WorkspaceDetailPage(
 ) {
     val workspace by vm.workspace.collectAsStateWithLifecycle()
     val toolApprovals by vm.toolApprovals.collectAsStateWithLifecycle()
+    val friendlyRootPath by vm.friendlyRootPath.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val navController = LocalNavController.current
     val toaster = LocalToaster.current
@@ -92,7 +93,7 @@ fun WorkspaceDetailPage(
     ) { paddingValues ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(paddingValues),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (ws != null) {
@@ -100,9 +101,7 @@ fun WorkspaceDetailPage(
                     SettingsGroup(title = stringResource(R.string.workspace_page_root_label)) {
                         SettingGroupItem(
                             title = ws.name,
-                            subtitle = runCatching {
-                                ws.treeUri.substringAfterLast('/').ifBlank { ws.treeUri }
-                            }.getOrDefault(ws.treeUri),
+                            subtitle = friendlyRootPath ?: ws.treeUri,
                         )
                     }
                 }
@@ -136,19 +135,6 @@ fun WorkspaceDetailPage(
                                 },
                             )
                         }
-                    }
-                }
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        TextButton(onClick = {
-                            haptics.perform(HapticPattern.Success)
-                            vm.saveApprovals {
-                                toaster.show(message = context.getString(R.string.workspace_page_renamed))
-                            }
-                        }) { Text(stringResource(R.string.save)) }
                     }
                 }
             }
