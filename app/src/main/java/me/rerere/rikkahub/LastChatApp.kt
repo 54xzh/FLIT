@@ -28,6 +28,8 @@ import me.rerere.rikkahub.di.repositoryModule
 import me.rerere.rikkahub.di.viewModelModule
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.ModelCapabilityRepository
+import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.migration.WorkspaceMigration
 import me.rerere.rikkahub.utils.DatabaseUtil
 import org.koin.android.ext.android.get
 import org.koin.android.ext.koin.androidContext
@@ -207,6 +209,25 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
                 get<ConversationRepository>().backfillConversationSearchTextIfNeeded()
             } catch (e: Exception) {
                 Log.e(TAG, "Conversation search text backfill failed", e)
+            }
+        }
+
+        // 工作区完整性检查：清理 SAF 授权失效的工作区记录并解绑相关助手
+        get<AppScope>().launch(Dispatchers.IO) {
+            try {
+                get<WorkspaceRepository>().checkIntegrity()
+            } catch (e: Exception) {
+                Log.e(TAG, "Workspace integrity check failed", e)
+            }
+        }
+
+        // 一次性迁移：旧会话级工作区数据 → 助手级工作区
+        get<AppScope>().launch(Dispatchers.IO) {
+            val prefs = getSharedPreferences("app_migrations", MODE_PRIVATE)
+            try {
+                get<WorkspaceMigration>().migrateIfNeeded(prefs)
+            } catch (e: Exception) {
+                Log.e(TAG, "Workspace v2 migration failed", e)
             }
         }
 

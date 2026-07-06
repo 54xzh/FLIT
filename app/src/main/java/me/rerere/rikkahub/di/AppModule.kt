@@ -15,6 +15,7 @@ import me.rerere.rikkahub.data.backup.BackupTaskMutex
 import me.rerere.rikkahub.data.backup.CompatExporter
 import me.rerere.rikkahub.data.ai.tools.LocalTools
 import me.rerere.rikkahub.data.ai.tools.SearchAgentProgressStore
+import me.rerere.rikkahub.data.migration.WorkspaceMigration
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.service.AutoBackupScheduler
 import me.rerere.rikkahub.service.ModelNameGenerationService
@@ -41,6 +42,14 @@ val appModule = module {
 
     single {
         SearchAgentProgressStore()
+    }
+
+    single {
+        WorkspaceMigration(
+            settingsStore = get(),
+            workspaceRepository = get(),
+            conversationRepository = get(),
+        )
     }
 
     single {
