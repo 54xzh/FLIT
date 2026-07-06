@@ -1,47 +1,51 @@
 package me.rerere.rikkahub.ui.pages.extensions.workspace
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
+import android.content.Intent
+import android.provider.OpenableColumns
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.repository.WorkspaceFileEntry
 import me.rerere.rikkahub.ui.components.nav.BackButton
-import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
-import me.rerere.rikkahub.ui.pages.setting.components.SettingsGroup
-import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
 import me.rerere.rikkahub.ui.theme.AppShapes
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -54,27 +58,96 @@ fun WorkspaceDetailPage(
     val workspace by vm.workspace.collectAsStateWithLifecycle()
     val toolApprovals by vm.toolApprovals.collectAsStateWithLifecycle()
     val friendlyRootPath by vm.friendlyRootPath.collectAsStateWithLifecycle()
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val filesState by vm.filesState.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
     val toaster = LocalToaster.current
     val haptics = rememberPremiumHaptics()
     val context = LocalContext.current
+    val pagerState = rememberPagerState { 2 }
+    val scope = rememberCoroutineScope()
 
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    var deleteFileTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
 
     val ws = workspace
-    val allowAll = WorkspaceDetailVM.WORKSPACE_TOOL_NAMES.all { toolApprovals[it] == false }
+
+    // 导入文件：SAF OpenDocument -> 查显示名 -> 开流 -> vm.importFile
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val displayName = runCatching {
+            context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                if (c.moveToFirst() && c.getColumnIndex(OpenableColumns.DISPLAY_NAME) >= 0) {
+                    c.getString(c.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+                } else null
+            }
+        }.getOrNull() ?: uri.lastPathSegment ?: "imported_file"
+        val stream = runCatching { context.contentResolver.openInputStream(uri) }.getOrNull()
+        if (stream != null) {
+            vm.importFile(stream, displayName)
+        } else {
+            toaster.show(context.getString(R.string.workspace_detail_import_failed, ""))
+        }
+    }
+
+    // 文件页打开文件：解析 uri -> ACTION_VIEW
+    val openFile: (WorkspaceFileEntry) -> Unit = { entry ->
+        scope.launch {
+            val uri = vm.resolveFileUri(entry)
+            if (uri == null) {
+                toaster.show(context.getString(R.string.workspace_detail_open_failed))
+                return@launch
+            }
+            val mime = runCatching {
+                context.contentResolver.getType(uri)
+            }.getOrNull() ?: "*/*"
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            runCatching {
+                context.startActivity(Intent.createChooser(intent, null))
+            }.onFailure {
+                toaster.show(context.getString(R.string.workspace_detail_open_failed))
+            }
+        }
+    }
+
+    // 返回键：文件页非根先 goUp；根则切回设置页；设置页交给系统出栈
+    BackHandler(enabled = pagerState.currentPage == 1 && filesState.path.isNotBlank()) {
+        vm.goUp()
+    }
+    BackHandler(enabled = pagerState.currentPage == 1 && filesState.path.isBlank()) {
+        scope.launch { pagerState.animateScrollToPage(0) }
+    }
+
+    // 切到文件页时自动刷新一次（处理授权恢复 / 外部变更）
+    LaunchedEffect(pagerState.currentPage) {
+        if (pagerState.currentPage == 1) vm.refreshFiles()
+    }
 
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            OneUITopAppBar(
-                title = ws?.name ?: stringResource(R.string.workspace_detail_title),
-                scrollBehavior = scrollBehavior,
-                expandedTitleHorizontalPadding = 32.dp,
+            // 设置页与文件页统一用标准 TopAppBar：高度一致、无展开大标题、右滑不抖动
+            TopAppBar(
+                title = {
+                    Text(
+                        if (pagerState.currentPage == 1) {
+                            stringResource(R.string.workspace_detail_tab_files)
+                        } else {
+                            ws?.name ?: stringResource(R.string.workspace_detail_title)
+                        },
+                    )
+                },
                 navigationIcon = { BackButton() },
                 actions = {
+                    if (pagerState.currentPage == 1) {
+                        IconButton(onClick = { haptics.perform(HapticPattern.Pop); vm.refreshFiles() }) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = null)
+                        }
+                    }
                     if (ws != null) {
                         IconButton(onClick = { haptics.perform(HapticPattern.Pop); renaming = true }) {
                             Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.workspace_page_rename))
@@ -90,57 +163,71 @@ fun WorkspaceDetailPage(
                 },
             )
         },
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(paddingValues),
-            contentPadding = PaddingValues(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (ws != null) {
-                item {
-                    SettingsGroup(title = stringResource(R.string.workspace_page_root_label)) {
-                        SettingGroupItem(
-                            title = ws.name,
-                            subtitle = friendlyRootPath ?: ws.treeUri,
-                        )
-                    }
+        bottomBar = {
+            androidx.compose.material3.BottomAppBar {
+                NavigationBarItem(
+                    selected = pagerState.currentPage == 0,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
+                    label = { Text(stringResource(R.string.workspace_detail_tab_basic)) },
+                    icon = { Icon(Icons.Rounded.Settings, null) },
+                )
+                NavigationBarItem(
+                    selected = pagerState.currentPage == 1,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                    label = { Text(stringResource(R.string.workspace_detail_tab_files)) },
+                    icon = { Icon(Icons.Rounded.FileUpload, null) },
+                )
+            }
+        },
+        floatingActionButton = {
+            if (pagerState.currentPage == 1 && ws != null) {
+                FloatingActionButton(
+                    onClick = { haptics.perform(HapticPattern.Pop); filePicker.launch(arrayOf("*/*")) },
+                    shape = AppShapes.ButtonPill,
+                ) {
+                    Icon(Icons.Rounded.FileUpload, contentDescription = stringResource(R.string.workspace_detail_import_file))
                 }
-                item {
-                    SettingsGroup(title = stringResource(R.string.workspace_detail_tool_approvals)) {
-                        SettingGroupItem(
-                            title = stringResource(R.string.workspace_detail_tool_allow_all),
-                            subtitle = stringResource(R.string.workspace_detail_tool_allow_all_desc),
-                            trailing = {
-                                Switch(
-                                    checked = allowAll,
-                                    onCheckedChange = { v ->
-                                        haptics.perform(HapticPattern.Pop)
-                                        vm.setAll(allowAll = v)
-                                    },
-                                )
-                            },
-                        )
-                        WorkspaceDetailVM.WORKSPACE_TOOL_NAMES.forEach { toolName ->
-                            SettingGroupItem(
-                                title = stringResource(toolNameToLabel(toolName)),
-                                trailing = {
-                                    val needsApproval = toolApprovals[toolName] ?: true
-                                    Switch(
-                                        checked = !needsApproval,
-                                        onCheckedChange = { v ->
-                                            haptics.perform(HapticPattern.Pop)
-                                            vm.setToolApproval(toolName, needsApproval = !v)
-                                        },
-                                    )
-                                },
-                            )
-                        }
-                    }
+            }
+        },
+    ) { paddingValues ->
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+        ) { page ->
+            when (page) {
+                0 -> androidx.compose.foundation.layout.Box(
+                    modifier = Modifier.padding(paddingValues),
+                ) {
+                    WorkspaceBasicPage(
+                        workspace = ws,
+                        toolApprovals = toolApprovals,
+                        friendlyRootPath = friendlyRootPath,
+                        onSetToolApproval = { tool, needsApproval ->
+                            haptics.perform(HapticPattern.Pop)
+                            vm.setToolApproval(tool, needsApproval)
+                        },
+                        onSetAll = { allowAll ->
+                            haptics.perform(HapticPattern.Pop)
+                            vm.setAll(allowAll)
+                        },
+                    )
+                }
+                1 -> androidx.compose.foundation.layout.Box(
+                    modifier = Modifier.padding(paddingValues),
+                ) {
+                    WorkspaceFilesPage(
+                        state = filesState,
+                        onGoUp = vm::goUp,
+                        onOpen = vm::open,
+                        onDelete = { deleteFileTarget = it },
+                        onOpenFile = openFile,
+                    )
                 }
             }
         }
     }
 
+    // 重命名工作区
     if (renaming && ws != null) {
         var name by remember { mutableStateOf(ws.name) }
         AlertDialog(
@@ -168,6 +255,7 @@ fun WorkspaceDetailPage(
         )
     }
 
+    // 删除工作区
     if (deleting && ws != null) {
         AlertDialog(
             onDismissRequest = { deleting = false },
@@ -188,16 +276,24 @@ fun WorkspaceDetailPage(
             },
         )
     }
-}
 
-private fun toolNameToLabel(toolName: String): Int = when (toolName) {
-    "workspace_list" -> R.string.workspace_detail_tool_workspace_list
-    "workspace_read_file" -> R.string.workspace_detail_tool_workspace_read_file
-    "workspace_write_file" -> R.string.workspace_detail_tool_workspace_write_file
-    "workspace_mkdir" -> R.string.workspace_detail_tool_workspace_mkdir
-    "workspace_delete" -> R.string.workspace_detail_tool_workspace_delete
-    "workspace_rename" -> R.string.workspace_detail_tool_workspace_rename
-    "eval_python" -> R.string.workspace_detail_tool_eval_python
-    "run_skill_script" -> R.string.workspace_detail_tool_run_skill_script
-    else -> R.string.workspace_detail_tool_workspace_list
+    // 删除文件/文件夹确认
+    val target = deleteFileTarget
+    if (target != null) {
+        AlertDialog(
+            onDismissRequest = { deleteFileTarget = null },
+            title = { Text(stringResource(R.string.workspace_detail_delete_file_or_dir)) },
+            text = { Text(stringResource(R.string.workspace_detail_will_delete, target.path)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    haptics.perform(HapticPattern.Thud)
+                    vm.deleteFile(target)
+                    deleteFileTarget = null
+                }) { Text(stringResource(R.string.confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteFileTarget = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
 }

@@ -664,18 +664,37 @@
 
     <!-- Workspace detail -->
     <string name="workspace_detail_title">工作区</string>
+    <string name="workspace_detail_tab_basic">设置</string>
+    <string name="workspace_detail_tab_files">文件</string>
+    <string name="workspace_detail_import_file">导入文件</string>
+    <string name="workspace_detail_empty_directory">此文件夹为空</string>
+    <string name="workspace_detail_delete_file_or_dir">删除</string>
+    <string name="workspace_detail_will_delete">将删除：%1$s</string>
+    <string name="workspace_detail_open">打开</string>
+    <string name="workspace_detail_open_failed">没有应用可打开此文件</string>
+    <string name="workspace_detail_import_failed">导入失败：%1$s</string>
+    <string name="workspace_detail_error_generic">错误</string>
+    <string name="workspace_detail_path_bar_root">/</string>
     <string name="workspace_detail_tool_approvals">工具审批</string>
     <string name="workspace_detail_tool_approvals_desc">此工作区各工具的审批覆盖</string>
-    <string name="workspace_detail_tool_allow_all">全部免审批</string>
-    <string name="workspace_detail_tool_allow_all_desc">跳过所有工作区工具的审批卡片</string>
+    <string name="workspace_detail_tool_approve_all">全部需审批</string>
+    <string name="workspace_detail_tool_approve_all_desc">所有工作区工具调用都需审批</string>
     <string name="workspace_detail_tool_workspace_list">workspace_list</string>
+    <string name="workspace_detail_tool_workspace_list_desc">列出文件和文件夹</string>
     <string name="workspace_detail_tool_workspace_read_file">workspace_read_file</string>
+    <string name="workspace_detail_tool_workspace_read_file_desc">读取文件</string>
     <string name="workspace_detail_tool_workspace_write_file">workspace_write_file</string>
+    <string name="workspace_detail_tool_workspace_write_file_desc">写入文件</string>
     <string name="workspace_detail_tool_workspace_mkdir">workspace_mkdir</string>
+    <string name="workspace_detail_tool_workspace_mkdir_desc">新建文件夹</string>
     <string name="workspace_detail_tool_workspace_delete">workspace_delete</string>
+    <string name="workspace_detail_tool_workspace_delete_desc">删除文件或文件夹</string>
     <string name="workspace_detail_tool_workspace_rename">workspace_rename</string>
+    <string name="workspace_detail_tool_workspace_rename_desc">重命名文件或文件夹</string>
     <string name="workspace_detail_tool_eval_python">eval_python</string>
+    <string name="workspace_detail_tool_eval_python_desc">执行 Python</string>
     <string name="workspace_detail_tool_run_skill_script">run_skill_script</string>
+    <string name="workspace_detail_tool_run_skill_script_desc">运行 Skills 脚本</string>
 
     <!-- Workspace select sheet (assistant binding) -->
     <string name="workspace_select">选择工作区</string>

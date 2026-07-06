@@ -122,7 +122,7 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
                 items(workspaces, key = { it.id }) { workspace ->
                     WorkspaceCard(
                         workspace = workspace,
-                        rootLabel = runCatching { repository.friendlyName(workspace.treeUri, workspace.name) }.getOrDefault(workspace.name),
+                        rootLabel = runCatching { repository.friendlyShortPath(workspace.treeUri) }.getOrDefault(workspace.name),
                         onOpen = { navController.navigate(Screen.WorkspaceDetail(workspace.id)) },
                         onRename = { renamingWorkspace = workspace },
                         onDelete = { deletingWorkspace = workspace },

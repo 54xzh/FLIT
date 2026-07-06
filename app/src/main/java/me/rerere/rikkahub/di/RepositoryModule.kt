@@ -8,6 +8,7 @@ import me.rerere.rikkahub.data.repository.LorebookEntryRevisionRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.ModelCapabilityRepository
 import me.rerere.rikkahub.data.repository.ModelQuotaRepository
+import me.rerere.rikkahub.data.repository.SafRepository
 import me.rerere.rikkahub.data.repository.StorageManagerRepository
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
@@ -60,6 +61,10 @@ val repositoryModule = module {
             settingsStore = get(),
             context = get(),
         )
+    }
+
+    single {
+        SafRepository(context = get())
     }
 
     single {

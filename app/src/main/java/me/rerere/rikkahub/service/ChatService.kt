@@ -134,12 +134,14 @@ import me.rerere.rikkahub.data.model.Skill
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.data.model.id
 import me.rerere.rikkahub.data.model.toMessageNode
+import me.rerere.rikkahub.data.db.entity.toolDefaultNeedsApproval
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.LorebookEntryRevisionRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.ModelQuotaRepository
 import me.rerere.rikkahub.data.repository.QuotaUsageResult
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
+import me.rerere.rikkahub.data.repository.SafRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.JsonInstantPretty
@@ -230,6 +232,7 @@ class ChatService(
     private val modelQuotaRepo: ModelQuotaRepository,
     val searchAgentProgressStore: SearchAgentProgressStore,
     private val workspaceRepository: WorkspaceRepository,
+    private val safRepository: SafRepository,
 ) {
     // 存储每个对话的状态
     private val conversations = ConcurrentHashMap<Uuid, MutableStateFlow<Conversation>>()
@@ -4197,44 +4200,8 @@ class ChatService(
         return mime ?: "application/octet-stream"
     }
 
-    private fun splitRelPath(relPath: String): List<String> {
-        return relPath.split('/').filter { it.isNotBlank() }
-    }
-
-    private fun resolveDocumentByRelPath(root: DocumentFile, relPath: String): DocumentFile? {
-        val segments = splitRelPath(relPath)
-        if (segments.isEmpty()) return root
-        var current = root
-        segments.forEachIndexed { index, seg ->
-            val next = current.findFile(seg) ?: return null
-            if (index < segments.lastIndex && !next.isDirectory) return null
-            current = next
-        }
-        return current
-    }
-
-    private fun resolveOrCreateDirByRelPath(root: DocumentFile, relPath: String): DocumentFile? {
-        val segments = splitRelPath(relPath)
-        var current = root
-        for (seg in segments) {
-            val existing = current.findFile(seg)
-            current = when {
-                existing != null && existing.isDirectory -> existing
-                existing != null -> return null
-                else -> current.createDirectory(seg) ?: return null
-            }
-        }
-        return current
-    }
-
-    private fun deleteDocumentRecursively(target: DocumentFile): Boolean {
-        if (target.isDirectory) {
-            target.listFiles().forEach { child ->
-                deleteDocumentRecursively(child)
-            }
-        }
-        return runCatching { target.delete() }.getOrDefault(false)
-    }
+    // SAF 文件操作统一委托给 SafRepository（见 di/RepositoryModule），
+    // splitRelPath / resolve / resolveOrCreateDir / deleteDocument 见 SafRepository。
 
     /**
      * 解析助手绑定的工作区 SAF 根目录。
@@ -4286,14 +4253,15 @@ class ChatService(
 
     /**
      * 判断某工具在某助手上是否需要审批卡片。
-     * 优先用工作区 toolApprovals 覆盖；未覆盖则用全局默认（默认需要审批，即 allow-all=false 语义）。
+     * 优先用工作区 toolApprovals 覆盖；未覆盖则走 [toolDefaultNeedsApproval] 的默认值
+     * （仅写文件/删除/执行 python/执行脚本默认需审批，其余默认免审批）。
      */
     private suspend fun toolNeedsApproval(
         assistant: Assistant,
         toolName: String,
     ): Boolean {
         val overrides = assistantToolApprovalOverrides(assistant)
-        return overrides[toolName] ?: true
+        return overrides[toolName] ?: toolDefaultNeedsApproval(toolName)
     }
 
     private fun createAskUserTool(conversationId: Uuid): Tool {
@@ -4557,7 +4525,7 @@ class ChatService(
                         val dir = if (normalizedPath.isBlank()) {
                             workDir
                         } else {
-                            resolveDocumentByRelPath(workDir, normalizedPath)
+                            safRepository.resolve(workDir, normalizedPath)
                         } ?: return@withContext buildJsonObject {
                             put("ok", false)
                             put("error", "Path not found: ${normalizedPath.ifBlank { "/" }}")
@@ -4656,7 +4624,7 @@ class ChatService(
                 runCatching {
                     withContext(Dispatchers.IO) {
                         val workDir = resolveAssistantWorkspaceDir(assistant)
-                        val file = resolveDocumentByRelPath(workDir, normalizedPath)
+                        val file = safRepository.resolve(workDir, normalizedPath)
                             ?: return@withContext buildJsonObject { put("ok", false); put("error", "File not found: $normalizedPath") }
 
                         if (!file.isFile) {
@@ -4764,7 +4732,7 @@ class ChatService(
                     withContext(Dispatchers.IO) {
                         val workDir = resolveAssistantWorkspaceDir(assistant)
 
-                        val segments = splitRelPath(normalizedPath)
+                        val segments = safRepository.splitRelPath(normalizedPath)
                         val name = segments.lastOrNull()
                             ?: return@withContext buildJsonObject { put("ok", false); put("error", "Invalid path") }
                         val parentPath = segments.dropLast(1).joinToString("/")
@@ -4773,9 +4741,9 @@ class ChatService(
                             workDir
                         } else {
                             if (createParents) {
-                                resolveOrCreateDirByRelPath(workDir, parentPath)
+                                safRepository.resolveOrCreateDir(workDir, parentPath)
                             } else {
-                                resolveDocumentByRelPath(workDir, parentPath)
+                                safRepository.resolve(workDir, parentPath)
                             }
                         } ?: return@withContext buildJsonObject {
                             put("ok", false)
@@ -4792,7 +4760,7 @@ class ChatService(
                                 if (!overwrite || append) {
                                     return@withContext buildJsonObject { put("ok", false); put("error", "Path is a directory: $normalizedPath") }
                                 }
-                                if (!deleteDocumentRecursively(existing)) {
+                                if (!safRepository.deleteDocument(existing)) {
                                     return@withContext buildJsonObject { put("ok", false); put("error", "Failed to delete existing directory: $normalizedPath") }
                                 }
                             } else if (!existing.isFile) {
@@ -4875,7 +4843,7 @@ class ChatService(
                     withContext(Dispatchers.IO) {
                         val workDir = resolveAssistantWorkspaceDir(assistant)
 
-                        val segments = splitRelPath(normalizedPath)
+                        val segments = safRepository.splitRelPath(normalizedPath)
                         val name = segments.lastOrNull()
                             ?: return@withContext buildJsonObject { put("ok", false); put("error", "Invalid path") }
                         val parentPath = segments.dropLast(1).joinToString("/")
@@ -4884,9 +4852,9 @@ class ChatService(
                             workDir
                         } else {
                             if (parents) {
-                                resolveOrCreateDirByRelPath(workDir, parentPath)
+                                safRepository.resolveOrCreateDir(workDir, parentPath)
                             } else {
-                                resolveDocumentByRelPath(workDir, parentPath)
+                                safRepository.resolve(workDir, parentPath)
                             }
                         } ?: return@withContext buildJsonObject {
                             put("ok", false)
@@ -4972,7 +4940,7 @@ class ChatService(
                         val target = if (normalizedPath.isBlank()) {
                             workDir
                         } else {
-                            resolveDocumentByRelPath(workDir, normalizedPath)
+                            safRepository.resolve(workDir, normalizedPath)
                         }
 
                         if (target == null) {
@@ -4989,7 +4957,7 @@ class ChatService(
                                     put("error", "Directory is not empty (set recursive=true): ${normalizedPath.ifBlank { "/" }}")
                                 }
                             }
-                            val deleted = deleteDocumentRecursively(target)
+                            val deleted = safRepository.deleteDocument(target)
                             buildJsonObject { put("ok", deleted); put("path", normalizedPath.ifBlank { "/" }); put("deleted", deleted) }
                         } else {
                             val deleted = runCatching { target.delete() }.getOrDefault(false)
@@ -5058,14 +5026,14 @@ class ChatService(
                     withContext(Dispatchers.IO) {
                         val workDir = resolveAssistantWorkspaceDir(assistant)
 
-                        val source = resolveDocumentByRelPath(workDir, fromPath)
+                        val source = safRepository.resolve(workDir, fromPath)
                             ?: return@withContext buildJsonObject { put("ok", false); put("error", "Source not found: $fromPath") }
 
                         if (source.isDirectory && toPath.startsWith("$fromPath/")) {
                             return@withContext buildJsonObject { put("ok", false); put("error", "Cannot move a directory into itself") }
                         }
 
-                        val toSegments = splitRelPath(toPath)
+                        val toSegments = safRepository.splitRelPath(toPath)
                         val toName = toSegments.lastOrNull()
                             ?: return@withContext buildJsonObject { put("ok", false); put("error", "Invalid to") }
                         val toParentPath = toSegments.dropLast(1).joinToString("/")
@@ -5074,9 +5042,9 @@ class ChatService(
                             workDir
                         } else {
                             if (createParents) {
-                                resolveOrCreateDirByRelPath(workDir, toParentPath)
+                                safRepository.resolveOrCreateDir(workDir, toParentPath)
                             } else {
-                                resolveDocumentByRelPath(workDir, toParentPath)
+                                safRepository.resolve(workDir, toParentPath)
                             }
                         } ?: return@withContext buildJsonObject { put("ok", false); put("error", "Destination parent not found: $toParentPath") }
 
@@ -5089,12 +5057,12 @@ class ChatService(
                             if (!overwrite) {
                                 return@withContext buildJsonObject { put("ok", false); put("error", "Destination exists: $toPath") }
                             }
-                            if (!deleteDocumentRecursively(existingDest)) {
+                            if (!safRepository.deleteDocument(existingDest)) {
                                 return@withContext buildJsonObject { put("ok", false); put("error", "Failed to delete destination: $toPath") }
                             }
                         }
 
-                        val fromParentPath = splitRelPath(fromPath).dropLast(1).joinToString("/")
+                        val fromParentPath = safRepository.splitRelPath(fromPath).dropLast(1).joinToString("/")
                         if (fromParentPath == toParentPath) {
                             val renamedOk = runCatching { source.renameTo(toName) }.getOrDefault(false)
                             if (renamedOk) {
@@ -5138,11 +5106,11 @@ class ChatService(
 
                         val copied = copyRec(source, createdDest)
                         if (!copied) {
-                            deleteDocumentRecursively(createdDest)
+                            safRepository.deleteDocument(createdDest)
                             return@withContext buildJsonObject { put("ok", false); put("error", "Failed to copy source to destination") }
                         }
 
-                        val deleted = deleteDocumentRecursively(source)
+                        val deleted = safRepository.deleteDocument(source)
                         if (!deleted) {
                             return@withContext buildJsonObject { put("ok", false); put("error", "Failed to delete source after copy") }
                         }

@@ -2268,18 +2268,37 @@
 
     <!-- Workspace detail -->
     <string name="workspace_detail_title">Workspace</string>
+    <string name="workspace_detail_tab_basic">Settings</string>
+    <string name="workspace_detail_tab_files">Files</string>
+    <string name="workspace_detail_import_file">Import file</string>
+    <string name="workspace_detail_empty_directory">This folder is empty</string>
+    <string name="workspace_detail_delete_file_or_dir">Delete</string>
+    <string name="workspace_detail_will_delete">Will delete: %1$s</string>
+    <string name="workspace_detail_open">Open</string>
+    <string name="workspace_detail_open_failed">No app available to open this file</string>
+    <string name="workspace_detail_import_failed">Import failed: %1$s</string>
+    <string name="workspace_detail_error_generic">Error</string>
+    <string name="workspace_detail_path_bar_root">/</string>
     <string name="workspace_detail_tool_approvals">Tool approvals</string>
     <string name="workspace_detail_tool_approvals_desc">Per-tool approval overrides for this workspace</string>
-    <string name="workspace_detail_tool_allow_all">Allow all (no approval)</string>
-    <string name="workspace_detail_tool_allow_all_desc">Skip approval cards for all workspace tools</string>
+    <string name="workspace_detail_tool_approve_all">Approve all</string>
+    <string name="workspace_detail_tool_approve_all_desc">Require approval for every workspace tool</string>
     <string name="workspace_detail_tool_workspace_list">workspace_list</string>
+    <string name="workspace_detail_tool_workspace_list_desc">List files and folders</string>
     <string name="workspace_detail_tool_workspace_read_file">workspace_read_file</string>
+    <string name="workspace_detail_tool_workspace_read_file_desc">Read file contents</string>
     <string name="workspace_detail_tool_workspace_write_file">workspace_write_file</string>
+    <string name="workspace_detail_tool_workspace_write_file_desc">Write to files</string>
     <string name="workspace_detail_tool_workspace_mkdir">workspace_mkdir</string>
+    <string name="workspace_detail_tool_workspace_mkdir_desc">Create a new folder</string>
     <string name="workspace_detail_tool_workspace_delete">workspace_delete</string>
+    <string name="workspace_detail_tool_workspace_delete_desc">Delete a file or folder</string>
     <string name="workspace_detail_tool_workspace_rename">workspace_rename</string>
+    <string name="workspace_detail_tool_workspace_rename_desc">Rename a file or folder</string>
     <string name="workspace_detail_tool_eval_python">eval_python</string>
+    <string name="workspace_detail_tool_eval_python_desc">Run Python code</string>
     <string name="workspace_detail_tool_run_skill_script">run_skill_script</string>
+    <string name="workspace_detail_tool_run_skill_script_desc">Run a skill script</string>
 
     <!-- Workspace select sheet (assistant binding) -->
     <string name="workspace_select">Select workspace</string>

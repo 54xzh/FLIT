@@ -163,6 +163,7 @@ val appModule = module {
             modelQuotaRepo = get(),
             searchAgentProgressStore = get(),
             workspaceRepository = get(),
+            safRepository = get(),
         )
     }
 

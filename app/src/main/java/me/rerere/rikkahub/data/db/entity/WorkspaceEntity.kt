@@ -7,11 +7,45 @@ import androidx.room.PrimaryKey
 import me.rerere.rikkahub.utils.JsonInstant
 
 /**
+ * 默认即需要审批的工具集合（未在 toolApprovals 覆盖中时生效）。
+ *
+ * 仅放「有副作用 / 不可逆」的工具：写文件、删除、执行 python、执行脚本。
+ * 列目录、读文件、建目录、重命名默认免审批，降低交互噪音。
+ */
+val DEFAULT_NEEDS_APPROVAL_TOOLS: Set<String> = setOf(
+    "workspace_write_file",
+    "workspace_delete",
+    "eval_python",
+    "run_skill_script",
+)
+
+/**
+ * 取某工具的默认「是否需要审批」。供未覆盖时的回退判断。
+ */
+fun toolDefaultNeedsApproval(toolName: String): Boolean = toolName in DEFAULT_NEEDS_APPROVAL_TOOLS
+
+/**
+ * 工作区涉及的全部工具名，固定顺序（设置页列表与迁移都按此顺序）。
+ * 放在数据层，供 [WorkspaceEntity]、Repository 迁移、UI 共用。
+ */
+val WORKSPACE_TOOL_NAMES: List<String> = listOf(
+    "workspace_list",
+    "workspace_read_file",
+    "workspace_write_file",
+    "workspace_mkdir",
+    "workspace_delete",
+    "workspace_rename",
+    "eval_python",
+    "run_skill_script",
+)
+
+/**
  * 工作区记录。
  *
  * 这一阶段工作区 = 一个 SAF 授权目录（[treeUri]），绑定在助手上。
  * [shellStatus] 为沙盒预留字段，当前恒为 DISABLED；未来移植沙盒时会启用。
- * [toolApprovals] 是每个工具名的审批覆盖（toolName -> needsApproval），未覆盖的工具走默认审批。
+ * [toolApprovals] 是每个工具名的审批覆盖（toolName -> needsApproval，true=需要审批）。
+ * 未覆盖的工具走 [DEFAULT_NEEDS_APPROVAL_TOOLS] 的默认值。
  */
 @Entity(
     tableName = "workspaces",
