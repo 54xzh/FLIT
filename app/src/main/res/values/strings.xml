@@ -753,6 +753,12 @@
     <string name="setting_display_page_message_input_style_desc">Choose between the standard and minimal input bar</string>
     <string name="setting_display_page_message_input_style_standard">Standard</string>
     <string name="setting_display_page_message_input_style_minimal">Minimal</string>
+    <string name="setting_display_page_language_title">Language</string>
+    <string name="setting_display_page_language_desc">App display language</string>
+    <string name="setting_language_system">Follow System</string>
+    <string name="setting_language_english">English</string>
+    <string name="setting_language_simplified_chinese">简体中文</string>
+    <string name="setting_language_traditional_chinese">繁體中文</string>
     <string name="setting_display_page_show_fullscreen_input_button_title">Show fullscreen input button</string>
     <string name="setting_display_page_show_fullscreen_input_button_desc">Show the fullscreen input button when the input bar is expanded</string>
     <string name="setting_display_page_show_context_stacks_desc">Show context sources (modes, memories, lorebooks) in message toolbar</string>

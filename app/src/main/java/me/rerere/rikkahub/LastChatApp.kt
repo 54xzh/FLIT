@@ -37,6 +37,7 @@ import org.koin.android.ext.koin.androidLogger
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.utils.applyAppLanguage
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -185,6 +186,21 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
             if (settings.webServerEnabled) {
                 WebServerService.start(this@LastChatApp, settings.webServerPort)
             }
+        }
+
+        // 一次性：尽快应用已保存的界面语言，减少 API 31-32 冷启动闪一下的可能
+        // （API 33+ 由系统侧持久化按应用语言，冷启动零代码即正确）
+        get<AppScope>().launch {
+            val settings = get<SettingsStore>().settingsFlowRaw.first()
+            applyAppLanguage(settings.displaySetting.appLanguage)
+        }
+
+        // 常驻：保持 DataStore 与系统语言一致（应用内切换、恢复后均会触发，幂等）
+        get<AppScope>().launch {
+            get<SettingsStore>().settingsFlow
+                .map { it.displaySetting.appLanguage }
+                .distinctUntilChanged()
+                .collect { applyAppLanguage(it) }
         }
 
         // One-time migration: populate DailyActivityEntity from existing conversation dates

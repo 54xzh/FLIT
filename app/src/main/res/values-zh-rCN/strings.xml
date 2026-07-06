@@ -205,6 +205,12 @@
     <string name="setting_display_page_http_retry_delay_value">%d 秒</string>
     <string name="setting_display_page_merge_providers_in_model_selector_title">模型选择按首个标签合并提供商</string>
     <string name="setting_display_page_merge_providers_in_model_selector_desc">当多个提供商的第一个标签相同，在模型选择中合并显示</string>
+    <string name="setting_display_page_language_title">语言</string>
+    <string name="setting_display_page_language_desc">应用显示语言</string>
+    <string name="setting_language_system">跟随系统</string>
+    <string name="setting_language_english">English</string>
+    <string name="setting_language_simplified_chinese">简体中文</string>
+    <string name="setting_language_traditional_chinese">繁體中文</string>
     <string name="setting_page_advanced_settings">高级设置</string>
     <string name="setting_page_advanced_settings_desc">更多控制选项</string>
     <string name="setting_page_timeout_settings">超时设定</string>

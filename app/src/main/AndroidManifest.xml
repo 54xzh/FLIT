@@ -43,7 +43,7 @@
     tools:targetApi="33">
     <activity
       android:name=".RouteActivity"
-      android:configChanges="keyboardHidden|orientation|screenSize"
+      android:configChanges="keyboardHidden|orientation|screenSize|locale|layoutDirection"
       android:exported="true"
       android:theme="@style/Theme.Rikkahub"
       android:windowSoftInputMode="adjustResize">

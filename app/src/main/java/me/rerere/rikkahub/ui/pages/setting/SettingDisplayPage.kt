@@ -37,6 +37,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.AppLanguage
 import me.rerere.rikkahub.data.datastore.DisplaySetting
 import me.rerere.rikkahub.data.datastore.KeepAliveMode
 import me.rerere.rikkahub.data.datastore.MessageInputStyle
@@ -52,6 +53,7 @@ import me.rerere.rikkahub.ui.hooks.rememberSharedPreferenceBoolean
 import me.rerere.rikkahub.ui.pages.setting.components.PresetThemeButtonGroup
 import me.rerere.rikkahub.ui.pages.setting.components.SettingsGroup
 import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
+import me.rerere.rikkahub.utils.applyAppLanguage
 import me.rerere.rikkahub.utils.plus
 import org.koin.androidx.compose.koinViewModel
 
@@ -160,6 +162,31 @@ fun SettingDisplayPage(vm: SettingVM = koinViewModel()) {
                 SettingsGroup(
                     title = stringResource(R.string.setting_page_basic_settings)
                 ) {
+                    SettingGroupItem(
+                        title = stringResource(R.string.setting_display_page_language_title),
+                        subtitle = stringResource(R.string.setting_display_page_language_desc),
+                        trailing = {
+                            val options = remember { AppLanguage.entries.toList() }
+                            val selected = remember(displaySetting) { displaySetting.appLanguage }
+                            Select(
+                                options = options,
+                                selectedOption = selected,
+                                onOptionSelected = { option ->
+                                    updateDisplaySetting(displaySetting.copy(appLanguage = option))
+                                    applyAppLanguage(option)
+                                },
+                                optionToString = { option ->
+                                    when (option) {
+                                        AppLanguage.SYSTEM -> stringResource(R.string.setting_language_system)
+                                        AppLanguage.ENGLISH -> stringResource(R.string.setting_language_english)
+                                        AppLanguage.SIMPLIFIED_CHINESE -> stringResource(R.string.setting_language_simplified_chinese)
+                                        AppLanguage.TRADITIONAL_CHINESE -> stringResource(R.string.setting_language_traditional_chinese)
+                                    }
+                                },
+                                modifier = Modifier.widthIn(min = 64.dp, max = 140.dp)
+                            )
+                        }
+                    )
                     SettingGroupItem(
                         title = stringResource(R.string.setting_display_page_create_new_conversation_on_start_title),
                         subtitle = stringResource(R.string.setting_display_page_create_new_conversation_on_start_desc),

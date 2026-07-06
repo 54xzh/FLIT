@@ -1218,6 +1218,23 @@ enum class MessageInputStyle {
 }
 
 /**
+ * 应用界面语言。
+ *
+ * [SYSTEM] 用 null 语言标签，对应 appcompat 的「跟随系统」约定（空 LocaleList）。
+ * 其余项用 BCP-47 标签，与 res/values-* 资源目录匹配：
+ * - en → values（英文默认）
+ * - zh-CN → values-zh-rCN（缺的 key 回退到 values-zh）
+ * - zh-TW → values-zh-rTW
+ */
+@Serializable
+enum class AppLanguage(val languageTag: String?) {
+    SYSTEM(null),
+    ENGLISH("en"),
+    SIMPLIFIED_CHINESE("zh-CN"),
+    TRADITIONAL_CHINESE("zh-TW"),
+}
+
+/**
  * 消息底部工具栏里可配置的按钮。
  *
  * 注意：更多按钮(⋮)和分支选择器不在此枚举内，它们永远显示，不可关闭。
@@ -1281,6 +1298,7 @@ data class DisplaySetting(
     val showModelName: Boolean = true,
     val showTokenUsage: Boolean = false,
     val messageInputStyle: MessageInputStyle = MessageInputStyle.MINIMAL,
+    val appLanguage: AppLanguage = AppLanguage.SYSTEM, // 应用界面语言（null/跟随系统由枚举默认值表达）
     val showFullscreenInputButton: Boolean = false,
     val autoScrollOnMessageGeneration: Boolean = false,
     val autoCloseThinking: Boolean = true,
