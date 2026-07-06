@@ -87,7 +87,6 @@ import me.rerere.rikkahub.ui.hooks.rememberIsPlayStoreVersion
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.ui.modifier.onClick
-import me.rerere.rikkahub.ui.components.workdir.WorkDirPickerBottomSheet
 import me.rerere.rikkahub.utils.navigateToChatPage
 import me.rerere.rikkahub.utils.toDp
 import org.koin.compose.koinInject
@@ -118,8 +117,6 @@ fun ChatDrawerContent(
     )
 
     val recentlyRestoredIds by vm.recentlyRestoredIds.collectAsStateWithLifecycle()
-
-    var managingWorkDirConversation by remember { mutableStateOf<Conversation?>(null) }
 
     fun exportConversationJson(conversation: Conversation) {
         scope.launch {
@@ -310,9 +307,6 @@ fun ChatDrawerContent(
                 onPin = {
                     vm.updatePinnedStatus(it)
                 },
-                onManageWorkDir = { conversation ->
-                    managingWorkDirConversation = conversation
-                },
                 onExportConversationJson = { conversation ->
                     exportConversationJson(conversation)
                 },
@@ -411,129 +405,6 @@ fun ChatDrawerContent(
     }
 
     // 昵称编辑对话框
-    managingWorkDirConversation?.let { conversation ->
-        val haptics = rememberPremiumHaptics()
-        val effectiveWorkspaceRootTreeUri = settings.getEffectiveWorkspaceRootTreeUri(conversation.id)
-        val workspaceReady = !effectiveWorkspaceRootTreeUri.isNullOrBlank()
-        val hasConversationRootOverride = settings.hasConversationWorkspaceRoot(conversation.id)
-        val currentBinding = settings.conversationWorkDirs[conversation.id.toString()]
-        var showWorkDirPicker by remember(conversation.id) { mutableStateOf(false) }
-
-        if (showWorkDirPicker) {
-            WorkDirPickerBottomSheet(
-                conversationId = conversation.id,
-                workspaceRootTreeUri = effectiveWorkspaceRootTreeUri,
-                initialRelPath = currentBinding?.relPath?.trim().orEmpty(),
-                onDismissRequest = { showWorkDirPicker = false },
-                onConfirm = { relPath ->
-                    haptics.perform(HapticPattern.Thud)
-                    vm.updateSettings(
-                        settings.copy(
-                            conversationWorkDirs = settings.conversationWorkDirs + (
-                                conversation.id.toString() to ConversationWorkDirBinding(
-                                    mode = ConversationWorkDirMode.MANUAL,
-                                    relPath = relPath,
-                                )
-                            )
-                        ).rememberWorkspaceForNewChatsIfEnabled(
-                            workspaceRootTreeUri = settings.getConversationWorkspaceRootTreeUri(conversation.id),
-                            workDirRelPath = relPath,
-                        )
-                    )
-                    showWorkDirPicker = false
-                    managingWorkDirConversation = null
-                    toaster.show(message = context.getString(R.string.workdir_manual_saved))
-                },
-            )
-        }
-
-        AlertDialog(
-            onDismissRequest = { managingWorkDirConversation = null },
-            title = { Text(stringResource(R.string.workdir_manage_title)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = conversation.title.ifBlank { stringResource(R.string.chat_page_new_message) },
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-
-                    Text(
-                        text = if (workspaceReady) {
-                            when (currentBinding?.mode) {
-                                ConversationWorkDirMode.MANUAL -> {
-                                    val relPath = currentBinding.relPath.trim()
-                                    if (relPath.isBlank()) {
-                                        stringResource(R.string.workdir_current_root)
-                                    } else {
-                                        stringResource(R.string.workdir_current_manual, relPath)
-                                    }
-                                }
-
-                                else -> {
-                                    if (hasConversationRootOverride) {
-                                        stringResource(R.string.workdir_current_root)
-                                    } else {
-                                        stringResource(R.string.workdir_current_auto)
-                                    }
-                                }
-                            }
-                        } else {
-                            stringResource(R.string.workspace_root_required_hint_v2)
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-             },
-             confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val canRestoreDefaultRoot = !settings.workspaceRootTreeUri.isNullOrBlank()
-                    TextButton(
-                        enabled = if (hasConversationRootOverride) canRestoreDefaultRoot else true,
-                        onClick = {
-                            val key = conversation.id.toString()
-                            if (hasConversationRootOverride) {
-                                haptics.perform(HapticPattern.Thud)
-                                vm.updateSettings(
-                                    settings.clearConversationWorkspace(conversation.id)
-                                        .clearRememberedWorkspaceForNewChats()
-                                )
-                                toaster.show(message = context.getString(R.string.workspace_root_reset_to_default_success))
-                            } else {
-                                haptics.perform(HapticPattern.Pop)
-                                vm.updateSettings(
-                                    settings.copy(
-                                        conversationWorkDirs = settings.conversationWorkDirs - key,
-                                    ).clearRememberedWorkspaceForNewChats()
-                                )
-                                toaster.show(message = context.getString(R.string.workdir_reset_success))
-                            }
-                            managingWorkDirConversation = null
-                        }
-                    ) {
-                        Text(stringResource(R.string.workdir_reset_to_auto))
-                    }
-                    TextButton(
-                        onClick = {
-                            haptics.perform(HapticPattern.Pop)
-                            showWorkDirPicker = true
-                        }
-                    ) {
-                        Text(stringResource(R.string.workdir_choose_directory))
-                    }
-                }
-             },
-             dismissButton = {
-                 TextButton(onClick = { managingWorkDirConversation = null }) {
-                     Text(stringResource(R.string.cancel))
-                }
-            },
-        )
-    }
-
     nicknameEditState.EditStateContent { nickname, onUpdate ->
         AlertDialog(
             onDismissRequest = {

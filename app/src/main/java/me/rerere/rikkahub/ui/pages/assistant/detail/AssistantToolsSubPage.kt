@@ -291,6 +291,36 @@ fun AssistantToolsSubPage(
         }
 
         // ═══════════════════════════════════════════════════════════════════
+        // WORKSPACE GROUP
+        // ═══════════════════════════════════════════════════════════════════
+        val workspaceRepository: me.rerere.rikkahub.data.repository.WorkspaceRepository = org.koin.compose.koinInject()
+        val workspaces by remember(workspaceRepository) { workspaceRepository.listFlow() }
+            .collectAsStateWithLifecycle(emptyList())
+        val boundWorkspace = workspaces.firstOrNull { it.id == assistant.workspaceId }
+        var showWorkspaceSheet by remember { mutableStateOf(false) }
+
+        SettingsGroup(title = stringResource(R.string.extensions_page_workspace)) {
+            SettingGroupItem(
+                title = boundWorkspace?.name ?: stringResource(R.string.workspace_unbound),
+                subtitle = stringResource(R.string.extensions_page_workspace_desc),
+                onClick = { showWorkspaceSheet = true },
+            )
+        }
+
+        if (showWorkspaceSheet) {
+            me.rerere.rikkahub.ui.components.ai.WorkspaceSelectSheet(
+                selectedWorkspaceId = assistant.workspaceId,
+                workspaces = workspaces,
+                onSelect = { id ->
+                    onUpdate(assistant.copy(workspaceId = id))
+                    showWorkspaceSheet = false
+                },
+                onManage = { navController.navigate(me.rerere.rikkahub.Screen.Workspaces) },
+                onDismiss = { showWorkspaceSheet = false },
+            )
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
         // SKILLS GROUP
         // ═══════════════════════════════════════════════════════════════════
         SettingsGroup(title = stringResource(R.string.skills_group_title)) {

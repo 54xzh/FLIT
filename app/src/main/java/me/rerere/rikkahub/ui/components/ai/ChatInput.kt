@@ -186,7 +186,6 @@ import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
-import me.rerere.rikkahub.ui.components.workdir.WorkDirPickerBottomSheet
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.service.ChatService
@@ -1556,42 +1555,6 @@ private fun FilesPicker(
         isGeminiAttachmentMenuEnabled(currentChatModel)
     }
 
-    val effectiveWorkspaceRootTreeUri = settings.getEffectiveWorkspaceRootTreeUri(conversation.id)
-    val workspaceReady = !effectiveWorkspaceRootTreeUri.isNullOrBlank()
-    val workDirKey = conversation.id.toString()
-    val currentWorkDirBinding = settings.conversationWorkDirs[workDirKey]
-    var showWorkDirPicker by remember(conversation.id) { mutableStateOf(false) }
-
-    if (showWorkDirPicker) {
-        WorkDirPickerBottomSheet(
-            conversationId = conversation.id,
-            workspaceRootTreeUri = effectiveWorkspaceRootTreeUri,
-            initialRelPath = currentWorkDirBinding?.relPath?.trim().orEmpty(),
-            onDismissRequest = { showWorkDirPicker = false },
-            onConfirm = { relPath ->
-                onUpdateSettings(
-                    settings.copy(
-                        conversationWorkDirs = settings.conversationWorkDirs + (
-                            workDirKey to ConversationWorkDirBinding(
-                                mode = ConversationWorkDirMode.MANUAL,
-                                relPath = relPath,
-                            )
-                        )
-                    ).rememberWorkspaceForNewChatsIfEnabled(
-                        workspaceRootTreeUri = settings.getConversationWorkspaceRootTreeUri(conversation.id),
-                        workDirRelPath = relPath,
-                    )
-                )
-                toaster.show(
-                    message = context.getString(R.string.workdir_manual_saved),
-                    type = ToastType.Success,
-                )
-                showWorkDirPicker = false
-                onDismiss()
-            },
-        )
-    }
-
     val mcpServers = settings.mcpServers
     val enabledMcpServersCount = remember(mcpServers, assistant.mcpServers) {
         mcpServers.count { it.commonOptions.enable && it.id in assistant.mcpServers }
@@ -1837,75 +1800,6 @@ private fun FilesPicker(
 
         if (!isKeyboardVisible && (uiMode == ChatInputUiMode.Normal || conversation.messageNodes.isEmpty())) {
             Spacer(modifier = Modifier.height(8.dp))
-
-            if (conversation.messageNodes.isEmpty()) {
-                val hasConversationRootOverride = settings.hasConversationWorkspaceRoot(conversation.id)
-                val subtitle = if (workspaceReady) {
-                    when (currentWorkDirBinding?.mode) {
-                        ConversationWorkDirMode.MANUAL -> {
-                            val relPath = currentWorkDirBinding.relPath.trim()
-                            if (relPath.isBlank()) {
-                                context.getString(R.string.workdir_current_root)
-                            } else {
-                                context.getString(R.string.workdir_current_manual, relPath)
-                            }
-                        }
-
-                        else -> {
-                            if (hasConversationRootOverride) {
-                                context.getString(R.string.workdir_current_root)
-                            } else {
-                                context.getString(R.string.workdir_current_auto)
-                            }
-                        }
-                    }
-                } else {
-                    context.getString(R.string.workspace_root_required_hint_v2)
-                }
-
-                val workDirInteractionSource = remember { MutableInteractionSource() }
-                val isWorkDirPressed by workDirInteractionSource.collectIsPressedAsState()
-                val workDirScale by animateFloatAsState(
-                    targetValue = if (isWorkDirPressed) 0.98f else 1f,
-                    animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
-                    label = "workdir_quick_setup_scale",
-                )
-                ListItem(
-                    modifier = Modifier
-                        .graphicsLayer {
-                            scaleX = workDirScale
-                            scaleY = workDirScale
-                        }
-                        .clip(RoundedCornerShape(24.dp))
-                        .clickable(
-                            interactionSource = workDirInteractionSource,
-                            indication = LocalIndication.current,
-                        ) {
-                            haptics.perform(HapticPattern.Pop)
-                            showWorkDirPicker = true
-                        },
-                    colors = ListItemDefaults.colors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                    ),
-                    leadingContent = {
-                        Icon(
-                            imageVector = Icons.Rounded.FolderOpen,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    },
-                    headlineContent = {
-                        Text(stringResource(R.string.workdir_quick_setup_title))
-                    },
-                    supportingContent = {
-                        Text(
-                            text = subtitle,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                )
-            }
 
             if (conversation.messageNodes.isNotEmpty()) {
                 val clearInteractionSource = remember { MutableInteractionSource() }

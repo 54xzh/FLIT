@@ -2217,4 +2217,57 @@
     <string name="injection_picker_tab_modes">模式 %1$s</string>
     <string name="injection_picker_empty_skills">請先在助手設定裡啟用技能。</string>
 
+    <!-- Extensions page -->
+    <string name="extensions_page_title">擴充功能</string>
+    <string name="extensions_page_section_extensions">擴充功能</string>
+    <string name="extensions_page_skills">Skills</string>
+    <string name="extensions_page_skills_desc">匯入和管理 Skill 包</string>
+    <string name="extensions_page_prompts">模式與 Lorebook</string>
+    <string name="extensions_page_prompts_desc">模式和 Lorebook</string>
+    <string name="extensions_page_workspace">工作區</string>
+    <string name="extensions_page_workspace_desc">將 SAF 資料夾綁定到助手</string>
+    <string name="extensions_page_scripts">腳本</string>
+    <string name="extensions_page_scripts_desc">Python 腳本執行與相依套件</string>
+
+    <!-- Workspace page -->
+    <string name="workspace_page_title">工作區</string>
+    <string name="workspace_page_create">新增工作區</string>
+    <string name="workspace_page_rename">重新命名</string>
+    <string name="workspace_page_delete">刪除</string>
+    <string name="workspace_page_delete_confirm">刪除此工作區？綁定到它的助手將解除綁定。</string>
+    <string name="workspace_page_empty">還沒有工作區</string>
+    <string name="workspace_page_empty_desc">點擊 + 從 SAF 資料夾建立工作區。</string>
+    <string name="workspace_page_name">名稱</string>
+    <string name="workspace_page_name_duplicate">名稱已存在</string>
+    <string name="workspace_page_uri_duplicate">該資料夾已被其他工作區使用</string>
+    <string name="workspace_page_pick_folder">選擇資料夾</string>
+    <string name="workspace_page_root_label">資料夾</string>
+    <string name="workspace_page_created">工作區已建立</string>
+    <string name="workspace_page_renamed">工作區已重新命名</string>
+    <string name="workspace_page_deleted">工作區已刪除</string>
+    <string name="workspace_page_create_failed">建立工作區失敗：%1$s</string>
+    <string name="workspace_page_pick_first">請先選擇資料夾</string>
+
+    <!-- Workspace detail -->
+    <string name="workspace_detail_title">工作區</string>
+    <string name="workspace_detail_tool_approvals">工具審批</string>
+    <string name="workspace_detail_tool_approvals_desc">此工作區各工具的審批覆蓋</string>
+    <string name="workspace_detail_tool_allow_all">全部免審批</string>
+    <string name="workspace_detail_tool_allow_all_desc">跳過所有工作區工具的審批卡片</string>
+    <string name="workspace_detail_tool_workspace_list">workspace_list</string>
+    <string name="workspace_detail_tool_workspace_read_file">workspace_read_file</string>
+    <string name="workspace_detail_tool_workspace_write_file">workspace_write_file</string>
+    <string name="workspace_detail_tool_workspace_mkdir">workspace_mkdir</string>
+    <string name="workspace_detail_tool_workspace_delete">workspace_delete</string>
+    <string name="workspace_detail_tool_workspace_rename">workspace_rename</string>
+    <string name="workspace_detail_tool_eval_python">eval_python</string>
+    <string name="workspace_detail_tool_run_skill_script">run_skill_script</string>
+
+    <!-- Workspace select sheet (assistant binding) -->
+    <string name="workspace_select">選擇工作區</string>
+    <string name="workspace_no_binding">未綁定</string>
+    <string name="workspace_manage">管理工作區</string>
+    <string name="workspace_bound_current">目前工作區</string>
+    <string name="workspace_unbound">無工作區</string>
+
 </resources>

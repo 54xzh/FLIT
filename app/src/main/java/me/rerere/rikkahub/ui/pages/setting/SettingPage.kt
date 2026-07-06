@@ -196,10 +196,10 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                     )
 
                     SettingGroupItem(
-                        title = stringResource(R.string.setting_page_prompt_injections),
-                        subtitle = stringResource(R.string.setting_page_prompt_injections_desc),
-                        icon = { Icon(Icons.Rounded.Code, null, modifier = Modifier.size(20.dp)) },
-                        onClick = { navController.navigate(Screen.SettingModes()) }
+                        title = stringResource(R.string.extensions_page_title),
+                        subtitle = stringResource(R.string.extensions_page_section_extensions),
+                        icon = { Icon(Icons.Rounded.Extension, null, modifier = Modifier.size(20.dp)) },
+                        onClick = { navController.navigate(Screen.Extensions) }
                     )
                 }
             }
@@ -242,13 +242,6 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         subtitle = stringResource(R.string.setting_page_mcp_desc),
                         icon = { Icon(Icons.Rounded.Code, null, modifier = Modifier.size(20.dp)) },
                         onClick = { navController.navigate(Screen.SettingMcp) }
-                    )
-
-                    SettingGroupItem(
-                        title = stringResource(R.string.setting_page_skills),
-                        subtitle = stringResource(R.string.setting_page_skills_desc),
-                        icon = { Icon(Icons.Rounded.Extension, null, modifier = Modifier.size(20.dp)) },
-                        onClick = { navController.navigate(Screen.SettingSkills) }
                     )
 
                     SettingGroupItem(

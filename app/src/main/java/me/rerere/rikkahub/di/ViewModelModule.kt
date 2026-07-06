@@ -3,6 +3,8 @@ package me.rerere.rikkahub.di
 import me.rerere.rikkahub.ui.activity.TextSelectionVM
 import me.rerere.rikkahub.ui.pages.assistant.AssistantVM
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantDetailVM
+import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceVM
+import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceDetailVM
 import me.rerere.rikkahub.ui.pages.assistant.groupchat.GroupChatTemplateDetailVM
 import me.rerere.rikkahub.ui.pages.assistant.scheduled.AssistantScheduledTaskEditVM
 import me.rerere.rikkahub.ui.pages.assistant.scheduled.AssistantScheduledTasksVM
@@ -38,6 +40,13 @@ val viewModelModule = module {
     }
     viewModelOf(::SettingVM)
     viewModelOf(::AssistantVM)
+    viewModelOf(::WorkspaceVM)
+    viewModel<WorkspaceDetailVM> {
+        WorkspaceDetailVM(
+            workspaceId = it.get(),
+            repository = get(),
+        )
+    }
     viewModel<GroupChatTemplateDetailVM> {
         GroupChatTemplateDetailVM(
             id = it.get(),

@@ -92,6 +92,9 @@ import me.rerere.rikkahub.ui.pages.setting.SettingLorebooksPage
 import me.rerere.rikkahub.ui.pages.setting.SettingLorebookDetailPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSkillsPage
 import me.rerere.rikkahub.ui.pages.setting.SettingScriptsWorkspacePage
+import me.rerere.rikkahub.ui.pages.extensions.ExtensionsPage
+import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspacePage
+import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceDetailPage
 import me.rerere.rikkahub.ui.pages.setting.SettingChaquoPypiPage
 import me.rerere.rikkahub.ui.pages.setting.SettingChaquoPypiPackagePage
 import me.rerere.rikkahub.ui.pages.share.handler.ShareHandlerPage
@@ -692,6 +695,19 @@ class RouteActivity : ComponentActivity() {
                         SettingScriptsWorkspacePage()
                     }
 
+                    composable<Screen.Extensions> {
+                        ExtensionsPage()
+                    }
+
+                    composable<Screen.Workspaces> {
+                        WorkspacePage()
+                    }
+
+                    composable<Screen.WorkspaceDetail> { backStackEntry ->
+                        val route = backStackEntry.toRoute<Screen.WorkspaceDetail>()
+                        WorkspaceDetailPage(workspaceId = route.workspaceId)
+                    }
+
                     composable<Screen.SettingChaquoPypi> {
                         SettingChaquoPypiPage()
                     }
@@ -854,6 +870,15 @@ sealed interface Screen {
 
     @Serializable
     data object SettingScriptsWorkspace : Screen
+
+    @Serializable
+    data object Extensions : Screen
+
+    @Serializable
+    data object Workspaces : Screen
+
+    @Serializable
+    data class WorkspaceDetail(val workspaceId: String) : Screen
 
     @Serializable
     data object SettingChaquoPypi : Screen

@@ -111,7 +111,6 @@ fun SettingScriptsWorkspacePage(vm: SettingVM = koinViewModel()) {
     var showWheelImportRiskDialog by remember { mutableStateOf(false) }
     var showWheelImportResultDialog by remember { mutableStateOf(false) }
     var wheelImportReport by remember { mutableStateOf<PythonWheelInstaller.BatchResult?>(null) }
-    var showWorkspaceFileToolsAllowAllDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         pythonWheels = withContext(Dispatchers.IO) {
@@ -141,53 +140,6 @@ fun SettingScriptsWorkspacePage(vm: SettingVM = koinViewModel()) {
             )
             toaster.show(message = message)
         }
-    }
-
-    val workspaceRootLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        runCatching {
-            context.contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            )
-        }
-        vm.updateSettings { old ->
-            val preservedKeys = old.conversationWorkspaceRoots.keys
-            val preservedConversationWorkDirs = old.conversationWorkDirs.filterKeys { it in preservedKeys }
-            old.copy(
-                workspaceRootTreeUri = uri.toString(),
-                conversationWorkDirs = preservedConversationWorkDirs,
-            )
-        }
-        haptics.perform(HapticPattern.Success)
-        toaster.show(message = context.getString(R.string.workspace_root_set_success))
-    }
-
-    fun clearWorkspaceRoot() {
-        val rootUriString = settings.workspaceRootTreeUri?.trim().orEmpty()
-        val usedByConversationRoots = settings.conversationWorkspaceRoots.values.any { it.trim() == rootUriString }
-        if (rootUriString.isNotBlank() && !usedByConversationRoots) {
-            val uri = runCatching { Uri.parse(rootUriString) }.getOrNull()
-            if (uri != null) {
-                runCatching {
-                    context.contentResolver.releasePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                    )
-                }
-            }
-        }
-        vm.updateSettings { old ->
-            val preservedKeys = old.conversationWorkspaceRoots.keys
-            val preservedConversationWorkDirs = old.conversationWorkDirs.filterKeys { it in preservedKeys }
-            old.copy(
-                workspaceRootTreeUri = null,
-                conversationWorkDirs = preservedConversationWorkDirs,
-            )
-        }
-        toaster.show(message = context.getString(R.string.workspace_root_reset_desc))
     }
 
     Scaffold(
@@ -297,68 +249,6 @@ fun SettingScriptsWorkspacePage(vm: SettingVM = koinViewModel()) {
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            item(key = "workspace_group") {
-                SettingsGroup(title = stringResource(R.string.skills_scripts_workspace_section_workspace)) {
-                    SettingGroupItem(
-                        title = stringResource(R.string.workspace_root_title),
-                        subtitle = if (settings.workspaceRootTreeUri.isNullOrBlank()) {
-                            stringResource(R.string.workspace_root_not_set)
-                        } else {
-                            stringResource(R.string.workspace_root_set)
-                        },
-                        onClick = { workspaceRootLauncher.launch(null) }
-                    )
-
-                    if (!settings.workspaceRootTreeUri.isNullOrBlank()) {
-                        SettingGroupItem(
-                            title = stringResource(R.string.workspace_root_reset_title),
-                            subtitle = stringResource(R.string.workspace_root_reset_desc),
-                            onClick = {
-                                haptics.perform(HapticPattern.Thud)
-                                clearWorkspaceRoot()
-                            }
-                        )
-                    }
-
-                    SettingGroupItem(
-                        title = stringResource(R.string.workspace_remember_last_for_new_chats_title),
-                        subtitle = stringResource(R.string.workspace_remember_last_for_new_chats_desc),
-                        trailing = {
-                            HapticSwitch(
-                                checked = settings.rememberLastWorkspaceForNewChats,
-                                onCheckedChange = { checked ->
-                                    vm.updateSettings { old ->
-                                        if (checked) {
-                                            old.copy(rememberLastWorkspaceForNewChats = true)
-                                        } else {
-                                            old.copy(rememberLastWorkspaceForNewChats = false)
-                                                .clearRememberedWorkspaceForNewChats()
-                                        }
-                                    }
-                                },
-                            )
-                        }
-                    )
-
-                    SettingGroupItem(
-                        title = stringResource(R.string.workspace_file_tools_allow_all_title),
-                        subtitle = stringResource(R.string.workspace_file_tools_allow_all_desc),
-                        trailing = {
-                            HapticSwitch(
-                                checked = settings.workspaceFileToolsAllowAll,
-                                onCheckedChange = { checked ->
-                                    if (checked && !settings.workspaceFileToolsAllowAll) {
-                                        showWorkspaceFileToolsAllowAllDialog = true
-                                    } else {
-                                        vm.updateSettings { old -> old.copy(workspaceFileToolsAllowAll = checked) }
-                                    }
-                                },
-                            )
-                        }
-                    )
-                }
             }
         }
 
@@ -556,29 +446,6 @@ fun SettingScriptsWorkspacePage(vm: SettingVM = koinViewModel()) {
                 confirmButton = {
                     TextButton(onClick = { showWheelImportResultDialog = false }) {
                         Text(stringResource(R.string.done))
-                    }
-                }
-            )
-        }
-
-        if (showWorkspaceFileToolsAllowAllDialog) {
-            AlertDialog(
-                onDismissRequest = { showWorkspaceFileToolsAllowAllDialog = false },
-                title = { Text(stringResource(R.string.workspace_file_tools_allow_all_risk_title)) },
-                text = { Text(stringResource(R.string.workspace_file_tools_allow_all_risk_message)) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            haptics.perform(HapticPattern.Thud)
-                            vm.updateSettings { old -> old.copy(workspaceFileToolsAllowAll = true) }
-                            showWorkspaceFileToolsAllowAllDialog = false
-                            toaster.show(message = context.getString(R.string.workspace_file_tools_allow_all_enabled_success))
-                        }
-                    ) { Text(stringResource(R.string.workspace_file_tools_allow_all_enable_action)) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showWorkspaceFileToolsAllowAllDialog = false }) {
-                        Text(stringResource(R.string.cancel))
                     }
                 }
             )

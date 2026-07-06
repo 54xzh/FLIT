@@ -2227,4 +2227,57 @@
     <string name="injection_picker_tab_modes">Modes %1$s</string>
     <string name="injection_picker_empty_skills">Enable skills in assistant settings first.</string>
 
+    <!-- Extensions page -->
+    <string name="extensions_page_title">Extensions</string>
+    <string name="extensions_page_section_extensions">Extensions</string>
+    <string name="extensions_page_skills">Skills</string>
+    <string name="extensions_page_skills_desc">Import and manage Skill packages</string>
+    <string name="extensions_page_prompts">Modes &amp; Lorebooks</string>
+    <string name="extensions_page_prompts_desc">Modes and lorebooks</string>
+    <string name="extensions_page_workspace">Workspaces</string>
+    <string name="extensions_page_workspace_desc">Bind a SAF folder to an assistant</string>
+    <string name="extensions_page_scripts">Scripts</string>
+    <string name="extensions_page_scripts_desc">Python script execution and dependencies</string>
+
+    <!-- Workspace page -->
+    <string name="workspace_page_title">Workspaces</string>
+    <string name="workspace_page_create">New workspace</string>
+    <string name="workspace_page_rename">Rename</string>
+    <string name="workspace_page_delete">Delete</string>
+    <string name="workspace_page_delete_confirm">Delete this workspace? Assistants bound to it will be unbound.</string>
+    <string name="workspace_page_empty">No workspaces yet</string>
+    <string name="workspace_page_empty_desc">Tap + to create a workspace from a SAF folder.</string>
+    <string name="workspace_page_name">Name</string>
+    <string name="workspace_page_name_duplicate">Name already exists</string>
+    <string name="workspace_page_uri_duplicate">This folder is already used by another workspace</string>
+    <string name="workspace_page_pick_folder">Pick folder</string>
+    <string name="workspace_page_root_label">Folder</string>
+    <string name="workspace_page_created">Workspace created</string>
+    <string name="workspace_page_renamed">Workspace renamed</string>
+    <string name="workspace_page_deleted">Workspace deleted</string>
+    <string name="workspace_page_create_failed">Failed to create workspace: %1$s</string>
+    <string name="workspace_page_pick_first">Pick a folder first</string>
+
+    <!-- Workspace detail -->
+    <string name="workspace_detail_title">Workspace</string>
+    <string name="workspace_detail_tool_approvals">Tool approvals</string>
+    <string name="workspace_detail_tool_approvals_desc">Per-tool approval overrides for this workspace</string>
+    <string name="workspace_detail_tool_allow_all">Allow all (no approval)</string>
+    <string name="workspace_detail_tool_allow_all_desc">Skip approval cards for all workspace tools</string>
+    <string name="workspace_detail_tool_workspace_list">workspace_list</string>
+    <string name="workspace_detail_tool_workspace_read_file">workspace_read_file</string>
+    <string name="workspace_detail_tool_workspace_write_file">workspace_write_file</string>
+    <string name="workspace_detail_tool_workspace_mkdir">workspace_mkdir</string>
+    <string name="workspace_detail_tool_workspace_delete">workspace_delete</string>
+    <string name="workspace_detail_tool_workspace_rename">workspace_rename</string>
+    <string name="workspace_detail_tool_eval_python">eval_python</string>
+    <string name="workspace_detail_tool_run_skill_script">run_skill_script</string>
+
+    <!-- Workspace select sheet (assistant binding) -->
+    <string name="workspace_select">Select workspace</string>
+    <string name="workspace_no_binding">Not bound</string>
+    <string name="workspace_manage">Manage workspaces</string>
+    <string name="workspace_bound_current">Current workspace</string>
+    <string name="workspace_unbound">No workspace</string>
+
 </resources>

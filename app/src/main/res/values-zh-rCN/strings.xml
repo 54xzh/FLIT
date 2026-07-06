@@ -622,4 +622,57 @@
     <string name="setting_page_message_toolbar_assistant">助手消息工具栏</string>
     <string name="message_delete_confirm_title">删除这条消息？</string>
     <string name="message_delete_confirm_message">这条消息将从对话中移除，操作无法撤销。</string>
+
+    <!-- Extensions page -->
+    <string name="extensions_page_title">扩展</string>
+    <string name="extensions_page_section_extensions">扩展</string>
+    <string name="extensions_page_skills">Skills</string>
+    <string name="extensions_page_skills_desc">导入和管理 Skill 包</string>
+    <string name="extensions_page_prompts">模式与 Lorebook</string>
+    <string name="extensions_page_prompts_desc">模式和 Lorebook</string>
+    <string name="extensions_page_workspace">工作区</string>
+    <string name="extensions_page_workspace_desc">把 SAF 文件夹绑定到助手</string>
+    <string name="extensions_page_scripts">脚本</string>
+    <string name="extensions_page_scripts_desc">Python 脚本执行与依赖</string>
+
+    <!-- Workspace page -->
+    <string name="workspace_page_title">工作区</string>
+    <string name="workspace_page_create">新建工作区</string>
+    <string name="workspace_page_rename">重命名</string>
+    <string name="workspace_page_delete">删除</string>
+    <string name="workspace_page_delete_confirm">删除此工作区？绑定到它的助手将解除绑定。</string>
+    <string name="workspace_page_empty">还没有工作区</string>
+    <string name="workspace_page_empty_desc">点击 + 从 SAF 文件夹创建工作区。</string>
+    <string name="workspace_page_name">名称</string>
+    <string name="workspace_page_name_duplicate">名称已存在</string>
+    <string name="workspace_page_uri_duplicate">该文件夹已被其他工作区使用</string>
+    <string name="workspace_page_pick_folder">选择文件夹</string>
+    <string name="workspace_page_root_label">文件夹</string>
+    <string name="workspace_page_created">工作区已创建</string>
+    <string name="workspace_page_renamed">工作区已重命名</string>
+    <string name="workspace_page_deleted">工作区已删除</string>
+    <string name="workspace_page_create_failed">创建工作区失败：%1$s</string>
+    <string name="workspace_page_pick_first">请先选择文件夹</string>
+
+    <!-- Workspace detail -->
+    <string name="workspace_detail_title">工作区</string>
+    <string name="workspace_detail_tool_approvals">工具审批</string>
+    <string name="workspace_detail_tool_approvals_desc">此工作区各工具的审批覆盖</string>
+    <string name="workspace_detail_tool_allow_all">全部免审批</string>
+    <string name="workspace_detail_tool_allow_all_desc">跳过所有工作区工具的审批卡片</string>
+    <string name="workspace_detail_tool_workspace_list">workspace_list</string>
+    <string name="workspace_detail_tool_workspace_read_file">workspace_read_file</string>
+    <string name="workspace_detail_tool_workspace_write_file">workspace_write_file</string>
+    <string name="workspace_detail_tool_workspace_mkdir">workspace_mkdir</string>
+    <string name="workspace_detail_tool_workspace_delete">workspace_delete</string>
+    <string name="workspace_detail_tool_workspace_rename">workspace_rename</string>
+    <string name="workspace_detail_tool_eval_python">eval_python</string>
+    <string name="workspace_detail_tool_run_skill_script">run_skill_script</string>
+
+    <!-- Workspace select sheet (assistant binding) -->
+    <string name="workspace_select">选择工作区</string>
+    <string name="workspace_no_binding">未绑定</string>
+    <string name="workspace_manage">管理工作区</string>
+    <string name="workspace_bound_current">当前工作区</string>
+    <string name="workspace_unbound">无工作区</string>
 </resources>
