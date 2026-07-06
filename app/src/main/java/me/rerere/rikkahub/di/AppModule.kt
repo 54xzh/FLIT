@@ -162,6 +162,7 @@ val appModule = module {
             mcpManager = get(),
             modelQuotaRepo = get(),
             searchAgentProgressStore = get(),
+            workspaceRepository = get(),
         )
     }
 

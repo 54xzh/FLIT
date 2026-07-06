@@ -113,19 +113,14 @@ import me.rerere.rikkahub.data.ai.transformers.RegexOutputTransformer
 import me.rerere.rikkahub.data.ai.transformers.TemplateTransformer
 import me.rerere.rikkahub.data.ai.transformers.ThinkTagTransformer
 import me.rerere.rikkahub.data.datastore.KeepAliveMode
-import me.rerere.rikkahub.data.datastore.ConversationWorkDirBinding
-import me.rerere.rikkahub.data.datastore.ConversationWorkDirMode
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
-import me.rerere.rikkahub.data.datastore.applyRememberedWorkspaceToConversation
 import me.rerere.rikkahub.data.datastore.clearConversationWorkspace
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
-import me.rerere.rikkahub.data.datastore.getConversationWorkspaceRootTreeUri
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
-import me.rerere.rikkahub.data.datastore.getEffectiveWorkspaceRootTreeUri
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.ChatTarget
 import me.rerere.rikkahub.data.model.AssistantSearchMode
@@ -145,6 +140,7 @@ import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.ModelQuotaRepository
 import me.rerere.rikkahub.data.repository.QuotaUsageResult
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
+import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.SkillScriptPathUtils
@@ -233,6 +229,7 @@ class ChatService(
     val mcpManager: McpManager,
     private val modelQuotaRepo: ModelQuotaRepository,
     val searchAgentProgressStore: SearchAgentProgressStore,
+    private val workspaceRepository: WorkspaceRepository,
 ) {
     // 存储每个对话的状态
     private val conversations = ConcurrentHashMap<Uuid, MutableStateFlow<Conversation>>()
@@ -985,42 +982,6 @@ class ChatService(
         }
     }
 
-    private fun isWorkspaceRootTreeUriAccessible(uriString: String): Boolean {
-        val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return false
-        val rootDoc = runCatching { DocumentFile.fromTreeUri(context, uri) }.getOrNull()
-        return rootDoc?.isDirectory == true
-    }
-
-    private suspend fun applyRememberedWorkspaceForNewConversation(conversationId: Uuid) {
-        val settingsSnapshot = settingsStore.settingsFlowRaw.first()
-        if (!settingsSnapshot.rememberLastWorkspaceForNewChats) return
-        val rememberedWorkspace = settingsSnapshot.rememberedWorkspaceForNewChats ?: return
-
-        val validatedRememberedWorkspace = when (val rootUri = rememberedWorkspace.workspaceRootTreeUri) {
-            null -> rememberedWorkspace
-            else -> {
-                val accessible = withContext(Dispatchers.IO) {
-                    isWorkspaceRootTreeUriAccessible(rootUri)
-                }
-                if (!accessible) return
-                rememberedWorkspace.copy(workspaceRootTreeUri = rootUri)
-            }
-        }
-
-        val effectiveRootAfterApply = validatedRememberedWorkspace.workspaceRootTreeUri
-            ?: settingsSnapshot.workspaceRootTreeUri?.trim()?.takeIf { it.isNotBlank() }
-        if (effectiveRootAfterApply == null && validatedRememberedWorkspace.workDirRelPath != null) return
-
-        settingsStore.update { current ->
-            if (!current.rememberLastWorkspaceForNewChats) return@update current
-            if (current.rememberedWorkspaceForNewChats != rememberedWorkspace) return@update current
-            current.applyRememberedWorkspaceToConversation(
-                conversationId = conversationId,
-                rememberedWorkspace = validatedRememberedWorkspace,
-            )
-        }
-    }
-
     // 获取生成任务状态流
     fun getGenerationJobStateFlow(conversationId: Uuid): Flow<Job?> {
         return generationJobs.map { jobs -> jobs[conversationId] }
@@ -1306,7 +1267,6 @@ class ChatService(
             }
 
             // 新建对话, 并添加预设消息
-            applyRememberedWorkspaceForNewConversation(conversationId)
             val currentSettings = settingsStore.settingsFlowRaw.first()
             val target = currentSettings.chatTarget
             val baseConversation = Conversation.ofId(
@@ -2180,11 +2140,12 @@ class ChatService(
                     }
                     val hasWorkspaceFiles = assistant.localTools.contains(LocalToolOption.WorkspaceFiles)
                     if (hasWorkspaceFiles) {
-                        addAll(createWorkspaceFileTools(conversationId = conversation.id, settingsSnapshot = settings))
+                        addAll(createWorkspaceFileTools(assistant = assistant, settingsSnapshot = settings))
                     }
                     if (assistant.localTools.contains(LocalToolOption.PythonEngine)) {
                         add(
                             createWorkspacePythonTool(
+                                assistant = assistant,
                                 conversationId = conversation.id,
                                 settingsSnapshot = settings,
                                 includeCommonRules = !hasWorkspaceFiles,
@@ -2201,7 +2162,7 @@ class ChatService(
                         }
                         add(localTools.createSkillFileTool(enabledSkills, scriptableSkills))
                         if (scriptableSkills.isNotEmpty()) {
-                            add(createSkillScriptTool(conversationId = conversation.id, allowedSkills = scriptableSkills))
+                            add(createSkillScriptTool(assistant = assistant, conversationId = conversation.id, allowedSkills = scriptableSkills))
                         }
                     }
                     mcpManager.getAllAvailableTools().forEach { tool ->
@@ -2710,7 +2671,7 @@ class ChatService(
 
                 val hasWorkspaceFiles = seatAssistant.localTools.contains(LocalToolOption.WorkspaceFiles)
                 if (hasWorkspaceFiles) {
-                    addAll(createWorkspaceFileTools(conversationId = conversation.id, settingsSnapshot = settings))
+                    addAll(createWorkspaceFileTools(assistant = seatAssistant, settingsSnapshot = settings))
                 }
                 if (seatAssistant.localTools.contains(LocalToolOption.MemorySearch)) {
                     addAll(
@@ -2732,6 +2693,7 @@ class ChatService(
                 if (seatAssistant.localTools.contains(LocalToolOption.PythonEngine)) {
                     add(
                         createWorkspacePythonTool(
+                            assistant = seatAssistant,
                             conversationId = conversation.id,
                             settingsSnapshot = settings,
                             includeCommonRules = !hasWorkspaceFiles,
@@ -2748,7 +2710,7 @@ class ChatService(
                     }
                     add(localTools.createSkillFileTool(enabledSkills, scriptableSkills))
                     if (scriptableSkills.isNotEmpty()) {
-                        add(createSkillScriptTool(conversationId = conversation.id, allowedSkills = scriptableSkills))
+                        add(createSkillScriptTool(assistant = seatAssistant, conversationId = conversation.id, allowedSkills = scriptableSkills))
                     }
                     if (seatAssistant.localTools.contains(LocalToolOption.GetCurrentTime)) {
                         add(localTools.currentTimeTool)
@@ -3697,10 +3659,12 @@ class ChatService(
         return trimmed.substring(start, end + 1)
     }
 
-    private fun createSkillScriptTool(
+    private suspend fun createSkillScriptTool(
+        assistant: Assistant,
         conversationId: Uuid,
         allowedSkills: List<Skill>,
     ): Tool {
+        val requiresApproval = toolNeedsApproval(assistant, "skill_script_execute")
         val allowedSkillIds = allowedSkills.map { it.id.toString() }.toSet()
         val allowedSkillsById = allowedSkills.associateBy { it.id.toString() }
         val allowedSkillsByName = allowedSkills.groupBy { it.name.trim().lowercase(Locale.ROOT) }
@@ -3914,14 +3878,6 @@ class ChatService(
                             }
                         }
 
-                        val workspaceRootUri = settingsSnapshot.getEffectiveWorkspaceRootTreeUri(conversationId).orEmpty()
-                        if (workspaceRootUri.isBlank()) {
-                            return@withContext buildJsonObject {
-                                put("ok", false)
-                                put("error", "Workspace root is not set")
-                            }
-                        }
-
                         val skillId = resolvedSkill.id.toString()
                         val skillRoot = File(context.filesDir, "skills/$skillId")
                         val scriptFile = runCatching {
@@ -3935,92 +3891,15 @@ class ChatService(
                                 put("error", "Invalid script path")
                             }
 
-                        val rootDoc = runCatching {
-                            DocumentFile.fromTreeUri(context, Uri.parse(workspaceRootUri))
+                        val externalWorkDir = runCatching {
+                            resolveAssistantWorkspaceDir(assistant)
                         }.getOrNull()
-                        if (rootDoc?.isDirectory != true) {
-                            return@withContext buildJsonObject {
-                                put("ok", false)
-                                put("error", "Workspace root is not accessible")
-                            }
-                        }
-
-                        fun resolveOrCreateDirByRelPath(relPath: String): DocumentFile? {
-                            val segments = relPath.split('/').filter { it.isNotBlank() }
-                            var current: DocumentFile = rootDoc
-                            segments.forEach { seg ->
-                                val existing = current.findFile(seg)
-                                current = when {
-                                    existing != null && existing.isDirectory -> existing
-                                    existing != null -> return null
-                                    else -> current.createDirectory(seg) ?: return null
-                                }
-                            }
-                            return current
-                        }
-
-                        suspend fun ensureAutoWorkDirRelPath(): String? {
-                            val key = conversationId.toString()
-                            val existingBinding = settingsSnapshot.conversationWorkDirs[key]
-                            val existingRelPath = existingBinding?.relPath?.trim().orEmpty()
-                            val validatedExisting = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(existingRelPath)
-                            if (existingBinding?.mode == ConversationWorkDirMode.AUTO && !validatedExisting.isNullOrBlank()) {
-                                return validatedExisting
-                            }
-
-                            val conversation = getConversationFlow(conversationId).value
-                            val base = if (conversation.title.isBlank()) {
-                                SkillScriptPathUtils.datePlaceholderWorkDirBaseName(conversation.createAt)
-                            } else {
-                                SkillScriptPathUtils.sanitizeWorkDirBaseName(conversation.title)
-                            }
-                            val existingNames = runCatching {
-                                rootDoc.listFiles().mapNotNull { it.name }.toSet()
-                            }.getOrDefault(emptySet())
-                            val unique = SkillScriptPathUtils.pickUniqueName(existingNames, base)
-                            val created = rootDoc.createDirectory(unique) ?: return null
-
-                            settingsStore.update { current ->
-                                current.copy(
-                                    conversationWorkDirs = current.conversationWorkDirs + (
-                                        key to ConversationWorkDirBinding(
-                                            mode = ConversationWorkDirMode.AUTO,
-                                            relPath = unique,
-                                        )
-                                    )
-                                )
-                            }
-                            return created.name ?: unique
-                        }
-
-                        val key = conversationId.toString()
-                        val hasConversationRootOverride = settingsSnapshot.getConversationWorkspaceRootTreeUri(conversationId) != null
-                        val workDirRelPath = when (val binding = settingsSnapshot.conversationWorkDirs[key]) {
-                            null -> if (hasConversationRootOverride) "" else ensureAutoWorkDirRelPath()
-                            else -> when (binding.mode) {
-                                ConversationWorkDirMode.MANUAL -> SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
-                                ConversationWorkDirMode.AUTO -> {
-                                    if (hasConversationRootOverride) {
-                                        ""
-                                    } else {
-                                        val v = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
-                                            ?.takeIf { it.isNotBlank() }
-                                        v ?: ensureAutoWorkDirRelPath()
-                                    }
-                                }
-                            }
-                        } ?: return@withContext buildJsonObject {
-                            put("ok", false)
-                            put("error", "Failed to resolve workspace work directory")
-                        }
-
-                        val externalWorkDir = resolveOrCreateDirByRelPath(workDirRelPath)
                             ?: return@withContext buildJsonObject {
                                 put("ok", false)
-                                put("error", "Workspace work directory is not accessible")
+                                put("error", "Assistant has no workspace bound or workspace is not accessible")
                             }
 
-                        val internalWorkDir = File(context.filesDir, "skill_workspaces/${conversationId}")
+                        val internalWorkDir = resolveAssistantWorkspaceInternalDir(assistant)
                         val limits = WorkspaceSyncLimits()
 
                         val syncIn = runCatching {
@@ -4085,7 +3964,7 @@ class ChatService(
                         baseResult["skill_id"] = JsonPrimitive(skillId)
                         baseResult["skill_name"] = JsonPrimitive(resolvedSkill.name)
                         baseResult["script_path"] = JsonPrimitive(scriptRelativePath)
-                        baseResult["work_dir"] = JsonPrimitive(workDirRelPath)
+                        baseResult["workspace_id"] = JsonPrimitive(assistant.workspaceId)
                         baseResult["sync"] = buildJsonObject {
                             put("in_files", syncIn.filesCopied)
                             put("in_bytes", syncIn.bytesCopied)
@@ -4101,11 +3980,13 @@ class ChatService(
         )
     }
 
-    private fun createWorkspacePythonTool(
+    private suspend fun createWorkspacePythonTool(
+        assistant: Assistant,
         conversationId: Uuid,
         settingsSnapshot: Settings,
         includeCommonRules: Boolean,
     ): Tool {
+        val requiresApproval = toolNeedsApproval(assistant, "eval_python")
         return Tool(
             name = "eval_python",
             description = "Execute Python code with Chaquopy.",
@@ -4148,7 +4029,7 @@ class ChatService(
                 )
             },
             systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
-            requiresUserApproval = workspaceToolsRequireApproval(settingsSnapshot),
+            requiresUserApproval = requiresApproval,
             execute = { args ->
                 val obj = args.jsonObject
 
@@ -4212,7 +4093,7 @@ class ChatService(
                     runCatching {
                         withContext(Dispatchers.IO) {
                             val externalWorkDir = runCatching {
-                                resolveConversationWorkspaceDir(settingsSnapshot = settingsSnapshot, conversationId = conversationId)
+                                resolveAssistantWorkspaceDir(assistant = assistant)
                             }.getOrElse {
                                 return@withContext buildJsonObject {
                                     put("ok", false)
@@ -4220,7 +4101,7 @@ class ChatService(
                                 }
                             }
 
-                            val internalWorkDir = File(context.filesDir, "skill_workspaces/$conversationId")
+                            val internalWorkDir = resolveAssistantWorkspaceInternalDir(assistant)
                             val limits = WorkspaceSyncLimits()
 
                             val syncIn = runCatching {
@@ -4355,80 +4236,64 @@ class ChatService(
         return runCatching { target.delete() }.getOrDefault(false)
     }
 
-    private suspend fun resolveConversationWorkspaceDir(
-        settingsSnapshot: Settings,
-        conversationId: Uuid,
+    /**
+     * 解析助手绑定的工作区 SAF 根目录。
+     *
+     * 工作区 = 助手绑定的 WorkspaceEntity.treeUri（一个 SAF 授权目录），无子路径。
+     * @throws IllegalStateException 助手未绑定工作区 / 工作区记录不存在 / SAF 目录不可访问
+     */
+    private suspend fun resolveAssistantWorkspaceDir(
+        assistant: Assistant,
     ): DocumentFile = withContext(Dispatchers.IO) {
-        val currentSettings = settingsStore.settingsFlow.value
-        val effectiveSettings = if (currentSettings.init) settingsSnapshot else currentSettings
-
-        val workspaceRootUri = effectiveSettings.getEffectiveWorkspaceRootTreeUri(conversationId).orEmpty()
-        if (workspaceRootUri.isBlank()) {
-            error("Workspace root is not set")
+        val workspaceId = assistant.workspaceId
+        if (workspaceId.isNullOrBlank()) {
+            error("Assistant has no workspace bound")
         }
-
+        val workspace = workspaceRepository.getById(workspaceId)
+            ?: error("Workspace not found: $workspaceId")
         val rootDoc = runCatching {
-            DocumentFile.fromTreeUri(context, Uri.parse(workspaceRootUri))
+            DocumentFile.fromTreeUri(context, Uri.parse(workspace.treeUri))
         }.getOrNull()
         if (rootDoc?.isDirectory != true) {
-            error("Workspace root is not accessible")
+            error("Workspace directory is not accessible")
         }
+        rootDoc
+    }
 
-        val hasConversationRootOverride = effectiveSettings.getConversationWorkspaceRootTreeUri(conversationId) != null
+    /**
+     * 解析助手工作区对应的内部中转目录（供 Chaquopy 脚本执行使用，Python 无法直接访问 SAF）。
+     *
+     * 键为 workspaceId（同一工作区的多会话共享同一中转目录，符合助手级隔离语义）。
+     */
+    private fun resolveAssistantWorkspaceInternalDir(
+        assistant: Assistant,
+    ): File {
+        val workspaceId = assistant.workspaceId
+        require(!workspaceId.isNullOrBlank()) { "Assistant has no workspace bound" }
+        return File(context.filesDir, "skill_workspaces/$workspaceId")
+    }
 
-        suspend fun ensureAutoWorkDirRelPath(): String? {
-            val key = conversationId.toString()
-            val existingBinding = effectiveSettings.conversationWorkDirs[key]
-            val existingRelPath = existingBinding?.relPath?.trim().orEmpty()
-            val validatedExisting = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(existingRelPath)
-            if (existingBinding?.mode == ConversationWorkDirMode.AUTO && !validatedExisting.isNullOrBlank()) {
-                return validatedExisting
-            }
+    /**
+     * 取助手工作区的工具审批覆盖（toolName -> needsApproval）。
+     * 未绑工作区返回空 map（走默认审批）。
+     */
+    private suspend fun assistantToolApprovalOverrides(
+        assistant: Assistant,
+    ): Map<String, Boolean> {
+        val workspaceId = assistant.workspaceId ?: return emptyMap()
+        return workspaceRepository.getById(workspaceId)?.toolApprovalOverrides() ?: emptyMap()
+    }
 
-            val conversation = getConversationFlow(conversationId).value
-            val base = if (conversation.title.isBlank()) {
-                SkillScriptPathUtils.datePlaceholderWorkDirBaseName(conversation.createAt)
-            } else {
-                SkillScriptPathUtils.sanitizeWorkDirBaseName(conversation.title)
-            }
-            val existingNames = runCatching {
-                rootDoc.listFiles().mapNotNull { it.name }.toSet()
-            }.getOrDefault(emptySet())
-            val unique = SkillScriptPathUtils.pickUniqueName(existingNames, base)
-            val created = rootDoc.createDirectory(unique) ?: return null
-
-            settingsStore.update { current ->
-                current.copy(
-                    conversationWorkDirs = current.conversationWorkDirs + (
-                        key to ConversationWorkDirBinding(
-                            mode = ConversationWorkDirMode.AUTO,
-                            relPath = unique,
-                        )
-                    )
-                )
-            }
-            return created.name ?: unique
-        }
-
-        val key = conversationId.toString()
-        val workDirRelPath = when (val binding = effectiveSettings.conversationWorkDirs[key]) {
-            null -> if (hasConversationRootOverride) "" else ensureAutoWorkDirRelPath()
-            else -> when (binding.mode) {
-                ConversationWorkDirMode.MANUAL -> SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
-                ConversationWorkDirMode.AUTO -> {
-                    if (hasConversationRootOverride) {
-                        ""
-                    } else {
-                        val v = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim())
-                            ?.takeIf { it.isNotBlank() }
-                        v ?: ensureAutoWorkDirRelPath()
-                    }
-                }
-            }
-        } ?: error("Failed to resolve workspace work directory")
-
-        resolveOrCreateDirByRelPath(rootDoc, workDirRelPath)
-            ?: error("Workspace work directory is not accessible")
+    /**
+     * 判断某工具在某助手上是否需要审批卡片。
+     * 优先用工作区 toolApprovals 覆盖；未覆盖则用全局默认（默认需要审批，即 allow-all=false 语义）。
+     */
+    private suspend fun toolNeedsApproval(
+        assistant: Assistant,
+        toolName: String,
+    ): Boolean {
+        val overrides = assistantToolApprovalOverrides(assistant)
+        return overrides[toolName] ?: true
     }
 
     private fun createAskUserTool(conversationId: Uuid): Tool {
@@ -4489,17 +4354,17 @@ class ChatService(
         )
     }
 
-    private fun createWorkspaceFileTools(
-        conversationId: Uuid,
+    private suspend fun createWorkspaceFileTools(
+        assistant: Assistant,
         settingsSnapshot: Settings,
     ): List<Tool> {
         return listOf(
-            createWorkspaceListTool(conversationId = conversationId, settingsSnapshot = settingsSnapshot),
-            createWorkspaceReadFileTool(conversationId = conversationId, settingsSnapshot = settingsSnapshot),
-            createWorkspaceWriteFileTool(conversationId = conversationId, settingsSnapshot = settingsSnapshot),
-            createWorkspaceMkdirTool(conversationId = conversationId, settingsSnapshot = settingsSnapshot),
-            createWorkspaceDeleteTool(conversationId = conversationId, settingsSnapshot = settingsSnapshot),
-            createWorkspaceRenameTool(conversationId = conversationId, settingsSnapshot = settingsSnapshot),
+            createWorkspaceListTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
+            createWorkspaceReadFileTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
+            createWorkspaceWriteFileTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
+            createWorkspaceMkdirTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
+            createWorkspaceDeleteTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
+            createWorkspaceRenameTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
         )
     }
 
@@ -4591,10 +4456,6 @@ class ChatService(
         }
     }
 
-    private fun workspaceToolsRequireApproval(settingsSnapshot: Settings): Boolean {
-        return !settingsSnapshot.workspaceFileToolsAllowAll
-    }
-
     private fun createEffectiveSearchTools(
         settings: Settings,
         searchMode: AssistantSearchMode,
@@ -4654,10 +4515,11 @@ class ChatService(
         )
     }
 
-    private fun createWorkspaceListTool(
-        conversationId: Uuid,
+    private suspend fun createWorkspaceListTool(
+        assistant: Assistant,
         settingsSnapshot: Settings,
     ): Tool {
+        val requiresApproval = toolNeedsApproval(assistant, "workspace_list")
         return Tool(
             name = "workspace_list",
             description = "List workspace files and directories.",
@@ -4666,7 +4528,7 @@ class ChatService(
                     properties = buildJsonObject {
                         put("path", buildJsonObject {
                             put("type", "string")
-                            put("description", "Relative path inside the conversation workspace directory. Omit or use empty string for root.")
+                            put("description", "Relative path inside the assistant workspace directory. Omit or use empty string for root.")
                         })
                         put("recursive", buildJsonObject {
                             put("type", "boolean")
@@ -4679,7 +4541,7 @@ class ChatService(
                     }
                 )
             },
-            requiresUserApproval = workspaceToolsRequireApproval(settingsSnapshot),
+            requiresUserApproval = requiresApproval,
             execute = { args ->
                 val obj = args.jsonObject
                 val rawPath = parseWorkspaceToolString(obj, "path", "dir", "directory")
@@ -4691,7 +4553,7 @@ class ChatService(
 
                 runCatching {
                     withContext(Dispatchers.IO) {
-                        val workDir = resolveConversationWorkspaceDir(settingsSnapshot, conversationId)
+                        val workDir = resolveAssistantWorkspaceDir(assistant)
                         val dir = if (normalizedPath.isBlank()) {
                             workDir
                         } else {
@@ -4759,10 +4621,11 @@ class ChatService(
         )
     }
 
-    private fun createWorkspaceReadFileTool(
-        conversationId: Uuid,
+    private suspend fun createWorkspaceReadFileTool(
+        assistant: Assistant,
         settingsSnapshot: Settings,
     ): Tool {
+        val requiresApproval = toolNeedsApproval(assistant, "workspace_read_file")
         return Tool(
             name = "workspace_read_file",
             description = "Read a workspace text file.",
@@ -4771,7 +4634,7 @@ class ChatService(
                     properties = buildJsonObject {
                         put("path", buildJsonObject {
                             put("type", "string")
-                            put("description", "Relative file path inside the conversation workspace directory.")
+                            put("description", "Relative file path inside the assistant workspace directory.")
                         })
                         put("max_chars", buildJsonObject {
                             put("type", "integer")
@@ -4781,7 +4644,7 @@ class ChatService(
                     required = listOf("path"),
                 )
             },
-            requiresUserApproval = workspaceToolsRequireApproval(settingsSnapshot),
+            requiresUserApproval = requiresApproval,
             execute = { args ->
                 val obj = args.jsonObject
                 val rawPath = parseWorkspaceToolString(obj, "path", "file")
@@ -4792,7 +4655,7 @@ class ChatService(
 
                 runCatching {
                     withContext(Dispatchers.IO) {
-                        val workDir = resolveConversationWorkspaceDir(settingsSnapshot, conversationId)
+                        val workDir = resolveAssistantWorkspaceDir(assistant)
                         val file = resolveDocumentByRelPath(workDir, normalizedPath)
                             ?: return@withContext buildJsonObject { put("ok", false); put("error", "File not found: $normalizedPath") }
 
@@ -4848,10 +4711,11 @@ class ChatService(
         )
     }
 
-    private fun createWorkspaceWriteFileTool(
-        conversationId: Uuid,
+    private suspend fun createWorkspaceWriteFileTool(
+        assistant: Assistant,
         settingsSnapshot: Settings,
     ): Tool {
+        val requiresApproval = toolNeedsApproval(assistant, "workspace_write_file")
         return Tool(
             name = "workspace_write_file",
             description = "Write a workspace text file.",
@@ -4860,7 +4724,7 @@ class ChatService(
                     properties = buildJsonObject {
                         put("path", buildJsonObject {
                             put("type", "string")
-                            put("description", "Relative file path inside the conversation workspace directory.")
+                            put("description", "Relative file path inside the assistant workspace directory.")
                         })
                         put("content", buildJsonObject {
                             put("type", "string")
@@ -4882,7 +4746,7 @@ class ChatService(
                     required = listOf("path", "content"),
                 )
             },
-            requiresUserApproval = workspaceToolsRequireApproval(settingsSnapshot),
+            requiresUserApproval = requiresApproval,
             execute = { args ->
                 val obj = args.jsonObject
                 val rawPath = parseWorkspaceToolString(obj, "path", "file")
@@ -4898,7 +4762,7 @@ class ChatService(
 
                 runCatching {
                     withContext(Dispatchers.IO) {
-                        val workDir = resolveConversationWorkspaceDir(settingsSnapshot, conversationId)
+                        val workDir = resolveAssistantWorkspaceDir(assistant)
 
                         val segments = splitRelPath(normalizedPath)
                         val name = segments.lastOrNull()
@@ -4975,10 +4839,11 @@ class ChatService(
         )
     }
 
-    private fun createWorkspaceMkdirTool(
-        conversationId: Uuid,
+    private suspend fun createWorkspaceMkdirTool(
+        assistant: Assistant,
         settingsSnapshot: Settings,
     ): Tool {
+        val requiresApproval = toolNeedsApproval(assistant, "workspace_mkdir")
         return Tool(
             name = "workspace_mkdir",
             description = "Create a workspace directory.",
@@ -4987,7 +4852,7 @@ class ChatService(
                     properties = buildJsonObject {
                         put("path", buildJsonObject {
                             put("type", "string")
-                            put("description", "Relative directory path inside the conversation workspace directory.")
+                            put("description", "Relative directory path inside the assistant workspace directory.")
                         })
                         put("parents", buildJsonObject {
                             put("type", "boolean")
@@ -4997,7 +4862,7 @@ class ChatService(
                     required = listOf("path"),
                 )
             },
-            requiresUserApproval = workspaceToolsRequireApproval(settingsSnapshot),
+            requiresUserApproval = requiresApproval,
             execute = { args ->
                 val obj = args.jsonObject
                 val rawPath = parseWorkspaceToolString(obj, "path", "dir", "directory")
@@ -5008,7 +4873,7 @@ class ChatService(
 
                 runCatching {
                     withContext(Dispatchers.IO) {
-                        val workDir = resolveConversationWorkspaceDir(settingsSnapshot, conversationId)
+                        val workDir = resolveAssistantWorkspaceDir(assistant)
 
                         val segments = splitRelPath(normalizedPath)
                         val name = segments.lastOrNull()
@@ -5063,10 +4928,11 @@ class ChatService(
         )
     }
 
-    private fun createWorkspaceDeleteTool(
-        conversationId: Uuid,
+    private suspend fun createWorkspaceDeleteTool(
+        assistant: Assistant,
         settingsSnapshot: Settings,
     ): Tool {
+        val requiresApproval = toolNeedsApproval(assistant, "workspace_delete")
         return Tool(
             name = "workspace_delete",
             description = "Delete a workspace file or directory.",
@@ -5075,7 +4941,7 @@ class ChatService(
                     properties = buildJsonObject {
                         put("path", buildJsonObject {
                             put("type", "string")
-                            put("description", "Relative path inside the conversation workspace directory. Use empty to delete the workspace directory root (dangerous).")
+                            put("description", "Relative path inside the assistant workspace directory. Use empty to delete the workspace directory root (dangerous).")
                         })
                         put("recursive", buildJsonObject {
                             put("type", "boolean")
@@ -5089,7 +4955,7 @@ class ChatService(
                     required = listOf("path"),
                 )
             },
-            requiresUserApproval = workspaceToolsRequireApproval(settingsSnapshot),
+            requiresUserApproval = requiresApproval,
             execute = { args ->
                 val obj = args.jsonObject
                 val rawPath = obj["path"]?.jsonPrimitiveOrNull?.contentOrNull
@@ -5102,7 +4968,7 @@ class ChatService(
 
                 runCatching {
                     withContext(Dispatchers.IO) {
-                        val workDir = resolveConversationWorkspaceDir(settingsSnapshot, conversationId)
+                        val workDir = resolveAssistantWorkspaceDir(assistant)
                         val target = if (normalizedPath.isBlank()) {
                             workDir
                         } else {
@@ -5144,10 +5010,11 @@ class ChatService(
         )
     }
 
-    private fun createWorkspaceRenameTool(
-        conversationId: Uuid,
+    private suspend fun createWorkspaceRenameTool(
+        assistant: Assistant,
         settingsSnapshot: Settings,
     ): Tool {
+        val requiresApproval = toolNeedsApproval(assistant, "workspace_rename")
         return Tool(
             name = "workspace_rename",
             description = "Rename or move a workspace file or directory.",
@@ -5156,11 +5023,11 @@ class ChatService(
                     properties = buildJsonObject {
                         put("from", buildJsonObject {
                             put("type", "string")
-                            put("description", "Source relative path inside the conversation workspace directory.")
+                            put("description", "Source relative path inside the assistant workspace directory.")
                         })
                         put("to", buildJsonObject {
                             put("type", "string")
-                            put("description", "Destination relative path inside the conversation workspace directory.")
+                            put("description", "Destination relative path inside the assistant workspace directory.")
                         })
                         put("overwrite", buildJsonObject {
                             put("type", "boolean")
@@ -5174,7 +5041,7 @@ class ChatService(
                     required = listOf("from", "to"),
                 )
             },
-            requiresUserApproval = workspaceToolsRequireApproval(settingsSnapshot),
+            requiresUserApproval = requiresApproval,
             execute = { args ->
                 val obj = args.jsonObject
                 val rawFrom = parseWorkspaceToolString(obj, "from", "source", "src")
@@ -5189,7 +5056,7 @@ class ChatService(
 
                 runCatching {
                     withContext(Dispatchers.IO) {
-                        val workDir = resolveConversationWorkspaceDir(settingsSnapshot, conversationId)
+                        val workDir = resolveAssistantWorkspaceDir(assistant)
 
                         val source = resolveDocumentByRelPath(workDir, fromPath)
                             ?: return@withContext buildJsonObject { put("ok", false); put("error", "Source not found: $fromPath") }
@@ -5556,16 +5423,6 @@ class ChatService(
             } else {
                 saveConversation(conversationId, patchedConversation)
             }
-
-            runCatching {
-                tryRenameAutoWorkDirAfterTitleGenerated(
-                    settingsSnapshot = settings,
-                    conversationId = conversationId,
-                    title = titleTrimmed,
-                )
-            }.onFailure {
-                Log.w(TAG, "generateTitle: work dir rename skipped: ${it.message}", it)
-            }
         }.onFailure {
             Log.e(TAG, "generateTitle failed: ${it.message}", it)
         }
@@ -5612,65 +5469,6 @@ class ChatService(
         if (codePointCount <= maxCodePoints) return this
         val endIndex = this.offsetByCodePoints(0, maxCodePoints)
         return this.substring(0, endIndex)
-    }
-
-    private suspend fun tryRenameAutoWorkDirAfterTitleGenerated(
-        settingsSnapshot: Settings,
-        conversationId: Uuid,
-        title: String,
-    ) {
-        val workspaceRootUri = settingsSnapshot.getEffectiveWorkspaceRootTreeUri(conversationId).orEmpty()
-        if (workspaceRootUri.isBlank()) return
-
-        val titleTrimmed = title.trim()
-        if (titleTrimmed.isBlank()) return
-
-        val key = conversationId.toString()
-        val binding = settingsSnapshot.conversationWorkDirs[key] ?: return
-        if (binding.mode != ConversationWorkDirMode.AUTO) return
-
-        val relPath = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(binding.relPath.trim()) ?: return
-        if (relPath.contains('/')) return
-        if (!SkillScriptPathUtils.isDatePlaceholderWorkDirBaseName(relPath)) return
-
-        val targetBase = SkillScriptPathUtils.sanitizeWorkDirBaseName(titleTrimmed)
-        if (targetBase == relPath) return
-
-        val mutex = skillScriptMutexes.computeIfAbsent(conversationId) { Mutex() }
-        mutex.withLock {
-            withContext(Dispatchers.IO) {
-                val rootDoc = runCatching {
-                    DocumentFile.fromTreeUri(context, Uri.parse(workspaceRootUri))
-                }.getOrNull()
-                if (rootDoc?.isDirectory != true) return@withContext
-
-                val currentDir = rootDoc.findFile(relPath)
-                if (currentDir?.isDirectory != true) return@withContext
-
-                val existingNames = runCatching {
-                    rootDoc.listFiles().mapNotNull { it.name }.toSet()
-                }.getOrDefault(emptySet())
-                val uniqueTarget = SkillScriptPathUtils.pickUniqueName(existingNames - relPath, targetBase)
-
-                val renamed = runCatching { currentDir.renameTo(uniqueTarget) }.getOrDefault(false)
-                if (!renamed) return@withContext
-
-                settingsStore.update { current ->
-                    val currentBinding = current.conversationWorkDirs[key] ?: return@update current
-                    if (currentBinding.mode != ConversationWorkDirMode.AUTO) return@update current
-
-                    val currentRelPath = SkillScriptPathUtils.normalizeAndValidateWorkDirRelPath(currentBinding.relPath.trim())
-                        ?: return@update current
-                    if (currentRelPath != relPath) return@update current
-
-                    current.copy(
-                        conversationWorkDirs = current.conversationWorkDirs + (
-                            key to currentBinding.copy(relPath = uniqueTarget)
-                        )
-                    )
-                }
-            }
-        }
     }
 
     // 生成建议
