@@ -51,6 +51,7 @@ val dataSourceModule = module {
                 AppDatabase.MIGRATION_36_37,
                 AppDatabase.MIGRATION_37_38,
                 AppDatabase.MIGRATION_38_39,
+                AppDatabase.MIGRATION_39_40,
             )
             .build()
     }
@@ -127,6 +128,10 @@ val dataSourceModule = module {
 
     single {
         get<AppDatabase>().modelQuotaUsageDao()
+    }
+
+    single {
+        get<AppDatabase>().workspaceDao()
     }
 
     single { McpManager(settingsStore = get(), appScope = get()) }

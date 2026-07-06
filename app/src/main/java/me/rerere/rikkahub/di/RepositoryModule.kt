@@ -10,6 +10,7 @@ import me.rerere.rikkahub.data.repository.ModelCapabilityRepository
 import me.rerere.rikkahub.data.repository.ModelQuotaRepository
 import me.rerere.rikkahub.data.repository.StorageManagerRepository
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
+import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.ai.provider.providers.openai.OpenRouterModelCapabilityProvider
 import org.koin.dsl.module
 
@@ -51,6 +52,14 @@ val repositoryModule = module {
 
     single {
         ModelQuotaRepository(get())
+    }
+
+    single {
+        WorkspaceRepository(
+            dao = get(),
+            settingsStore = get(),
+            context = get(),
+        )
     }
 
     single {

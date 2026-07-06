@@ -27,6 +27,7 @@ import me.rerere.rikkahub.data.db.dao.ToolResultArchiveDao
 import me.rerere.rikkahub.data.db.dao.ToolResultArchiveChunkDao
 import me.rerere.rikkahub.data.db.dao.ModelQuotaUsageDAO
 import me.rerere.rikkahub.data.db.dao.UsageStatsDAO
+import me.rerere.rikkahub.data.db.dao.WorkspaceDao
 import me.rerere.rikkahub.data.db.entity.AIRequestLogEntity
 import me.rerere.rikkahub.data.db.entity.BackupLogEntity
 import me.rerere.rikkahub.data.db.entity.ChatEpisodeEntity
@@ -42,6 +43,7 @@ import me.rerere.rikkahub.data.db.entity.ScheduledTaskRunEntity
 import me.rerere.rikkahub.data.db.entity.ToolResultArchiveEntity
 import me.rerere.rikkahub.data.db.entity.ToolResultArchiveChunkEntity
 import me.rerere.rikkahub.data.db.entity.UsageStatsEntity
+import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.utils.JsonInstant
 
@@ -62,8 +64,9 @@ import me.rerere.rikkahub.utils.JsonInstant
         LorebookEntryRevisionEntity::class,
         UsageStatsEntity::class,
         ModelQuotaUsageEntity::class,
+        WorkspaceEntity::class,
     ],
-    version = 39,
+    version = 40,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -100,6 +103,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 36->37 is manual migration (MIGRATION_36_37) - adds model_quota_usage table
         // 37->38 is manual migration (MIGRATION_37_38) - adds session memories
         // 38->39 is manual migration (MIGRATION_38_39) - adds explicit Skill context ids
+        // 39->40 is manual migration (MIGRATION_39_40) - adds workspaces table
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -133,6 +137,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun usageStatsDao(): UsageStatsDAO
 
     abstract fun modelQuotaUsageDao(): ModelQuotaUsageDAO
+
+    abstract fun workspaceDao(): WorkspaceDao
 
     companion object {
         const val TAG = "AppDatabase"
@@ -314,6 +320,33 @@ abstract class AppDatabase : RoomDatabase() {
                 Log.i(TAG, "migrate: start migrate from 38 to 39")
                 db.execSQL("ALTER TABLE ConversationEntity ADD COLUMN explicit_skill_context_ids TEXT NOT NULL DEFAULT '[]'")
                 Log.i(TAG, "migrate: migrate from 38 to 39 success")
+            }
+        }
+
+        val MIGRATION_39_40 = object : Migration(39, 40) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 39 to 40")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `workspaces` (
+                        `id` TEXT NOT NULL PRIMARY KEY,
+                        `name` TEXT NOT NULL,
+                        `tree_uri` TEXT NOT NULL,
+                        `shell_status` TEXT NOT NULL DEFAULT 'DISABLED',
+                        `tool_approvals` TEXT NOT NULL DEFAULT '{}',
+                        `created_at` INTEGER NOT NULL,
+                        `updated_at` INTEGER NOT NULL,
+                        `last_access_at` INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_workspaces_tree_uri` ON `workspaces` (`tree_uri`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_workspaces_updated_at` ON `workspaces` (`updated_at`)"
+                )
+                Log.i(TAG, "migrate: migrate from 39 to 40 success")
             }
         }
     }

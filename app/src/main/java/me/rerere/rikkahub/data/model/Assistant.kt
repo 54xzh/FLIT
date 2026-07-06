@@ -124,6 +124,7 @@ data class Assistant(
     val backgroundPrompt: String = "", // 后台任务提示词
     val spontaneousPrompt: String = "", // 自发消息的Prompt
     val enabledLorebookIds: Set<Uuid> = emptySet(), // Lorebooks enabled for this assistant
+    val workspaceId: String? = null, // 绑定的工作区 id；null = 不绑定
 
     // Context Management Settings
     val maxHistoryMessages: Int? = null, // null = unlimited (use token budgeting only)
