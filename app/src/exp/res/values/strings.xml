@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- exp flavor 覆盖：显示名为 FLIT Dev -->
+    <string name="app_name">FLIT Dev</string>
+</resources>

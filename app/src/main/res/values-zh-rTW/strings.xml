@@ -7,7 +7,6 @@
   <string name="about_page_version">版本</string>
   <string name="about_page_website">官網</string>
   <string name="add">添加</string>
-  <string name="app_name">LastChat Plus</string>
   <string name="assistant_importer_import_failed">匯入失敗</string>
   <string name="assistant_importer_import_tavern_json">匯入酒館角色卡 (JSON)</string>
   <string name="assistant_importer_import_tavern_png">匯入酒館角色卡 (PNG)</string>
@@ -899,7 +898,7 @@
   <string name="setting_page_search_tab_common">通用設定</string>
   <string name="setting_page_share">分享</string>
   <string name="setting_page_share_desc">分享本APP給朋友</string>
-  <string name="setting_page_share_text">LastChat - 開源安卓AI助手\n\n官網: https://rikka-ai.com/</string>
+  <string name="setting_page_share_text">FLIT - 開源安卓AI助手\n\n官網: https://rikka-ai.com/</string>
   <string name="setting_page_theme_setting">主題設定</string>
   <string name="setting_page_theme_type_high_contrast">高對比</string>
   <string name="setting_page_theme_type_medium_contrast">中對比</string>
@@ -1462,7 +1461,7 @@
   <string name="translator_page_copy_translation">復制翻譯</string>
   <string name="translator_page_paste_text">粘貼文本</string>
   <string name="update_download_notification_desc">正在下載 %1$s...</string>
-  <string name="update_download_notification_title">LastChat 更新</string>
+  <string name="update_download_notification_title">FLIT 更新</string>
   <string name="update_card_download_started">已開始下載，請在狀態欄查看進度</string>
   <string name="update_card_failed_to_check_updates">檢查更新失敗</string>
   <string name="update_card_new_version_available">發現新版本：%1$s</string>
@@ -1489,7 +1488,8 @@
   <string name="setting_provider_page_base_url_hint_v1beta">Base URL 通常以 `/v1beta` 結尾</string>
   <string name="setting_about_page_android_version_title">Android 版本</string>
   <string name="setting_about_page_architecture_title">架構</string>
-  <string name="setting_about_page_credits">基於 RikkaHub</string>
+  <string name="setting_about_page_credits">基於 LastChat 和 RikkaHub</string>
+  <string name="tile_web_server_label">FLIT Web</string>
   <string name="setting_about_page_device_title">設備</string>
   <string name="setting_about_page_github_repo_subtitle">GitHub 倉庫</string>
   <string name="setting_about_page_links_title">鏈接</string>
@@ -1766,7 +1766,7 @@
   <string name="lorebook_export_success">世界書導出成功</string>
   <string name="lorebook_export_error">導出世界書失敗</string>
   <string name="lorebook_export_format">導出格式</string>
-  <string name="export_format_lastchat">LastChat（完整）</string>
+  <string name="export_format_lastchat">FLIT（完整）</string>
   <string name="export_format_sillytavern">SillyTavern</string>
   <string name="export_format_tavern">Tavern（兼容）</string>
   <string name="lorebook_import_success">已導入：%s</string>
@@ -1971,7 +1971,7 @@
   <string name="memory_type_episodic">情境記憶</string>
 
   <!-- Text Selection Integration -->
-  <string name="text_selection_menu_label">問問 LastChat</string>
+  <string name="text_selection_menu_label">問問 FLIT</string>
   <string name="text_selection_translate">翻譯</string>
   <string name="text_selection_explain">解釋</string>
   <string name="text_selection_summarize">總結</string>
@@ -2004,8 +2004,8 @@
   <string name="text_selection_action_cannot_delete">無法刪除此操作</string>
   <string name="reset">重置</string>
   <string name="text_selection_try_it">試一試</string>
-  <string name="text_selection_setup_instructions">在裝置任意位置選取文字，在出現的工具列中找到「LastChat」並點擊即可使用這些功能。</string>
-  <string name="text_selection_demo_text">這是一段示例文字，可用於選取！試著長按選取這些文字，然後在選取工具列中找到「LastChat」。如果沒有看到它，可能需要點擊更多選單（⋮）才能找到。</string>
+  <string name="text_selection_setup_instructions">在裝置任意位置選取文字，在出現的工具列中找到「FLIT」並點擊即可使用這些功能。</string>
+  <string name="text_selection_demo_text">這是一段示例文字，可用於選取！試著長按選取這些文字，然後在選取工具列中找到「FLIT」。如果沒有看到它，可能需要點擊更多選單（⋮）才能找到。</string>
   <string name="text_selection_demo_hint">👆 長按上方文字試試選取</string>
 
   <!-- Android Integration Settings -->
@@ -2095,8 +2095,8 @@
     </plurals>
 
     <string name="setting_page_web_server">網路存取</string>
-    <string name="setting_page_web_server_desc">在您的網路上使用 LastChat</string>
-    <string name="setting_page_web_server_hero_title">瀏覽器中的 LastChat</string>
+    <string name="setting_page_web_server_desc">在您的網路上使用 FLIT</string>
+    <string name="setting_page_web_server_hero_title">瀏覽器中的 FLIT</string>
     <string name="setting_page_web_server_hero_desc">啟動本地 Web 伺服器，從同一網路上的裝置瀏覽對話並傳送訊息。</string>
     <string name="setting_page_web_server_status_idle">伺服器離線</string>
     <string name="setting_page_web_server_status_starting">正在啟動本地伺服器…</string>
@@ -2126,7 +2126,7 @@
     <string name="setting_page_web_server_waiting_for_network">啟動伺服器以取得可連線的位址。</string>
     <string name="setting_page_web_server_error">Web 伺服器錯誤</string>
     <string name="notification_channel_web_server">Web 伺服器</string>
-    <string name="notification_web_server_title">LastChat Web 伺服器</string>
+    <string name="notification_web_server_title">FLIT Web 伺服器</string>
     <string name="notification_web_server_starting">正在啟動本地瀏覽器存取…</string>
     <string name="notification_web_server_stopping">正在關閉本地瀏覽器存取…</string>
     <string name="notification_web_server_running">本地瀏覽器存取正在運行</string>

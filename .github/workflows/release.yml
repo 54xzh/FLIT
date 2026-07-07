@@ -3,12 +3,11 @@ name: Android Release Build
 on:
   push:
     tags:
-      - "*zh*"
       - "*plus*"
       - "[0-9]*"
 
 permissions:
-  contents: write     
+  contents: write
 
 jobs:
   build:
@@ -35,22 +34,11 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           TAG_LOWER="$(printf '%s' "$TAG" | tr '[:upper:]' '[:lower:]')"
 
-          has_zh=0
           has_plus=0
-          if [[ "$TAG_LOWER" == *"zh"* ]]; then has_zh=1; fi
           if [[ "$TAG_LOWER" == *"plus"* ]]; then has_plus=1; fi
 
-          if [[ $has_zh -eq 1 && $has_plus -eq 1 ]]; then
-            echo "Tag contains both 'zh' and 'plus': $TAG"
-            exit 1
-          fi
-
+          # Default to plus; explicit "plus" tag also maps to plus.
           flavor="plus"
-          if [[ $has_zh -eq 1 ]]; then
-            flavor="zh"
-          elif [[ $has_plus -eq 1 ]]; then
-            flavor="plus"
-          fi
 
           echo "flavor=$flavor" >> "$GITHUB_OUTPUT"
           echo "Detected flavor: $flavor (tag: $TAG)"
@@ -58,7 +46,6 @@ jobs:
       - name: Prepare build files
         env:
           GOOGLE_SERVICES_JSON_B64_PLUS: ${{ secrets.GOOGLE_SERVICES_JSON_B64_PLUS }}
-          GOOGLE_SERVICES_JSON_B64_ZH: ${{ secrets.GOOGLE_SERVICES_JSON_B64_ZH }}
         run: |
           set -euo pipefail
 
@@ -72,13 +59,6 @@ jobs:
             fi
             printf '%s' "${GOOGLE_SERVICES_JSON_B64_PLUS}" | base64 -d > "app/src/plus/google-services.json"
             test -s "app/src/plus/google-services.json"
-          elif [[ "$FLAVOR" == "zh" ]]; then
-            if [[ -z "${GOOGLE_SERVICES_JSON_B64_ZH}" ]]; then
-              echo "Missing secret: GOOGLE_SERVICES_JSON_B64_ZH"
-              exit 1
-            fi
-            printf '%s' "${GOOGLE_SERVICES_JSON_B64_ZH}" | base64 -d > "app/src/zh/google-services.json"
-            test -s "app/src/zh/google-services.json"
           else
             echo "Unknown flavor: $FLAVOR"
             exit 1

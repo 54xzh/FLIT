@@ -1506,7 +1506,7 @@ private fun ImportExportPage(
                     if (!isExporting) {
                         val timestamp = LocalDateTime.now()
                             .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"))
-                        createDocumentLauncher.launch("LastChat_backup_$timestamp.zip")
+                        createDocumentLauncher.launch("FLIT_backup_$timestamp.zip")
                     }
                 }
             ) {

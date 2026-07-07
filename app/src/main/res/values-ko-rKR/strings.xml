@@ -7,7 +7,6 @@
   <string name="about_page_version">버전</string>
   <string name="about_page_website">웹사이트</string>
   <string name="add">추가</string>
-  <string name="app_name">LastChat</string>
   <string name="assistant_importer_import_failed">가져오기 실패</string>
   <string name="assistant_importer_import_tavern_json">타번 캐릭터 카드 가져오기 (JSON)</string>
   <string name="assistant_importer_import_tavern_png">타번 캐릭터 카드 가져오기 (PNG)</string>
@@ -485,7 +484,7 @@
   <string name="setting_page_search_tab_common">공통 설정</string>
   <string name="setting_page_share">공유</string>
   <string name="setting_page_share_desc">앱을 친구들과 공유하기</string>
-  <string name="setting_page_share_text">LastChat - 오픈소스 Android AI 어시스턴트\n\n웹사이트: https://rikka-ai.com/</string>
+  <string name="setting_page_share_text">FLIT - 오픈소스 Android AI 어시스턴트\n\n웹사이트: https://rikka-ai.com/</string>
   <string name="setting_page_theme_setting">테마 설정</string>
   <string name="setting_page_theme_type_high_contrast">높은 대비</string>
   <string name="setting_page_theme_type_medium_contrast">중간 대비</string>

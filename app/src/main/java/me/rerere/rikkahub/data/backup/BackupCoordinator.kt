@@ -17,6 +17,10 @@ import me.rerere.rikkahub.data.sync.WebdavSync
 import java.io.File
 
 private const val AUTO_SUBFOLDER = "auto"
+// 备份文件名前缀：导出用 FLIT_backup_，识别时同时兼容旧版 LastChat_backup_
+private val BACKUP_FILE_PREFIXES = setOf("FLIT_backup_", "LastChat_backup_")
+private fun String.isBackupFileName(): Boolean =
+    endsWith(".zip") && BACKUP_FILE_PREFIXES.any { startsWith(it) }
 
 class BackupCoordinator(
     private val context: Context,
@@ -232,7 +236,7 @@ class BackupCoordinator(
         try {
             val items = webdavSync.listBackupFiles(autoConfig)
                 .asSequence()
-                .filter { it.displayName.startsWith("LastChat_backup_") && it.displayName.endsWith(".zip") }
+                .filter { it.displayName.isBackupFileName() }
                 .sortedByDescending { it.lastModified }
                 .toList()
 
@@ -307,7 +311,7 @@ class BackupCoordinator(
         try {
             val items = objectStorageSync.listBackupFilesAuto(config, subfolder = AUTO_SUBFOLDER)
                 .asSequence()
-                .filter { it.displayName.startsWith("LastChat_backup_") && it.displayName.endsWith(".zip") }
+                .filter { it.displayName.isBackupFileName() }
                 .sortedByDescending { it.lastModified }
                 .toList()
 

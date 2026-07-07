@@ -36,8 +36,10 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 private const val TAG = "DataSync"
-private const val BACKUP_FILE_PREFIX = "LastChat_backup_"
+private const val BACKUP_FILE_PREFIX = "FLIT_backup_"
 private const val BACKUP_FILE_SUFFIX = ".zip"
+// 旧版本导出的备份以 LastChat_backup_ 开头，识别时一并兼容
+private val BACKUP_FILE_PREFIXES = setOf(BACKUP_FILE_PREFIX, "LastChat_backup_")
 private const val DATABASE_SNAPSHOT_PREFIX = "rikka_hub_snapshot_"
 private val STALE_BACKUP_TEMP_MAX_AGE_MS = TimeUnit.HOURS.toMillis(24)
 private val FILES_DIR_BACKUP_PATHS = listOf(
@@ -718,7 +720,7 @@ private fun joinPath(base: String, child: String): String {
 }
 
 private fun File.isBackupZipTempFile(): Boolean {
-    return name.startsWith(BACKUP_FILE_PREFIX) && name.endsWith(BACKUP_FILE_SUFFIX)
+    return name.endsWith(BACKUP_FILE_SUFFIX) && BACKUP_FILE_PREFIXES.any { name.startsWith(it) }
 }
 
 private suspend fun DavCollection.ensureCollectionExists() = withContext(Dispatchers.IO) {

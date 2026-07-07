@@ -7,7 +7,6 @@
   <string name="about_page_version">バージョン</string>
   <string name="about_page_website">ウェブサイト</string>
   <string name="add">追加</string>
-  <string name="app_name">LastChat</string>
   <string name="assistant_importer_import_failed">インポートに失敗しました</string>
   <string name="assistant_importer_import_tavern_json">タバーンキャラクターカードをインポート (JSON)</string>
   <string name="assistant_importer_import_tavern_png">タバーンキャラクターカードをインポート (PNG)</string>
@@ -485,7 +484,7 @@
   <string name="setting_page_search_tab_common">共通設定</string>
   <string name="setting_page_share">共有</string>
   <string name="setting_page_share_desc">このアプリを友達と共有</string>
-  <string name="setting_page_share_text">LastChat - オープンソースAndroid AIアシスタント\n\nウェブサイト: https://rikka-ai.com/</string>
+  <string name="setting_page_share_text">FLIT - オープンソースAndroid AIアシスタント\n\nウェブサイト: https://rikka-ai.com/</string>
   <string name="setting_page_theme_setting">テーマ設定</string>
   <string name="setting_page_theme_type_high_contrast">高コントラスト</string>
   <string name="setting_page_theme_type_medium_contrast">中コントラスト</string>

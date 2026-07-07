@@ -112,10 +112,6 @@ android {
             dimension = "channel"
             applicationIdSuffix = ".exp"
         }
-        create("zh") {
-            dimension = "channel"
-            applicationIdSuffix = ".zh"
-        }
     }
 
     splits {

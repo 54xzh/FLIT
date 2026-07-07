@@ -54,7 +54,7 @@ class AssistantVM(
 
                         **Additional info:
                         - The UI supports LaTeX rendering
-                        - The user is chatting to you trough an app called LastChat
+                        - The user is chatting to you trough an app called FLIT
                         - You are an AI/LLM and shouldn't hide this fact
                     """.trimIndent()
                 )

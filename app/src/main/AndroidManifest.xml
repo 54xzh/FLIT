@@ -113,7 +113,7 @@
 
     <service
         android:name=".service.WebServerTileService"
-        android:label="LastChat Web"
+        android:label="@string/tile_web_server_label"
         android:icon="@drawable/ic_tile_web_server"
         android:exported="true"
         android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">

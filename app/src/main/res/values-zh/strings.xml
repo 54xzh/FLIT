@@ -7,7 +7,6 @@
   <string name="about_page_version">版本</string>
   <string name="about_page_website">官网</string>
   <string name="add">添加</string>
-  <string name="app_name">LastChat Plus</string>
   <string name="assistant_importer_import_failed">导入失败</string>
   <string name="assistant_importer_import_tavern_json">导入酒馆角色卡 (JSON)</string>
   <string name="assistant_importer_import_tavern_png">导入酒馆角色卡 (PNG)</string>
@@ -956,7 +955,7 @@
   <string name="setting_page_search_tab_common">通用设置</string>
   <string name="setting_page_share">分享</string>
   <string name="setting_page_share_desc">分享本APP给朋友</string>
-  <string name="setting_page_share_text">LastChat - 开源安卓AI助手\n\n官网: https://rikka-ai.com/</string>
+  <string name="setting_page_share_text">FLIT - 开源安卓AI助手\n\n官网: https://rikka-ai.com/</string>
   <string name="setting_page_theme_setting">主题设置</string>
   <string name="setting_page_theme_type_high_contrast">高对比</string>
   <string name="setting_page_theme_type_medium_contrast">中对比</string>
@@ -1418,7 +1417,7 @@
     <string name="translator_page_copy_translation">复制翻译</string>
     <string name="translator_page_paste_text">粘贴文本</string>
     <string name="update_download_notification_desc">正在下载 %1$s...</string>
-    <string name="update_download_notification_title">LastChat 更新</string>
+    <string name="update_download_notification_title">FLIT 更新</string>
     <string name="update_card_download_started">已开始下载，请在状态栏查看进度</string>
     <string name="update_card_failed_to_check_updates">检查更新失败</string>
     <string name="update_card_new_version_available">发现新版本：%1$s</string>
@@ -1445,7 +1444,8 @@
     <string name="setting_provider_page_base_url_hint_v1beta">Base URL 通常以 `/v1beta` 结尾</string>
     <string name="setting_about_page_android_version_title">Android 版本</string>
     <string name="setting_about_page_architecture_title">架构</string>
-    <string name="setting_about_page_credits">基于 RikkaHub</string>
+    <string name="setting_about_page_credits">基于 LastChat 和 RikkaHub</string>
+    <string name="tile_web_server_label">FLIT Web</string>
     <string name="setting_about_page_device_title">设备</string>
     <string name="setting_about_page_github_repo_subtitle">GitHub 仓库</string>
     <string name="setting_about_page_links_title">链接</string>
@@ -1746,7 +1746,7 @@
     <string name="lorebook_export_success">世界书导出成功</string>
     <string name="lorebook_export_error">导出世界书失败</string>
     <string name="lorebook_export_format">导出格式</string>
-    <string name="export_format_lastchat">LastChat（完整）</string>
+    <string name="export_format_lastchat">FLIT（完整）</string>
     <string name="export_format_sillytavern">SillyTavern</string>
     <string name="export_format_tavern">Tavern（兼容）</string>
     <string name="lorebook_import_success">已导入：%s</string>
@@ -1834,7 +1834,7 @@
     <string name="lorebook_search_entries_placeholder">搜索条目…</string>
 
     <!-- Text Selection Integration -->
-    <string name="text_selection_menu_label">问问 LastChat</string>
+    <string name="text_selection_menu_label">问问 FLIT</string>
     <string name="text_selection_translate">翻译</string>
     <string name="text_selection_explain">解释</string>
     <string name="text_selection_summarize">总结</string>
@@ -1866,8 +1866,8 @@
     <string name="text_selection_action_cannot_delete">无法删除此操作</string>
     <string name="reset">重置</string>
     <string name="text_selection_try_it">试一试</string>
-    <string name="text_selection_setup_instructions">在设备任意位置选择文本，在出现的工具栏中找到“LastChat”并点击即可使用这些功能。</string>
-    <string name="text_selection_demo_text">这是一段示例文本，可用于选择！试着长按选择这些文字，然后在选择工具栏中找到“LastChat”。如果没有看到它，可能需要点击更多菜单（?）才能找到。</string>
+    <string name="text_selection_setup_instructions">在设备任意位置选择文本，在出现的工具栏中找到“FLIT”并点击即可使用这些功能。</string>
+    <string name="text_selection_demo_text">这是一段示例文本，可用于选择！试着长按选择这些文字，然后在选择工具栏中找到“FLIT”。如果没有看到它，可能需要点击更多菜单（?）才能找到。</string>
     <string name="text_selection_demo_hint">长按上方文本试试选择</string>
 
     <!-- Android Integration Settings -->

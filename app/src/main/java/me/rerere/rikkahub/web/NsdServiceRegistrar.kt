@@ -73,7 +73,7 @@ class NsdServiceRegistrar(
                 serviceType,
                 serviceName,
                 port,
-                "LastChat Web Server"
+                "FLIT Web Server"
             )
 
             mdns.registerService(serviceInfo)

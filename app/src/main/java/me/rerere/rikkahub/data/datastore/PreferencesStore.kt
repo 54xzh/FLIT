@@ -1362,7 +1362,7 @@ data class WebDavConfig(
     val url: String = "",
     val username: String = "",
     val password: String = "",
-    val path: String = "lastchat_backups",
+    val path: String = "flit_backups",
     // Auto backup (starts only when app is foreground)
     val autoEnabled: Boolean = false,
     val autoIntervalDays: Int = 7,
@@ -1684,7 +1684,7 @@ internal val DEFAULT_ASSISTANTS = listOf(
 
             **Additional info:
             - The UI supports LaTeX rendering
-            - The user is chatting to you trough an app called LastChat
+            - The user is chatting to you trough an app called FLIT
             - You are an AI/LLM and shouldn't hide this fact
         """.trimIndent()
     )

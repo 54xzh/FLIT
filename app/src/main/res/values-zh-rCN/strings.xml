@@ -441,8 +441,8 @@
     <string name="modes_page_config_default_assistants">配置默认启用的助手（%1$d/%2$d）</string>
     <string name="video">视频</string>
     <string name="setting_page_web_server">网络访问</string>
-    <string name="setting_page_web_server_desc">在您的网络上使用 LastChat</string>
-    <string name="setting_page_web_server_hero_title">浏览器中的 LastChat</string>
+    <string name="setting_page_web_server_desc">在您的网络上使用 FLIT</string>
+    <string name="setting_page_web_server_hero_title">浏览器中的 FLIT</string>
     <string name="setting_page_web_server_hero_desc">启动本地 Web 服务器以浏览对话并从同一网络上的设备发送消息。</string>
     <string name="setting_page_web_server_status_idle">服务器离线</string>
     <string name="setting_page_web_server_status_starting">启动本地服务器…</string>
@@ -472,7 +472,7 @@
     <string name="setting_page_web_server_waiting_for_network">启动服务器以获取可访问的地址。</string>
     <string name="setting_page_web_server_error">网络服务器错误</string>
     <string name="notification_channel_web_server">网络服务器</string>
-    <string name="notification_web_server_title">LastChat 网络服务器</string>
+    <string name="notification_web_server_title">FLIT 网络服务器</string>
     <string name="notification_web_server_starting">正在启动本地浏览器访问…</string>
     <string name="notification_web_server_stopping">正在关闭本地浏览器访问…</string>
     <string name="notification_web_server_running">本地浏览器访问正在运行</string>
@@ -702,4 +702,6 @@
     <string name="workspace_manage">管理工作区</string>
     <string name="workspace_bound_current">当前工作区</string>
     <string name="workspace_unbound">无工作区</string>
+    <string name="setting_about_page_credits">基于 LastChat 和 RikkaHub</string>
+    <string name="tile_web_server_label">FLIT Web</string>
 </resources>

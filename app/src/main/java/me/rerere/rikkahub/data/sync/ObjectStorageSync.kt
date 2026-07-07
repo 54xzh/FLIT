@@ -27,7 +27,12 @@ import java.util.concurrent.TimeUnit
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
-private const val DEFAULT_BACKUP_PREFIX = "lastchat_backups"
+private const val DEFAULT_BACKUP_PREFIX = "flit_backups"
+// 旧版备份存储在 lastchat_backups 路径下，列出时一并兼容
+private const val LEGACY_BACKUP_PREFIX = "lastchat_backups"
+private val BACKUP_FILE_PREFIXES = setOf("FLIT_backup_", "LastChat_backup_")
+private fun String.isBackupFileName(): Boolean =
+    endsWith(".zip") && BACKUP_FILE_PREFIXES.any { startsWith(it) }
 
 private const val AWS_ALGORITHM = "AWS4-HMAC-SHA256"
 private const val AWS_TERMINATOR = "aws4_request"
@@ -164,50 +169,33 @@ class ObjectStorageSync(
 
     suspend fun listBackupFiles(config: ObjectStorageConfig): List<ObjectStorageBackupItem> =
         withContext(Dispatchers.IO) {
-            val url = buildBucketUrl(
-                config = config,
-                queryParams = listOf(
-                    "list-type" to "2",
-                    "prefix" to "${DEFAULT_BACKUP_PREFIX.trimEnd('/')}/",
-                ),
-            )
-            val request = buildSignedRequest(
-                config = config,
-                method = "GET",
-                url = url,
-                payloadSha256Hex = EMPTY_SHA256_HEX,
-                body = null,
-                extraHeaders = emptyMap(),
-            )
-
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val body = response.body?.string()?.take(2048).orEmpty()
-                    throw Exception("Failed to list backups (${response.code}): ${body.ifBlank { response.message }}")
-                }
-
-                val bodyStream = response.body?.byteStream()
-                    ?: throw Exception("Empty response body")
-                parseListObjectsV2Response(bodyStream)
-                    .asSequence()
-                    .filter { item ->
-                        item.displayName.startsWith("LastChat_backup_") && item.displayName.endsWith(".zip")
-                    }
-                    .sortedByDescending { it.lastModified }
-                    .toList()
-            }
+            (listBackupObjects(config, pathPrefix = DEFAULT_BACKUP_PREFIX) +
+                listBackupObjects(config, pathPrefix = LEGACY_BACKUP_PREFIX))
+                .sortedByDescending { it.lastModified }
         }
 
     suspend fun listBackupFilesAuto(
         config: ObjectStorageConfig,
         subfolder: String,
     ): List<ObjectStorageBackupItem> = withContext(Dispatchers.IO) {
-        val prefix = joinPath(DEFAULT_BACKUP_PREFIX, subfolder)
+        (listBackupObjects(config, pathPrefix = joinPath(DEFAULT_BACKUP_PREFIX, subfolder)) +
+            listBackupObjects(config, pathPrefix = joinPath(LEGACY_BACKUP_PREFIX, subfolder)))
+            .sortedByDescending { it.lastModified }
+    }
+
+    /**
+     * 列出对象存储中指定路径前缀下的备份文件，合并新旧两个路径前缀的结果。
+     * 旧版备份在 [LEGACY_BACKUP_PREFIX] 路径下，新版写入 [DEFAULT_BACKUP_PREFIX]。
+     */
+    private suspend fun listBackupObjects(
+        config: ObjectStorageConfig,
+        pathPrefix: String,
+    ): List<ObjectStorageBackupItem> = withContext(Dispatchers.IO) {
         val url = buildBucketUrl(
             config = config,
             queryParams = listOf(
                 "list-type" to "2",
-                "prefix" to "${prefix.trimEnd('/')}/",
+                "prefix" to "${pathPrefix.trimEnd('/')}/",
             ),
         )
         val request = buildSignedRequest(
@@ -229,10 +217,7 @@ class ObjectStorageSync(
                 ?: throw Exception("Empty response body")
             parseListObjectsV2Response(bodyStream)
                 .asSequence()
-                .filter { item ->
-                    item.displayName.startsWith("LastChat_backup_") && item.displayName.endsWith(".zip")
-                }
-                .sortedByDescending { it.lastModified }
+                .filter { it.displayName.isBackupFileName() }
                 .toList()
         }
     }
