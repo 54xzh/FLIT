@@ -205,8 +205,13 @@ android {
         outputs.all {
             this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
 
-            val variantName = name
-            val apkName = "lastchat_" + defaultConfig.versionName + "_" + variantName + ".apk"
+            // 用应用显示名作为文件名前缀：plus -> FLIT，exp -> FLIT_Dev
+            val displayName = when (flavorName) {
+                "exp" -> "FLIT_Dev"
+                else -> "FLIT"
+            }
+            val buildTypeSuffix = buildType.name // release / debug
+            val apkName = "${displayName}_${defaultConfig.versionName}-${buildTypeSuffix}.apk"
 
             outputFileName = apkName
         }
