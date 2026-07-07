@@ -59,7 +59,6 @@ import me.rerere.rikkahub.data.model.ToolResultHistoryMode
 import me.rerere.rikkahub.data.model.ensureSeatInstanceNumbers
 import me.rerere.rikkahub.ui.theme.PresetThemes
 import me.rerere.rikkahub.utils.JsonInstant
-import me.rerere.rikkahub.utils.SoCInfo
 import me.rerere.rikkahub.utils.SkillScriptPathUtils
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import me.rerere.rikkahub.utils.toMutableStateFlow
@@ -187,7 +186,6 @@ class SettingsStore(
         val THEME_ID = stringPreferencesKey("theme_id")
         val DISPLAY_SETTING = stringPreferencesKey("display_setting")
         val LIVE_UPDATE_DEFAULT_APPLIED = booleanPreferencesKey("live_update_default_applied")
-        val TOP_BAR_BLUR_DEFAULT_APPLIED = booleanPreferencesKey("top_bar_blur_default_applied")
         val DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
         val SHOW_MARKDOWN_FONT_DEBUG_INFO = booleanPreferencesKey("show_markdown_font_debug_info")
         val AUTO_CONTINUE_ON_TRUNCATION = booleanPreferencesKey("auto_continue_on_truncation")
@@ -367,42 +365,6 @@ class SettingsStore(
                 }
             }.onFailure {
                 Log.w(TAG, "applyLiveUpdateDefaultIfNeeded failed: ${it.message}", it)
-            }
-        }
-
-        // 顶栏模糊开关默认值: 首次启动(或恢复未手动设置过的备份后)按 SoC 性能档位决定。
-        // 仅当用户未手动设置过 (topBarBlurUserSet == false) 且本机尚未应用过该默认值时执行一次。
-        // 用户手动切换后 topBarBlurUserSet 置 true, 之后不再自动覆盖。
-        scope.launch(Dispatchers.IO) {
-            runCatching {
-                val prefs = dataStore.data.first()
-                if (prefs[TOP_BAR_BLUR_DEFAULT_APPLIED] == true) return@launch
-
-                val rawDisplaySetting = prefs[DISPLAY_SETTING]
-                val currentDisplaySetting = decodeDisplaySettingCompat(rawDisplaySetting)
-                if (currentDisplaySetting.topBarBlurUserSet) {
-                    // 用户已手动设置过, 标记为已应用, 不再干预。
-                    dataStore.edit { it[TOP_BAR_BLUR_DEFAULT_APPLIED] = true }
-                    return@launch
-                }
-
-                val suggested = SoCInfo.suggestsHighPerformance
-                if (currentDisplaySetting.topBarBlur == suggested) {
-                    // 当前值(默认 true)恰好与判定一致, 无需改值, 仅置标志。
-                    dataStore.edit { it[TOP_BAR_BLUR_DEFAULT_APPLIED] = true }
-                    return@launch
-                }
-
-                dataStore.edit { preferences ->
-                    // 在 edit 内重新解码最新值再 copy, 避免与并行 init 协程 (#1/#4) 互相覆盖.
-                    val latest = decodeDisplaySettingCompat(preferences[DISPLAY_SETTING])
-                    preferences[DISPLAY_SETTING] = JsonInstant.encodeToString(
-                        latest.copy(topBarBlur = suggested)
-                    )
-                    preferences[TOP_BAR_BLUR_DEFAULT_APPLIED] = true
-                }
-            }.onFailure {
-                Log.w(TAG, "applyTopBarBlurDefaultIfNeeded failed: ${it.message}", it)
             }
         }
 
@@ -871,16 +833,6 @@ class SettingsStore(
         update(fn(settingsFlow.value))
     }
 
-    /**
-     * 清掉"顶栏模糊默认值已应用"标志, 让 SettingsStore init 的 SoC 自动判定下次启动重跑一次。
-     * 仅在恢复备份且备份里不含用户手动设置过的 topBarBlur 时调用 (即导出设备从未手动设置过)。
-     */
-    suspend fun resetTopBarBlurDefaultApplied() {
-        dataStore.edit { preferences ->
-            preferences[TOP_BAR_BLUR_DEFAULT_APPLIED] = false
-        }
-    }
-
     suspend fun updateAssistant(assistantId: Uuid) {
         updateChatTarget(ChatTarget.Assistant(assistantId))
     }
@@ -1334,10 +1286,6 @@ data class DisplaySetting(
     val showExportConversationJsonButton: Boolean = false, // Show export raw JSON action in conversation long-press menu
     val hideSuggestionsOnOverlap: Boolean = true, // Fade out chat suggestions when they visually cover message text
     val topBarBlur: Boolean = true, // Frosted-glass blur on the chat top bar over background/content
-    // 标记用户是否手动设置过 topBarBlur。
-    // false = 仍走 SoC 自动判定默认值;导出备份时若仍为 false,则不导出 topBarBlur,
-    // 让目标设备在恢复后按自身 SoC 重新判定。
-    val topBarBlurUserSet: Boolean = false,
     // 消息底部工具栏自定义：每个按钮显示在工具栏还是收进"更多"菜单
     val userMessageToolbar: MessageToolbarConfig = MessageToolbarConfig.DEFAULT_USER,
     val assistantMessageToolbar: MessageToolbarConfig = MessageToolbarConfig.DEFAULT_ASSISTANT,

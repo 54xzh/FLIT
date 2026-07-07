@@ -404,11 +404,7 @@ fun SettingDisplayPage(vm: SettingVM = koinViewModel()) {
                             HapticSwitch(
                                 checked = displaySetting.topBarBlur,
                                 onCheckedChange = {
-                                    // 用户手动切换后置 topBarBlurUserSet=true, 之后 SoC 自动默认值不再覆盖,
-                                    // 且导出备份时会带上 topBarBlur。
-                                    updateDisplaySetting(
-                                        displaySetting.copy(topBarBlur = it, topBarBlurUserSet = true)
-                                    )
+                                    updateDisplaySetting(displaySetting.copy(topBarBlur = it))
                                 }
                             )
                         }

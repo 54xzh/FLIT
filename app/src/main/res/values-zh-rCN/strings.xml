@@ -373,11 +373,6 @@
     <string name="developer_option_auto_continue_on_truncation_title">截断时自动续写一次</string>
     <string name="developer_option_auto_continue_on_truncation_desc">当生成因 token 上限截断或网络波动中断（非手动取消）时，自动续写一次。</string>
     <string name="developer_option_ipv6_probe_title">IPv6 检测</string>
-    <string name="developer_option_soc_info_title">SoC 信息</string>
-    <string name="developer_option_soc_tier_title">SoC 性能档位</string>
-    <string name="developer_option_soc_tier_sufficient">性能足够 — 模糊默认开启</string>
-    <string name="developer_option_soc_tier_insufficient">性能不足 — 模糊默认关闭</string>
-    <string name="developer_option_soc_tier_unknown">未能识别 — 需走兜底判定</string>
     <string name="developer_option_ipv6_probe_desc">分别检查 6.ipw.cn 返回的 IPv6 和系统默认网络实际会使用的 IPv6。</string>
     <string name="developer_option_ipv6_probe_action">立即检测</string>
     <string name="developer_option_ipv6_probe_loading">检测中...</string>
