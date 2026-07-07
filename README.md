@@ -68,3 +68,13 @@
 
 ## 反馈与交流
 欢迎加入反馈交流群:`1084874256`
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=54xzh%2FFLIT&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=54xzh/FLIT&type=date&theme=dark&legend=top-left&sealed_token=N6CkRkLiryzntasoEmSDfxysejkr41rOeRsgeLyXAgn5EmI4rYdxis2ry_89ENzOMGP7J0JAXGOj3m_Fq7Vk5a5344zByO7tHro-C5r7bHJpYsy7A7iJIZwVDAuuUKunMcCbkvw-v2fwhyaa2P4VH8xEOe0lvwResgI6T4q4elpPcGYIjVAiEynkrCPW" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=54xzh/FLIT&type=date&legend=top-left&sealed_token=N6CkRkLiryzntasoEmSDfxysejkr41rOeRsgeLyXAgn5EmI4rYdxis2ry_89ENzOMGP7J0JAXGOj3m_Fq7Vk5a5344zByO7tHro-C5r7bHJpYsy7A7iJIZwVDAuuUKunMcCbkvw-v2fwhyaa2P4VH8xEOe0lvwResgI6T4q4elpPcGYIjVAiEynkrCPW" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=54xzh/FLIT&type=date&legend=top-left&sealed_token=N6CkRkLiryzntasoEmSDfxysejkr41rOeRsgeLyXAgn5EmI4rYdxis2ry_89ENzOMGP7J0JAXGOj3m_Fq7Vk5a5344zByO7tHro-C5r7bHJpYsy7A7iJIZwVDAuuUKunMcCbkvw-v2fwhyaa2P4VH8xEOe0lvwResgI6T4q4elpPcGYIjVAiEynkrCPW" />
+ </picture>
+</a>
