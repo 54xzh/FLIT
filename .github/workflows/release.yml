@@ -3,7 +3,6 @@ name: Android Release Build
 on:
   push:
     tags:
-      - "*plus*"
       - "[0-9]*"
 
 permissions:
@@ -31,17 +30,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="${GITHUB_REF_NAME}"
-          TAG_LOWER="$(printf '%s' "$TAG" | tr '[:upper:]' '[:lower:]')"
-
-          has_plus=0
-          if [[ "$TAG_LOWER" == *"plus"* ]]; then has_plus=1; fi
-
-          # Default to plus; explicit "plus" tag also maps to plus.
+          # zh flavor 已移除，plus 为默认 flavor；标签使用纯版本号（如 1.4.6）。
           flavor="plus"
 
           echo "flavor=$flavor" >> "$GITHUB_OUTPUT"
-          echo "Detected flavor: $flavor (tag: $TAG)"
+          echo "Detected flavor: $flavor (tag: ${GITHUB_REF_NAME})"
 
       - name: Prepare build files
         env:
