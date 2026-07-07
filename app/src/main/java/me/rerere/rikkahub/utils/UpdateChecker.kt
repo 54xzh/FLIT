@@ -81,8 +81,12 @@ class UpdateChecker(private val client: OkHttpClient) {
         val responseBody = response.body?.string()
             ?: throw GitHubUnavailableException("Empty response body")
         val releases = json.decodeFromString<List<GitHubRelease>>(responseBody)
-        val release = releases.firstOrNull { it.tag_name.contains("plus", ignoreCase = true) }
-            ?: throw Exception("No plus release found")
+        // plus 为默认 flavor；标签使用纯版本号（如 1.4.6）即视为 plus 发布。
+        // 兼容旧标签：仍带 "plus" 后缀的也能匹配。
+        val release = releases.firstOrNull { release ->
+            release.tag_name.contains("plus", ignoreCase = true) ||
+                release.tag_name.none { it.isLetter() }
+        } ?: throw Exception("No plus release found")
         return release.toUpdateInfo()
     }
 
