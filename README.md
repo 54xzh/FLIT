@@ -1,23 +1,19 @@
-# LastChat
+# FLIT
 
 <div align="center">
   <img src="docs/newest_app_icon.png" alt="LastChat Icon" width="128" height="128" />
 </div>
 
-**LastChat Plus** 是一款功能丰富的 Android AI 助手应用。它是 [RikkaHub](https://github.com/re-ovo/RikkaHub) 的分支 LastChat 的分支版本，在原有的基础上增加中文翻译与一些特色功能。
+**FLIT** 是一款功能丰富的 Android AI 助手应用。它是 [RikkaHub](https://github.com/re-ovo/RikkaHub) 的分支 [LastChat](https://github.com/Cocolalilal/LastChat) 的分支版本，在原有的基础上增加了一些特色功能。
 
 本项目旨在为 Android 平台提供一个注重隐私且高度个性化的 AI 聊天体验。
 
-## 图赏
+## 图集
 
 <div align="center">
-  <img src="docs/1.1.3_chat.jpg" alt="聊天界面" width="200" />
+  <img src="docs/chat.jpg" alt="聊天界面" width="200" />
     &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/1.1.3_menu.jpg" alt="主屏幕" width="200" />
-    &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/1.2.6_providers_use.gif" alt="服务商页面" width="200" />
-    &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/1.2.4_memory.jpg" alt="记忆设置" width="200" />
+  <img src="docs/settings.jpg" alt="设置" width="200" />
 </div>
 
 ## ✨ 核心特性
@@ -66,14 +62,8 @@
 *   原项目: [RikkaHub](https://github.com/re-ovo/RikkaHub)
 *   关于页面灵感来自 [PixelPlayer](https://github.com/theovilardo/PixelPlayer)
 *   图片裁剪工具修改自 [LavenderPhotos](https://github.com/kaii-lb/LavenderPhotos) 的图像编辑器
-*   主要由以下 **AI Agent** 驱动开发:
-    *   **GPT 5.4**
-    *   **Claude Opus/Sonnet 4.6**
-    *   **GLM 5.1**
-    *   **Gemini 3 Pro**
+*   由 **AI Agent** 驱动开发
+
 
 ## 反馈与交流
 欢迎加入反馈交流群:`1084874256`
-
----
-*注意：本项目是一个分支版本，可能包含原 RikkaHub 仓库中不存在的修改或功能。*
