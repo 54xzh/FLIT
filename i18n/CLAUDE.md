@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-LastChat I18n is an AI-powered translation manager for Android string resources with an interactive Terminal UI (TUI). This tool manages translations for the main LastChat Android application, which is a native LLM chat client supporting multiple AI providers.
+FLIT I18n is an AI-powered translation manager for Android string resources with an interactive Terminal UI (TUI). This tool manages translations for the main FLIT Android application, which is a native LLM chat client supporting multiple AI providers.
 
 ## Architecture Overview
 

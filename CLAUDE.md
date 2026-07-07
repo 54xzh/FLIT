@@ -39,7 +39,7 @@ Requires `JAVA_HOME`, `GRADLE_USER_HOME`, and `ANDROID_USER_HOME` set to project
 
 ## Design Philosophy
 
-**App Name:** LastChat (package: `lastchat.rikkafork.cocolal`)
+**App Name:** FLIT (package: `lastchat.rikkafork.cocolal`)
 
 **The "Fidget Toy" Philosophy:** Interactions must be playful, physics-based, and deeply satisfying. High-quality haptics on every tap, toggle, and drag. Prefer spring-based interpolators for interactive motion. Navigation/page transitions may use `tween`.
 

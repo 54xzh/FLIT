@@ -10,10 +10,10 @@
 
 ## 1. Core Principles & Design Philosophy
 
-**App Name:** LastChat (Repo: RikkaHub)
+**App Name:** FLIT (Repo: RikkaHub)
 
 **The "Fidget Toy" Philosophy:**
-LastChat is not just a tool; it is designed to be a "fidget toy".
+FLIT is not just a tool; it is designed to be a "fidget toy".
 -   **Feel:** Interactions must be playful, physics-based, and deeply satisfying.
 -   **Tactile Feedback:** High-quality haptics are non-negotiable. Every tap, toggle, and drag must have appropriate feedback.
 -   **Motion:** Prefer physics-based interpolators (springs) for all interactive motion to convey momentum and weight. **Exception:** navigation/page transitions may use `tween`.
