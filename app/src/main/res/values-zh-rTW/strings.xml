@@ -431,6 +431,14 @@
   <string name="imggen_page_aspect_ratio_landscape">16:9 橫屏</string>
   <string name="imggen_page_aspect_ratio_portrait">9:16 竖屏</string>
   <string name="imggen_page_aspect_ratio_square">1:1 正方形</string>
+  <string name="imggen_page_resolution">解析度</string>
+  <string name="imggen_page_resolution_desc">選擇解析度檔位，越高越大越清晰但越慢</string>
+  <string name="imggen_page_resolution_experimental">實驗</string>
+  <string name="imggen_page_quality">品質</string>
+  <string name="imggen_page_quality_desc">在速度與清晰度間權衡；低更快，高更清晰</string>
+  <string name="imggen_page_quality_low">低</string>
+  <string name="imggen_page_quality_medium">中</string>
+  <string name="imggen_page_quality_high">高</string>
   <string name="imggen_page_cancel">取消</string>
   <string name="imggen_page_cancel_generation_message">您確定要取消圖片生成嗎？</string>
   <string name="imggen_page_cancel_generation_title">取消生成</string>

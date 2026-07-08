@@ -18,10 +18,11 @@ import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.providers.openai.ChatCompletionsAPI
 import me.rerere.ai.provider.providers.openai.OpenRouterModelCapabilityProvider
 import me.rerere.ai.provider.providers.openai.ResponseAPI
-import me.rerere.ai.ui.ImageAspectRatio
 import me.rerere.ai.ui.ImageGenerationItem
 import me.rerere.ai.ui.ImageGenerationResult
+import me.rerere.ai.ui.ImageQuality
 import me.rerere.ai.ui.MessageChunk
+import me.rerere.ai.ui.ResolutionTier
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureClientWithProxy
@@ -238,22 +239,31 @@ class OpenAIProvider(
             buildJsonObject {
                 put("model", params.model.modelId)
                 put("prompt", params.prompt)
-                // DALL-E 3 only supports n=1, DALL-E 2 supports up to 10
-                val isDalle3 = params.model.modelId.contains("dall-e-3", ignoreCase = true)
+                val modelId = params.model.modelId
+                val isGptImage2 = modelId.contains("gpt-image-2", ignoreCase = true)
+                val isDalle3 = modelId.contains("dall-e-3", ignoreCase = true)
+                // DALL-E 3 only supports n=1, 其它模型上限 10
                 put("n", if (isDalle3) 1 else params.numOfImages.coerceIn(1, 10))
                 put("response_format", "b64_json")
-                // DALL-E 3: 1024x1024, 1792x1024, 1024x1792
-                // DALL-E 2: 256x256, 512x512, 1024x1024
-                put(
-                    "size", when {
-                        isDalle3 -> when (params.aspectRatio) {
-                            ImageAspectRatio.SQUARE -> "1024x1024"
-                            ImageAspectRatio.LANDSCAPE -> "1792x1024"
-                            ImageAspectRatio.PORTRAIT -> "1024x1792"
-                        }
-                        else -> "1024x1024" // DALL-E 2 only supports square
+                // 尺寸: gpt-image-2 走像素换算表 + quality; DALL-E 3 走固定三档; DALL-E 2 写死方图
+                val size = when {
+                    isGptImage2 -> resolveGptImage2Size(
+                        params.sizeOptions.aspectRatio,
+                        params.sizeOptions.resolutionTier
+                    )
+                    isDalle3 -> when (params.sizeOptions.aspectRatio) {
+                        "1:1" -> "1024x1024"
+                        "16:9" -> "1792x1024"
+                        "9:16" -> "1024x1792"
+                        else -> "1024x1024"
                     }
-                )
+                    else -> "1024x1024" // DALL-E 2 只支持方图
+                }
+                put("size", size)
+                // quality 仅 gpt-image-2 等支持的模型才传
+                if (isGptImage2) {
+                    put("quality", params.sizeOptions.quality.toOpenAIQuality())
+                }
             }.mergeCustomBody(params.customBody)
         )
 
@@ -328,6 +338,62 @@ class OpenAIProvider(
         model: Model,
     ): String {
         return json.encodeToString(buildEmbeddingRequestBody(input = input, model = model))
+    }
+
+    // gpt-image-2 支持任意满足约束的分辨率: 两边都是 16 的倍数、长边 < 3840、长宽比 ≤ 3:1、
+    // 总像素在 655,360 ~ 8,294,400 之间。这里用「宽高比 × 分辨率档」查表给出常用合法像素。
+    // > 2560×1440 (2K) 官方标注为实验性, 4K 档可能结果不太稳定。
+    private fun resolveGptImage2Size(
+        aspectRatio: String,
+        tier: ResolutionTier,
+    ): String {
+        // 表内值均满足 gpt-image-2 的硬性约束
+        val table = mapOf(
+            "1:1" to mapOf(
+                ResolutionTier.T1K to "1024x1024",
+                ResolutionTier.T2K to "2048x2048",
+                ResolutionTier.T4K to "2880x2880",
+            ),
+            "16:9" to mapOf(
+                ResolutionTier.T1K to "1536x864",
+                ResolutionTier.T2K to "2048x1152",
+                // 长边必须严格 < 3840, 3840 不合法, 向下取最近的 16 倍数
+                ResolutionTier.T4K to "3824x2144",
+            ),
+            "9:16" to mapOf(
+                ResolutionTier.T1K to "864x1536",
+                ResolutionTier.T2K to "1152x2048",
+                ResolutionTier.T4K to "2144x3824",
+            ),
+            "4:3" to mapOf(
+                ResolutionTier.T1K to "1280x960",
+                ResolutionTier.T2K to "2048x1536",
+                // 4K 档受总像素 ≤ 8,294,400 约束, 取 16 倍数且不超限
+                ResolutionTier.T4K to "3264x2448",
+            ),
+            "3:4" to mapOf(
+                ResolutionTier.T1K to "960x1280",
+                ResolutionTier.T2K to "1536x2048",
+                ResolutionTier.T4K to "2448x3264",
+            ),
+            "3:2" to mapOf(
+                ResolutionTier.T1K to "1536x1024",
+                ResolutionTier.T2K to "2048x1360",
+                ResolutionTier.T4K to "3520x2336",
+            ),
+            "2:3" to mapOf(
+                ResolutionTier.T1K to "1024x1536",
+                ResolutionTier.T2K to "1360x2048",
+                ResolutionTier.T4K to "2336x3520",
+            ),
+            "21:9" to mapOf(
+                ResolutionTier.T1K to "2016x864",
+                ResolutionTier.T2K to "2688x1152",
+                // 长边必须严格 < 3840, 3840 不合法, 向下取最近的 16 倍数
+                ResolutionTier.T4K to "3824x1648",
+            ),
+        )
+        return table[aspectRatio]?.get(tier) ?: "1024x1024"
     }
 
     private fun buildEmbeddingRequestBody(input: List<String>, model: Model) = buildJsonObject {

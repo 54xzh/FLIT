@@ -31,12 +31,12 @@ import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ModelType
+import me.rerere.ai.provider.isGeminiImageModel
 import me.rerere.ai.provider.Provider
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.providers.vertex.ServiceAccountTokenProvider
 import me.rerere.ai.registry.ModelRegistry
-import me.rerere.ai.ui.ImageAspectRatio
 import me.rerere.ai.ui.ImageGenerationItem
 import me.rerere.ai.ui.ImageGenerationResult
 import me.rerere.ai.ui.MessageChunk
@@ -797,6 +797,21 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             "Expected Google provider setting"
         }
 
+        // nano-banana / gemini-3 image 等走 generateContent + imageConfig
+        // 这是唯一能传 imageSize(1K/2K/4K) 的路径; Imagen 系仍走 :predict
+        // 识别规则与能力推断共用 ModelRegistry, 避免两边规则不一致导致走错路径
+        if (params.model.isGeminiImageModel()) {
+            generateImageViaGenerateContent(providerSetting, params)
+        } else {
+            generateImageViaPredict(providerSetting, params)
+        }
+    }
+
+    // Imagen 系: 走 :predict, 用 parameters.aspectRatio (比例字符串), 不支持分辨率档位
+    private suspend fun generateImageViaPredict(
+        providerSetting: ProviderSetting.Google,
+        params: ImageGenerationParams
+    ): ImageGenerationResult {
         val requestBody = buildJsonObject {
             putJsonArray("instances") {
                 add(buildJsonObject {
@@ -805,11 +820,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             }
             putJsonObject("parameters") {
                 put("sampleCount", params.numOfImages)
-                put("aspectRatio", when(params.aspectRatio) {
-                    ImageAspectRatio.SQUARE -> "1:1"
-                    ImageAspectRatio.LANDSCAPE -> "16:9"
-                    ImageAspectRatio.PORTRAIT -> "9:16"
-                })
+                put("aspectRatio", params.sizeOptions.aspectRatio)
             }
         }.mergeCustomBody(params.customBody)
 
@@ -842,7 +853,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         val bodyStr = response.body.string()
         val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
 
-        val predictions =  bodyJson["predictions"]?.jsonArray ?: error("No predictions in response")
+        val predictions = bodyJson["predictions"]?.jsonArray ?: error("No predictions in response")
 
         val items = predictions.mapNotNull { prediction ->
             val predictionObj = prediction.jsonObject
@@ -856,7 +867,87 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             } else null
         }
 
-        ImageGenerationResult(items = items)
+        return ImageGenerationResult(items = items)
+    }
+
+    // nano-banana 系 (Gemini 3 image): 走 :generateContent
+    // 关键字段: generationConfig.responseModalities=[IMAGE], imageConfig.aspectRatio + imageConfig.imageSize(1K/2K/4K)
+    // 响应: candidates[].content.parts[].inlineData.{mimeType,data}
+    private suspend fun generateImageViaGenerateContent(
+        providerSetting: ProviderSetting.Google,
+        params: ImageGenerationParams
+    ): ImageGenerationResult {
+        val requestBody = buildJsonObject {
+            putJsonArray("contents") {
+                add(buildJsonObject {
+                    put("role", "user")
+                    putJsonArray("parts") {
+                        add(buildJsonObject {
+                            put("text", params.prompt)
+                        })
+                    }
+                })
+            }
+            putJsonObject("generationConfig") {
+                putJsonArray("responseModalities") {
+                    add(JsonPrimitive("IMAGE"))
+                }
+                putJsonObject("imageConfig") {
+                    put("aspectRatio", params.sizeOptions.aspectRatio)
+                    put("imageSize", params.sizeOptions.resolutionTier.toGoogleSize())
+                }
+            }
+        }.mergeCustomBody(params.customBody)
+
+        val url = buildUrl(
+            providerSetting = providerSetting,
+            path = if (providerSetting.vertexAI) {
+                "publishers/google/models/${params.model.modelId}:generateContent"
+            } else {
+                "models/${params.model.modelId}:generateContent"
+            }
+        )
+
+        val request = transformRequest(
+            providerSetting = providerSetting,
+            request = Request.Builder()
+                .url(url)
+                .headers(params.customHeaders.toHeaders())
+                .post(
+                    json.encodeToString(requestBody).toRequestBody("application/json".toMediaType())
+                )
+                .configureReferHeaders(providerSetting.baseUrl)
+                .build()
+        )
+
+        val response = client.configureClientWithProxy(providerSetting.proxy).newCall(request).await()
+        if (!response.isSuccessful) {
+            error("Failed to generate image: ${response.code} ${response.body.string()}")
+        }
+
+        val bodyStr = response.body.string()
+        val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
+
+        val candidates = bodyJson["candidates"]?.jsonArray ?: error("No candidates in response")
+        val items = mutableListOf<ImageGenerationItem>()
+        candidates.forEach { candidate ->
+            val parts = candidate.jsonObject["content"]?.jsonObject?.get("parts")?.jsonArray ?: return@forEach
+            parts.forEach { partEl ->
+                val part = partEl.jsonObject
+                val inlineData = part["inlineData"]?.jsonObject
+                val data = inlineData?.get("data")?.jsonPrimitiveOrNull?.contentOrNull
+                val mimeType = inlineData?.get("mimeType")?.jsonPrimitiveOrNull?.contentOrNull ?: "image/png"
+                if (data != null) {
+                    items.add(ImageGenerationItem(data = data, mimeType = mimeType))
+                }
+            }
+        }
+
+        if (items.isEmpty()) {
+            error("No image generated. The model may have rejected the prompt.")
+        }
+
+        return ImageGenerationResult(items = items)
     }
 
     override suspend fun createEmbedding(

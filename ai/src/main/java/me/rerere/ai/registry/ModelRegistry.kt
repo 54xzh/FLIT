@@ -454,6 +454,18 @@ object ModelRegistry {
         }
     }
 
+    // 判断是否为 Gemini 系图片生成模型 (nano-banana / gemini-3 image / gemini-2.5 image 等)
+    // 统一基于本注册表的 token 匹配, 避免在 Provider/能力推断里各自再写一套字符串规则导致漏识别
+    // 匹配到 GEMINI_NANO_BANANA / GEMINI_3_PRO_IMAGE / GEMINI_3_1_FLASH_IMAGE / GEMINI_2_5_IMAGE 即视为此类
+    val IS_GEMINI_IMAGE_MODEL = ModelData { modelId ->
+        resolveModels(modelId).any { def ->
+            def === GEMINI_NANO_BANANA ||
+                def === GEMINI_3_PRO_IMAGE ||
+                def === GEMINI_3_1_FLASH_IMAGE ||
+                def === GEMINI_2_5_IMAGE
+        }
+    }
+
     private fun resolveModels(modelId: String): List<ModelDefinition> {
         var bestScore: Int? = null
         val matches = mutableListOf<ModelDefinition>()

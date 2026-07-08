@@ -2,6 +2,7 @@ package me.rerere.ai.provider
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import me.rerere.ai.ui.ResolutionTier
 import kotlin.uuid.Uuid
 
 @Serializable
@@ -41,9 +42,52 @@ data class Model(
     val providerSlug: String? = null,
     val customIconUri: String? = null,
     val imageGenerationMethod: ImageGenerationMethod? = null,
+    val imageGenCapabilities: ImageGenCapabilities? = null,
     val quota: ModelQuota? = null,
     val capabilitySource: ModelCapabilitySource = ModelCapabilitySource.MANUAL,
 )
+
+// 图片生成模型的能力描述: 支持哪些宽高比/分辨率档位/质量档
+// null = 退回旧的三档枚举兜底逻辑, 保证老模型不破坏
+@Serializable
+data class ImageGenCapabilities(
+    val aspectRatios: List<String> = listOf("1:1", "16:9", "9:16"),
+    val resolutionTiers: List<ResolutionTier> = listOf(ResolutionTier.T1K),
+    val supportsQuality: Boolean = false,
+)
+
+// OpenAI gpt-image-2 系: 全比例 + 全档位 + 支持质量档 (API 有 quality 字段)
+val GPT_IMAGE_2_CAPABILITIES = ImageGenCapabilities(
+    aspectRatios = listOf("1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9"),
+    resolutionTiers = listOf(ResolutionTier.T1K, ResolutionTier.T2K, ResolutionTier.T4K),
+    supportsQuality = true,
+)
+
+// Gemini 系图片模型 (nano-banana / gemini-3 image 等): 全比例 + 全档位, 但不支持质量档
+// (Google 的 imageConfig 只有 aspectRatio + imageSize, 没有 quality 字段)
+val GEMINI_IMAGE_CAPABILITIES = ImageGenCapabilities(
+    aspectRatios = listOf("1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9"),
+    resolutionTiers = listOf(ResolutionTier.T1K, ResolutionTier.T2K, ResolutionTier.T4K),
+    supportsQuality = false,
+)
+
+// 按 modelId 推断图片生成能力: 未显式配置 imageGenCapabilities 时, 对已知模型自动注入能力
+// OpenAI gpt-image-2 系用字符串识别; Gemini 系用 ModelRegistry 的统一匹配 (覆盖 nano-banana / gemini-3 image / gemini-2.5 image)
+// 其它模型返回 null 走兜底
+fun Model.effectiveImageGenCapabilities(): ImageGenCapabilities? {
+    if (imageGenCapabilities != null) return imageGenCapabilities
+    val id = modelId.lowercase()
+    return when {
+        id.contains("gpt-image-2") -> GPT_IMAGE_2_CAPABILITIES
+        me.rerere.ai.registry.ModelRegistry.IS_GEMINI_IMAGE_MODEL.getData(id) -> GEMINI_IMAGE_CAPABILITIES
+        else -> null
+    }
+}
+
+// 判断该模型是否应走 Gemini 的 generateContent 图片路径 (而非 Imagen 的 :predict)
+// 与能力推断共用同一套 ModelRegistry 识别, 避免规则不一致
+fun Model.isGeminiImageModel(): Boolean =
+    me.rerere.ai.registry.ModelRegistry.IS_GEMINI_IMAGE_MODEL.getData(modelId)
 
 @Serializable
 enum class ModelType {

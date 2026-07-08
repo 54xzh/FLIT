@@ -113,7 +113,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.ModelType
-import me.rerere.ai.ui.ImageAspectRatio
+import me.rerere.ai.provider.effectiveImageGenCapabilities
+import me.rerere.ai.ui.ImageQuality
+import me.rerere.ai.ui.ImageSizeOptions
+import me.rerere.ai.ui.ResolutionTier
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findModelById
@@ -294,7 +297,7 @@ private fun ImageGenScreen(
     onDismissSettings: () -> Unit
 ) {
     val prompt by vm.prompt.collectAsStateWithLifecycle()
-    val aspectRatio by vm.aspectRatio.collectAsStateWithLifecycle()
+    val sizeOptions by vm.sizeOptions.collectAsStateWithLifecycle()
     val isGenerating by vm.isGenerating.collectAsStateWithLifecycle()
     val currentGeneratedImages by vm.currentGeneratedImages.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
@@ -469,13 +472,7 @@ private fun ImageGenScreen(
                             contentDescription = null,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(
-                                    when (aspectRatio) {
-                                        ImageAspectRatio.SQUARE -> 1f
-                                        ImageAspectRatio.LANDSCAPE -> 16f / 9f
-                                        ImageAspectRatio.PORTRAIT -> 9f / 16f
-                                    }
-                                )
+                                .aspectRatio(parseAspectRatioFloat(sizeOptions.aspectRatio))
                                 .clip(RoundedCornerShape(20.dp))
                                 .clickable { showPreview = true },
                             contentScale = ContentScale.Crop
@@ -528,7 +525,7 @@ private fun ImageGenScreen(
         SettingsBottomSheet(
             vm = vm,
             settings = settings,
-            aspectRatio = aspectRatio,
+            sizeOptions = sizeOptions,
             scope = scope,
             sheetState = sheetState,
             onDismiss = onDismissSettings
@@ -904,11 +901,35 @@ private fun ImageGalleryScreen(
 private fun SettingsBottomSheet(
     vm: ImgGenVM,
     settings: Settings,
-    aspectRatio: ImageAspectRatio,
+    sizeOptions: ImageSizeOptions,
     scope: CoroutineScope,
     sheetState: SheetState,
     onDismiss: () -> Unit
 ) {
+    // 当前选中的模型 (用于按能力过滤可选的比例/档位/质量)
+    val currentModel = remember(settings) {
+        settings.providers
+            .flatMap { it.models }
+            .firstOrNull { it.id == settings.imageGenerationModelId }
+    }
+    val caps = currentModel?.effectiveImageGenCapabilities()
+    // 能力为 null 时退回默认三档: 1:1/16:9/9:16, 仅 1K, 不支持 quality
+    val availableRatios = caps?.aspectRatios?.takeIf { it.isNotEmpty() }
+        ?: listOf("1:1", "16:9", "9:16")
+    val availableTiers = caps?.resolutionTiers?.takeIf { it.isNotEmpty() }
+        ?: listOf(ResolutionTier.T1K)
+    val supportsQuality = caps?.supportsQuality ?: false
+
+    // 切换模型后, 若当前选项不在新能力范围内, 退回第一个可用值
+    LaunchedEffect(availableRatios, availableTiers) {
+        if (sizeOptions.aspectRatio !in availableRatios) {
+            vm.updateAspectRatio(availableRatios.first())
+        }
+        if (sizeOptions.resolutionTier !in availableTiers) {
+            vm.updateResolutionTier(availableTiers.first())
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -946,6 +967,7 @@ private fun SettingsBottomSheet(
                 )
             }
 
+            // 宽高比
             FormItem(
                 label = { Text(stringResource(R.string.imggen_page_aspect_ratio)) },
                 description = { Text(stringResource(R.string.imggen_page_aspect_ratio_desc)) }
@@ -954,22 +976,77 @@ private fun SettingsBottomSheet(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    ImageAspectRatio.entries.forEach { ratio ->
+                    availableRatios.forEach { ratio ->
                         FilterChip(
-                            selected = aspectRatio == ratio,
+                            selected = sizeOptions.aspectRatio == ratio,
                             onClick = { vm.updateAspectRatio(ratio) },
+                            label = { Text(ratio) }
+                        )
+                    }
+                }
+            }
+
+            // 分辨率档位
+            FormItem(
+                label = { Text(stringResource(R.string.imggen_page_resolution)) },
+                description = { Text(stringResource(R.string.imggen_page_resolution_desc)) }
+            ) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    availableTiers.forEach { tier ->
+                        FilterChip(
+                            selected = sizeOptions.resolutionTier == tier,
+                            onClick = { vm.updateResolutionTier(tier) },
                             label = {
                                 Text(
-                                    stringResource(
-                                        when (ratio) {
-                                            ImageAspectRatio.SQUARE -> R.string.imggen_page_aspect_ratio_square
-                                            ImageAspectRatio.LANDSCAPE -> R.string.imggen_page_aspect_ratio_landscape
-                                            ImageAspectRatio.PORTRAIT -> R.string.imggen_page_aspect_ratio_portrait
+                                    when (tier) {
+                                        ResolutionTier.T1K -> "1K"
+                                        ResolutionTier.T2K -> "2K"
+                                        ResolutionTier.T4K -> "4K"
+                                    }
+                                )
+                            },
+                            leadingIcon = if (tier == ResolutionTier.T4K) {
+                                {
+                                    Text(
+                                        text = stringResource(R.string.imggen_page_resolution_experimental),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                            } else null
+                        )
+                    }
+                }
+            }
+
+            // 质量 (仅支持的模型显示)
+            if (supportsQuality) {
+                FormItem(
+                    label = { Text(stringResource(R.string.imggen_page_quality)) },
+                    description = { Text(stringResource(R.string.imggen_page_quality_desc)) }
+                ) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        ImageQuality.entries.forEach { quality ->
+                            FilterChip(
+                                selected = sizeOptions.quality == quality,
+                                onClick = { vm.updateQuality(quality) },
+                                label = {
+                                    Text(
+                                        when (quality) {
+                                            ImageQuality.LOW -> stringResource(R.string.imggen_page_quality_low)
+                                            ImageQuality.MEDIUM -> stringResource(R.string.imggen_page_quality_medium)
+                                            ImageQuality.HIGH -> stringResource(R.string.imggen_page_quality_high)
                                         }
                                     )
-                                )
-                            }
-                        )
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -977,4 +1054,11 @@ private fun SettingsBottomSheet(
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
+}
+
+// 把 "1:1"/"16:9"/"9:16"/"4:3"/"3:4"/"3:2"/"2:3"/"21:9" 解析成 Compose aspectRatio 用的 float (宽/高)
+private fun parseAspectRatioFloat(ratio: String): Float {
+    val (w, h) = ratio.split(":").mapNotNull { it.toFloatOrNull() }
+        .takeIf { it.size == 2 } ?: return 1f
+    return if (h != 0f) w / h else 1f
 }

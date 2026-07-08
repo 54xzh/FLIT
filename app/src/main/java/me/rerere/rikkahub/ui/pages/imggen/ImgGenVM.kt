@@ -19,8 +19,8 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import me.rerere.ai.provider.ImageGenerationParams
 import me.rerere.ai.provider.ProviderManager
-import me.rerere.ai.ui.ImageAspectRatio
 import me.rerere.ai.ui.ImageGenerationItem
+import me.rerere.ai.ui.ImageSizeOptions
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
@@ -65,8 +65,8 @@ class ImgGenVM(
     private val _numberOfImages = MutableStateFlow(1)
     val numberOfImages: StateFlow<Int> = _numberOfImages
 
-    private val _aspectRatio = MutableStateFlow(ImageAspectRatio.SQUARE)
-    val aspectRatio: StateFlow<ImageAspectRatio> = _aspectRatio
+    private val _sizeOptions = MutableStateFlow(ImageSizeOptions())
+    val sizeOptions: StateFlow<ImageSizeOptions> = _sizeOptions
 
     private val _selectedImageUri = MutableStateFlow<android.net.Uri?>(null)
     val selectedImageUri: StateFlow<android.net.Uri?> = _selectedImageUri
@@ -99,8 +99,16 @@ class ImgGenVM(
         _numberOfImages.value = count.coerceIn(1, 4)
     }
 
-    fun updateAspectRatio(aspectRatio: ImageAspectRatio) {
-        _aspectRatio.value = aspectRatio
+    fun updateAspectRatio(ratio: String) {
+        _sizeOptions.value = _sizeOptions.value.copy(aspectRatio = ratio)
+    }
+
+    fun updateResolutionTier(tier: me.rerere.ai.ui.ResolutionTier) {
+        _sizeOptions.value = _sizeOptions.value.copy(resolutionTier = tier)
+    }
+
+    fun updateQuality(quality: me.rerere.ai.ui.ImageQuality) {
+        _sizeOptions.value = _sizeOptions.value.copy(quality = quality)
     }
 
     fun setSelectedImage(uri: android.net.Uri?) {
@@ -149,7 +157,7 @@ class ImgGenVM(
                             model = model,
                             prompt = _prompt.value,
                             numOfImages = _numberOfImages.value,
-                            aspectRatio = _aspectRatio.value,
+                            sizeOptions = _sizeOptions.value,
                             customHeaders = model.customHeaders,
                             customBody = model.customBodies
                         )

@@ -574,6 +574,14 @@
     <string name="imggen_page_aspect_ratio_landscape">16:9 Landscape</string>
     <string name="imggen_page_aspect_ratio_portrait">9:16 Portrait</string>
     <string name="imggen_page_aspect_ratio_square">1:1 Square</string>
+    <string name="imggen_page_resolution">Resolution</string>
+    <string name="imggen_page_resolution_desc">Select resolution tier; higher means larger and sharper but slower</string>
+    <string name="imggen_page_resolution_experimental">exp</string>
+    <string name="imggen_page_quality">Quality</string>
+    <string name="imggen_page_quality_desc">Trade-off between speed and fidelity; low is faster, high is sharper</string>
+    <string name="imggen_page_quality_low">Low</string>
+    <string name="imggen_page_quality_medium">Medium</string>
+    <string name="imggen_page_quality_high">High</string>
     <string name="imggen_page_cancel">Cancel</string>
     <string name="imggen_page_cancel_generation_message">Are you sure you want to cancel generation?</string>
     <string name="imggen_page_cancel_generation_title">Cancel Generation</string>
