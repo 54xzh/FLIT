@@ -2285,8 +2285,8 @@
     <string name="workspace_detail_path_bar_root">/</string>
     <string name="workspace_detail_tool_approvals">Tool approvals</string>
     <string name="workspace_detail_tool_approvals_desc">Per-tool approval overrides for this workspace</string>
-    <string name="workspace_detail_tool_approve_all">Approve all</string>
-    <string name="workspace_detail_tool_approve_all_desc">Require approval for every workspace tool</string>
+    <string name="workspace_detail_tool_approve_all">Manually approve all tools</string>
+    <string name="workspace_detail_tool_approve_all_desc">Turn off to skip manual approval</string>
     <string name="workspace_detail_tool_workspace_list">workspace_list</string>
     <string name="workspace_detail_tool_workspace_list_desc">List files and folders</string>
     <string name="workspace_detail_tool_workspace_read_file">workspace_read_file</string>

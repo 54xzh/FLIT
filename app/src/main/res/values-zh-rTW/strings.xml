@@ -2274,8 +2274,8 @@
     <string name="workspace_detail_path_bar_root">/</string>
     <string name="workspace_detail_tool_approvals">工具審批</string>
     <string name="workspace_detail_tool_approvals_desc">此工作區各工具的審批覆蓋</string>
-    <string name="workspace_detail_tool_approve_all">全部需審批</string>
-    <string name="workspace_detail_tool_approve_all_desc">所有工作區工具呼叫都需審批</string>
+    <string name="workspace_detail_tool_approve_all">手動審批所有工具</string>
+    <string name="workspace_detail_tool_approve_all_desc">關閉後，將跳過手動審批</string>
     <string name="workspace_detail_tool_workspace_list">workspace_list</string>
     <string name="workspace_detail_tool_workspace_list_desc">列出檔案和資料夾</string>
     <string name="workspace_detail_tool_workspace_read_file">workspace_read_file</string>

@@ -672,8 +672,8 @@
     <string name="workspace_detail_path_bar_root">/</string>
     <string name="workspace_detail_tool_approvals">工具审批</string>
     <string name="workspace_detail_tool_approvals_desc">此工作区各工具的审批覆盖</string>
-    <string name="workspace_detail_tool_approve_all">全部需审批</string>
-    <string name="workspace_detail_tool_approve_all_desc">所有工作区工具调用都需审批</string>
+    <string name="workspace_detail_tool_approve_all">手动审批所有工具</string>
+    <string name="workspace_detail_tool_approve_all_desc">关闭后，将跳过手动审批</string>
     <string name="workspace_detail_tool_workspace_list">workspace_list</string>
     <string name="workspace_detail_tool_workspace_list_desc">列出文件和文件夹</string>
     <string name="workspace_detail_tool_workspace_read_file">workspace_read_file</string>
