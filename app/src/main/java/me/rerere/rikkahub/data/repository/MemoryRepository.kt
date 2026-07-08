@@ -4,6 +4,7 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.map
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -303,7 +304,8 @@ class MemoryRepository(
         content: String,
         assistantId: String,
         existingEmbedding: String? = null,
-        existingModelId: String? = null
+        existingModelId: String? = null,
+        source: AIRequestSource = AIRequestSource.MEMORY_EMBEDDING,
     ): List<Float>? {
         val normalizedContent = content.trim()
         if (normalizedContent.isEmpty()) {
@@ -345,7 +347,7 @@ class MemoryRepository(
             val embedding = embeddingService.embed(
                 text = normalizedContent,
                 assistantId = assistantId,
-                source = AIRequestSource.MEMORY_EMBEDDING,
+                source = source,
             )
             // Cache it
             embeddingCacheDAO.insertEmbedding(
@@ -358,6 +360,7 @@ class MemoryRepository(
             )
             embedding
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             e.printStackTrace()
             null
         }
@@ -582,7 +585,8 @@ class MemoryRepository(
                         content = memory.content,
                         assistantId = assistantId,
                         existingEmbedding = memory.embedding,
-                        existingModelId = memory.embeddingModelId
+                        existingModelId = memory.embeddingModelId,
+                        source = AIRequestSource.MEMORY_RETRIEVAL,
                     )
                     if (embedding != null) {
                         val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
@@ -599,7 +603,8 @@ class MemoryRepository(
                     content = memory.content,
                     assistantId = assistantId,
                     existingEmbedding = memory.embedding,
-                    existingModelId = memory.embeddingModelId
+                    existingModelId = memory.embeddingModelId,
+                    source = AIRequestSource.MEMORY_RETRIEVAL,
                 ) ?: return@mapNotNull null
 
                 val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
@@ -619,7 +624,8 @@ class MemoryRepository(
                 content = episode.content,
                 assistantId = assistantId,
                 existingEmbedding = episode.embedding,
-                existingModelId = episode.embeddingModelId
+                existingModelId = episode.embeddingModelId,
+                source = AIRequestSource.MEMORY_RETRIEVAL,
             ) ?: return@mapNotNull null
 
             val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
@@ -746,6 +752,7 @@ class MemoryRepository(
                 source = AIRequestSource.MEMORY_RETRIEVAL,
             )
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             e.printStackTrace()
             pinnedCoreMemories.forEach { memory ->
                 memoryDAO.updateMemory(memory.copy(lastAccessedAt = System.currentTimeMillis()))
@@ -781,7 +788,8 @@ class MemoryRepository(
                         content = memory.content,
                         assistantId = assistantId,
                         existingEmbedding = memory.embedding,
-                        existingModelId = memory.embeddingModelId
+                        existingModelId = memory.embeddingModelId,
+                        source = AIRequestSource.MEMORY_RETRIEVAL,
                     )
                     if (embedding != null) {
                         val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
@@ -798,7 +806,8 @@ class MemoryRepository(
                     content = memory.content,
                     assistantId = assistantId,
                     existingEmbedding = memory.embedding,
-                    existingModelId = memory.embeddingModelId
+                    existingModelId = memory.embeddingModelId,
+                    source = AIRequestSource.MEMORY_RETRIEVAL,
                 ) ?: return@mapNotNull null
 
                 val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
@@ -818,7 +827,8 @@ class MemoryRepository(
                 content = episode.content,
                 assistantId = assistantId,
                 existingEmbedding = episode.embedding,
-                existingModelId = episode.embeddingModelId
+                existingModelId = episode.embeddingModelId,
+                source = AIRequestSource.MEMORY_RETRIEVAL,
             ) ?: return@mapNotNull null
 
             val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
