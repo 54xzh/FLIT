@@ -1628,16 +1628,31 @@ class ChatService(
                     // 如果是用户消息，则截止到当前消息
                     val node = conversation.getMessageNodeByMessage(message)
                     val indexAt = conversation.messageNodes.indexOf(node)
+                    // 仅最近一轮用户消息重试可复用上次 RAG（避免历史轮次串用缓存）
+                    val lastUserNodeIndex = conversation.messageNodes.indexOfLast { it.role == MessageRole.USER }
+                    val reuseLastRagMemories = indexAt >= 0 && indexAt == lastUserNodeIndex
                     val newConversation = conversation.copy(
                         messageNodes = conversation.messageNodes.subList(0, indexAt + 1)
                     )
                     saveConversation(conversationId, newConversation)
-                    handleMessageComplete(conversationId)
+                    handleMessageComplete(
+                        conversationId = conversationId,
+                        reuseLastRagMemories = reuseLastRagMemories,
+                    )
                 } else {
                     if (regenerateAssistantMsg) {
                         val node = conversation.getMessageNodeByMessage(message)
                         val nodeIndex = conversation.messageNodes.indexOf(node)
-                        handleMessageComplete(conversationId, messageRange = 0..<nodeIndex)
+                        // 仅最近一轮助手消息重试可复用上次 RAG
+                        val lastAssistantNodeIndex =
+                            conversation.messageNodes.indexOfLast { it.role == MessageRole.ASSISTANT }
+                        val reuseLastRagMemories =
+                            nodeIndex >= 0 && nodeIndex == lastAssistantNodeIndex
+                        handleMessageComplete(
+                            conversationId = conversationId,
+                            messageRange = 0..<nodeIndex,
+                            reuseLastRagMemories = reuseLastRagMemories,
+                        )
                     } else {
                         saveConversation(conversationId, conversation)
                     }
@@ -1806,6 +1821,8 @@ class ChatService(
         continueRequest: HiddenContinueRequestConfig? = null,
         continuationDedupeConfig: ContinuationDedupeConfig? = null,
         autoContinueAttemptsRemaining: Int = 1,
+        // 最近一轮重试时复用上次成功注入的记忆，跳过 query embedding + 检索
+        reuseLastRagMemories: Boolean = false,
     ) {
         val settings = settingsStore.settingsFlow.first()
         val useLiveUpdate = shouldUseLiveUpdate(settings)
@@ -1922,6 +1939,8 @@ class ChatService(
                 if (firstTokenTime == null) {
                     firstTokenTime = System.currentTimeMillis()
                 }
+                // 群聊重试会重新路由发言席位，缓存按 assistant 粒度无法保证对应本轮用户问题，
+                // 因此群聊不走 RAG 复用，始终重新检索。
                 handleGroupChatMessageComplete(
                     conversationId = conversationId,
                     settings = settings,
@@ -1990,90 +2009,104 @@ class ChatService(
                         val canUseLastTurnMemory = settings.displaySetting.useLastTurnMemoryOnSkip
                         val lastTurnMemories = lastInjectedMemoriesByConversationAndAssistant[memoryCacheKey]
                         val retrievalTimeoutMs = settings.embeddingRetrievalTimeoutMillis()
-                        
-                        if (settings.enableRagLogging) {
-                            Log.d("RAG", "Query: $lastUserMessage")
-                        }
 
-                        var retrievalSkipped = false
-                        val resolved = when {
-                            limit <= 0 -> pinnedMemories
-                            lastUserMessage.isNotBlank() -> {
-                                val queryEmbedding = runCatching {
-                                    embeddingService.embed(
-                                        text = lastUserMessage,
-                                        assistantId = assistantId,
-                                        source = AIRequestSource.MEMORY_RETRIEVAL,
-                                    )
-                                }.getOrElse { t ->
-                                    if (t is CancellationException) throw t
-                                    retrievalSkipped = true
-                                    Log.w("RAG", "Memory query embedding failed: ${t.message}", t)
-                                    null
-                                }
+                        // 最近一轮重试：有缓存则复用动态检索结果，钉住记忆仍现取
+                        if (reuseLastRagMemories && lastTurnMemories != null) {
+                            val filteredReuse = filterMemoriesForRagOptions(
+                                memories = lastTurnMemories,
+                                includeCore = assistant.ragIncludeCore,
+                                includeEpisodes = assistant.ragIncludeEpisodes,
+                            )
+                            val resolved = (pinnedMemories + filteredReuse).distinctBy { it.id }
+                            if (settings.enableRagLogging) {
+                                Log.d("RAG", "Reuse last RAG memories on regenerate (${resolved.size})")
+                            }
+                            resolved
+                        } else {
+                            if (settings.enableRagLogging) {
+                                Log.d("RAG", "Query: $lastUserMessage")
+                            }
 
-                                val results = if (queryEmbedding != null) {
-                                    runCatching {
-                                        withTimeout(retrievalTimeoutMs) {
-                                            withContext(Dispatchers.IO) {
-                                                memoryRepository.retrieveRelevantMemoriesByEmbedding(
-                                                    assistantId = assistantId,
-                                                    queryEmbedding = queryEmbedding,
-                                                    limit = limit,
-                                                    similarityThreshold = assistant.ragSimilarityThreshold,
-                                                    includeCore = assistant.ragIncludeCore,
-                                                    includeEpisodes = assistant.ragIncludeEpisodes,
-                                                )
-                                            }
-                                        }
+                            var retrievalSkipped = false
+                            val resolved = when {
+                                limit <= 0 -> pinnedMemories
+                                lastUserMessage.isNotBlank() -> {
+                                    val queryEmbedding = runCatching {
+                                        embeddingService.embed(
+                                            text = lastUserMessage,
+                                            assistantId = assistantId,
+                                            source = AIRequestSource.MEMORY_RETRIEVAL,
+                                        )
                                     }.getOrElse { t ->
-                                        if (t is CancellationException && t !is TimeoutCancellationException) throw t
+                                        if (t is CancellationException) throw t
                                         retrievalSkipped = true
-                                        Log.w("RAG", "Memory retrieval failed: ${t.message}", t)
+                                        Log.w("RAG", "Memory query embedding failed: ${t.message}", t)
+                                        null
+                                    }
+
+                                    val results = if (queryEmbedding != null) {
+                                        runCatching {
+                                            withTimeout(retrievalTimeoutMs) {
+                                                withContext(Dispatchers.IO) {
+                                                    memoryRepository.retrieveRelevantMemoriesByEmbedding(
+                                                        assistantId = assistantId,
+                                                        queryEmbedding = queryEmbedding,
+                                                        limit = limit,
+                                                        similarityThreshold = assistant.ragSimilarityThreshold,
+                                                        includeCore = assistant.ragIncludeCore,
+                                                        includeEpisodes = assistant.ragIncludeEpisodes,
+                                                    )
+                                                }
+                                            }
+                                        }.getOrElse { t ->
+                                            if (t is CancellationException && t !is TimeoutCancellationException) throw t
+                                            retrievalSkipped = true
+                                            Log.w("RAG", "Memory retrieval failed: ${t.message}", t)
+                                            emptyList()
+                                        }
+                                    } else {
                                         emptyList()
                                     }
-                                } else {
-                                    emptyList()
-                                }
 
-                                if (!retrievalSkipped) {
-                                    if (settings.enableRagLogging) {
-                                        Log.d("RAG", "Retrieved ${results.size} memories")
-                                        results.forEach { Log.d("RAG", " - [${it.type}] ${it.content.take(50)}...") }
+                                    if (!retrievalSkipped) {
+                                        if (settings.enableRagLogging) {
+                                            Log.d("RAG", "Retrieved ${results.size} memories")
+                                            results.forEach { Log.d("RAG", " - [${it.type}] ${it.content.take(50)}...") }
+                                        }
+                                        (pinnedMemories + results).distinctBy { it.id }
+                                    } else {
+                                        val fallback = if (canUseLastTurnMemory) lastTurnMemories else null
+                                        val filteredFallback = fallback?.let {
+                                            filterMemoriesForRagOptions(
+                                                memories = it,
+                                                includeCore = assistant.ragIncludeCore,
+                                                includeEpisodes = assistant.ragIncludeEpisodes,
+                                            )
+                                        }.orEmpty()
+                                        if (settings.enableRagLogging) {
+                                            Log.w("RAG", "Memory retrieval skipped; using last turn memories (${filteredFallback.size})")
+                                        }
+                                        (pinnedMemories + filteredFallback).distinctBy { it.id }
                                     }
-                                    (pinnedMemories + results).distinctBy { it.id }
-                                } else {
-                                    val fallback = if (canUseLastTurnMemory) lastTurnMemories else null
-                                    val filteredFallback = fallback?.let {
-                                        filterMemoriesForRagOptions(
-                                            memories = it,
+                                }
+                                else -> {
+                                    if (settings.enableRagLogging) Log.d("RAG", "Empty query, using recent memories")
+                                    withContext(Dispatchers.IO) {
+                                        val recent = memoryRepository.getRecentCombinedMemories(
+                                            assistantId = assistantId,
+                                            limit = limit,
                                             includeCore = assistant.ragIncludeCore,
                                             includeEpisodes = assistant.ragIncludeEpisodes,
                                         )
-                                    }.orEmpty()
-                                    if (settings.enableRagLogging) {
-                                        Log.w("RAG", "Memory retrieval skipped; using last turn memories (${filteredFallback.size})")
+                                        (pinnedMemories + recent).distinctBy { it.id }
                                     }
-                                    (pinnedMemories + filteredFallback).distinctBy { it.id }
                                 }
                             }
-                            else -> {
-                                if (settings.enableRagLogging) Log.d("RAG", "Empty query, using recent memories")
-                                withContext(Dispatchers.IO) {
-                                    val recent = memoryRepository.getRecentCombinedMemories(
-                                        assistantId = assistantId,
-                                        limit = limit,
-                                        includeCore = assistant.ragIncludeCore,
-                                        includeEpisodes = assistant.ragIncludeEpisodes,
-                                    )
-                                    (pinnedMemories + recent).distinctBy { it.id }
-                                }
+                            if (!retrievalSkipped) {
+                                lastInjectedMemoriesByConversationAndAssistant[memoryCacheKey] = resolved
                             }
+                            resolved
                         }
-                        if (!retrievalSkipped) {
-                            lastInjectedMemoriesByConversationAndAssistant[memoryCacheKey] = resolved
-                        }
-                        resolved
                     } else {
                         // Simple mode: inject all memories
                         val resolved = withContext(Dispatchers.IO) { memoryRepository.getMemoriesOfAssistant(assistantId) }
