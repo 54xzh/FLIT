@@ -210,6 +210,7 @@ class SandboxWorkspaceManager(
 class ProotSandboxShellRunner(
     private val nativeLibraryDir: File,
     private val extraBindMounts: List<SandboxBindMount>,
+    private val patcher: SandboxRootfsPatcher = SandboxRootfsPatcher(),
 ) : SandboxShellRunner {
     override fun execute(context: SandboxShellContext): SandboxCommandResult {
         if (!File(context.linuxDir, "bin/sh").isFile) return SandboxCommandResult(127, "", "Rootfs is not installed")
@@ -217,7 +218,7 @@ class ProotSandboxShellRunner(
         val loader = File(nativeLibraryDir, "libproot_loader.so")
         if (!proot.isFile || !loader.isFile) return SandboxCommandResult(127, "", "Sandbox runtime is unavailable")
         context.tempDir.mkdirs()
-        patchRootfs(context.linuxDir)
+        patcher.patch(context.linuxDir)
         val process = ProcessBuilder(buildCommand(context, proot))
             .directory(context.filesDir)
             .redirectErrorStream(false)
@@ -238,18 +239,13 @@ class ProotSandboxShellRunner(
     }
 
     private fun SandboxShellContext.prootCwd(): String = cwd.trim().trim('/').takeIf { it.isNotEmpty() }?.let { "/workspace/$it" } ?: "/workspace"
-
-    private fun patchRootfs(linuxDir: File) {
-        val etc = File(linuxDir, "etc")
-        if (!etc.isDirectory) return
-        File(etc, "resolv.conf").writeText("nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
-        File(linuxDir, "tmp").mkdirs()
-        File(linuxDir, "var/tmp").mkdirs()
-    }
 }
 
 /** 下载并安全解开 tar.gz 或 tar.xz Rootfs。 */
-class SandboxRootfsInstaller(private val manager: SandboxWorkspaceManager) {
+class SandboxRootfsInstaller(
+    private val manager: SandboxWorkspaceManager,
+    private val patcher: SandboxRootfsPatcher = SandboxRootfsPatcher(),
+) {
     fun install(workspaceId: String, sourceUrl: String, onProgress: (String) -> Unit = {}) {
         require(sourceUrl.startsWith("https://") || sourceUrl.startsWith("http://")) { "Rootfs URL must use HTTP(S)" }
         manager.ensureWorkspace(workspaceId)
@@ -268,6 +264,7 @@ class SandboxRootfsInstaller(private val manager: SandboxWorkspaceManager) {
             checkInterrupted()
             linux.deleteRecursively()
             require(staging.renameTo(linux)) { "Failed to install Rootfs" }
+            patcher.patch(linux)
             onProgress("installed")
         } finally {
             archive.delete()
