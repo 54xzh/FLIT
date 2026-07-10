@@ -39,6 +39,12 @@ private const val BACKUP_FILE_SUFFIX = ".zip"
 private val BACKUP_FILE_PREFIXES = setOf(BACKUP_FILE_PREFIX, "LastChat_backup_")
 private const val DATABASE_SNAPSHOT_PREFIX = "rikka_hub_snapshot_"
 private val STALE_BACKUP_TEMP_MAX_AGE_MS = TimeUnit.HOURS.toMillis(24)
+/**
+ * 沙盒恢复后待清理的 sentinel 文件名（写在 filesDir 根下，不在 sandbox_workspaces 目录里，
+ * 避免被当成工作区遍历）。恢复成功后写入，启动时 checkIntegrity 检测到它就逐个工作区清掉
+ * 旧 rootfs（linux/ 与 tmp/）并把状态降级为未安装，完成后删除 sentinel。
+ */
+const val SANDBOX_RESTORE_SENTINEL = ".sandbox_restore_pending"
 private val FILES_DIR_BACKUP_PATHS = listOf(
     "upload",
     "avatars",
@@ -556,7 +562,18 @@ class WebdavSync(
                 }
 
                 Log.i(TAG, "restoreFromBackupFile: Restore completed successfully")
-                
+
+                // 写入「待沙盒清理」sentinel：备份不含 rootfs，恢复到本机后旧 linux/ 会残留，
+                // 导致 hasRootfs 误判已就绪。这里只留个标记，真正的清理放到重启后 checkIntegrity
+                // 里做——那时 DB 已是恢复的新库，能完整遍历所有工作区（含 files/ 为空、zip 里
+                // 没有条目的工作区），避免按 zip 条目触发清理漏掉空工作区。
+                runCatching {
+                    val sentinel = File(context.filesDir, SANDBOX_RESTORE_SENTINEL)
+                    sentinel.writeText(System.currentTimeMillis().toString())
+                }.onFailure {
+                    Log.w(TAG, "restoreFromBackupFile: 写入沙盒恢复 sentinel 失败: ${it.message}")
+                }
+
                 // Combine cleanup results
                 val totalCleanupResult = settingsCleanupResult.copy(
                     unsupportedZipEntriesBytes = unsupportedZipEntriesBytes

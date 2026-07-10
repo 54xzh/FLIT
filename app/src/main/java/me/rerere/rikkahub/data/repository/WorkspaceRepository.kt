@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.repository
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
@@ -21,6 +22,7 @@ import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
 import me.rerere.rikkahub.data.db.entity.SandboxWorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.WorkspaceType
+import me.rerere.rikkahub.data.sync.SANDBOX_RESTORE_SENTINEL
 import me.rerere.rikkahub.data.db.entity.toolDefaultNeedsApproval
 import me.rerere.rikkahub.data.db.entity.workspaceToolNames
 import me.rerere.rikkahub.utils.JsonInstant
@@ -28,10 +30,13 @@ import me.rerere.rikkahub.workspace.SandboxCommandResult
 import me.rerere.rikkahub.workspace.SandboxFileEntry
 import me.rerere.rikkahub.workspace.SandboxRootfsInstaller
 import me.rerere.rikkahub.workspace.SandboxWorkspaceManager
+import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
+
+private const val TAG = "WorkspaceRepository"
 
 data class Workspace(
     val id: String,
@@ -205,6 +210,14 @@ class WorkspaceRepository(
     }
 
     suspend fun checkIntegrity() = withContext(Dispatchers.IO) {
+        // 检测沙盒恢复 sentinel：恢复成功后由 WebdavSync 写入，标志本次启动需要把所有沙盒工作区
+        // 的旧 rootfs（linux/ 与 tmp/）清掉并降级状态。备份不含 rootfs，恢复到本机后旧 linux/
+        // 残留会让 hasRootfs 误判已就绪；按 zip 条目清理会漏掉 files/ 为空的工作区，所以集中到
+        // 这里遍历全部工作区统一处理。清理完成后删除 sentinel，下次启动走正常分支。
+        val pendingSandboxClean = File(context.filesDir, SANDBOX_RESTORE_SENTINEL).exists()
+        if (pendingSandboxClean) {
+            Log.i(TAG, "checkIntegrity: 检测到沙盒恢复 sentinel，开始清理旧 rootfs 残留")
+        }
         dao.getAll().forEach { record ->
             val workspace = resolve(record) ?: return@forEach
             when (workspace.type) {
@@ -223,6 +236,14 @@ class WorkspaceRepository(
                         dao.deleteSandboxDetail(workspace.id)
                         dao.deleteById(workspace.id)
                         cleanupAssistantReferences(workspace.id)
+                    } else if (pendingSandboxClean) {
+                        // 恢复后清理：删掉本机残留的旧 rootfs，状态降级为未安装，由用户重装。
+                        // 无论 DB 状态是 READY/INSTALLING/DISABLED 都清，避免旧 linux/ 让 hasRootfs 误判。
+                        val cleaned = sandboxManager.cleanRootfsResidue(workspace.id)
+                        if (!cleaned) {
+                            Log.w(TAG, "checkIntegrity: 工作区 ${workspace.id} 的旧 rootfs 未完全删除，下次启动会重试")
+                        }
+                        updateSandboxStatus(workspace.id, SandboxRootfsStatus.DISABLED, detail.rootfsSourceUrl, detail.rootfsVersion, null)
                     } else if ((detail.rootfsStatus == SandboxRootfsStatus.READY || detail.rootfsStatus == SandboxRootfsStatus.INSTALLING)
                         && !sandboxManager.hasRootfs(workspace.id)
                     ) {
@@ -232,6 +253,11 @@ class WorkspaceRepository(
                     }
                 }
             }
+        }
+        if (pendingSandboxClean) {
+            runCatching { File(context.filesDir, SANDBOX_RESTORE_SENTINEL).delete() }
+                .onFailure { Log.w(TAG, "checkIntegrity: 删除沙盒恢复 sentinel 失败: ${it.message}") }
+            Log.i(TAG, "checkIntegrity: 沙盒恢复清理完成")
         }
     }
 

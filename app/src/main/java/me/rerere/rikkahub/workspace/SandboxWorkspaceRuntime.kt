@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.workspace
 
+import android.util.Log
 import java.io.BufferedInputStream
 import java.io.EOFException
 import java.io.File
@@ -74,6 +75,32 @@ class SandboxWorkspaceManager(
     fun hasRootfs(id: String): Boolean = File(linuxDir(id), "bin/sh").isFile
 
     fun deleteWorkspace(id: String): Boolean = workspaceDir(id).deleteRecursively()
+
+    /**
+     * 删除工作区的 rootfs 残留（`linux/` 与 `tmp/`），保留 `files/` 用户文件。
+     *
+     * 备份只含 `files/`，不含 rootfs；恢复到本机时，旧 `linux/` 会留下导致 [hasRootfs]
+     * 误判为已就绪。调用方在恢复后逐个工作区清理一次，让状态降级为未安装。
+     *
+     * `deleteRecursively()` 失败时不抛异常而返回 false（部分子项删不掉），因此这里
+     * 收集每项目录的删除结果：只要任一目录存在但未删干净就返回 false，便于调用方
+     * 记录并决定是否重试，而不是把失败当成成功。
+     */
+    fun cleanRootfsResidue(id: String): Boolean {
+        requireWorkspaceId(id)
+        var allCleaned = true
+        for (name in listOf("linux", "tmp")) {
+            val target = File(workspaceDir(id), name)
+            if (!target.exists()) continue
+            // 存在但删失败（返回 false）才算未清干净；抛异常按未清干净处理。
+            val deleted = runCatching { target.deleteRecursively() }.getOrDefault(false)
+            if (!deleted) {
+                allCleaned = false
+                Log.w(TAG, "cleanRootfsResidue: $id/$name 未完全删除（deleteRecursively 返回 false）")
+            }
+        }
+        return allCleaned
+    }
 
     fun listFiles(id: String, path: String = ""): List<SandboxFileEntry> {
         val root = filesDir(id).also { it.mkdirs() }
@@ -198,6 +225,7 @@ class SandboxWorkspaceManager(
     }
 
     companion object {
+        private const val TAG = "SandboxWorkspace"
         private val WORKSPACE_ID = Regex("[A-Za-z0-9._-]+")
         const val DEFAULT_COMMAND_TIMEOUT_MS = 30_000L
         private const val MAX_READ_BYTES = 8L * 1024L * 1024L

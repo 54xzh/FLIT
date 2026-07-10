@@ -48,6 +48,39 @@ class SandboxWorkspaceManagerTest {
     }
 
     @Test
+    fun cleanRootfsResidueRemovesLinuxAndTmpButKeepsFiles() {
+        val manager = manager()
+        // 模拟恢复后本机残留的旧 rootfs：linux/、tmp/ 与用户 files/ 共存
+        manager.ensureWorkspace("sandbox-1")
+        File(manager.linuxDir("sandbox-1"), "bin").mkdirs()
+        File(manager.linuxDir("sandbox-1"), "bin/sh").writeText("old")
+        File(manager.tempDir("sandbox-1"), "scratch").writeText("tmp")
+        manager.writeText("sandbox-1", "docs/note.txt", "keep me", overwrite = true)
+
+        val cleaned = manager.cleanRootfsResidue("sandbox-1")
+
+        assertTrue(cleaned)
+        assertEquals(false, manager.hasRootfs("sandbox-1"))          // 旧 bin/sh 被删
+        assertEquals(false, manager.linuxDir("sandbox-1").exists())
+        assertEquals(false, manager.tempDir("sandbox-1").exists())
+        // files/ 用户文件保留
+        assertEquals("keep me", manager.readText("sandbox-1", "docs/note.txt"))
+    }
+
+    @Test
+    fun cleanRootfsResidueIsSafeWhenNothingToClean() {
+        val manager = manager()
+        manager.ensureWorkspace("sandbox-1")
+        manager.writeText("sandbox-1", "a.txt", "a", overwrite = true)
+
+        // 没有 linux/ 与 tmp/ 残留，清理应无副作用并返回成功
+        val cleaned = manager.cleanRootfsResidue("sandbox-1")
+
+        assertTrue(cleaned)
+        assertEquals("a", manager.readText("sandbox-1", "a.txt"))
+    }
+
+    @Test
     fun sandboxAndLightweightExposeDifferentToolProtocols() {
         val sandboxTools = workspaceToolNames(WorkspaceType.SANDBOX)
         val lightweightTools = workspaceToolNames(WorkspaceType.LIGHTWEIGHT)
