@@ -54,8 +54,8 @@ private val FILES_DIR_BACKUP_PATHS = listOf(
     "custom_fonts",
     "chat_files",
     "custom_icons",
-    // 沙盒工作区：仅备份每个工作区下的 files/ 用户文件，
-    // 排除 linux/（rootfs 体积大、可重装）与 tmp/（临时文件），见 addDirectoryToZip 的 skipSandboxHeavyDirs。
+    // 沙盒工作区：仅备份每个工作区下的 files/ 用户文件（白名单），其余根级目录
+    // （linux/ rootfs、tmp/ 等）不进包，见 addSandboxWorkspacesToZip。
     "sandbox_workspaces",
 )
 
@@ -303,10 +303,14 @@ class WebdavSync(
                             TAG,
                             "prepareBackupFile: Backing up $relativePath from ${folder.absolutePath}"
                         )
-                        // 沙盒工作区：跳过每个工作区下的 linux/（rootfs）与 tmp/，只保留 files/ 用户文件，
-                        // 防止备份包膨胀；恢复后 rootfs 会落到 DISABLED（未安装），由用户重装。
-                        val skipSubdirs = if (relativePath == "sandbox_workspaces") setOf("linux", "tmp") else emptySet()
-                        addDirectoryToZip(zipOut, folder, relativePath, skipSubdirs)
+                        if (relativePath == "sandbox_workspaces") {
+                            // 白名单：只打包每个工作区下的 files/ 用户文件，其余根级目录
+                            // （linux/ rootfs、tmp/ 及未来新增的大目录）天然不进包，
+                            // 避免黑名单「猜该跳谁」带来的漏排/误排。files/ 不存在的工作区直接跳过。
+                            addSandboxWorkspacesToZip(zipOut, folder)
+                        } else {
+                            addDirectoryToZip(zipOut, folder, relativePath)
+                        }
                     } else {
                         Log.i(
                             TAG,
@@ -607,19 +611,12 @@ internal fun addDirectoryToZip(
     zipOut: ZipOutputStream,
     dir: File,
     entryPrefix: String,
-    skipSubdirs: Set<String> = emptySet(),
 ) {
     if (!dir.exists() || !dir.isDirectory) return
     val prefix = entryPrefix.trim('/')
     if (prefix.isBlank()) return
 
     dir.walkTopDown()
-        .onEnter { current ->
-            // 只跳过“紧邻 dir 的第一层目录下的 linux/ 与 tmp/”，即相对路径恰为
-            // <skipSubdir 名> 或 <第一段>/<skipSubdir 名> 的目录（沙盒里是 <工作区ID>/linux、<工作区ID>/tmp）。
-            // 不能按目录名匹配任意层级，否则会把用户在 files/ 下自建的 linux/、tmp/ 子目录也误排。
-            current == dir || !isDirSkipped(current, dir, skipSubdirs)
-        }
         .filter { it.isFile }
         .forEach { file ->
             val relPath = runCatching { file.relativeTo(dir).path.replace('\\', '/') }.getOrNull()
@@ -638,18 +635,26 @@ private fun filesDirBackupZipPrefix(relativePath: String): String {
 }
 
 /**
- * 判断 [current] 是否应整棵跳过。只匹配“紧邻 [root] 的第二层目录名为 [skipSubdirs]”的情形，
- * 即相对 [root] 的路径恰好是 `<skipSubdir>` 或 `<第一段>/<skipSubdir>`（沙盒里对应
- * `sandbox_workspaces/<工作区ID>/linux` 与 `.../tmp`）。第三层及更深（如 `<id>/files/tmp`）
- * 属于用户文件，一律保留。
+ * 白名单方式备份沙盒工作区：遍历 [sandboxRoot] 下每个工作区子目录（按 id 命名），
+ * 只打包其 `files/` 目录，条目前缀为 `sandbox_workspaces/<id>/files`。其余根级目录
+ * （如 linux/ rootfs、tmp/）不进包。不校验 id 格式；`files/` 不存在的工作区跳过、不打条目。
  */
-private fun isDirSkipped(current: File, root: File, skipSubdirs: Set<String>): Boolean {
-    val relToDir = runCatching { current.relativeTo(root).path }.getOrNull() ?: return false
-    val segments = relToDir.split(File.separatorChar).filter { it.isNotBlank() }
-    if (segments.isEmpty()) return false
-    // 命中条件：路径为 1 段（根级 linux/tmp）或 2 段（<工作区ID>/linux|tmp），且最后一段在排除集。
-    if (segments.size > 2) return false
-    return segments.last() in skipSubdirs
+internal fun addSandboxWorkspacesToZip(
+    zipOut: ZipOutputStream,
+    sandboxRoot: File,
+) {
+    if (!sandboxRoot.exists() || !sandboxRoot.isDirectory) return
+    val workspaceDirs = sandboxRoot.listFiles { file -> file.isDirectory && !file.isHidden }
+    if (workspaceDirs == null) {
+        Log.w(TAG, "addSandboxWorkspacesToZip: failed to list $sandboxRoot, sandbox backup skipped")
+        return
+    }
+    workspaceDirs.sortedBy { it.name }.forEach { workspaceDir ->
+        val filesDir = File(workspaceDir, "files")
+        if (!filesDir.exists() || !filesDir.isDirectory) return@forEach
+        val prefix = "sandbox_workspaces/${workspaceDir.name}/files"
+        addDirectoryToZip(zipOut, filesDir, prefix)
+    }
 }
 
 private fun addVirtualFileToZip(zipOut: ZipOutputStream, name: String, content: String) {

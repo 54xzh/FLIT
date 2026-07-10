@@ -46,12 +46,7 @@ class WebdavSyncBackupFilterTest {
 
         val backupFile = temporaryFolder.newFile("backup.zip")
         ZipOutputStream(backupFile.outputStream()).use { zipOut ->
-            addDirectoryToZip(
-                zipOut = zipOut,
-                dir = sandboxRoot,
-                entryPrefix = "sandbox_workspaces",
-                skipSubdirs = setOf("linux", "tmp"),
-            )
+            addSandboxWorkspacesToZip(zipOut, sandboxRoot)
         }
 
         val entries = ZipFile(backupFile).use { zip ->
@@ -77,7 +72,7 @@ class WebdavSyncBackupFilterTest {
             entries.any { it == "sandbox_workspaces/$workspaceId/files/tmp/important.txt" },
         )
 
-        // linux/ 与 tmp/ 整棵子树不应出现（仅限工作区根下，不含 files/ 内的同名目录）
+        // linux/ 与 tmp/ 整棵子树不应出现（工作区根下，不含 files/ 内的同名目录）
         assertFalse(
             "linux/ rootfs must be excluded, got: $entries",
             entries.any { it.startsWith("sandbox_workspaces/$workspaceId/linux/") },
@@ -89,7 +84,7 @@ class WebdavSyncBackupFilterTest {
     }
 
     @Test
-    fun skipSubdirsExcludesAcrossMultipleWorkspaces() {
+    fun filesOnlyBackupAcrossMultipleWorkspaces() {
         val base = temporaryFolder.newFolder("filesDir")
         val sandboxRoot = File(base, "sandbox_workspaces").apply { mkdirs() }
 
@@ -107,7 +102,7 @@ class WebdavSyncBackupFilterTest {
 
         val backupFile = temporaryFolder.newFile("backup.zip")
         ZipOutputStream(backupFile.outputStream()).use { zipOut ->
-            addDirectoryToZip(zipOut, sandboxRoot, "sandbox_workspaces", setOf("linux", "tmp"))
+            addSandboxWorkspacesToZip(zipOut, sandboxRoot)
         }
 
         val entries = ZipFile(backupFile).use { zip ->
@@ -121,6 +116,34 @@ class WebdavSyncBackupFilterTest {
                 "sandbox_workspaces/ws-two/files/a.txt",
                 "sandbox_workspaces/ws-two/files/tmp/keep.txt",
             ),
+            entries.sorted(),
+        )
+    }
+
+    @Test
+    fun workspaceWithoutFilesDirIsSkipped() {
+        // 没有 files/ 的工作区不打任何条目
+        val base = temporaryFolder.newFolder("filesDir")
+        val sandboxRoot = File(base, "sandbox_workspaces").apply { mkdirs() }
+
+        File(sandboxRoot, "empty-ws").apply { mkdirs() }
+        File(sandboxRoot, "empty-ws/linux").apply { mkdirs() }
+        File(sandboxRoot, "empty-ws/linux/x").writeText("x")
+        File(sandboxRoot, "has-files").apply { mkdirs() }
+        File(sandboxRoot, "has-files/files").apply { mkdirs() }
+        File(sandboxRoot, "has-files/files/keep.txt").writeText("k")
+
+        val backupFile = temporaryFolder.newFile("backup.zip")
+        ZipOutputStream(backupFile.outputStream()).use { zipOut ->
+            addSandboxWorkspacesToZip(zipOut, sandboxRoot)
+        }
+
+        val entries = ZipFile(backupFile).use { zip ->
+            zip.entries().asSequence().map { it.name }.toList()
+        }
+
+        assertEquals(
+            listOf("sandbox_workspaces/has-files/files/keep.txt"),
             entries.sorted(),
         )
     }
