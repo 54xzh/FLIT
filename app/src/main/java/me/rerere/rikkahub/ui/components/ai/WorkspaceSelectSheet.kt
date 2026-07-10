@@ -30,7 +30,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.rerere.rikkahub.R
-import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
+import me.rerere.rikkahub.data.db.entity.WorkspaceType
+import me.rerere.rikkahub.data.repository.Workspace
+import me.rerere.rikkahub.ui.pages.extensions.workspace.sandboxStatusText
 
 /**
  * 工作区选择底部弹窗：列出所有工作区 + "不绑定" + "管理工作区"。
@@ -44,7 +46,7 @@ import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 @Composable
 fun WorkspaceSelectSheet(
     selectedWorkspaceId: String?,
-    workspaces: List<WorkspaceEntity>,
+    workspaces: List<Workspace>,
     onSelect: (String?) -> Unit,
     onManage: () -> Unit,
     onDismiss: () -> Unit,
@@ -80,6 +82,10 @@ fun WorkspaceSelectSheet(
                 workspaces.forEach { workspace ->
                     WorkspaceSelectRow(
                         title = workspace.name,
+                        subtitle = stringResource(
+                            if (workspace.type == WorkspaceType.LIGHTWEIGHT) R.string.workspace_type_lightweight
+                            else R.string.workspace_type_sandbox
+                        ) + workspace.sandboxStatus?.let { " · ${sandboxStatusText(it)}" }.orEmpty(),
                         selected = workspace.id == selectedWorkspaceId,
                         onClick = { onSelect(workspace.id) },
                     )
@@ -110,17 +116,17 @@ fun WorkspaceSelectSheet(
 @Composable
 private fun WorkspaceSelectRow(
     title: String,
+    subtitle: String? = null,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
     ListItem(
         leadingContent = { Icon(Icons.Rounded.Folder, contentDescription = null) },
         headlineContent = {
-            Text(
-                text = title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Column {
+                Text(text = title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
         },
         trailingContent = if (selected) {
             {

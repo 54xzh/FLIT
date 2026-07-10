@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MoreVert
@@ -57,6 +58,7 @@ fun WorkspaceFilesPage(
     onOpen: (WorkspaceFileEntry) -> Unit,
     onDelete: (WorkspaceFileEntry) -> Unit,
     onOpenFile: (WorkspaceFileEntry) -> Unit,
+    onExport: (WorkspaceFileEntry) -> Unit,
 ) {
     val context = LocalContext.current
     LazyColumn(
@@ -81,6 +83,7 @@ fun WorkspaceFilesPage(
                 onOpen = { onOpen(entry) },
                 onDelete = { onDelete(entry) },
                 onOpenFile = { onOpenFile(entry) },
+                onExport = { onExport(entry) },
             )
         }
 
@@ -117,6 +120,7 @@ private fun WorkspaceFileCard(
     onOpen: () -> Unit,
     onDelete: () -> Unit,
     onOpenFile: () -> Unit,
+    onExport: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     // 文件点击直接打开，文件夹点击进入子目录
@@ -172,6 +176,13 @@ private fun WorkspaceFileCard(
                     Icon(Icons.Rounded.MoreVert, contentDescription = null)
                 }
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    if (!entry.isDirectory) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.workspace_detail_export_file)) },
+                            leadingIcon = { Icon(Icons.Rounded.FileDownload, contentDescription = null) },
+                            onClick = { menuExpanded = false; onExport() },
+                        )
+                    }
                     DropdownMenuItem(
                         text = {
                             Text(

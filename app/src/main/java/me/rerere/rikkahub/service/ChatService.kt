@@ -102,6 +102,7 @@ import me.rerere.rikkahub.data.ai.tools.RUN_SKILL_SCRIPT_SYSTEM_PROMPT_TEMPLATE
 import me.rerere.rikkahub.data.ai.tools.SCRIPTABLE_SKILL_LIST_VARIABLE
 import me.rerere.rikkahub.data.ai.tools.SearchAgentProgressStore
 import me.rerere.rikkahub.data.ai.tools.SearchAgentTools
+import me.rerere.rikkahub.data.ai.tools.createSandboxWorkspaceTools
 import me.rerere.rikkahub.data.ai.tools.SkillScriptRunner
 import me.rerere.rikkahub.data.ai.tools.WORKSPACE_COMMON_RULES_PROMPT
 import me.rerere.rikkahub.data.ai.tools.WORKSPACE_COMMON_RULES_VARIABLE
@@ -117,6 +118,8 @@ import me.rerere.rikkahub.data.ai.transformers.ThinkTagTransformer
 import me.rerere.rikkahub.data.datastore.KeepAliveMode
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
+import me.rerere.rikkahub.data.db.entity.WorkspaceType
 import me.rerere.rikkahub.data.datastore.clearConversationWorkspace
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
@@ -2192,11 +2195,18 @@ class ChatService(
                             )
                         )
                     }
+                    val boundWorkspace = assistant.workspaceId?.let { workspaceRepository.getById(it) }
                     val hasWorkspaceFiles = assistant.localTools.contains(LocalToolOption.WorkspaceFiles)
                     if (hasWorkspaceFiles) {
-                        addAll(createWorkspaceFileTools(assistant = assistant, settingsSnapshot = settings))
+                        when (boundWorkspace?.type) {
+                            WorkspaceType.LIGHTWEIGHT -> addAll(createWorkspaceFileTools(assistant = assistant, settingsSnapshot = settings))
+                            WorkspaceType.SANDBOX -> if (boundWorkspace.sandboxStatus == SandboxRootfsStatus.READY) {
+                                addAll(createSandboxWorkspaceTools(boundWorkspace.id, workspaceRepository))
+                            }
+                            null -> Unit
+                        }
                     }
-                    if (assistant.localTools.contains(LocalToolOption.PythonEngine)) {
+                    if (assistant.localTools.contains(LocalToolOption.PythonEngine) && boundWorkspace?.type != WorkspaceType.SANDBOX) {
                         add(
                             createWorkspacePythonTool(
                                 assistant = assistant,
@@ -2209,7 +2219,7 @@ class ChatService(
 
                     val enabledSkills = settings.skills.filter { skill -> skill.id in assistant.enabledSkillIds }
                     if (enabledSkills.isNotEmpty()) {
-                        val scriptableSkills = if (settings.enableSkillScriptExecution) {
+                        val scriptableSkills = if (settings.enableSkillScriptExecution && boundWorkspace?.type != WorkspaceType.SANDBOX) {
                             enabledSkills.filter { skill -> skill.id in settings.enabledSkillScriptIds }
                         } else {
                             emptyList()
@@ -2723,9 +2733,16 @@ class ChatService(
                     }
                 }
 
+                val boundWorkspace = seatAssistant.workspaceId?.let { workspaceRepository.getById(it) }
                 val hasWorkspaceFiles = seatAssistant.localTools.contains(LocalToolOption.WorkspaceFiles)
                 if (hasWorkspaceFiles) {
-                    addAll(createWorkspaceFileTools(assistant = seatAssistant, settingsSnapshot = settings))
+                    when (boundWorkspace?.type) {
+                        WorkspaceType.LIGHTWEIGHT -> addAll(createWorkspaceFileTools(assistant = seatAssistant, settingsSnapshot = settings))
+                        WorkspaceType.SANDBOX -> if (boundWorkspace.sandboxStatus == SandboxRootfsStatus.READY) {
+                            addAll(createSandboxWorkspaceTools(boundWorkspace.id, workspaceRepository))
+                        }
+                        null -> Unit
+                    }
                 }
                 if (seatAssistant.localTools.contains(LocalToolOption.MemorySearch)) {
                     addAll(
@@ -2744,7 +2761,7 @@ class ChatService(
                         )
                     )
                 }
-                if (seatAssistant.localTools.contains(LocalToolOption.PythonEngine)) {
+                if (seatAssistant.localTools.contains(LocalToolOption.PythonEngine) && boundWorkspace?.type != WorkspaceType.SANDBOX) {
                     add(
                         createWorkspacePythonTool(
                             assistant = seatAssistant,
@@ -2757,7 +2774,7 @@ class ChatService(
 
                 val enabledSkills = settings.skills.filter { skill -> skill.id in seatAssistant.enabledSkillIds }
                 if (enabledSkills.isNotEmpty()) {
-                    val scriptableSkills = if (settings.enableSkillScriptExecution) {
+                    val scriptableSkills = if (settings.enableSkillScriptExecution && boundWorkspace?.type != WorkspaceType.SANDBOX) {
                         enabledSkills.filter { skill -> skill.id in settings.enabledSkillScriptIds }
                     } else {
                         emptyList()
@@ -4274,8 +4291,12 @@ class ChatService(
         }
         val workspace = workspaceRepository.getById(workspaceId)
             ?: error("Workspace not found: $workspaceId")
+        require(workspace.type == WorkspaceType.LIGHTWEIGHT) {
+            "This operation is only available for a lightweight workspace"
+        }
+        val treeUri = workspace.treeUri ?: error("Workspace folder is missing")
         val rootDoc = runCatching {
-            DocumentFile.fromTreeUri(context, Uri.parse(workspace.treeUri))
+            DocumentFile.fromTreeUri(context, Uri.parse(treeUri))
         }.getOrNull()
         if (rootDoc?.isDirectory != true) {
             error("Workspace directory is not accessible")

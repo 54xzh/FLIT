@@ -46,6 +46,7 @@ val viewModelModule = module {
             workspaceId = it.get(),
             repository = get(),
             safRepository = get(),
+            context = get(),
         )
     }
     viewModel<GroupChatTemplateDetailVM> {

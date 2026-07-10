@@ -5,11 +5,9 @@
 -->
 <data-extraction-rules>
   <cloud-backup>
+      <exclude domain="file" path="sandbox_workspaces/" />
   </cloud-backup>
-  <!--
   <device-transfer>
-      <include .../>
-      <exclude .../>
+      <exclude domain="file" path="sandbox_workspaces/" />
   </device-transfer>
-  -->
 </data-extraction-rules>

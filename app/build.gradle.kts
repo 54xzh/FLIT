@@ -201,6 +201,11 @@ android {
             assets.srcDir("../web-ui/build/client")
         }
     }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
     applicationVariants.all {
         outputs.all {
             this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
@@ -273,6 +278,7 @@ dependencies {
     implementation(libs.androidx.browser)
     implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.documentfile)
+    implementation(libs.xz)
 
     // Compose
     implementation(libs.androidx.activity.compose)

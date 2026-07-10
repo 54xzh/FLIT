@@ -12,8 +12,13 @@ import me.rerere.rikkahub.data.repository.SafRepository
 import me.rerere.rikkahub.data.repository.StorageManagerRepository
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.workspace.ProotSandboxShellRunner
+import me.rerere.rikkahub.workspace.SandboxBindMount
+import me.rerere.rikkahub.workspace.SandboxRootfsInstaller
+import me.rerere.rikkahub.workspace.SandboxWorkspaceManager
 import me.rerere.ai.provider.providers.openai.OpenRouterModelCapabilityProvider
 import org.koin.dsl.module
+import java.io.File
 
 val repositoryModule = module {
     single {
@@ -56,10 +61,29 @@ val repositoryModule = module {
     }
 
     single {
+        val context: android.content.Context = get()
+        SandboxWorkspaceManager(
+            baseDir = File(context.filesDir, "sandbox_workspaces"),
+            shellRunner = ProotSandboxShellRunner(
+                nativeLibraryDir = File(context.applicationInfo.nativeLibraryDir),
+                extraBindMounts = listOf(
+                    SandboxBindMount(File(context.filesDir, "skills").apply { mkdirs() }, "/skills"),
+                    SandboxBindMount(File(context.filesDir, "upload").apply { mkdirs() }, "/upload"),
+                    SandboxBindMount(File(context.filesDir, "tool_outputs").apply { mkdirs() }, "/tool_outputs"),
+                ),
+            ),
+        )
+    }
+
+    single { SandboxRootfsInstaller(get()) }
+
+    single {
         WorkspaceRepository(
             dao = get(),
             settingsStore = get(),
             context = get(),
+            sandboxManager = get(),
+            rootfsInstaller = get(),
         )
     }
 

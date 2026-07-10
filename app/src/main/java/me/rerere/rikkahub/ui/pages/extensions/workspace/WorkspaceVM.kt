@@ -7,33 +7,41 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
-import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
+import me.rerere.rikkahub.data.repository.Workspace
 
 class WorkspaceVM(
     private val repository: WorkspaceRepository,
 ) : ViewModel() {
-    val workspaces: StateFlow<List<WorkspaceEntity>> =
+    val workspaces: StateFlow<List<Workspace>> =
         repository.listFlow().stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList(),
         )
 
-    fun create(name: String, treeUri: String, onResult: (Result<WorkspaceEntity>) -> Unit) {
+    fun createLightweight(name: String, treeUri: String, onResult: (Result<Workspace>) -> Unit) {
         viewModelScope.launch {
-            runCatching { repository.create(name, treeUri) }
+            runCatching { repository.createLightweight(name, treeUri) }
                 .onFailure { onResult(Result.failure(it)) }
                 .onSuccess { onResult(Result.success(it)) }
         }
     }
 
-    fun rename(workspace: WorkspaceEntity, name: String) {
+    fun createSandbox(name: String, onResult: (Result<Workspace>) -> Unit) {
+        viewModelScope.launch {
+            runCatching { repository.createSandbox(name) }
+                .onFailure { onResult(Result.failure(it)) }
+                .onSuccess { onResult(Result.success(it)) }
+        }
+    }
+
+    fun rename(workspace: Workspace, name: String) {
         viewModelScope.launch {
             runCatching { repository.rename(workspace.id, name) }
         }
     }
 
-    fun delete(workspace: WorkspaceEntity) {
+    fun delete(workspace: Workspace) {
         viewModelScope.launch {
             runCatching { repository.delete(workspace.id) }
         }

@@ -1608,7 +1608,7 @@
   <string name="assistant_page_local_tools_device_control_desc">允許助手與設備交互（發送通知、讀取通知、啟動應用、設置鬧鐘、設置提醒）。</string>
   <string name="assistant_page_local_tools_device_control_subtitle">通知、應用、鬧鐘、提醒</string>
   <string name="assistant_page_local_tools_workspace_files_title">工作區檔案</string>
-  <string name="assistant_page_local_tools_workspace_files_desc">允許助手讀寫目前對話的工作區檔案。需要先授予工作區根目錄權限。</string>
+  <string name="assistant_page_local_tools_workspace_files_desc">允許助手使用已綁定的工作區。輕量模式使用你授權的資料夾，沙盒模式使用獨立 Linux 環境。</string>
   <string name="assistant_page_local_tools_lorebooks_editor_title">世界書編輯</string>
   <string name="assistant_page_local_tools_lorebooks_editor_desc">允許助手編輯已啟用的世界書條目（新增/修改/刪除）。工具變更會寫入歷史，可撤銷。</string>
   <string name="assistant_page_local_tools_memory_search_title">記憶搜索</string>
@@ -2300,4 +2300,31 @@
     <string name="workspace_bound_current">目前工作區</string>
     <string name="workspace_unbound">無工作區</string>
 
+    <string name="workspace_type_lightweight">輕量模式</string>
+    <string name="workspace_type_lightweight_desc">使用你授權的資料夾，檔案會保留在原資料夾中。</string>
+    <string name="workspace_type_sandbox">沙盒模式</string>
+    <string name="workspace_type_sandbox_desc">使用應用程式內獨立 Linux 環境，可執行 Shell 工具。</string>
+    <string name="workspace_page_choose_type">選擇工作區類型</string>
+    <string name="workspace_sandbox_delete_confirm">刪除此沙盒及其中的所有檔案和 Linux 環境？此操作無法復原，已綁定的助手將被解除綁定。</string>
+    <string name="workspace_sandbox_rootfs_title">Linux 環境</string>
+    <string name="workspace_sandbox_rootfs_status">Rootfs 狀態</string>
+    <string name="workspace_sandbox_rootfs_url">Rootfs 下載網址</string>
+    <string name="workspace_sandbox_rootfs_unverified">自訂來源不會驗證，請僅使用你信任的來源。</string>
+    <string name="workspace_sandbox_install_rootfs">安裝 Linux 環境</string>
+    <string name="workspace_sandbox_reinstall_rootfs">重新安裝 Linux 環境</string>
+    <string name="workspace_sandbox_rootfs_failed">Linux 環境安裝失敗</string>
+    <string name="workspace_sandbox_status_not_installed">尚未安裝</string>
+    <string name="workspace_sandbox_status_installing">正在安裝</string>
+    <string name="workspace_sandbox_status_ready">已就緒</string>
+    <string name="workspace_sandbox_status_broken">需要重新安裝</string>
+    <string name="workspace_sandbox_tool_read_desc">讀取 /workspace 下的檔案</string>
+    <string name="workspace_sandbox_tool_write_desc">寫入 /workspace 下的檔案</string>
+    <string name="workspace_sandbox_tool_edit_desc">精確編輯 /workspace 下的檔案</string>
+    <string name="workspace_sandbox_tool_shell_desc">在沙盒中執行 Shell 命令</string>
+    <string name="workspace_detail_export_file">匯出檔案</string>
+    <string name="workspace_detail_export_failed">匯出失敗</string>
+    <string name="tool_approval_sandbox_read_file">沙盒：讀取檔案</string>
+    <string name="tool_approval_sandbox_write_file">沙盒：寫入檔案</string>
+    <string name="tool_approval_sandbox_edit_file">沙盒：編輯檔案</string>
+    <string name="tool_approval_sandbox_shell">沙盒：執行 Shell 命令</string>
 </resources>

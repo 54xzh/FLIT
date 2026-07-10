@@ -41,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.repository.WorkspaceFileEntry
+import me.rerere.rikkahub.data.db.entity.WorkspaceType
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -59,6 +60,7 @@ fun WorkspaceDetailPage(
     val toolApprovals by vm.toolApprovals.collectAsStateWithLifecycle()
     val friendlyRootPath by vm.friendlyRootPath.collectAsStateWithLifecycle()
     val filesState by vm.filesState.collectAsStateWithLifecycle()
+    val installState by vm.installState.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
     val toaster = LocalToaster.current
     val haptics = rememberPremiumHaptics()
@@ -69,6 +71,7 @@ fun WorkspaceDetailPage(
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     var deleteFileTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
+    var exportFileTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
 
     val ws = workspace
 
@@ -88,7 +91,21 @@ fun WorkspaceDetailPage(
         if (stream != null) {
             vm.importFile(stream, displayName)
         } else {
+            toaster.show(context.getString(R.string.workspace_detail_export_failed))
+        }
+    }
+
+    val exportFilePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        val target = exportFileTarget
+        exportFileTarget = null
+        if (uri == null || target == null) return@rememberLauncherForActivityResult
+        val output = runCatching { context.contentResolver.openOutputStream(uri) }.getOrNull()
+        if (output == null) {
             toaster.show(context.getString(R.string.workspace_detail_import_failed, ""))
+        } else {
+            vm.exportFile(target, output)
         }
     }
 
@@ -201,7 +218,10 @@ fun WorkspaceDetailPage(
                     WorkspaceBasicPage(
                         workspace = ws,
                         toolApprovals = toolApprovals,
+                        toolNames = vm.toolNames(),
                         friendlyRootPath = friendlyRootPath,
+                        installingRootfs = installState.installing,
+                        onInstallRootfs = vm::installRootfs,
                         onSetToolApproval = { tool, needsApproval ->
                             haptics.perform(HapticPattern.Pop)
                             vm.setToolApproval(tool, needsApproval)
@@ -221,6 +241,7 @@ fun WorkspaceDetailPage(
                         onOpen = vm::open,
                         onDelete = { deleteFileTarget = it },
                         onOpenFile = openFile,
+                        onExport = { entry -> exportFileTarget = entry; exportFilePicker.launch(entry.name) },
                     )
                 }
             }
@@ -260,7 +281,14 @@ fun WorkspaceDetailPage(
         AlertDialog(
             onDismissRequest = { deleting = false },
             title = { Text(stringResource(R.string.workspace_page_delete)) },
-            text = { Text(stringResource(R.string.workspace_page_delete_confirm)) },
+            text = {
+                Text(
+                    stringResource(
+                        if (ws.type == WorkspaceType.SANDBOX) R.string.workspace_sandbox_delete_confirm
+                        else R.string.workspace_page_delete_confirm,
+                    )
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     haptics.perform(HapticPattern.Thud)
@@ -274,6 +302,15 @@ fun WorkspaceDetailPage(
             dismissButton = {
                 TextButton(onClick = { deleting = false }) { Text(stringResource(R.string.cancel)) }
             },
+        )
+    }
+
+    installState.error?.let { message ->
+        AlertDialog(
+            onDismissRequest = vm::dismissInstallError,
+            title = { Text(stringResource(R.string.workspace_sandbox_rootfs_failed)) },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = vm::dismissInstallError) { Text(stringResource(R.string.confirm)) } },
         )
     }
 

@@ -216,7 +216,7 @@
     <string name="assistant_page_local_tools_device_control_desc">Allow assistant to interact with device (Send Notifications, Read Notifications, Launch Apps, Set Alarms, Set Reminders).</string>
     <string name="assistant_page_local_tools_device_control_subtitle">Notifications, apps, alarms, reminders</string>
     <string name="assistant_page_local_tools_workspace_files_title">Workspace Files</string>
-    <string name="assistant_page_local_tools_workspace_files_desc">Allow assistant to read/write files in the current conversation workspace. Requires workspace root permission.</string>
+    <string name="assistant_page_local_tools_workspace_files_desc">Allow the assistant to use the bound workspace. Lightweight workspaces use your authorized folder; sandbox workspaces use their Linux environment.</string>
     <string name="assistant_page_local_tools_lorebooks_editor_title">Lorebooks Editor</string>
     <string name="assistant_page_local_tools_lorebooks_editor_desc">Allow assistant to create/update/delete entries in enabled lorebooks (undoable via history).</string>
     <string name="assistant_page_local_tools_memory_search_title">Memory Search</string>
@@ -2311,4 +2311,31 @@
     <string name="workspace_bound_current">Current workspace</string>
     <string name="workspace_unbound">No workspace</string>
 
+    <string name="workspace_type_lightweight">Lightweight mode</string>
+    <string name="workspace_type_lightweight_desc">Use a folder you authorize. Files stay in that folder.</string>
+    <string name="workspace_type_sandbox">Sandbox mode</string>
+    <string name="workspace_type_sandbox_desc">Use a private Linux environment with Shell tools.</string>
+    <string name="workspace_page_choose_type">Choose workspace type</string>
+    <string name="workspace_sandbox_delete_confirm">Delete this sandbox and all of its files and Linux environment? This cannot be undone. Bound assistants will be unbound.</string>
+    <string name="workspace_sandbox_rootfs_title">Linux environment</string>
+    <string name="workspace_sandbox_rootfs_status">Rootfs status</string>
+    <string name="workspace_sandbox_rootfs_url">Rootfs download URL</string>
+    <string name="workspace_sandbox_rootfs_unverified">Custom sources are not verified. Only use sources you trust.</string>
+    <string name="workspace_sandbox_install_rootfs">Install Linux environment</string>
+    <string name="workspace_sandbox_reinstall_rootfs">Reinstall Linux environment</string>
+    <string name="workspace_sandbox_rootfs_failed">Linux environment installation failed</string>
+    <string name="workspace_sandbox_status_not_installed">Not installed</string>
+    <string name="workspace_sandbox_status_installing">Installing</string>
+    <string name="workspace_sandbox_status_ready">Ready</string>
+    <string name="workspace_sandbox_status_broken">Needs reinstalling</string>
+    <string name="workspace_sandbox_tool_read_desc">Read a file under /workspace</string>
+    <string name="workspace_sandbox_tool_write_desc">Write a file under /workspace</string>
+    <string name="workspace_sandbox_tool_edit_desc">Precisely edit a file under /workspace</string>
+    <string name="workspace_sandbox_tool_shell_desc">Run a Shell command in the sandbox</string>
+    <string name="workspace_detail_export_file">Export file</string>
+    <string name="workspace_detail_export_failed">Export failed</string>
+    <string name="tool_approval_sandbox_read_file">Sandbox: Read file</string>
+    <string name="tool_approval_sandbox_write_file">Sandbox: Write file</string>
+    <string name="tool_approval_sandbox_edit_file">Sandbox: Edit file</string>
+    <string name="tool_approval_sandbox_shell">Sandbox: Run Shell command</string>
 </resources>

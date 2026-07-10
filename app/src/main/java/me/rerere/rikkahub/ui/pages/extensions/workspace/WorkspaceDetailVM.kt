@@ -1,8 +1,11 @@
 package me.rerere.rikkahub.ui.pages.extensions.workspace
 
+import android.content.Context
+import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import java.io.File
 import java.io.InputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,212 +17,192 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import me.rerere.rikkahub.data.db.entity.WORKSPACE_TOOL_NAMES
-import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
+import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
+import me.rerere.rikkahub.data.db.entity.WorkspaceType
 import me.rerere.rikkahub.data.db.entity.toolDefaultNeedsApproval
+import me.rerere.rikkahub.data.db.entity.workspaceToolNames
 import me.rerere.rikkahub.data.repository.SafRepository
-import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.repository.Workspace
 import me.rerere.rikkahub.data.repository.WorkspaceFileEntry
+import me.rerere.rikkahub.data.repository.WorkspaceRepository
 
 class WorkspaceDetailVM(
     private val workspaceId: String,
     private val repository: WorkspaceRepository,
     private val safRepository: SafRepository,
+    private val context: Context,
 ) : ViewModel() {
+    val workspace: StateFlow<Workspace?> = repository.listFlow().map { list -> list.firstOrNull { it.id == workspaceId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val workspace: StateFlow<WorkspaceEntity?> = kotlinx.coroutines.flow.flow {
-        emit(repository.getById(workspaceId))
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
-    /**
-     * 把 SAF treeUri 解析成可读短路径（如 "Documents/chat"），在 IO 线程算好，
-     * UI 直接读结果，避免在渲染路径里查 SAF 卡主线程。
-     * workspace 为空时为 null，UI 自行回退到原始 treeUri。
-     */
     val friendlyRootPath: StateFlow<String?> = workspace.map { ws ->
-        ws?.let { repository.friendlyShortPath(it.treeUri) }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+        ws?.treeUri?.let(repository::friendlyShortPath)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _toolApprovals = MutableStateFlow<Map<String, Boolean>>(emptyMap())
-    val toolApprovals: StateFlow<Map<String, Boolean>> = _toolApprovals.asStateFlow()
+    val toolApprovals = _toolApprovals.asStateFlow()
 
-    /**
-     * 取某工具当前是否需要审批：有覆盖用覆盖，否则用默认值 [toolDefaultNeedsApproval]。
-     * true=需要审批（弹审批卡片），false=免审批。
-     */
-    fun needsApproval(toolName: String): Boolean =
-        _toolApprovals.value[toolName] ?: toolDefaultNeedsApproval(toolName)
-
-    /** 是否所有工具都需审批（用于「全部需审批」总开关的勾选状态）。 */
-    fun allNeedApproval(): Boolean =
-        WORKSPACE_TOOL_NAMES.all { needsApproval(it) }
-    // ---- 文件管理状态 ----
-    /**
-     * 文件管理页状态。path 是相对工作区根的相对路径，"" = 根目录。
-     */
     private val _filesState = MutableStateFlow(FilesState())
-    val filesState: StateFlow<FilesState> = _filesState.asStateFlow()
+    val filesState = _filesState.asStateFlow()
 
-    /** 已解析的工作区根 DocumentFile；首次加载时懒解析，失效后置 null 重新解析。 */
-    private var rootDoc: DocumentFile? = null
+    private val _installState = MutableStateFlow(SandboxInstallState())
+    val installState = _installState.asStateFlow()
+
+    private var safRoot: DocumentFile? = null
 
     init {
         viewModelScope.launch {
-            _toolApprovals.value = repository.getById(workspaceId)?.toolApprovalOverrides() ?: emptyMap()
-        }
-        // workspace 首次加载完成后，自动加载文件列表
-        viewModelScope.launch {
             workspace.collect { ws ->
-                if (ws != null && rootDoc == null) refreshFiles()
+                _toolApprovals.value = ws?.toolApprovalOverrides().orEmpty()
+                if (ws != null) refreshFiles()
             }
         }
     }
 
-    /** 打开子目录（仅对目录条目有效）。 */
+    fun toolNames(): List<String> = workspace.value?.let { workspaceToolNames(it.type) }.orEmpty()
+    fun needsApproval(toolName: String): Boolean = _toolApprovals.value[toolName] ?: toolDefaultNeedsApproval(toolName)
+    fun allNeedApproval(): Boolean = toolNames().all(::needsApproval)
+
     fun open(entry: WorkspaceFileEntry) {
-        if (!entry.isDirectory) return
-        _filesState.update { it.copy(path = entry.path, error = null) }
-        refreshFiles()
+        if (entry.isDirectory) {
+            _filesState.update { it.copy(path = entry.path, error = null) }
+            refreshFiles()
+        }
     }
 
-    /** 返回上一层；已在根目录则不动作。 */
     fun goUp() {
-        val current = _filesState.value
-        if (current.path.isBlank()) return
-        val parent = current.path.substringBeforeLast('/', missingDelimiterValue = "")
-        _filesState.update { it.copy(path = parent, error = null) }
-        refreshFiles()
+        val path = _filesState.value.path
+        if (path.isNotBlank()) {
+            _filesState.update { it.copy(path = path.substringBeforeLast('/', ""), error = null) }
+            refreshFiles()
+        }
     }
 
-    /** 重新加载当前目录列表。workspace 尚未就绪或授权失效时写 error。 */
     fun refreshFiles() {
         val ws = workspace.value ?: return
         _filesState.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             runCatching {
-                withContext(Dispatchers.IO) {
-                    if (rootDoc == null) {
-                        rootDoc = repository.resolveRoot(ws.treeUri)
+                val entries = when (ws.type) {
+                    WorkspaceType.LIGHTWEIGHT -> withContext(Dispatchers.IO) {
+                        val root = safRoot ?: repository.resolveRoot(ws.treeUri ?: error("Workspace folder is missing")).also { safRoot = it }
+                            ?: error("Workspace folder is not accessible")
+                        safRepository.listChildren(root, _filesState.value.path)
                     }
-                    val root = rootDoc
-                    if (root == null) {
-                        _filesState.update { it.copy(loading = false, error = "workspace not accessible") }
-                        return@withContext
-                    }
-                    val entries = safRepository.listChildren(root, _filesState.value.path)
-                    _filesState.update { it.copy(loading = false, entries = entries, error = null) }
+                    WorkspaceType.SANDBOX -> repository.listSandboxFiles(ws.id, _filesState.value.path)
                 }
-            }.onFailure { e ->
-                _filesState.update { it.copy(loading = false, error = e.message ?: e.javaClass.simpleName) }
+                _filesState.update { it.copy(entries = entries, loading = false, error = null) }
+            }.onFailure { error ->
+                _filesState.update { it.copy(loading = false, error = error.message ?: error.javaClass.simpleName) }
             }
         }
     }
 
-    /** 导入文件到当前目录。重名自动改名。失败时写 error。 */
-    fun importFile(inputStream: InputStream, displayName: String) {
-        val ws = workspace.value
-        if (ws == null) {
-            inputStream.close()
-            return
-        }
-        val destDir = _filesState.value.path
+    fun importFile(input: InputStream, displayName: String) {
+        val ws = workspace.value ?: run { input.close(); return }
         _filesState.update { it.copy(loading = true) }
         viewModelScope.launch {
             runCatching {
-                withContext(Dispatchers.IO) {
-                    val root = rootDoc ?: repository.resolveRoot(ws.treeUri).also { rootDoc = it }
-                    if (root == null) {
-                        _filesState.update { it.copy(loading = false, error = "workspace not accessible") }
-                        return@withContext
+                when (ws.type) {
+                    WorkspaceType.LIGHTWEIGHT -> withContext(Dispatchers.IO) {
+                        val root = safRoot ?: repository.resolveRoot(ws.treeUri ?: error("Workspace folder is missing")).also { safRoot = it }
+                            ?: error("Workspace folder is not accessible")
+                        safRepository.importFromUri(root, _filesState.value.path, input, displayName) ?: error("Import failed")
                     }
-                    val entry = safRepository.importFromUri(root, destDir, inputStream, displayName)
-                    if (entry == null) {
-                        _filesState.update { it.copy(loading = false, error = "import failed") }
-                    } else {
-                        refreshFiles()
-                    }
+                    WorkspaceType.SANDBOX -> repository.importSandboxFile(ws.id, _filesState.value.path, displayName, input)
                 }
-            }.onFailure { e ->
-                _filesState.update { it.copy(loading = false, error = e.message ?: e.javaClass.simpleName) }
+            }.onSuccess { refreshFiles() }.onFailure { error ->
+                input.close()
+                _filesState.update { it.copy(loading = false, error = error.message ?: "Import failed") }
             }
         }
     }
 
-    /** 删除条目（目录递归）。 */
     fun deleteFile(entry: WorkspaceFileEntry) {
-        val root = rootDoc ?: return
+        val ws = workspace.value ?: return
         _filesState.update { it.copy(loading = true) }
         viewModelScope.launch {
             runCatching {
-                withContext(Dispatchers.IO) {
-                    val ok = safRepository.delete(root, entry.path)
-                    if (!ok) {
-                        _filesState.update { it.copy(loading = false, error = "delete failed") }
-                    } else {
-                        refreshFiles()
+                when (ws.type) {
+                    WorkspaceType.LIGHTWEIGHT -> withContext(Dispatchers.IO) {
+                        val root = safRoot ?: error("Workspace folder is not accessible")
+                        check(safRepository.delete(root, entry.path)) { "Delete failed" }
                     }
+                    WorkspaceType.SANDBOX -> check(repository.deleteSandboxFile(ws.id, entry.path, entry.isDirectory)) { "Delete failed" }
                 }
-            }.onFailure { e ->
-                _filesState.update { it.copy(loading = false, error = e.message ?: e.javaClass.simpleName) }
+            }.onSuccess { refreshFiles() }.onFailure { error ->
+                _filesState.update { it.copy(loading = false, error = error.message ?: "Delete failed") }
             }
         }
     }
 
-    /**
-     * 解析文件条目为可被外部应用打开的 SAF Uri。仅文件有效；目录/未授权返回 null。
-     * 供 Page 构造 ACTION_VIEW Intent 使用（VM 不碰 Context）。
-     */
+    fun exportFile(entry: WorkspaceFileEntry, output: java.io.OutputStream) {
+        val ws = workspace.value ?: run { output.close(); return }
+        viewModelScope.launch {
+            runCatching {
+                when (ws.type) {
+                    WorkspaceType.LIGHTWEIGHT -> withContext(Dispatchers.IO) {
+                        val root = safRoot ?: repository.resolveRoot(ws.treeUri ?: error("Workspace folder is missing")).also { safRoot = it }
+                            ?: error("Workspace folder is not accessible")
+                        safRepository.resolve(root, entry.path)?.uri?.let { uri ->
+                            context.contentResolver.openInputStream(uri)?.use { input -> output.use(input::copyTo) }
+                                ?: error("Export failed")
+                        } ?: error("File not found")
+                    }
+                    WorkspaceType.SANDBOX -> output.use { repository.exportSandboxFile(ws.id, entry.path, it) }
+                }
+            }.onFailure { output.close() }
+        }
+    }
+
     suspend fun resolveFileUri(entry: WorkspaceFileEntry): android.net.Uri? = withContext(Dispatchers.IO) {
         if (entry.isDirectory) return@withContext null
         val ws = workspace.value ?: return@withContext null
-        val root = rootDoc ?: repository.resolveRoot(ws.treeUri).also { rootDoc = it } ?: return@withContext null
-        safRepository.resolve(root, entry.path)?.uri
+        when (ws.type) {
+            WorkspaceType.LIGHTWEIGHT -> {
+                val root = safRoot ?: repository.resolveRoot(ws.treeUri ?: return@withContext null).also { safRoot = it }
+                root?.let { safRepository.resolve(it, entry.path)?.uri }
+            }
+            WorkspaceType.SANDBOX -> runCatching {
+                val share = File(context.cacheDir, "sandbox_share/${ws.id}/${entry.name}").apply { parentFile?.mkdirs() }
+                share.outputStream().use { repository.exportSandboxFile(ws.id, entry.path, it) }
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", share)
+            }.getOrNull()
+        }
     }
+
+    fun installRootfs(url: String) {
+        val ws = workspace.value ?: return
+        if (ws.type != WorkspaceType.SANDBOX || _installState.value.installing) return
+        viewModelScope.launch {
+            _installState.value = SandboxInstallState(installing = true, stage = "downloading")
+            runCatching {
+                repository.installSandboxRootfs(ws.id, url) { stage -> _installState.value = SandboxInstallState(installing = true, stage = stage) }
+            }.onFailure { error ->
+                _installState.value = SandboxInstallState(error = error.message ?: "Rootfs installation failed")
+            }.onSuccess {
+                _installState.value = SandboxInstallState()
+                refreshFiles()
+            }
+        }
+    }
+
+    fun dismissInstallError() { _installState.update { it.copy(error = null) } }
 
     fun setToolApproval(toolName: String, needsApproval: Boolean) {
         _toolApprovals.update { it + (toolName to needsApproval) }
-        persist()
+        persistApprovals()
     }
 
-    /** approveAll=true 表示全部需审批（needsApproval=true）；false 表示全部免审批。 */
     fun setAll(approveAll: Boolean) {
-        val allTools = WORKSPACE_TOOL_NAMES
-        _toolApprovals.update { current ->
-            allTools.associateWith { approveAll } + current.filterKeys { it !in allTools }
-        }
-        persist()
+        _toolApprovals.update { current -> toolNames().associateWith { approveAll } + current.filterKeys { it !in toolNames() } }
+        persistApprovals()
     }
 
-    private fun persist() {
-        viewModelScope.launch {
-            runCatching { repository.setToolApprovals(workspaceId, _toolApprovals.value) }
-        }
-    }
+    private fun persistApprovals() = viewModelScope.launch { repository.setToolApprovals(workspaceId, _toolApprovals.value) }
+    fun rename(name: String) = viewModelScope.launch { repository.rename(workspaceId, name) }
+    fun delete(onDone: () -> Unit) = viewModelScope.launch { repository.delete(workspaceId); onDone() }
 
-    fun rename(name: String) {
-        viewModelScope.launch {
-            runCatching { repository.rename(workspaceId, name) }
-        }
-    }
-
-    fun delete(onDone: () -> Unit) {
-        viewModelScope.launch {
-            runCatching { repository.delete(workspaceId) }
-            onDone()
-        }
-    }
-
-    /**
-     * 文件管理页状态。
-     * @param path 相对工作区根的路径，"" = 根目录
-     * @param entries 当前目录下的条目（目录优先排序）
-     * @param loading 是否正在加载
-     * @param error 失败时的原始错误信息，null 表示无错误
-     */
-    data class FilesState(
-        val path: String = "",
-        val entries: List<WorkspaceFileEntry> = emptyList(),
-        val loading: Boolean = false,
-        val error: String? = null,
-    )
+    data class FilesState(val path: String = "", val entries: List<WorkspaceFileEntry> = emptyList(), val loading: Boolean = false, val error: String? = null)
+    data class SandboxInstallState(val installing: Boolean = false, val stage: String? = null, val error: String? = null)
 }

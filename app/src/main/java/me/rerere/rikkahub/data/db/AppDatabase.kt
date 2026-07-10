@@ -44,6 +44,8 @@ import me.rerere.rikkahub.data.db.entity.ToolResultArchiveEntity
 import me.rerere.rikkahub.data.db.entity.ToolResultArchiveChunkEntity
 import me.rerere.rikkahub.data.db.entity.UsageStatsEntity
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
+import me.rerere.rikkahub.data.db.entity.SafWorkspaceEntity
+import me.rerere.rikkahub.data.db.entity.SandboxWorkspaceEntity
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.utils.JsonInstant
 
@@ -65,8 +67,10 @@ import me.rerere.rikkahub.utils.JsonInstant
         UsageStatsEntity::class,
         ModelQuotaUsageEntity::class,
         WorkspaceEntity::class,
+        SafWorkspaceEntity::class,
+        SandboxWorkspaceEntity::class,
     ],
-    version = 40,
+    version = 41,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -104,6 +108,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 37->38 is manual migration (MIGRATION_37_38) - adds session memories
         // 38->39 is manual migration (MIGRATION_38_39) - adds explicit Skill context ids
         // 39->40 is manual migration (MIGRATION_39_40) - adds workspaces table
+        // 40->41 is manual migration (MIGRATION_40_41) - splits workspace backends
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -347,6 +352,66 @@ abstract class AppDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS `index_workspaces_updated_at` ON `workspaces` (`updated_at`)"
                 )
                 Log.i(TAG, "migrate: migrate from 39 to 40 success")
+            }
+        }
+
+        val MIGRATION_40_41 = object : Migration(40, 41) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 40 to 41")
+                db.execSQL("ALTER TABLE workspaces RENAME TO workspaces_legacy")
+                // SQLite 的索引名全库唯一；重建 workspaces 前先释放旧表保留的索引名。
+                db.execSQL("DROP INDEX IF EXISTS `index_workspaces_updated_at`")
+                db.execSQL("DROP INDEX IF EXISTS `index_workspaces_tree_uri`")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `workspaces` (
+                        `id` TEXT NOT NULL PRIMARY KEY,
+                        `name` TEXT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `tool_approvals` TEXT NOT NULL DEFAULT '{}',
+                        `created_at` INTEGER NOT NULL,
+                        `updated_at` INTEGER NOT NULL,
+                        `last_access_at` INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `workspace_saf_details` (
+                        `workspace_id` TEXT NOT NULL PRIMARY KEY,
+                        `tree_uri` TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `workspace_sandbox_details` (
+                        `workspace_id` TEXT NOT NULL PRIMARY KEY,
+                        `rootfs_status` TEXT NOT NULL,
+                        `rootfs_source_url` TEXT,
+                        `rootfs_version` TEXT,
+                        `rootfs_installed_at` INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_workspaces_updated_at` ON `workspaces` (`updated_at`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_workspaces_type` ON `workspaces` (`type`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workspace_saf_details_tree_uri` ON `workspace_saf_details` (`tree_uri`)")
+                db.execSQL(
+                    """
+                    INSERT INTO workspaces (id, name, type, tool_approvals, created_at, updated_at, last_access_at)
+                    SELECT id, name, 'LIGHTWEIGHT', tool_approvals, created_at, updated_at, last_access_at
+                    FROM workspaces_legacy
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO workspace_saf_details (workspace_id, tree_uri)
+                    SELECT id, tree_uri FROM workspaces_legacy
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE workspaces_legacy")
+                Log.i(TAG, "migrate: migrate from 40 to 41 success")
             }
         }
     }

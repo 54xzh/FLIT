@@ -6,29 +6,20 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import me.rerere.rikkahub.utils.JsonInstant
 
-/**
- * 默认即需要审批的工具集合（未在 toolApprovals 覆盖中时生效）。
- *
- * 仅放「有副作用 / 不可逆」的工具：写文件、删除、执行 python、执行脚本。
- * 列目录、读文件、建目录、重命名默认免审批，降低交互噪音。
- */
-val DEFAULT_NEEDS_APPROVAL_TOOLS: Set<String> = setOf(
-    "workspace_write_file",
-    "workspace_delete",
-    "eval_python",
-    "run_skill_script",
-)
+enum class WorkspaceType {
+    LIGHTWEIGHT,
+    SANDBOX,
+}
 
-/**
- * 取某工具的默认「是否需要审批」。供未覆盖时的回退判断。
- */
-fun toolDefaultNeedsApproval(toolName: String): Boolean = toolName in DEFAULT_NEEDS_APPROVAL_TOOLS
+enum class SandboxRootfsStatus {
+    DISABLED,
+    INSTALLING,
+    READY,
+    BROKEN,
+}
 
-/**
- * 工作区涉及的全部工具名，固定顺序（设置页列表与迁移都按此顺序）。
- * 放在数据层，供 [WorkspaceEntity]、Repository 迁移、UI 共用。
- */
-val WORKSPACE_TOOL_NAMES: List<String> = listOf(
+/** 轻量模式现有的工具集合。 */
+val LIGHTWEIGHT_WORKSPACE_TOOL_NAMES: List<String> = listOf(
     "workspace_list",
     "workspace_read_file",
     "workspace_write_file",
@@ -39,44 +30,71 @@ val WORKSPACE_TOOL_NAMES: List<String> = listOf(
     "run_skill_script",
 )
 
+/** 沙盒模式只会暴露这一组独立协议的工具。 */
+val SANDBOX_WORKSPACE_TOOL_NAMES: List<String> = listOf(
+    "sandbox_read_file",
+    "sandbox_write_file",
+    "sandbox_edit_file",
+    "sandbox_shell",
+)
+
+/** 兼容既有设置页与迁移调用；新代码应按 [WorkspaceType] 取工具。 */
+val WORKSPACE_TOOL_NAMES: List<String> = LIGHTWEIGHT_WORKSPACE_TOOL_NAMES
+
+private val DEFAULT_NEEDS_APPROVAL_TOOLS: Set<String> = setOf(
+    "workspace_write_file",
+    "workspace_delete",
+    "eval_python",
+    "run_skill_script",
+    "sandbox_shell",
+)
+
+fun workspaceToolNames(type: WorkspaceType): List<String> = when (type) {
+    WorkspaceType.LIGHTWEIGHT -> LIGHTWEIGHT_WORKSPACE_TOOL_NAMES
+    WorkspaceType.SANDBOX -> SANDBOX_WORKSPACE_TOOL_NAMES
+}
+
+fun toolDefaultNeedsApproval(toolName: String): Boolean = toolName in DEFAULT_NEEDS_APPROVAL_TOOLS
+
 /**
- * 工作区记录。
+ * 工作区统一登记记录。
  *
- * 这一阶段工作区 = 一个 SAF 授权目录（[treeUri]），绑定在助手上。
- * [shellStatus] 为沙盒预留字段，当前恒为 DISABLED；未来移植沙盒时会启用。
- * [toolApprovals] 是每个工具名的审批覆盖（toolName -> needsApproval，true=需要审批）。
- * 未覆盖的工具走 [DEFAULT_NEEDS_APPROVAL_TOOLS] 的默认值。
+ * 类型一经创建不可改变；实际存储位置分别由 workspace_saf_details 与
+ * workspace_sandbox_details 保存，避免把 SAF URI 与内部 Rootfs 混为一谈。
  */
 @Entity(
     tableName = "workspaces",
-    indices = [
-        Index(value = ["tree_uri"], unique = true),
-        Index(value = ["updated_at"]),
-    ],
+    indices = [Index(value = ["updated_at"]), Index(value = ["type"])],
 )
 data class WorkspaceEntity(
-    @PrimaryKey
-    val id: String,
-    @ColumnInfo(name = "name")
+    @PrimaryKey val id: String,
     val name: String,
-    @ColumnInfo(name = "tree_uri")
-    val treeUri: String,
-    @ColumnInfo(name = "shell_status", defaultValue = "DISABLED")
-    val shellStatus: String = SHELL_STATUS_DISABLED,
+    val type: WorkspaceType,
     @ColumnInfo(name = "tool_approvals", defaultValue = "{}")
     val toolApprovals: String = "{}",
-    @ColumnInfo(name = "created_at")
-    val createdAt: Long,
-    @ColumnInfo(name = "updated_at")
-    val updatedAt: Long,
-    @ColumnInfo(name = "last_access_at")
-    val lastAccessAt: Long? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+    @ColumnInfo(name = "last_access_at") val lastAccessAt: Long? = null,
 ) {
     fun toolApprovalOverrides(): Map<String, Boolean> = runCatching {
         JsonInstant.decodeFromString<Map<String, Boolean>>(toolApprovals)
     }.getOrDefault(emptyMap())
-
-    companion object {
-        const val SHELL_STATUS_DISABLED = "DISABLED"
-    }
 }
+
+@Entity(
+    tableName = "workspace_saf_details",
+    indices = [Index(value = ["tree_uri"], unique = true)],
+)
+data class SafWorkspaceEntity(
+    @PrimaryKey @ColumnInfo(name = "workspace_id") val workspaceId: String,
+    @ColumnInfo(name = "tree_uri") val treeUri: String,
+)
+
+@Entity(tableName = "workspace_sandbox_details")
+data class SandboxWorkspaceEntity(
+    @PrimaryKey @ColumnInfo(name = "workspace_id") val workspaceId: String,
+    @ColumnInfo(name = "rootfs_status") val rootfsStatus: SandboxRootfsStatus = SandboxRootfsStatus.DISABLED,
+    @ColumnInfo(name = "rootfs_source_url") val rootfsSourceUrl: String? = null,
+    @ColumnInfo(name = "rootfs_version") val rootfsVersion: String? = null,
+    @ColumnInfo(name = "rootfs_installed_at") val rootfsInstalledAt: Long? = null,
+)

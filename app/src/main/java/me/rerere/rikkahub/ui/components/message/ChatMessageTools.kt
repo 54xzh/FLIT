@@ -156,6 +156,10 @@ internal fun toolApprovalDisplayName(toolName: String): String {
         "workspace_mkdir" -> stringResource(R.string.tool_approval_workspace_mkdir)
         "workspace_delete" -> stringResource(R.string.tool_approval_workspace_delete)
         "workspace_rename" -> stringResource(R.string.tool_approval_workspace_rename)
+        "sandbox_read_file" -> stringResource(R.string.tool_approval_sandbox_read_file)
+        "sandbox_write_file" -> stringResource(R.string.tool_approval_sandbox_write_file)
+        "sandbox_edit_file" -> stringResource(R.string.tool_approval_sandbox_edit_file)
+        "sandbox_shell" -> stringResource(R.string.tool_approval_sandbox_shell)
         "eval_python" -> stringResource(R.string.chat_message_tool_run_python_generic)
         else -> toolName
     }

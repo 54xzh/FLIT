@@ -51,8 +51,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
-import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
+import me.rerere.rikkahub.data.db.entity.WorkspaceType
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.repository.Workspace
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
 import me.rerere.rikkahub.ui.context.LocalNavController
@@ -74,9 +75,11 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
     val repository: WorkspaceRepository = koinInject()
 
     var pendingUri by remember { mutableStateOf<Uri?>(null) }
+    var createType by remember { mutableStateOf<WorkspaceType?>(null) }
+    var showTypeDialog by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
-    var renamingWorkspace by remember { mutableStateOf<WorkspaceEntity?>(null) }
-    var deletingWorkspace by remember { mutableStateOf<WorkspaceEntity?>(null) }
+    var renamingWorkspace by remember { mutableStateOf<Workspace?>(null) }
+    var deletingWorkspace by remember { mutableStateOf<Workspace?>(null) }
 
     val folderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -89,6 +92,7 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
             )
         }
         pendingUri = uri
+        createType = WorkspaceType.LIGHTWEIGHT
         showCreateDialog = true
     }
 
@@ -104,7 +108,12 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { haptics.perform(HapticPattern.Pop); folderLauncher.launch(null) },
+                onClick = {
+                    haptics.perform(HapticPattern.Pop)
+                    pendingUri = null
+                    createType = null
+                    showTypeDialog = true
+                },
                 shape = AppShapes.CardLarge,
             ) {
                 Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.workspace_page_create))
@@ -122,7 +131,10 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
                 items(workspaces, key = { it.id }) { workspace ->
                     WorkspaceCard(
                         workspace = workspace,
-                        rootLabel = runCatching { repository.friendlyShortPath(workspace.treeUri) }.getOrDefault(workspace.name),
+                        rootLabel = when (workspace.type) {
+                            WorkspaceType.LIGHTWEIGHT -> workspace.treeUri?.let(repository::friendlyShortPath).orEmpty()
+                            WorkspaceType.SANDBOX -> sandboxStatusText(workspace.sandboxStatus)
+                        },
                         onOpen = { navController.navigate(Screen.WorkspaceDetail(workspace.id)) },
                         onRename = { renamingWorkspace = workspace },
                         onDelete = { deletingWorkspace = workspace },
@@ -132,26 +144,50 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
         }
     }
 
-    if (showCreateDialog && pendingUri != null) {
-        val uri = pendingUri!!
-        val defaultName = runCatching { repository.friendlyName(uri.toString(), "Workspace") }.getOrDefault("Workspace")
+    if (showTypeDialog) {
+        WorkspaceTypeDialog(
+            onDismiss = { showTypeDialog = false },
+            onLightweight = {
+                showTypeDialog = false
+                createType = WorkspaceType.LIGHTWEIGHT
+                folderLauncher.launch(null)
+            },
+            onSandbox = {
+                showTypeDialog = false
+                createType = WorkspaceType.SANDBOX
+                showCreateDialog = true
+            },
+        )
+    }
+
+    if (showCreateDialog && createType != null && (createType == WorkspaceType.SANDBOX || pendingUri != null)) {
+        val uri = pendingUri
+        val defaultName = if (createType == WorkspaceType.LIGHTWEIGHT) {
+            runCatching { repository.friendlyName(uri!!.toString(), "Workspace") }.getOrDefault("Workspace")
+        } else "Sandbox"
         CreateWorkspaceDialog(
             defaultName = defaultName,
-            onDismiss = { showCreateDialog = false; pendingUri = null },
+            onDismiss = { showCreateDialog = false; pendingUri = null; createType = null },
             onConfirm = { name ->
-                vm.create(name, uri.toString()) { result ->
+                val onResult: (Result<Workspace>) -> Unit = { result ->
                     result
                         .onSuccess {
                             haptics.perform(HapticPattern.Success)
                             toaster.show(message = context.getString(R.string.workspace_page_created))
+                            if (it.type == WorkspaceType.SANDBOX) {
+                                navController.navigate(Screen.WorkspaceDetail(it.id))
+                            }
                         }
                         .onFailure {
                             haptics.perform(HapticPattern.Error)
                             toaster.show(message = context.getString(R.string.workspace_page_create_failed, it.message ?: ""))
                         }
                 }
+                if (createType == WorkspaceType.LIGHTWEIGHT) vm.createLightweight(name, uri!!.toString(), onResult)
+                else vm.createSandbox(name, onResult)
                 showCreateDialog = false
                 pendingUri = null
+                createType = null
             },
         )
     }
@@ -173,7 +209,14 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
         AlertDialog(
             onDismissRequest = { deletingWorkspace = null },
             title = { Text(stringResource(R.string.workspace_page_delete)) },
-            text = { Text(stringResource(R.string.workspace_page_delete_confirm)) },
+            text = {
+                Text(
+                    stringResource(
+                        if (ws.type == WorkspaceType.SANDBOX) R.string.workspace_sandbox_delete_confirm
+                        else R.string.workspace_page_delete_confirm,
+                    )
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -220,7 +263,7 @@ private fun EmptyWorkspaceState() {
 
 @Composable
 private fun WorkspaceCard(
-    workspace: WorkspaceEntity,
+    workspace: Workspace,
     rootLabel: String,
     onOpen: () -> Unit,
     onRename: () -> Unit,
@@ -249,7 +292,7 @@ private fun WorkspaceCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = rootLabel,
+                    text = "${stringResource(if (workspace.type == WorkspaceType.LIGHTWEIGHT) R.string.workspace_type_lightweight else R.string.workspace_type_sandbox)} · $rootLabel",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -275,6 +318,36 @@ private fun WorkspaceCard(
             }
         }
     }
+}
+
+@Composable
+private fun WorkspaceTypeDialog(
+    onDismiss: () -> Unit,
+    onLightweight: () -> Unit,
+    onSandbox: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.workspace_page_choose_type)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(onClick = onLightweight, modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.workspace_type_lightweight))
+                        Text(stringResource(R.string.workspace_type_lightweight_desc), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                TextButton(onClick = onSandbox, modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.workspace_type_sandbox))
+                        Text(stringResource(R.string.workspace_type_sandbox_desc), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
 }
 
 @Composable
