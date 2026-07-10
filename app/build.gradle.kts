@@ -102,6 +102,14 @@ android {
         }
     }
 
+    // 让未被 mock 的 android.util.Log 等方法返回默认值而非抛异常，
+    // 便于纯逻辑单测调用触及 Log 的工具函数（如 WebdavSync 的 addDirectoryToZip）。
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+
     flavorDimensions += "channel"
     productFlavors {
         create("plus") {

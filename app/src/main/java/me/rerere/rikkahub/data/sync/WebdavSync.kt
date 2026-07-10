@@ -586,7 +586,7 @@ private fun addFileToZip(zipOut: ZipOutputStream, file: File, entryName: String)
     }
 }
 
-private fun addDirectoryToZip(
+internal fun addDirectoryToZip(
     zipOut: ZipOutputStream,
     dir: File,
     entryPrefix: String,
@@ -598,11 +598,10 @@ private fun addDirectoryToZip(
 
     dir.walkTopDown()
         .onEnter { current ->
-            // 跳过指定名称的直接子目录（相对 dir 的第一级目录名），整棵子树不打包。
-            // 用 canonicalFile 比较避免符号链接误判。
-            val relToDir = runCatching { current.relativeTo(dir) }.getOrNull()
-            val firstSegment = relToDir?.path?.substringBefore(File.separatorChar)?.trimStart('/')
-            current == dir || firstSegment !in skipSubdirs
+            // 只跳过“紧邻 dir 的第一层目录下的 linux/ 与 tmp/”，即相对路径恰为
+            // <skipSubdir 名> 或 <第一段>/<skipSubdir 名> 的目录（沙盒里是 <工作区ID>/linux、<工作区ID>/tmp）。
+            // 不能按目录名匹配任意层级，否则会把用户在 files/ 下自建的 linux/、tmp/ 子目录也误排。
+            current == dir || !isDirSkipped(current, dir, skipSubdirs)
         }
         .filter { it.isFile }
         .forEach { file ->
@@ -619,6 +618,21 @@ private fun addDirectoryToZip(
 
 private fun filesDirBackupZipPrefix(relativePath: String): String {
     return "${relativePath.trim('/')}/"
+}
+
+/**
+ * 判断 [current] 是否应整棵跳过。只匹配“紧邻 [root] 的第二层目录名为 [skipSubdirs]”的情形，
+ * 即相对 [root] 的路径恰好是 `<skipSubdir>` 或 `<第一段>/<skipSubdir>`（沙盒里对应
+ * `sandbox_workspaces/<工作区ID>/linux` 与 `.../tmp`）。第三层及更深（如 `<id>/files/tmp`）
+ * 属于用户文件，一律保留。
+ */
+private fun isDirSkipped(current: File, root: File, skipSubdirs: Set<String>): Boolean {
+    val relToDir = runCatching { current.relativeTo(root).path }.getOrNull() ?: return false
+    val segments = relToDir.split(File.separatorChar).filter { it.isNotBlank() }
+    if (segments.isEmpty()) return false
+    // 命中条件：路径为 1 段（根级 linux/tmp）或 2 段（<工作区ID>/linux|tmp），且最后一段在排除集。
+    if (segments.size > 2) return false
+    return segments.last() in skipSubdirs
 }
 
 private fun addVirtualFileToZip(zipOut: ZipOutputStream, name: String, content: String) {
