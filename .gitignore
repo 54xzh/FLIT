@@ -36,4 +36,4 @@ settings.local.json
 /fix_topbar.py
 /write_patch.py
 /.codex_patches
-goal.md
+GOALS.md
