@@ -23,6 +23,7 @@ import me.rerere.rikkahub.data.repository.CacheTopLevelUsage
 import me.rerere.rikkahub.data.repository.ChatRecordsMonthEntry
 import me.rerere.rikkahub.data.repository.LightConversationEntity
 import me.rerere.rikkahub.data.repository.OrphanScanResult
+import me.rerere.rikkahub.data.repository.SandboxWorkspaceUsage
 import me.rerere.rikkahub.data.repository.StorageCategoryKey
 import me.rerere.rikkahub.data.repository.StorageCategoryUsage
 import me.rerere.rikkahub.ui.hooks.HapticPattern
@@ -57,6 +58,8 @@ fun StorageCategoryScaffoldContent(
     onOpenLogs: () -> Unit,
     onLoadMoreImages: () -> Unit,
     onLoadMoreFiles: () -> Unit,
+    sandboxWorkspacesUsageState: UiState<List<SandboxWorkspaceUsage>>,
+    onCleanSandboxRootfs: (String) -> Unit,
 ) {
     if (category == StorageCategoryKey.IMAGES) {
         StorageImagesScaffoldContent(
@@ -140,6 +143,16 @@ fun StorageCategoryScaffoldContent(
                         scanState = orphanScanState,
                         onScan = onScanOrphans,
                         onClearAll = onClearAllOrphans,
+                    )
+                }
+            }
+
+            StorageCategoryKey.SANDBOX_WORKSPACES -> {
+                item(key = "sandbox") {
+                    StorageSandboxWorkspacesCard(
+                        usageState = usageState,
+                        workspacesState = sandboxWorkspacesUsageState,
+                        onCleanRootfs = onCleanSandboxRootfs,
                     )
                 }
             }

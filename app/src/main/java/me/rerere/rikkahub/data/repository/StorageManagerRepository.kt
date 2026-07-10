@@ -12,6 +12,7 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.dao.AIRequestLogDao
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.GenMediaDAO
+import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.utils.JsonInstant
 import java.io.File
@@ -27,6 +28,7 @@ enum class StorageCategoryKey(val key: String) {
     CHAT_RECORDS("chat_records"),
     CACHE("cache"),
     HISTORY_FILES("history_files"),
+    SANDBOX_WORKSPACES("sandbox_workspaces"),
     LOGS("logs"),
     ;
 
@@ -57,6 +59,34 @@ data class StorageOverview(
     val requestLogCount: Int,
     val generatedAt: Long,
 )
+
+/**
+ * 单个沙盒工作区一个子目录（files / linux / tmp）的占用。
+ */
+@Serializable
+data class SandboxWorkspaceDirUsage(
+    val bytes: Long,
+    val fileCount: Int,
+)
+
+/**
+ * 单个沙盒工作区在存储管理里的明细占用。
+ *
+ * `files/` 是用户文件、`linux/` 是 rootfs（通常最大）、`tmp/` 是临时残留。
+ * [rootfsStatus] 取自 DB，用于在 UI 上标识工作区当前状态。
+ */
+@Serializable
+data class SandboxWorkspaceUsage(
+    val workspaceId: String,
+    val name: String,
+    val rootfsStatus: SandboxRootfsStatus,
+    val filesUsage: SandboxWorkspaceDirUsage,
+    val linuxUsage: SandboxWorkspaceDirUsage,
+    val tmpUsage: SandboxWorkspaceDirUsage,
+) {
+    val totalBytes: Long get() = filesUsage.bytes + linuxUsage.bytes + tmpUsage.bytes
+    val totalFileCount: Int get() = filesUsage.fileCount + linuxUsage.fileCount + tmpUsage.fileCount
+}
 
 data class OrphanEntry(
     val absolutePath: String,
@@ -115,6 +145,7 @@ class StorageManagerRepository(
     private val conversationRepository: ConversationRepository,
     private val genMediaDAO: GenMediaDAO,
     private val aiRequestLogDao: AIRequestLogDao,
+    private val workspaceRepository: WorkspaceRepository,
 ) {
     private companion object {
         private const val ATTACHMENT_LIST_CACHE_MAX_AGE_MS = 10 * 60_000L
@@ -134,6 +165,10 @@ class StorageManagerRepository(
     )
 
     private val cacheTopLevelUsageCache = TimedSuspendCache<List<CacheTopLevelUsage>>(
+        maxAgeMs = OVERVIEW_CACHE_MAX_AGE_MS,
+    )
+
+    private val sandboxWorkspacesUsageCache = TimedSuspendCache<List<SandboxWorkspaceUsage>>(
         maxAgeMs = OVERVIEW_CACHE_MAX_AGE_MS,
     )
 
@@ -196,6 +231,10 @@ class StorageManagerRepository(
         cacheTopLevelUsageCache.invalidate()
     }
 
+    private fun invalidateSandboxUsageCache() {
+        sandboxWorkspacesUsageCache.invalidate()
+    }
+
     private fun invalidateImageEntriesCaches() {
         allImageEntriesCache.invalidate()
         assistantImageEntriesCaches.values.forEach { it.invalidate() }
@@ -247,6 +286,11 @@ class StorageManagerRepository(
         val skillsUsage = async {
             countSkillsUsage(skillsDir, referencedSkillIds)
         }
+        val sandboxUsage = async {
+            // 沙盒工作区占用（含 rootfs，是存储管理与系统显示差额的主要来源）。明细走独立缓存，
+            // 这里复用同一份结果汇总进总览，避免概览与详情页各扫一遍大 rootfs。
+            getSandboxWorkspacesUsage()
+        }
 
         val requestLogCountVal = requestLogCount.await()
         val conversationCountVal = conversationCount.await()
@@ -257,6 +301,10 @@ class StorageManagerRepository(
         val avatarsUsageVal = avatarsUsage.await()
         val customIconsUsageVal = customIconsUsage.await()
         val skillsUsageVal = skillsUsage.await()
+        val sandboxUsageVal = sandboxUsage.await()
+
+        val sandboxBytes = sandboxUsageVal.sumOf { it.totalBytes }
+        val sandboxFileCount = sandboxUsageVal.sumOf { it.totalFileCount }
 
         val imagesBytes = uploadUsageVal.images.bytes +
             imagesUsageVal.images.bytes +
@@ -292,6 +340,7 @@ class StorageManagerRepository(
             StorageCategoryUsage(StorageCategoryKey.CHAT_RECORDS, dbUsageVal.bytes, conversationCountVal),
             StorageCategoryUsage(StorageCategoryKey.CACHE, cacheUsageVal.bytes, cacheUsageVal.count),
             StorageCategoryUsage(StorageCategoryKey.HISTORY_FILES, historyBytes, historyCount),
+            StorageCategoryUsage(StorageCategoryKey.SANDBOX_WORKSPACES, sandboxBytes, sandboxFileCount),
             StorageCategoryUsage(StorageCategoryKey.LOGS, bytes = 0L, fileCount = requestLogCountVal),
         )
 
@@ -325,6 +374,19 @@ class StorageManagerRepository(
 
     suspend fun getCacheTopLevelUsage(forceRefresh: Boolean = false): List<CacheTopLevelUsage> {
         return cacheTopLevelUsageCache.get(forceRefresh = forceRefresh) { computeCacheTopLevelUsage() }
+    }
+
+    suspend fun getSandboxWorkspacesUsage(forceRefresh: Boolean = false): List<SandboxWorkspaceUsage> {
+        return sandboxWorkspacesUsageCache.get(forceRefresh = forceRefresh) {
+            workspaceRepository.getSandboxWorkspacesUsage()
+        }
+    }
+
+    suspend fun cleanSandboxRootfs(workspaceId: String): Boolean {
+        val cleaned = workspaceRepository.cleanSandboxRootfs(workspaceId)
+        invalidateOverviewCache()
+        invalidateSandboxUsageCache()
+        return cleaned
     }
 
     private suspend fun computeCacheTopLevelUsage(): List<CacheTopLevelUsage> = withContext(Dispatchers.IO) {

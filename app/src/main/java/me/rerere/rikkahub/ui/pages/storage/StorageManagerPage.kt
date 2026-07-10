@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoDelete
 import androidx.compose.material.icons.rounded.Cached
+import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.InsertDriveFile
@@ -218,6 +219,7 @@ private fun categoryTitleRes(category: StorageCategoryKey): Int = when (category
     StorageCategoryKey.CHAT_RECORDS -> R.string.storage_category_chat_records
     StorageCategoryKey.CACHE -> R.string.storage_category_cache
     StorageCategoryKey.HISTORY_FILES -> R.string.storage_category_history_files
+    StorageCategoryKey.SANDBOX_WORKSPACES -> R.string.storage_category_sandbox_workspaces
     StorageCategoryKey.LOGS -> R.string.storage_category_logs
 }
 
@@ -227,5 +229,6 @@ private fun categoryIcon(category: StorageCategoryKey) = when (category) {
     StorageCategoryKey.CHAT_RECORDS -> Icons.Rounded.Storage
     StorageCategoryKey.CACHE -> Icons.Rounded.Cached
     StorageCategoryKey.HISTORY_FILES -> Icons.Rounded.AutoDelete
+    StorageCategoryKey.SANDBOX_WORKSPACES -> Icons.Rounded.Dns
     StorageCategoryKey.LOGS -> Icons.Rounded.History
 }

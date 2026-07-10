@@ -50,6 +50,7 @@ fun StorageCategoryPage(
     val assistantFilesState by vm.assistantFiles.collectAsStateWithLifecycle()
     val orphanScanState by vm.orphanScan.collectAsStateWithLifecycle()
     val cacheTopLevelUsageState by vm.cacheTopLevelUsage.collectAsStateWithLifecycle()
+    val sandboxWorkspacesUsageState by vm.sandboxWorkspacesUsage.collectAsStateWithLifecycle()
     val actionState by vm.action.collectAsStateWithLifecycle()
 
     LaunchedEffect(actionState) {
@@ -61,7 +62,13 @@ fun StorageCategoryPage(
 
             is UiState.Error -> {
                 haptics.perform(HapticPattern.Error)
-                toaster.show(message = (actionState as UiState.Error).error.message ?: "Error")
+                // 沙盒清理未完成（如沙盒命令正占用文件）时，给中文提示而非底层异常消息。
+                val message = if (categoryKey == StorageCategoryKey.SANDBOX_WORKSPACES) {
+                    context.getString(R.string.storage_sandbox_clear_incomplete)
+                } else {
+                    (actionState as UiState.Error).error.message ?: "Error"
+                }
+                toaster.show(message = message)
             }
 
             else -> Unit
@@ -127,6 +134,8 @@ fun StorageCategoryPage(
             onOpenLogs = { navController.navigate(Screen.RequestLogs) },
             onLoadMoreImages = { vm.loadMoreImages() },
             onLoadMoreFiles = { vm.loadMoreFiles() },
+            sandboxWorkspacesUsageState = sandboxWorkspacesUsageState,
+            onCleanSandboxRootfs = { id -> vm.cleanSandboxRootfs(id) },
         )
     }
 }
@@ -137,6 +146,7 @@ private fun storageCategoryTitleRes(category: StorageCategoryKey): Int = when (c
     StorageCategoryKey.CHAT_RECORDS -> R.string.storage_category_chat_records
     StorageCategoryKey.CACHE -> R.string.storage_category_cache
     StorageCategoryKey.HISTORY_FILES -> R.string.storage_category_history_files
+    StorageCategoryKey.SANDBOX_WORKSPACES -> R.string.storage_category_sandbox_workspaces
     StorageCategoryKey.LOGS -> R.string.storage_category_logs
 }
 
@@ -146,5 +156,6 @@ private fun storageCategorySuccessToastRes(category: StorageCategoryKey): Int = 
     StorageCategoryKey.CHAT_RECORDS -> R.string.storage_toast_chat_records_cleared
     StorageCategoryKey.CACHE -> R.string.storage_toast_cache_cleared
     StorageCategoryKey.HISTORY_FILES -> R.string.storage_toast_history_cleared
+    StorageCategoryKey.SANDBOX_WORKSPACES -> R.string.storage_toast_sandbox_rootfs_cleared
     StorageCategoryKey.LOGS -> R.string.storage_toast_done
 }

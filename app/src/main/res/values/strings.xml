@@ -957,6 +957,7 @@
     <string name="storage_category_cache">Cache</string>
     <string name="storage_category_history_files">History Files</string>
     <string name="storage_category_logs">Logs</string>
+    <string name="storage_category_sandbox_workspaces">Sandbox Workspaces</string>
 
     <string name="storage_category_subtitle">%1$s · %2$d items</string>
     <string name="storage_category_logs_subtitle">%1$d request logs</string>
@@ -1045,6 +1046,22 @@
     <string name="storage_confirm_clear_history_title">Clear history files?</string>
     <string name="storage_confirm_clear_history_desc">This will delete files that are not referenced by current chats/settings. Make sure you have backups.</string>
 
+    <string name="storage_sandbox_title">Sandbox workspaces</string>
+    <string name="storage_sandbox_desc">Each sandbox workspace stores user files, a Linux environment, and temporary files. Uninstalling the Linux environment removes its packages and configuration, keeping only user files. You will need to reinstall and set up the sandbox environment before using it again.</string>
+    <string name="storage_sandbox_empty">No sandbox workspaces found</string>
+    <string name="storage_sandbox_overview_value">%1$s · %2$d workspaces</string>
+    <string name="storage_sandbox_dir_files">User files</string>
+    <string name="storage_sandbox_dir_linux">Linux environment</string>
+    <string name="storage_sandbox_dir_tmp">Temporary files</string>
+    <string name="storage_sandbox_status_ready">Ready</string>
+    <string name="storage_sandbox_status_installing">Installing</string>
+    <string name="storage_sandbox_status_broken">Broken</string>
+    <string name="storage_sandbox_status_disabled">Not installed</string>
+    <string name="storage_action_clear_sandbox_rootfs">Uninstall Linux environment</string>
+    <string name="storage_confirm_clear_sandbox_rootfs_title">Uninstall the sandbox\'s Linux environment?</string>
+    <string name="storage_confirm_clear_sandbox_rootfs_desc">This uninstalls the Linux environment and deletes temporary files for this workspace. User files in the workspace are kept. You will need to reinstall and set up the Linux environment before the sandbox can run again.</string>
+    <string name="storage_confirm_clear_sandbox_rootfs_warn">Installed packages and configuration will not be kept — you will need to reinstall and set them up again.</string>
+
     <string name="storage_logs_title">Logs</string>
     <string name="storage_logs_desc">Request logs are stored in Chat Records database.</string>
 
@@ -1054,6 +1071,8 @@
     <string name="storage_toast_cache_cleared">Cache cleared</string>
     <string name="storage_toast_history_cleared">History files cleared</string>
     <string name="storage_toast_done">Done</string>
+    <string name="storage_toast_sandbox_rootfs_cleared">Linux environment uninstalled</string>
+    <string name="storage_sandbox_clear_incomplete">Cleanup incomplete. Close conversations using this workspace and retry.</string>
     <string name="storage_files_open_failed">Failed to open file: %1$s</string>
     <string name="setting_page_color_mode">Color Mode</string>
     <string name="setting_page_color_mode_dark">Dark</string>

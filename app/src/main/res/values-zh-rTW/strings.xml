@@ -690,6 +690,7 @@
   <string name="storage_category_cache">快取</string>
   <string name="storage_category_history_files">歷史檔案</string>
   <string name="storage_category_logs">日誌</string>
+  <string name="storage_category_sandbox_workspaces">沙盒工作區</string>
 
   <string name="storage_category_subtitle">%1$s · %2$d 項</string>
   <string name="storage_category_logs_subtitle">%1$d 條請求日誌</string>
@@ -778,6 +779,22 @@
   <string name="storage_confirm_clear_history_title">清理歷史檔案？</string>
   <string name="storage_confirm_clear_history_desc">將刪除目前聊天/設定未引用的檔案。建議先備份。</string>
 
+  <string name="storage_sandbox_title">沙盒工作區</string>
+  <string name="storage_sandbox_desc">每個沙盒工作區會存放使用者檔案、Linux 環境和暫存檔案。解除安裝 Linux 環境會使軟體包和設定被一併移除，僅保留使用者檔案，使用時需要重新安裝並設定沙盒環境。</string>
+  <string name="storage_sandbox_empty">沒有沙盒工作區</string>
+  <string name="storage_sandbox_overview_value">%1$s · %2$d 個工作區</string>
+  <string name="storage_sandbox_dir_files">使用者檔案</string>
+  <string name="storage_sandbox_dir_linux">Linux 環境</string>
+  <string name="storage_sandbox_dir_tmp">暫存檔案</string>
+  <string name="storage_sandbox_status_ready">已就緒</string>
+  <string name="storage_sandbox_status_installing">安裝中</string>
+  <string name="storage_sandbox_status_broken">已損壞</string>
+  <string name="storage_sandbox_status_disabled">未安裝</string>
+  <string name="storage_action_clear_sandbox_rootfs">解除安裝 Linux 環境</string>
+  <string name="storage_confirm_clear_sandbox_rootfs_title">解除安裝沙盒的 Linux 環境？</string>
+  <string name="storage_confirm_clear_sandbox_rootfs_desc">這將解除安裝該工作區的 Linux 環境並刪除暫存檔案，工作區裡的使用者檔案會保留。之後需要重新安裝並設定 Linux 環境，才能再次使用該沙盒。</string>
+  <string name="storage_confirm_clear_sandbox_rootfs_warn">已安裝的軟體包和設定不會保留，需重新安裝並設定。</string>
+
   <string name="storage_logs_title">日誌</string>
   <string name="storage_logs_desc">請求日誌存放在聊天記錄資料庫中。</string>
 
@@ -787,6 +804,8 @@
   <string name="storage_toast_cache_cleared">已清理快取</string>
   <string name="storage_toast_history_cleared">已清理歷史檔案</string>
   <string name="storage_toast_done">完成</string>
+  <string name="storage_toast_sandbox_rootfs_cleared">已解除安裝 Linux 環境</string>
+  <string name="storage_sandbox_clear_incomplete">清理未完成，請關閉使用該工作區的對話後重試。</string>
   <string name="storage_files_open_failed">開啟檔案失敗：%1$s</string>
   <string name="setting_page_color_mode">顏色模式</string>
   <string name="setting_page_color_mode_dark">深色</string>

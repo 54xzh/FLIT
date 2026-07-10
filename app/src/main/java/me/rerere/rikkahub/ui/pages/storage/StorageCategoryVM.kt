@@ -23,6 +23,7 @@ import me.rerere.rikkahub.data.repository.ChatRecordsMonthEntry
 import me.rerere.rikkahub.data.repository.DeleteResult
 import me.rerere.rikkahub.data.repository.LightConversationEntity
 import me.rerere.rikkahub.data.repository.OrphanScanResult
+import me.rerere.rikkahub.data.repository.SandboxWorkspaceUsage
 import me.rerere.rikkahub.data.repository.StorageCategoryKey
 import me.rerere.rikkahub.data.repository.StorageCategoryUsage
 import me.rerere.rikkahub.data.repository.StorageManagerRepository
@@ -118,6 +119,9 @@ class StorageCategoryVM(
     private val _cacheTopLevelUsage = MutableStateFlow<UiState<List<CacheTopLevelUsage>>>(UiState.Idle)
     val cacheTopLevelUsage: StateFlow<UiState<List<CacheTopLevelUsage>>> = _cacheTopLevelUsage.asStateFlow()
 
+    private val _sandboxWorkspacesUsage = MutableStateFlow<UiState<List<SandboxWorkspaceUsage>>>(UiState.Idle)
+    val sandboxWorkspacesUsage: StateFlow<UiState<List<SandboxWorkspaceUsage>>> = _sandboxWorkspacesUsage.asStateFlow()
+
     private val _action = MutableStateFlow<UiState<DeleteResult>>(UiState.Idle)
     val action: StateFlow<UiState<DeleteResult>> = _action.asStateFlow()
 
@@ -165,6 +169,8 @@ class StorageCategoryVM(
 
             StorageCategoryKey.CACHE -> refreshCacheTopLevelUsage()
 
+            StorageCategoryKey.SANDBOX_WORKSPACES -> loadSandboxWorkspacesUsage(forceRefresh = force)
+
             else -> Unit
         }
     }
@@ -199,6 +205,40 @@ class StorageCategoryVM(
                     onSuccess = { UiState.Success(it) },
                     onFailure = { UiState.Error(it) },
                 )
+        }
+    }
+
+    private fun loadSandboxWorkspacesUsage(forceRefresh: Boolean = false) {
+        if (category != StorageCategoryKey.SANDBOX_WORKSPACES) return
+
+        viewModelScope.launch {
+            _sandboxWorkspacesUsage.value = UiState.Loading
+            _sandboxWorkspacesUsage.value = runCatching { storageRepo.getSandboxWorkspacesUsage(forceRefresh = forceRefresh) }
+                .fold(
+                    onSuccess = { UiState.Success(it) },
+                    onFailure = { UiState.Error(it) },
+                )
+        }
+    }
+
+    fun cleanSandboxRootfs(workspaceId: String) {
+        if (category != StorageCategoryKey.SANDBOX_WORKSPACES) return
+        viewModelScope.launch {
+            _action.value = UiState.Loading
+            _action.value = runCatching {
+                val cleaned = storageRepo.cleanSandboxRootfs(workspaceId)
+                // 删不干净（如沙盒命令正占用文件）按失败处理，走统一 Error toast 提示重试，
+                // 避免把"未清干净"误报为成功。
+                check(cleaned) { "Cleanup incomplete: close conversations using this workspace and retry" }
+                DeleteResult(deletedCount = 1, failedCount = 0, deletedBytes = 0L)
+            }.fold(
+                onSuccess = { UiState.Success(it) },
+                onFailure = { UiState.Error(it) },
+            )
+            // 清理后刷新总览与明细：rootfs 被删后该工作区占用应回落。cleanSandboxRootfs 已
+            // 失效沙盒占用缓存，refreshUsage 会触发重算并重新填充缓存，故明细用缓存即可。
+            refreshUsage(force = true)
+            loadSandboxWorkspacesUsage(forceRefresh = false)
         }
     }
 

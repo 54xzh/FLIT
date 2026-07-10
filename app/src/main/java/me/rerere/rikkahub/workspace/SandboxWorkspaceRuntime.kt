@@ -102,6 +102,26 @@ class SandboxWorkspaceManager(
         return allCleaned
     }
 
+    /**
+     * 只清理工作区的 `tmp/` 残留（强杀进程后留下的下载/解压临时文件），保留 `linux/`
+     * 与 `files/`。
+     *
+     * 与 [cleanRootfsResidue] 的区别：当启动时检测到 INSTALLING 残留但 rootfs 实际完整
+     * （[hasRootfs] 为真）时，说明上次安装已落盘成功、只是进程在收尾前被杀，此时 `linux/`
+     * 是可用的，只能清 `tmp/`、把状态回收为 READY；若用 [cleanRootfsResidue] 会误删完整
+     * rootfs。`linux/` 与 `files/` 在此路径下不应被改动。
+     */
+    fun cleanTempResidue(id: String): Boolean {
+        requireWorkspaceId(id)
+        val target = File(workspaceDir(id), "tmp")
+        if (!target.exists()) return true
+        val deleted = runCatching { target.deleteRecursively() }.getOrDefault(false)
+        if (!deleted) {
+            Log.w(TAG, "cleanTempResidue: $id/tmp 未完全删除（deleteRecursively 返回 false）")
+        }
+        return deleted
+    }
+
     fun listFiles(id: String, path: String = ""): List<SandboxFileEntry> {
         val root = filesDir(id).also { it.mkdirs() }
         val dir = resolve(root, path)

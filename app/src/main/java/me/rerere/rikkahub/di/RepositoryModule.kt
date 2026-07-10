@@ -53,6 +53,7 @@ val repositoryModule = module {
             conversationRepository = get(),
             genMediaDAO = get(),
             aiRequestLogDao = get(),
+            workspaceRepository = get(),
         )
     }
 

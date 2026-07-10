@@ -2,12 +2,18 @@ package me.rerere.rikkahub.data.repository
 
 import android.content.Context
 import android.net.Uri
+import android.system.Os
+import android.system.OsConstants
+import android.system.StructStat
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runInterruptible
@@ -246,11 +252,22 @@ class WorkspaceRepository(
                         }
                         updateSandboxStatus(workspace.id, SandboxRootfsStatus.DISABLED, detail.rootfsSourceUrl, detail.rootfsVersion, null)
                     } else if (detail.rootfsStatus == SandboxRootfsStatus.INSTALLING) {
-                        // 安装中进程被杀会残留 INSTALLING：有 rootfs 回收为 READY，无 rootfs 降为未安装
-                        val recovered = if (sandboxManager.hasRootfs(workspace.id)) {
-                            SandboxRootfsStatus.READY
+                        // 安装中进程被杀会残留 INSTALLING。rootfs 实际是否落盘决定回收还是降级，
+                        // 同时清掉强杀时 finally 来不及清理的 tmp/ 残留（下载包与解压 staging）。
+                        val hasRootfs = sandboxManager.hasRootfs(workspace.id)
+                        val recovered: SandboxRootfsStatus
+                        val cleaned: Boolean
+                        if (hasRootfs) {
+                            // rootfs 完整：上次安装已成功、只是收尾前被杀。只清 tmp/，保留 linux/。
+                            recovered = SandboxRootfsStatus.READY
+                            cleaned = sandboxManager.cleanTempResidue(workspace.id)
                         } else {
-                            SandboxRootfsStatus.DISABLED
+                            // rootfs 不完整：清 linux/（可能半写残骸或不存在）与 tmp/。
+                            recovered = SandboxRootfsStatus.DISABLED
+                            cleaned = sandboxManager.cleanRootfsResidue(workspace.id)
+                        }
+                        if (!cleaned) {
+                            Log.w(TAG, "checkIntegrity: 工作区 ${workspace.id} 的 INSTALLING 残留未完全清理，下次启动会重试")
                         }
                         updateSandboxStatus(
                             workspace.id,
@@ -316,6 +333,109 @@ class WorkspaceRepository(
         val workspace = requireSandbox(id)
         check(workspace.sandboxStatus == SandboxRootfsStatus.READY) { "Rootfs is not ready" }
         runInterruptible(Dispatchers.IO) { sandboxManager.executeCommand(id, command, cwd, timeoutMillis, stdin) }
+    }
+
+    /**
+     * 统计所有沙盒工作区在存储管理里展示的占用：每个工作区按 `files/`、`linux/`、`tmp/`
+     * 三块分别算大小，附带工作区名与 rootfs 状态。
+     *
+     * `linux/` 通常几十~百 MB，是存储管理与系统显示差额的主要来源；放在这里是因为本仓库
+     * 持有 [sandboxManager] 与工作区记录。各工作区并发扫描，避免大 rootfs 拖慢整体。
+     */
+    suspend fun getSandboxWorkspacesUsage(): List<SandboxWorkspaceUsage> = withContext(Dispatchers.IO) {
+        val sandboxes = getAll().filter { it.type == WorkspaceType.SANDBOX && it.sandbox != null }
+        if (sandboxes.isEmpty()) return@withContext emptyList()
+        coroutineScope {
+            sandboxes.map { workspace ->
+                async(Dispatchers.IO) {
+                    SandboxWorkspaceUsage(
+                        workspaceId = workspace.id,
+                        name = workspace.name,
+                        rootfsStatus = workspace.sandboxStatus ?: SandboxRootfsStatus.DISABLED,
+                        filesUsage = countDir(sandboxManager.filesDir(workspace.id)),
+                        linuxUsage = countDir(sandboxManager.linuxDir(workspace.id)),
+                        tmpUsage = countDir(sandboxManager.tempDir(workspace.id)),
+                    )
+                }
+            }.awaitAll().sortedByDescending { it.totalBytes }
+        }
+    }
+
+    /**
+     * 清理单个沙盒工作区的 rootfs（`linux/` 与 `tmp/`），保留 `files/` 用户文件，并把
+     * DB 状态降级为 DISABLED。供存储管理页"清理 rootfs"按钮调用。
+     *
+     * 与 [installSandboxRootfs] / [executeSandboxCommand] 共享 [sandboxLock]，互斥避免与正在
+     * 运行的沙盒命令或安装冲突。返回 [cleanRootfsResidue] 的结果：删不干净返回 false（调用方
+     * 应提示用户关闭使用该工作区的对话后重试），rootfs 本就不存在返回 true。
+     */
+    suspend fun cleanSandboxRootfs(id: String): Boolean = withContext(Dispatchers.IO) {
+        sandboxLock(id).withLock {
+            requireSandbox(id)
+            val detail = dao.getSandboxDetail(id)
+            val cleaned = sandboxManager.cleanRootfsResidue(id)
+            updateSandboxStatus(id, SandboxRootfsStatus.DISABLED, detail?.rootfsSourceUrl, detail?.rootfsVersion, null)
+            cleaned
+        }
+    }
+
+    /**
+     * 统计沙盒工作区某个子目录（files/linux/tmp）的占用，口径对齐 Android 系统设置"按真实磁盘块统计"：
+     * - **不跟随符号链接**：rootfs 里常见 `/bin → /usr/bin`、`/lib → /usr/lib` 这类目录符号链接，
+     *   跟随会把同一棵子树遍历两遍，几百 MB 的 rootfs 被累加成好几 GB（应用内显示与 Android 系统
+     *   设置存储统计出入巨大的主因）。符号链接自身按一个文件计入，不再展开其目标。
+     * - **按 (设备号, inode) 给硬链接去重**：rootfs 大量用硬链接省空间（同一磁盘块多个名字），
+     *   每个名字的 size 都是完整大小；按 (dev, ino) 去重后每块只算一次，与 `du`/系统统计一致。
+     *   key 含 st_dev 是为不同文件系统上 inode 号重复时也能正确区分（虽然单次扫描通常同 fs）。
+     * - **按块占用计大小**：用 `st_blocks * 512`（实际占用的磁盘块）而非 `length()`（逻辑大小），
+     *   稀疏文件不会被按逻辑大小虚高统计，与系统设置数字更接近。
+     *
+     * 用 `Os.lstat`（不跟随链接）取类型与 inode。任何一步失败都回退到 `File` 自身的目录/文件判断，
+     * 保证子树不被漏算；lstat 失败的文件按普通文件计入（size 用 `length()` 回退），不去重。
+     */
+    private fun countDir(root: File): SandboxWorkspaceDirUsage {
+        if (!root.exists()) return SandboxWorkspaceDirUsage(bytes = 0L, fileCount = 0)
+        var count = 0
+        var bytes = 0L
+        val seenDevIno = HashSet<Pair<Long, Long>>()
+        val stack = ArrayDeque<File>()
+        stack.addLast(root)
+        while (stack.isNotEmpty()) {
+            val current = stack.removeLast()
+            current.listFiles().orEmpty().forEach { entry ->
+                val stat: StructStat? = runCatching { Os.lstat(entry.absolutePath) }.getOrNull()
+                val mode = stat?.st_mode ?: 0
+                when {
+                    OsConstants.S_ISLNK(mode) -> {
+                        // 符号链接：算一个文件，不跟随，避免重复遍历被链接的子树。
+                        count += 1
+                    }
+                    OsConstants.S_ISDIR(mode) -> {
+                        stack.addLast(entry)
+                    }
+                    OsConstants.S_ISREG(mode) -> {
+                        // 普通文件（含硬链接）：按 (dev, ino) 去重，同一磁盘块只计一次；按块占用计大小。
+                        val dev = stat?.st_dev ?: 0L
+                        val ino = stat?.st_ino ?: 0L
+                        if (ino > 0 && !seenDevIno.add(dev to ino)) return@forEach
+                        count += 1
+                        // st_blocks * 512 是真实磁盘块占用；lstat 失败（stat==null）或 st_blocks 不可得时回退 length()。
+                        val blockBytes = stat?.st_blocks?.let { it * 512L }
+                        bytes += blockBytes ?: runCatching { entry.length() }.getOrNull() ?: 0L
+                    }
+                    else -> {
+                        // mode == 0（lstat 失败）或其他类型：用 File 回退判断，避免目录子树被漏算。
+                        if (entry.isDirectory) {
+                            stack.addLast(entry)
+                        } else if (entry.isFile) {
+                            count += 1
+                            bytes += runCatching { entry.length() }.getOrNull() ?: 0L
+                        }
+                    }
+                }
+            }
+        }
+        return SandboxWorkspaceDirUsage(bytes = bytes, fileCount = count)
     }
 
     fun friendlyName(treeUri: String, fallback: String): String {
