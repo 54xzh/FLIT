@@ -269,12 +269,30 @@ class ProotSandboxShellRunner(
     private fun SandboxShellContext.prootCwd(): String = cwd.trim().trim('/').takeIf { it.isNotEmpty() }?.let { "/workspace/$it" } ?: "/workspace"
 }
 
+enum class SandboxRootfsInstallStage {
+    DOWNLOADING,
+    EXTRACTING,
+    INSTALLED,
+}
+
+data class SandboxRootfsInstallProgress(
+    val stage: SandboxRootfsInstallStage,
+    val bytesRead: Long = 0,
+    val totalBytes: Long? = null,
+    val entriesExtracted: Int = 0,
+    val currentEntry: String? = null,
+)
+
 /** 下载并安全解开 tar.gz 或 tar.xz Rootfs。 */
 class SandboxRootfsInstaller(
     private val manager: SandboxWorkspaceManager,
     private val patcher: SandboxRootfsPatcher = SandboxRootfsPatcher(),
 ) {
-    fun install(workspaceId: String, sourceUrl: String, onProgress: (String) -> Unit = {}) {
+    fun install(
+        workspaceId: String,
+        sourceUrl: String,
+        onProgress: (SandboxRootfsInstallProgress) -> Unit = {},
+    ) {
         require(sourceUrl.startsWith("https://") || sourceUrl.startsWith("http://")) { "Rootfs URL must use HTTP(S)" }
         manager.ensureWorkspace(workspaceId)
         val format = ArchiveFormat.fromUrl(sourceUrl)
@@ -285,30 +303,68 @@ class SandboxRootfsInstaller(
         try {
             staging.deleteRecursively()
             staging.mkdirs()
-            onProgress("downloading")
-            download(sourceUrl, archive)
-            onProgress("extracting")
-            extractTar(archive, staging, format)
+            download(sourceUrl, archive, onProgress)
+            extractTar(archive, staging, format, onProgress)
             checkInterrupted()
             linux.deleteRecursively()
             require(staging.renameTo(linux)) { "Failed to install Rootfs" }
             patcher.patch(linux)
-            onProgress("installed")
+            onProgress(SandboxRootfsInstallProgress(stage = SandboxRootfsInstallStage.INSTALLED))
         } finally {
             archive.delete()
             staging.deleteRecursively()
         }
     }
 
-    private fun download(url: String, target: File) {
+    private fun download(
+        url: String,
+        target: File,
+        onProgress: (SandboxRootfsInstallProgress) -> Unit,
+    ) {
         val connection = URL(url).openConnection() as HttpURLConnection
-        connection.connectTimeout = 30_000
-        connection.readTimeout = 60_000
+        connection.connectTimeout = CONNECT_TIMEOUT_MS
+        connection.readTimeout = READ_TIMEOUT_MS
         connection.instanceFollowRedirects = true
         try {
             require(connection.responseCode in 200..299) { "Rootfs download failed: HTTP ${connection.responseCode}" }
-            connection.inputStream.use { input -> target.outputStream().use { output -> copyInterruptibly(input, output) } }
-        } finally { connection.disconnect() }
+            val totalBytes = connection.contentLengthLong.takeIf { it > 0 }
+            target.parentFile?.mkdirs()
+            connection.inputStream.use { input ->
+                target.outputStream().use { output ->
+                    val buffer = ByteArray(BUFFER_SIZE)
+                    var bytesRead = 0L
+                    var lastReportBytes = 0L
+                    while (true) {
+                        checkInterrupted()
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        bytesRead += read
+                        if (bytesRead - lastReportBytes >= PROGRESS_STEP_BYTES || bytesRead == totalBytes) {
+                            lastReportBytes = bytesRead
+                            onProgress(
+                                SandboxRootfsInstallProgress(
+                                    stage = SandboxRootfsInstallStage.DOWNLOADING,
+                                    bytesRead = bytesRead,
+                                    totalBytes = totalBytes,
+                                )
+                            )
+                        }
+                    }
+                    if (bytesRead == 0L) {
+                        onProgress(
+                            SandboxRootfsInstallProgress(
+                                stage = SandboxRootfsInstallStage.DOWNLOADING,
+                                bytesRead = 0,
+                                totalBytes = totalBytes,
+                            )
+                        )
+                    }
+                }
+            }
+        } finally {
+            connection.disconnect()
+        }
     }
 
     /** 与上游 RootfsInstaller 保持相同的 tar 读取、链接与权限处理。 */
@@ -316,8 +372,10 @@ class SandboxRootfsInstaller(
         archive: File,
         targetDir: File,
         format: ArchiveFormat = ArchiveFormat.fromFile(archive),
+        onProgress: (SandboxRootfsInstallProgress) -> Unit = {},
     ) {
         format.wrapStream(BufferedInputStream(archive.inputStream())).use { input ->
+            var entries = 0
             var pendingName: String? = null
             var pendingLinkName: String? = null
             while (true) {
@@ -368,6 +426,14 @@ class SandboxRootfsInstaller(
                 if (header.type != TarEntryType.FILE) input.skipFully(header.size)
                 input.skipFully(header.size.paddingSize())
                 if (header.modTime > 0 && header.type != TarEntryType.SYMLINK) target.setLastModified(header.modTime * 1000)
+                entries++
+                onProgress(
+                    SandboxRootfsInstallProgress(
+                        stage = SandboxRootfsInstallStage.EXTRACTING,
+                        entriesExtracted = entries,
+                        currentEntry = header.name,
+                    )
+                )
             }
         }
     }
@@ -458,15 +524,6 @@ class SandboxRootfsInstaller(
         return buffer
     }
 
-    private fun copyInterruptibly(input: InputStream, output: OutputStream) {
-        val buffer = ByteArray(64 * 1024)
-        while (true) {
-            checkInterrupted()
-            val read = input.read(buffer)
-            if (read < 0) return
-            output.write(buffer, 0, read)
-        }
-    }
 
     private fun InputStream.skipFully(bytes: Long) {
         var remaining = bytes
@@ -566,6 +623,10 @@ class SandboxRootfsInstaller(
 
     private companion object {
         const val TAR_BLOCK_SIZE = 512
+        const val BUFFER_SIZE = 64 * 1024
+        const val PROGRESS_STEP_BYTES = 512 * 1024
+        const val CONNECT_TIMEOUT_MS = 30_000
+        const val READ_TIMEOUT_MS = 60_000
     }
 }
 

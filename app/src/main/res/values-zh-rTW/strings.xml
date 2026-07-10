@@ -2307,11 +2307,15 @@
     <string name="workspace_page_choose_type">選擇工作區類型</string>
     <string name="workspace_sandbox_delete_confirm">刪除此沙盒及其中的所有檔案和 Linux 環境？此操作無法復原，已綁定的助手將被解除綁定。</string>
     <string name="workspace_sandbox_rootfs_title">Linux 環境</string>
-    <string name="workspace_sandbox_rootfs_status">Rootfs 狀態</string>
-    <string name="workspace_sandbox_rootfs_url">Rootfs 下載網址</string>
+    <string name="workspace_sandbox_rootfs_status">Rootfs 狀態</string>    <string name="workspace_sandbox_rootfs_url">Rootfs 下載網址</string>
     <string name="workspace_sandbox_rootfs_unverified">自訂來源不會驗證，請僅使用你信任的來源。</string>
     <string name="workspace_sandbox_install_rootfs">安裝 Linux 環境</string>
     <string name="workspace_sandbox_reinstall_rootfs">重新安裝 Linux 環境</string>
+    <string name="workspace_sandbox_install_rootfs_desc">將下載 rootfs 壓縮檔並解壓到 %1$s 的 linux 目錄。</string>
+    <string name="workspace_sandbox_install_action">安裝</string>
+    <string name="workspace_sandbox_downloading">正在下載 %1$s%2$s</string>
+    <string name="workspace_sandbox_extracting">正在解壓 %1$d 個項目%2$s</string>
+    <string name="workspace_sandbox_install_complete">安裝完成</string>
     <string name="workspace_sandbox_rootfs_failed">Linux 環境安裝失敗</string>
     <string name="workspace_sandbox_status_not_installed">尚未安裝</string>
     <string name="workspace_sandbox_status_installing">正在安裝</string>

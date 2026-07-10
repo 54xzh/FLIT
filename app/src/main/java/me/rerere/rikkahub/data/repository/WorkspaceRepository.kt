@@ -28,6 +28,7 @@ import me.rerere.rikkahub.data.db.entity.workspaceToolNames
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.workspace.SandboxCommandResult
 import me.rerere.rikkahub.workspace.SandboxFileEntry
+import me.rerere.rikkahub.workspace.SandboxRootfsInstallProgress
 import me.rerere.rikkahub.workspace.SandboxRootfsInstaller
 import me.rerere.rikkahub.workspace.SandboxWorkspaceManager
 import java.io.File
@@ -164,7 +165,7 @@ class WorkspaceRepository(
     suspend fun installSandboxRootfs(
         id: String,
         sourceUrl: String,
-        onProgress: (String) -> Unit = {},
+        onProgress: (SandboxRootfsInstallProgress) -> Unit = {},
     ): Boolean = sandboxLock(id).withLock {
         val workspace = requireSandbox(id)
         val previous = workspace.sandbox ?: error("Sandbox details are missing")
@@ -244,7 +245,21 @@ class WorkspaceRepository(
                             Log.w(TAG, "checkIntegrity: 工作区 ${workspace.id} 的旧 rootfs 未完全删除，下次启动会重试")
                         }
                         updateSandboxStatus(workspace.id, SandboxRootfsStatus.DISABLED, detail.rootfsSourceUrl, detail.rootfsVersion, null)
-                    } else if ((detail.rootfsStatus == SandboxRootfsStatus.READY || detail.rootfsStatus == SandboxRootfsStatus.INSTALLING)
+                    } else if (detail.rootfsStatus == SandboxRootfsStatus.INSTALLING) {
+                        // 安装中进程被杀会残留 INSTALLING：有 rootfs 回收为 READY，无 rootfs 降为未安装
+                        val recovered = if (sandboxManager.hasRootfs(workspace.id)) {
+                            SandboxRootfsStatus.READY
+                        } else {
+                            SandboxRootfsStatus.DISABLED
+                        }
+                        updateSandboxStatus(
+                            workspace.id,
+                            recovered,
+                            detail.rootfsSourceUrl,
+                            detail.rootfsVersion,
+                            if (recovered == SandboxRootfsStatus.READY) detail.rootfsInstalledAt else null,
+                        )
+                    } else if (detail.rootfsStatus == SandboxRootfsStatus.READY
                         && !sandboxManager.hasRootfs(workspace.id)
                     ) {
                         updateSandboxStatus(workspace.id, SandboxRootfsStatus.DISABLED, detail.rootfsSourceUrl, detail.rootfsVersion, null)

@@ -25,6 +25,8 @@ import me.rerere.rikkahub.data.repository.SafRepository
 import me.rerere.rikkahub.data.repository.Workspace
 import me.rerere.rikkahub.data.repository.WorkspaceFileEntry
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.workspace.SandboxRootfsInstallProgress
+import me.rerere.rikkahub.workspace.SandboxRootfsInstallStage
 
 class WorkspaceDetailVM(
     private val workspaceId: String,
@@ -175,9 +177,14 @@ class WorkspaceDetailVM(
         val ws = workspace.value ?: return
         if (ws.type != WorkspaceType.SANDBOX || _installState.value.installing) return
         viewModelScope.launch {
-            _installState.value = SandboxInstallState(installing = true, stage = "downloading")
+            _installState.value = SandboxInstallState(
+                installing = true,
+                progress = SandboxRootfsInstallProgress(stage = SandboxRootfsInstallStage.DOWNLOADING),
+            )
             runCatching {
-                repository.installSandboxRootfs(ws.id, url) { stage -> _installState.value = SandboxInstallState(installing = true, stage = stage) }
+                repository.installSandboxRootfs(ws.id, url) { progress ->
+                    _installState.value = SandboxInstallState(installing = true, progress = progress)
+                }
             }.onFailure { error ->
                 _installState.value = SandboxInstallState(error = error.message ?: "Rootfs installation failed")
             }.onSuccess {
@@ -204,5 +211,9 @@ class WorkspaceDetailVM(
     fun delete(onDone: () -> Unit) = viewModelScope.launch { repository.delete(workspaceId); onDone() }
 
     data class FilesState(val path: String = "", val entries: List<WorkspaceFileEntry> = emptyList(), val loading: Boolean = false, val error: String? = null)
-    data class SandboxInstallState(val installing: Boolean = false, val stage: String? = null, val error: String? = null)
+    data class SandboxInstallState(
+        val installing: Boolean = false,
+        val progress: SandboxRootfsInstallProgress? = null,
+        val error: String? = null,
+    )
 }

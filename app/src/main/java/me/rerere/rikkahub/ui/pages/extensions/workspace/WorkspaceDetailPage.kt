@@ -72,6 +72,7 @@ fun WorkspaceDetailPage(
     var deleting by remember { mutableStateOf(false) }
     var deleteFileTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
     var exportFileTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
+    var showInstallDialog by remember { mutableStateOf(false) }
 
     val ws = workspace
 
@@ -220,8 +221,12 @@ fun WorkspaceDetailPage(
                         toolApprovals = toolApprovals,
                         toolNames = vm.toolNames(),
                         friendlyRootPath = friendlyRootPath,
+                        installProgress = installState.progress,
                         installingRootfs = installState.installing,
-                        onInstallRootfs = vm::installRootfs,
+                        onRequestInstallRootfs = {
+                            haptics.perform(HapticPattern.Pop)
+                            showInstallDialog = true
+                        },
                         onSetToolApproval = { tool, needsApproval ->
                             haptics.perform(HapticPattern.Pop)
                             vm.setToolApproval(tool, needsApproval)
@@ -301,6 +306,19 @@ fun WorkspaceDetailPage(
             },
             dismissButton = {
                 TextButton(onClick = { deleting = false }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
+
+    if (showInstallDialog && ws != null && ws.type == WorkspaceType.SANDBOX) {
+        InstallRootfsDialog(
+            workspaceName = ws.name,
+            initialUrl = ws.sandbox?.rootfsSourceUrl,
+            onDismiss = { showInstallDialog = false },
+            onConfirm = { url ->
+                haptics.perform(HapticPattern.Pop)
+                vm.installRootfs(url)
+                showInstallDialog = false
             },
         )
     }

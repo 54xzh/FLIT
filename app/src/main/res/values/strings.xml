@@ -2318,11 +2318,15 @@
     <string name="workspace_page_choose_type">Choose workspace type</string>
     <string name="workspace_sandbox_delete_confirm">Delete this sandbox and all of its files and Linux environment? This cannot be undone. Bound assistants will be unbound.</string>
     <string name="workspace_sandbox_rootfs_title">Linux environment</string>
-    <string name="workspace_sandbox_rootfs_status">Rootfs status</string>
-    <string name="workspace_sandbox_rootfs_url">Rootfs download URL</string>
+    <string name="workspace_sandbox_rootfs_status">Rootfs status</string>    <string name="workspace_sandbox_rootfs_url">Rootfs download URL</string>
     <string name="workspace_sandbox_rootfs_unverified">Custom sources are not verified. Only use sources you trust.</string>
     <string name="workspace_sandbox_install_rootfs">Install Linux environment</string>
     <string name="workspace_sandbox_reinstall_rootfs">Reinstall Linux environment</string>
+    <string name="workspace_sandbox_install_rootfs_desc">Will download a rootfs archive and extract it into the linux directory of %1$s.</string>
+    <string name="workspace_sandbox_install_action">Install</string>
+    <string name="workspace_sandbox_downloading">Downloading %1$s%2$s</string>
+    <string name="workspace_sandbox_extracting">Extracting %1$d items%2$s</string>
+    <string name="workspace_sandbox_install_complete">Installation complete</string>
     <string name="workspace_sandbox_rootfs_failed">Linux environment installation failed</string>
     <string name="workspace_sandbox_status_not_installed">Not installed</string>
     <string name="workspace_sandbox_status_installing">Installing</string>

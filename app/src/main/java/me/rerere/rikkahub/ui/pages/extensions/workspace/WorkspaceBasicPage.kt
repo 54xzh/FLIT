@@ -2,30 +2,39 @@ package me.rerere.rikkahub.ui.pages.extensions.workspace
 
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
 import me.rerere.rikkahub.data.db.entity.WorkspaceType
 import me.rerere.rikkahub.data.db.entity.toolDefaultNeedsApproval
 import me.rerere.rikkahub.data.repository.Workspace
+import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupInputItem
 import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
 import me.rerere.rikkahub.ui.pages.setting.components.SettingsGroup
+import me.rerere.rikkahub.workspace.SandboxRootfsInstallProgress
+import me.rerere.rikkahub.workspace.SandboxRootfsInstallStage
 
 @Composable
 fun WorkspaceBasicPage(
@@ -33,8 +42,9 @@ fun WorkspaceBasicPage(
     toolApprovals: Map<String, Boolean>,
     toolNames: List<String>,
     friendlyRootPath: String?,
+    installProgress: SandboxRootfsInstallProgress?,
     installingRootfs: Boolean,
-    onInstallRootfs: (String) -> Unit,
+    onRequestInstallRootfs: () -> Unit,
     onSetToolApproval: (String, Boolean) -> Unit,
     onSetAll: (Boolean) -> Unit,
 ) {
@@ -59,27 +69,31 @@ fun WorkspaceBasicPage(
         if (ws.type == WorkspaceType.SANDBOX) {
             item {
                 val status = ws.sandboxStatus ?: SandboxRootfsStatus.DISABLED
-                var sourceUrl by remember(ws.id, ws.sandbox?.rootfsSourceUrl) {
-                    mutableStateOf(ws.sandbox?.rootfsSourceUrl ?: defaultRootfsUrl())
+                // 按钮禁用只看内存安装态；DB 的 INSTALLING 可能因进程被杀残留，不能用来永久灰掉按钮
+                val rootfsReady = status == SandboxRootfsStatus.READY
+                val installButtonText = when {
+                    installingRootfs -> stringResource(R.string.workspace_sandbox_status_installing)
+                    rootfsReady -> stringResource(R.string.workspace_sandbox_reinstall_rootfs)
+                    else -> stringResource(R.string.workspace_sandbox_install_rootfs)
                 }
                 SettingsGroup(title = stringResource(R.string.workspace_sandbox_rootfs_title)) {
-                    SettingGroupItem(
+                    SettingGroupInputItem(
                         title = stringResource(R.string.workspace_sandbox_rootfs_status),
                         subtitle = sandboxStatusText(status),
-                    )
-                    OutlinedTextField(
-                        value = sourceUrl,
-                        onValueChange = { sourceUrl = it },
-                        label = { Text(stringResource(R.string.workspace_sandbox_rootfs_url)) },
-                        supportingText = { Text(stringResource(R.string.workspace_sandbox_rootfs_unverified)) },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    )
-                    TextButton(
-                        enabled = !installingRootfs && sourceUrl.isNotBlank(),
-                        onClick = { onInstallRootfs(sourceUrl.trim()) },
-                        modifier = Modifier.padding(horizontal = 8.dp),
                     ) {
-                        Text(stringResource(if (status == SandboxRootfsStatus.READY) R.string.workspace_sandbox_reinstall_rootfs else R.string.workspace_sandbox_install_rootfs))
+                        Button(
+                            enabled = !installingRootfs,
+                            onClick = onRequestInstallRootfs,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(installButtonText)
+                        }
+                        installProgress?.let { progress ->
+                            RootfsProgress(
+                                progress = progress,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
             }
@@ -104,10 +118,117 @@ fun WorkspaceBasicPage(
     }
 }
 
-private fun defaultRootfsUrl(): String = if (Build.SUPPORTED_ABIS.any { it == "x86_64" } && Build.SUPPORTED_ABIS.firstOrNull() == "x86_64") {
+@Composable
+fun InstallRootfsDialog(
+    workspaceName: String,
+    initialUrl: String?,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var url by rememberSaveable(workspaceName, initialUrl) {
+        mutableStateOf(initialUrl?.takeIf { it.isNotBlank() } ?: defaultRootfsUrl())
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.workspace_sandbox_install_rootfs)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = stringResource(R.string.workspace_sandbox_install_rootfs_desc, workspaceName),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.workspace_sandbox_rootfs_url)) },
+                    supportingText = { Text(stringResource(R.string.workspace_sandbox_rootfs_unverified)) },
+                    maxLines = 5,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(url.trim()) },
+                enabled = url.trim().isNotBlank(),
+            ) {
+                Text(stringResource(R.string.workspace_sandbox_install_action))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun RootfsProgress(
+    progress: SandboxRootfsInstallProgress,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        val fraction = progress.totalBytes?.takeIf { it > 0 }?.let {
+            (progress.bytesRead.toFloat() / it).coerceIn(0f, 1f)
+        }
+        if (fraction != null && progress.stage == SandboxRootfsInstallStage.DOWNLOADING) {
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        Text(
+            text = when (progress.stage) {
+                SandboxRootfsInstallStage.DOWNLOADING -> {
+                    val total = progress.totalBytes?.let { " / ${formatBytes(it)}" }.orEmpty()
+                    stringResource(
+                        R.string.workspace_sandbox_downloading,
+                        formatBytes(progress.bytesRead),
+                        total,
+                    )
+                }
+                SandboxRootfsInstallStage.EXTRACTING -> {
+                    val entry = progress.currentEntry?.let { " · $it" }.orEmpty()
+                    stringResource(
+                        R.string.workspace_sandbox_extracting,
+                        progress.entriesExtracted,
+                        entry,
+                    )
+                }
+                SandboxRootfsInstallStage.INSTALLED -> stringResource(R.string.workspace_sandbox_install_complete)
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+private fun defaultRootfsUrl(): String = if (Build.SUPPORTED_ABIS.firstOrNull() == "x86_64") {
     "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-amd64.tar.gz"
 } else {
     "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-arm64.tar.gz"
+}
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes < 1024) return "$bytes B"
+    val units = listOf("KB", "MB", "GB", "TB")
+    var value = bytes / 1024.0
+    var unitIndex = 0
+    while (value >= 1024 && unitIndex < units.lastIndex) {
+        value /= 1024
+        unitIndex++
+    }
+    return "%.1f %s".format(value, units[unitIndex])
 }
 
 private fun toolNameToDesc(toolName: String): Int = when (toolName) {
