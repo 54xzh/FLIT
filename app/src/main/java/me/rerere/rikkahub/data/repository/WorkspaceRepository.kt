@@ -3,6 +3,7 @@ package me.rerere.rikkahub.data.repository
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
+import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -13,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.dao.WorkspaceDao
 import me.rerere.rikkahub.data.db.entity.SafWorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
@@ -52,6 +54,7 @@ data class Workspace(
 
 /** 统一工作区仓库。助手只通过 workspaceId 绑定，类型由这里解析。 */
 class WorkspaceRepository(
+    private val db: AppDatabase,
     private val dao: WorkspaceDao,
     private val settingsStore: SettingsStore,
     private val context: Context,
@@ -90,35 +93,39 @@ class WorkspaceRepository(
     suspend fun create(name: String, treeUri: String): Workspace = createLightweight(name, treeUri)
 
     suspend fun createLightweight(name: String, treeUri: String): Workspace = withContext(Dispatchers.IO) {
-        val finalName = validateName(name)
-        require(dao.getSafDetailByTreeUri(treeUri) == null) { "Workspace folder is already used" }
-        val now = System.currentTimeMillis()
-        val record = WorkspaceEntity(
-            id = Uuid.random().toString(),
-            name = finalName,
-            type = WorkspaceType.LIGHTWEIGHT,
-            createdAt = now,
-            updatedAt = now,
-        )
-        dao.upsert(record)
-        dao.upsertSafDetail(SafWorkspaceEntity(record.id, treeUri))
-        resolve(record) ?: error("Failed to create workspace")
+        db.withTransaction {
+            val finalName = validateName(name)
+            require(dao.getSafDetailByTreeUri(treeUri) == null) { "Workspace folder is already used" }
+            val now = System.currentTimeMillis()
+            val record = WorkspaceEntity(
+                id = Uuid.random().toString(),
+                name = finalName,
+                type = WorkspaceType.LIGHTWEIGHT,
+                createdAt = now,
+                updatedAt = now,
+            )
+            dao.upsert(record)
+            dao.upsertSafDetail(SafWorkspaceEntity(record.id, treeUri))
+            resolve(record) ?: error("Failed to create workspace")
+        }
     }
 
     suspend fun createSandbox(name: String): Workspace = withContext(Dispatchers.IO) {
-        val finalName = validateName(name)
-        val now = System.currentTimeMillis()
-        val record = WorkspaceEntity(
-            id = Uuid.random().toString(),
-            name = finalName,
-            type = WorkspaceType.SANDBOX,
-            createdAt = now,
-            updatedAt = now,
-        )
-        sandboxManager.ensureWorkspace(record.id)
-        dao.upsert(record)
-        dao.upsertSandboxDetail(SandboxWorkspaceEntity(workspaceId = record.id))
-        resolve(record) ?: error("Failed to create sandbox")
+        db.withTransaction {
+            val finalName = validateName(name)
+            val now = System.currentTimeMillis()
+            val record = WorkspaceEntity(
+                id = Uuid.random().toString(),
+                name = finalName,
+                type = WorkspaceType.SANDBOX,
+                createdAt = now,
+                updatedAt = now,
+            )
+            sandboxManager.ensureWorkspace(record.id)
+            dao.upsert(record)
+            dao.upsertSandboxDetail(SandboxWorkspaceEntity(workspaceId = record.id))
+            resolve(record) ?: error("Failed to create sandbox")
+        }
     }
 
     suspend fun rename(id: String, name: String): Boolean = withContext(Dispatchers.IO) {
@@ -216,7 +223,9 @@ class WorkspaceRepository(
                         dao.deleteSandboxDetail(workspace.id)
                         dao.deleteById(workspace.id)
                         cleanupAssistantReferences(workspace.id)
-                    } else if (detail.rootfsStatus == SandboxRootfsStatus.READY && !sandboxManager.hasRootfs(workspace.id)) {
+                    } else if ((detail.rootfsStatus == SandboxRootfsStatus.READY || detail.rootfsStatus == SandboxRootfsStatus.INSTALLING)
+                        && !sandboxManager.hasRootfs(workspace.id)
+                    ) {
                         updateSandboxStatus(workspace.id, SandboxRootfsStatus.DISABLED, detail.rootfsSourceUrl, detail.rootfsVersion, null)
                     } else if (workspace.toolApprovalOverrides().isEmpty()) {
                         migrateDefaultToolApprovals(workspace)

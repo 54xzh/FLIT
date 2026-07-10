@@ -79,6 +79,7 @@ val repositoryModule = module {
 
     single {
         WorkspaceRepository(
+            db = get(),
             dao = get(),
             settingsStore = get(),
             context = get(),
