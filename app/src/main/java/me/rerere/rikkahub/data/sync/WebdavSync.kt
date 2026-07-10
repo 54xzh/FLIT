@@ -48,6 +48,9 @@ private val FILES_DIR_BACKUP_PATHS = listOf(
     "custom_fonts",
     "chat_files",
     "custom_icons",
+    // 沙盒工作区：仅备份每个工作区下的 files/ 用户文件，
+    // 排除 linux/（rootfs 体积大、可重装）与 tmp/（临时文件），见 addDirectoryToZip 的 skipSandboxHeavyDirs。
+    "sandbox_workspaces",
 )
 
 class WebdavSync(
@@ -294,7 +297,10 @@ class WebdavSync(
                             TAG,
                             "prepareBackupFile: Backing up $relativePath from ${folder.absolutePath}"
                         )
-                        addDirectoryToZip(zipOut, folder, relativePath)
+                        // 沙盒工作区：跳过每个工作区下的 linux/（rootfs）与 tmp/，只保留 files/ 用户文件，
+                        // 防止备份包膨胀；恢复后 rootfs 会落到 DISABLED（未安装），由用户重装。
+                        val skipSubdirs = if (relativePath == "sandbox_workspaces") setOf("linux", "tmp") else emptySet()
+                        addDirectoryToZip(zipOut, folder, relativePath, skipSubdirs)
                     } else {
                         Log.i(
                             TAG,
@@ -580,12 +586,24 @@ private fun addFileToZip(zipOut: ZipOutputStream, file: File, entryName: String)
     }
 }
 
-private fun addDirectoryToZip(zipOut: ZipOutputStream, dir: File, entryPrefix: String) {
+private fun addDirectoryToZip(
+    zipOut: ZipOutputStream,
+    dir: File,
+    entryPrefix: String,
+    skipSubdirs: Set<String> = emptySet(),
+) {
     if (!dir.exists() || !dir.isDirectory) return
     val prefix = entryPrefix.trim('/')
     if (prefix.isBlank()) return
 
     dir.walkTopDown()
+        .onEnter { current ->
+            // 跳过指定名称的直接子目录（相对 dir 的第一级目录名），整棵子树不打包。
+            // 用 canonicalFile 比较避免符号链接误判。
+            val relToDir = runCatching { current.relativeTo(dir) }.getOrNull()
+            val firstSegment = relToDir?.path?.substringBefore(File.separatorChar)?.trimStart('/')
+            current == dir || firstSegment !in skipSubdirs
+        }
         .filter { it.isFile }
         .forEach { file ->
             val relPath = runCatching { file.relativeTo(dir).path.replace('\\', '/') }.getOrNull()
