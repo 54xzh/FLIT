@@ -12,7 +12,15 @@ import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 
 @Dao
 interface WorkspaceDao {
-    @Query("SELECT * FROM workspaces ORDER BY updated_at DESC")
+    // LEFT JOIN 两张详情表仅用于让 Room 的失效跟踪覆盖详情表变更：
+    // 沙盒安装状态只写入 workspace_sandbox_details，主表本身不变，
+    // 不 JOIN 的话 listFlow 不会在状态变更时重新发射。仍只 SELECT 主表列。
+    @Query(
+        "SELECT workspaces.* FROM workspaces " +
+            "LEFT JOIN workspace_saf_details saf ON saf.workspace_id = workspaces.id " +
+            "LEFT JOIN workspace_sandbox_details sb ON sb.workspace_id = workspaces.id " +
+            "ORDER BY workspaces.updated_at DESC"
+    )
     fun listFlow(): Flow<List<WorkspaceEntity>>
 
     @Query("SELECT * FROM workspaces WHERE id = :id LIMIT 1")
