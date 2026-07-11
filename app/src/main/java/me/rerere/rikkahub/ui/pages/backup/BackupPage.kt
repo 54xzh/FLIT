@@ -71,6 +71,7 @@ import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import me.rerere.rikkahub.ui.components.ui.ToastType
@@ -1493,6 +1494,22 @@ private fun ImportExportPage(
         stickyHeader {
             StickyHeader {
                 Text(stringResource(R.string.backup_page_local_backup_export))
+            }
+        }
+
+        item {
+            Card(
+                shape = me.rerere.rikkahub.ui.theme.AppShapes.CardLarge,
+                colors = androidx.compose.material3.CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                ),
+            ) {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.workspace_transfer_backup_notice_title)) },
+                    supportingContent = { Text(stringResource(R.string.workspace_transfer_backup_notice_desc)) },
+                    leadingContent = { Icon(Icons.Rounded.Info, contentDescription = null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
             }
         }
 

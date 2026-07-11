@@ -2350,4 +2350,21 @@
     <string name="tool_approval_sandbox_write_file">沙盒：寫入檔案</string>
     <string name="tool_approval_sandbox_edit_file">沙盒：編輯檔案</string>
     <string name="tool_approval_sandbox_shell">沙盒：執行 Shell 命令</string>
+    <string name="workspace_transfer_import_action">匯入工作區</string>
+    <string name="workspace_transfer_export_action">匯出完整工作區</string>
+    <string name="workspace_transfer_import_title">正在匯入工作區</string>
+    <string name="workspace_transfer_export_title">正在匯出工作區</string>
+    <string name="workspace_transfer_preparing">正在準備…</string>
+    <string name="workspace_transfer_scanning">正在計算工作區大小…</string>
+    <string name="workspace_transfer_exporting">正在封裝檔案和 Linux 環境…</string>
+    <string name="workspace_transfer_reading">正在檢查工作區檔案…</string>
+    <string name="workspace_transfer_importing">正在還原檔案和 Linux 環境…</string>
+    <string name="workspace_transfer_finalizing">正在完成最後處理…</string>
+    <string name="workspace_transfer_size_progress">%1$s / %2$s</string>
+    <string name="workspace_transfer_export_success">工作區已匯出</string>
+    <string name="workspace_transfer_export_failed">工作區匯出失敗：%1$s</string>
+    <string name="workspace_transfer_import_success">工作區「%1$s」已匯入</string>
+    <string name="workspace_transfer_import_failed">工作區匯入失敗：%1$s</string>
+    <string name="workspace_transfer_backup_notice_title">全域備份不包含沙盒 Linux 環境</string>
+    <string name="workspace_transfer_backup_notice_desc">全域備份只保留沙盒使用者檔案。如需移轉完整沙盒，請前往工作區設定頁單獨匯出。</string>
 </resources>

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.AlertDialog
@@ -49,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.CancellationException
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.db.entity.WorkspaceType
@@ -63,10 +65,12 @@ import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
 import org.koin.compose.koinInject
 import org.koin.androidx.compose.koinViewModel
+import me.rerere.rikkahub.workspace.WORKSPACE_TRANSFER_MIME
 
 @Composable
 fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
     val workspaces by vm.workspaces.collectAsStateWithLifecycle()
+    val transferState by vm.transferState.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val navController = LocalNavController.current
     val toaster = LocalToaster.current
@@ -96,6 +100,28 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
         showCreateDialog = true
     }
 
+    val importWorkspaceLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val input = runCatching { context.contentResolver.openInputStream(uri) }.getOrNull()
+        if (input == null) {
+            toaster.show(context.getString(R.string.workspace_transfer_import_failed, ""))
+            return@rememberLauncherForActivityResult
+        }
+        vm.importWorkspace(input) { result ->
+            result.onSuccess { workspace ->
+                haptics.perform(HapticPattern.Success)
+                toaster.show(context.getString(R.string.workspace_transfer_import_success, workspace.name))
+            }.onFailure { error ->
+                if (error !is CancellationException) {
+                    haptics.perform(HapticPattern.Error)
+                    toaster.show(context.getString(R.string.workspace_transfer_import_failed, error.message.orEmpty()))
+                }
+            }
+        }
+    }
+
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -104,6 +130,20 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
                 scrollBehavior = scrollBehavior,
                 expandedTitleHorizontalPadding = 32.dp,
                 navigationIcon = { BackButton() },
+                actions = {
+                    IconButton(
+                        enabled = !transferState.active,
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            importWorkspaceLauncher.launch(arrayOf(WORKSPACE_TRANSFER_MIME, "application/zip", "*/*"))
+                        }
+                    ) {
+                        Icon(
+                            Icons.Rounded.FileDownload,
+                            contentDescription = stringResource(R.string.workspace_transfer_import_action),
+                        )
+                    }
+                },
             )
         },
         floatingActionButton = {
@@ -232,6 +272,8 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
             },
         )
     }
+
+    WorkspaceTransferDialog(state = transferState, onCancel = vm::cancelTransfer)
 }
 
 @Composable

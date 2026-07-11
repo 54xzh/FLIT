@@ -2361,4 +2361,21 @@
     <string name="tool_approval_sandbox_write_file">Sandbox: Write file</string>
     <string name="tool_approval_sandbox_edit_file">Sandbox: Edit file</string>
     <string name="tool_approval_sandbox_shell">Sandbox: Run Shell command</string>
+    <string name="workspace_transfer_import_action">Import workspace</string>
+    <string name="workspace_transfer_export_action">Export full workspace</string>
+    <string name="workspace_transfer_import_title">Importing workspace</string>
+    <string name="workspace_transfer_export_title">Exporting workspace</string>
+    <string name="workspace_transfer_preparing">Preparing…</string>
+    <string name="workspace_transfer_scanning">Calculating workspace size…</string>
+    <string name="workspace_transfer_exporting">Packing files and Linux environment…</string>
+    <string name="workspace_transfer_reading">Checking workspace package…</string>
+    <string name="workspace_transfer_importing">Restoring files and Linux environment…</string>
+    <string name="workspace_transfer_finalizing">Finishing up…</string>
+    <string name="workspace_transfer_size_progress">%1$s / %2$s</string>
+    <string name="workspace_transfer_export_success">Workspace exported</string>
+    <string name="workspace_transfer_export_failed">Could not export workspace: %1$s</string>
+    <string name="workspace_transfer_import_success">Workspace “%1$s” imported</string>
+    <string name="workspace_transfer_import_failed">Could not import workspace: %1$s</string>
+    <string name="workspace_transfer_backup_notice_title">Sandbox Linux environments are not included</string>
+    <string name="workspace_transfer_backup_notice_desc">Global backups keep sandbox user files only. To move a complete sandbox, export it from the workspace settings page.</string>
 </resources>

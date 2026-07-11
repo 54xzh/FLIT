@@ -7,7 +7,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.File
 import java.io.InputStream
+import java.io.OutputStream
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -49,6 +52,10 @@ class WorkspaceDetailVM(
 
     private val _installState = MutableStateFlow(SandboxInstallState())
     val installState = _installState.asStateFlow()
+
+    private val _transferState = MutableStateFlow(WorkspaceTransferUiState())
+    val transferState = _transferState.asStateFlow()
+    private var transferJob: Job? = null
 
     private var safRoot: DocumentFile? = null
 
@@ -195,6 +202,40 @@ class WorkspaceDetailVM(
     }
 
     fun dismissInstallError() { _installState.update { it.copy(error = null) } }
+
+    fun exportWorkspace(output: OutputStream, onResult: (Result<Unit>) -> Unit) {
+        val ws = workspace.value
+        if (ws?.type != WorkspaceType.SANDBOX || _transferState.value.active) {
+            output.close()
+            return
+        }
+        transferJob = viewModelScope.launch {
+            _transferState.value = WorkspaceTransferUiState(operation = WorkspaceTransferOperation.EXPORT)
+            try {
+                output.use { stream ->
+                    repository.exportSandboxWorkspace(ws.id, stream) { progress ->
+                        _transferState.value = WorkspaceTransferUiState(
+                            operation = WorkspaceTransferOperation.EXPORT,
+                            progress = progress,
+                        )
+                    }
+                }
+                onResult(Result.success(Unit))
+            } catch (error: CancellationException) {
+                onResult(Result.failure(error))
+                throw error
+            } catch (error: Throwable) {
+                onResult(Result.failure(error))
+            } finally {
+                _transferState.value = WorkspaceTransferUiState()
+                transferJob = null
+            }
+        }
+    }
+
+    fun cancelTransfer() {
+        transferJob?.cancel()
+    }
 
     fun setToolApproval(toolName: String, needsApproval: Boolean) {
         _toolApprovals.update { it + (toolName to needsApproval) }

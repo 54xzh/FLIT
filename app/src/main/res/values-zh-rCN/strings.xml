@@ -758,4 +758,21 @@
     <string name="tool_approval_sandbox_edit_file">沙盒：编辑文件</string>
     <string name="tool_approval_sandbox_shell">沙盒：执行 Shell 命令</string>
     <string name="assistant_page_local_tools_workspace_files_desc">允许助手使用已绑定的工作区。轻量模式使用你授权的文件夹，沙盒模式使用独立 Linux 环境。</string>
+    <string name="workspace_transfer_import_action">导入工作区</string>
+    <string name="workspace_transfer_export_action">导出完整工作区</string>
+    <string name="workspace_transfer_import_title">正在导入工作区</string>
+    <string name="workspace_transfer_export_title">正在导出工作区</string>
+    <string name="workspace_transfer_preparing">正在准备…</string>
+    <string name="workspace_transfer_scanning">正在计算工作区大小…</string>
+    <string name="workspace_transfer_exporting">正在打包文件和 Linux 环境…</string>
+    <string name="workspace_transfer_reading">正在检查工作区文件…</string>
+    <string name="workspace_transfer_importing">正在恢复文件和 Linux 环境…</string>
+    <string name="workspace_transfer_finalizing">正在完成最后处理…</string>
+    <string name="workspace_transfer_size_progress">%1$s / %2$s</string>
+    <string name="workspace_transfer_export_success">工作区已导出</string>
+    <string name="workspace_transfer_export_failed">工作区导出失败：%1$s</string>
+    <string name="workspace_transfer_import_success">工作区“%1$s”已导入</string>
+    <string name="workspace_transfer_import_failed">工作区导入失败：%1$s</string>
+    <string name="workspace_transfer_backup_notice_title">全局备份不包含沙盒 Linux 环境</string>
+    <string name="workspace_transfer_backup_notice_desc">全局备份只保留沙盒用户文件。如需迁移完整沙盒，请前往工作区设置页单独导出。</string>
 </resources>

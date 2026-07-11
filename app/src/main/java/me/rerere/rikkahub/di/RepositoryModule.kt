@@ -16,6 +16,7 @@ import me.rerere.rikkahub.workspace.ProotSandboxShellRunner
 import me.rerere.rikkahub.workspace.SandboxBindMount
 import me.rerere.rikkahub.workspace.SandboxRootfsInstaller
 import me.rerere.rikkahub.workspace.SandboxWorkspaceManager
+import me.rerere.rikkahub.workspace.WorkspaceTransferArchive
 import me.rerere.ai.provider.providers.openai.OpenRouterModelCapabilityProvider
 import org.koin.dsl.module
 import java.io.File
@@ -78,6 +79,8 @@ val repositoryModule = module {
 
     single { SandboxRootfsInstaller(get()) }
 
+    single { WorkspaceTransferArchive(get()) }
+
     single {
         WorkspaceRepository(
             db = get(),
@@ -86,6 +89,7 @@ val repositoryModule = module {
             context = get(),
             sandboxManager = get(),
             rootfsInstaller = get(),
+            workspaceTransferArchive = get(),
         )
     }
 

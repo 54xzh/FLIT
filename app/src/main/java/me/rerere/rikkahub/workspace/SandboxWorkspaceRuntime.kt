@@ -10,7 +10,12 @@ import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.PosixFilePermission
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
@@ -74,7 +79,40 @@ class SandboxWorkspaceManager(
     fun tempDir(id: String): File = File(workspaceDir(id), "tmp")
     fun hasRootfs(id: String): Boolean = File(linuxDir(id), "bin/sh").isFile
 
-    fun deleteWorkspace(id: String): Boolean = workspaceDir(id).deleteRecursively()
+    fun deleteWorkspace(id: String): Boolean = workspaceDir(id).deleteRecursivelyNoFollow()
+
+    fun prepareImportStaging(id: String): File {
+        val staging = File(baseDir, ".import-${requireWorkspaceId(id)}")
+        staging.deleteRecursivelyNoFollow()
+        require(staging.mkdirs()) { "Cannot prepare workspace import directory" }
+        return staging
+    }
+
+    fun commitImportStaging(id: String, staging: File) {
+        val expected = File(baseDir, ".import-${requireWorkspaceId(id)}").canonicalFile
+        require(staging.canonicalFile == expected) { "Invalid workspace import directory" }
+        val target = workspaceDir(id)
+        require(!target.exists()) { "Workspace directory already exists" }
+        File(staging, "tmp").mkdirs()
+        require(staging.renameTo(target)) { "Cannot finish workspace import" }
+    }
+
+    fun discardImportStaging(id: String) {
+        File(baseDir, ".import-${requireWorkspaceId(id)}").deleteRecursivelyNoFollow()
+    }
+
+    fun cleanupImportStagingDirectories() {
+        baseDir.listFiles { file -> file.isDirectory && file.name.startsWith(".import-") }
+            .orEmpty()
+            .forEach { it.deleteRecursivelyNoFollow() }
+    }
+
+    fun cleanupOrphanedWorkspaceDirectories(knownWorkspaceIds: Set<String>) {
+        baseDir.listFiles { file -> file.isDirectory && !file.name.startsWith('.') }
+            .orEmpty()
+            .filter { it.name !in knownWorkspaceIds }
+            .forEach { it.deleteRecursivelyNoFollow() }
+    }
 
     /**
      * 删除工作区的 rootfs 残留（`linux/` 与 `tmp/`），保留 `files/` 用户文件。
@@ -82,7 +120,7 @@ class SandboxWorkspaceManager(
      * 备份只含 `files/`，不含 rootfs；恢复到本机时，旧 `linux/` 会留下导致 [hasRootfs]
      * 误判为已就绪。调用方在恢复后逐个工作区清理一次，让状态降级为未安装。
      *
-     * `deleteRecursively()` 失败时不抛异常而返回 false（部分子项删不掉），因此这里
+     * 安全递归删除失败时返回 false（部分子项删不掉），因此这里
      * 收集每项目录的删除结果：只要任一目录存在但未删干净就返回 false，便于调用方
      * 记录并决定是否重试，而不是把失败当成成功。
      */
@@ -93,10 +131,10 @@ class SandboxWorkspaceManager(
             val target = File(workspaceDir(id), name)
             if (!target.exists()) continue
             // 存在但删失败（返回 false）才算未清干净；抛异常按未清干净处理。
-            val deleted = runCatching { target.deleteRecursively() }.getOrDefault(false)
+            val deleted = runCatching { target.deleteRecursivelyNoFollow() }.getOrDefault(false)
             if (!deleted) {
                 allCleaned = false
-                Log.w(TAG, "cleanRootfsResidue: $id/$name 未完全删除（deleteRecursively 返回 false）")
+                Log.w(TAG, "cleanRootfsResidue: $id/$name 未完全删除")
             }
         }
         return allCleaned
@@ -115,9 +153,9 @@ class SandboxWorkspaceManager(
         requireWorkspaceId(id)
         val target = File(workspaceDir(id), "tmp")
         if (!target.exists()) return true
-        val deleted = runCatching { target.deleteRecursively() }.getOrDefault(false)
+        val deleted = runCatching { target.deleteRecursivelyNoFollow() }.getOrDefault(false)
         if (!deleted) {
-            Log.w(TAG, "cleanTempResidue: $id/tmp 未完全删除（deleteRecursively 返回 false）")
+            Log.w(TAG, "cleanTempResidue: $id/tmp 未完全删除")
         }
         return deleted
     }
@@ -176,7 +214,7 @@ class SandboxWorkspaceManager(
         if (!file.exists()) return false
         return if (file.isDirectory) {
             require(recursive) { "Directory delete requires recursive = true" }
-            file.deleteRecursively()
+            file.deleteRecursivelyNoFollow()
         } else file.delete()
     }
 
@@ -321,18 +359,18 @@ class SandboxRootfsInstaller(
         val staging = File(temp, "rootfs-staging")
         val linux = manager.linuxDir(workspaceId)
         try {
-            staging.deleteRecursively()
+            staging.deleteRecursivelyNoFollow()
             staging.mkdirs()
             download(sourceUrl, archive, onProgress)
             extractTar(archive, staging, format, onProgress)
             checkInterrupted()
-            linux.deleteRecursively()
+            linux.deleteRecursivelyNoFollow()
             require(staging.renameTo(linux)) { "Failed to install Rootfs" }
             patcher.patch(linux)
             onProgress(SandboxRootfsInstallProgress(stage = SandboxRootfsInstallStage.INSTALLED))
         } finally {
             archive.delete()
-            staging.deleteRecursively()
+            staging.deleteRecursivelyNoFollow()
         }
     }
 
@@ -394,72 +432,110 @@ class SandboxRootfsInstaller(
         format: ArchiveFormat = ArchiveFormat.fromFile(archive),
         onProgress: (SandboxRootfsInstallProgress) -> Unit = {},
     ) {
+        var entries = 0
         format.wrapStream(BufferedInputStream(archive.inputStream())).use { input ->
-            var entries = 0
-            var pendingName: String? = null
-            var pendingLinkName: String? = null
-            while (true) {
-                checkInterrupted()
-                val rawHeader = input.readTarHeader() ?: break
-                val header = rawHeader.copy(
-                    name = pendingName ?: rawHeader.name,
-                    linkName = pendingLinkName ?: rawHeader.linkName,
-                )
-                pendingName = null
-                pendingLinkName = null
-                if (header.name.isBlank()) {
-                    input.skipFully(header.size.paddedTarSize())
-                    continue
-                }
-                if (header.type == TarEntryType.LONG_NAME) {
-                    pendingName = input.readExactly(header.size).toString(StandardCharsets.UTF_8).trimEnd('\u0000', '\n')
-                    input.skipFully(header.size.paddingSize())
-                    continue
-                }
-                if (header.type == TarEntryType.LONG_LINK) {
-                    pendingLinkName = input.readExactly(header.size).toString(StandardCharsets.UTF_8).trimEnd('\u0000', '\n')
-                    input.skipFully(header.size.paddingSize())
-                    continue
-                }
-                if (header.type == TarEntryType.PAX) {
-                    val pax = parsePax(input.readExactly(header.size).toString(StandardCharsets.UTF_8))
-                    pendingName = pax["path"]
-                    pendingLinkName = pax["linkpath"]
-                    input.skipFully(header.size.paddingSize())
-                    continue
-                }
-                val target = targetDir.safeResolve(header.name)
-                target.parentFile?.mkdirs()
-                when (header.type) {
-                    TarEntryType.DIRECTORY -> target.mkdirs()
-                    TarEntryType.SYMLINK -> createSymlink(targetDir, target, header.linkName)
-                    TarEntryType.HARDLINK -> createHardLink(targetDir, target, header.linkName)
-                    TarEntryType.FILE -> {
-                        target.outputStream().use { output -> input.copyExactly(output, header.size) }
-                        target.applyMode(header.mode)
-                    }
-                    TarEntryType.LONG_NAME,
-                    TarEntryType.LONG_LINK,
-                    TarEntryType.PAX,
-                    TarEntryType.OTHER -> Unit
-                }
-                if (header.type != TarEntryType.FILE) input.skipFully(header.size)
-                input.skipFully(header.size.paddingSize())
-                if (header.modTime > 0 && header.type != TarEntryType.SYMLINK) target.setLastModified(header.modTime * 1000)
+            extractTarStream(input, targetDir) { name, _, _ ->
                 entries++
                 onProgress(
                     SandboxRootfsInstallProgress(
                         stage = SandboxRootfsInstallStage.EXTRACTING,
                         entriesExtracted = entries,
-                        currentEntry = header.name,
+                        currentEntry = name,
                     )
                 )
             }
         }
     }
 
+    /**
+     * 从当前位置读取一个未压缩的 TAR 流。调用方保留输入流的所有权，便于从 ZIP 条目中
+     * 直接解包，而不必先在缓存目录复制一份大型归档。
+     */
+    internal fun extractTarStream(
+        input: InputStream,
+        targetDir: File,
+        onEntry: (name: String, size: Long, supported: Boolean) -> Unit = { _, _, _ -> },
+    ) {
+        var pendingName: String? = null
+        var pendingLinkName: String? = null
+        val pendingDirectories = mutableListOf<Triple<File, Int, Long>>()
+        var metadataBytes = 0L
+        var metadataEntries = 0L
+
+        fun readMetadata(header: TarHeader): ByteArray {
+            require(header.size in 0..MAX_TAR_METADATA_ENTRY_BYTES) { "TAR metadata entry is too large" }
+            metadataBytes = Math.addExact(metadataBytes, header.size)
+            metadataEntries = Math.addExact(metadataEntries, 1)
+            require(metadataBytes <= MAX_TAR_METADATA_BYTES) { "TAR metadata is too large" }
+            require(metadataEntries <= MAX_TAR_METADATA_ENTRIES) { "TAR contains too many metadata entries" }
+            return input.readExactly(header.size)
+        }
+        while (true) {
+            checkInterrupted()
+            val rawHeader = input.readTarHeader() ?: break
+            val header = rawHeader.copy(
+                name = pendingName ?: rawHeader.name,
+                linkName = pendingLinkName ?: rawHeader.linkName,
+            )
+            pendingName = null
+            pendingLinkName = null
+            if (header.name.isBlank()) {
+                input.skipFully(header.size.paddedTarSize())
+                continue
+            }
+            if (header.type == TarEntryType.LONG_NAME) {
+                pendingName = readMetadata(header).toString(StandardCharsets.UTF_8).trimEnd('\u0000', '\n')
+                input.skipFully(header.size.paddingSize())
+                continue
+            }
+            if (header.type == TarEntryType.LONG_LINK) {
+                pendingLinkName = readMetadata(header).toString(StandardCharsets.UTF_8).trimEnd('\u0000', '\n')
+                input.skipFully(header.size.paddingSize())
+                continue
+            }
+            if (header.type == TarEntryType.PAX) {
+                val pax = parsePax(readMetadata(header))
+                pendingName = pax["path"]
+                pendingLinkName = pax["linkpath"]
+                input.skipFully(header.size.paddingSize())
+                continue
+            }
+            onEntry(header.name, header.size, header.type != TarEntryType.OTHER)
+            val target = targetDir.safeResolve(header.name)
+            target.parentFile?.mkdirs()
+            when (header.type) {
+                TarEntryType.DIRECTORY -> {
+                    target.mkdirs()
+                    pendingDirectories += Triple(target, header.mode, header.modTime)
+                }
+                TarEntryType.SYMLINK -> createSymlink(targetDir, target, header.linkName)
+                TarEntryType.HARDLINK -> createHardLink(targetDir, target, header.linkName)
+                TarEntryType.FILE -> {
+                    target.outputStream().use { output -> input.copyExactly(output, header.size) }
+                    target.applyMode(header.mode)
+                }
+                TarEntryType.LONG_NAME,
+                TarEntryType.LONG_LINK,
+                TarEntryType.PAX,
+                TarEntryType.OTHER -> Unit
+            }
+            if (header.type != TarEntryType.FILE) input.skipFully(header.size)
+            input.skipFully(header.size.paddingSize())
+            if (header.modTime > 0 && header.type != TarEntryType.SYMLINK && header.type != TarEntryType.DIRECTORY) {
+                target.setLastModified(header.modTime * 1000)
+            }
+        }
+        pendingDirectories.asReversed().forEach { (directory, mode, modifiedSeconds) ->
+            require(Files.isDirectory(directory.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                "TAR directory was replaced during extraction"
+            }
+            directory.applyMode(mode)
+            if (modifiedSeconds > 0) directory.setLastModified(modifiedSeconds * 1000)
+        }
+    }
+
     private fun createSymlink(root: File, target: File, linkName: String) {
-        if (linkName.isBlank()) return
+        require(linkName.isNotBlank()) { "Symbolic link target is missing" }
         val linkTarget = if (File(linkName).isAbsolute) {
             File(linkName)
         } else {
@@ -475,13 +551,16 @@ class SandboxRootfsInstaller(
     }
 
     private fun createHardLink(root: File, target: File, linkName: String) {
-        if (linkName.isBlank()) return
+        require(linkName.isNotBlank()) { "Hard link target is missing" }
         val source = root.safeResolve(linkName)
-        if (!source.exists()) return
+        require(Files.exists(source.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            "Hard link target does not exist: $linkName"
+        }
         target.delete()
         runCatching { Files.createLink(target.toPath(), source.toPath()) }
             .recoverCatching { error ->
                 if (error !is IOException && error !is UnsupportedOperationException && error !is SecurityException) throw error
+                require(!Files.isSymbolicLink(source.toPath())) { "Cannot copy a symbolic hard link target" }
                 source.copyTo(target, overwrite = true)
                 target.setReadable(source.canRead(), false)
                 target.setWritable(source.canWrite(), true)
@@ -519,9 +598,22 @@ class SandboxRootfsInstaller(
     }
 
     private fun File.applyMode(mode: Int) {
-        setReadable(mode and 0b100_000_000 != 0, false)
-        setWritable(mode and 0b010_000_000 != 0, true)
-        setExecutable(mode and 0b001_000_000 != 0, false)
+        val permissions = buildSet {
+            if (mode and 0b100_000_000 != 0) add(PosixFilePermission.OWNER_READ)
+            if (mode and 0b010_000_000 != 0) add(PosixFilePermission.OWNER_WRITE)
+            if (mode and 0b001_000_000 != 0) add(PosixFilePermission.OWNER_EXECUTE)
+            if (mode and 0b000_100_000 != 0) add(PosixFilePermission.GROUP_READ)
+            if (mode and 0b000_010_000 != 0) add(PosixFilePermission.GROUP_WRITE)
+            if (mode and 0b000_001_000 != 0) add(PosixFilePermission.GROUP_EXECUTE)
+            if (mode and 0b000_000_100 != 0) add(PosixFilePermission.OTHERS_READ)
+            if (mode and 0b000_000_010 != 0) add(PosixFilePermission.OTHERS_WRITE)
+            if (mode and 0b000_000_001 != 0) add(PosixFilePermission.OTHERS_EXECUTE)
+        }
+        if (runCatching { Files.setPosixFilePermissions(toPath(), permissions) }.isFailure) {
+            setReadable(mode and 0b100_000_000 != 0, true)
+            setWritable(mode and 0b010_000_000 != 0, true)
+            setExecutable(mode and 0b001_000_000 != 0, true)
+        }
     }
 
     private fun InputStream.copyExactly(output: OutputStream, bytes: Long) {
@@ -577,7 +669,8 @@ class SandboxRootfsInstaller(
     }
 
     private fun normalizeTarPath(path: String): String {
-        val normalized = path.replace('\\', '/').trim().trimStart('/').removePrefix("./")
+        var normalized = path.replace('\\', '/').trimStart('/')
+        while (normalized.startsWith("./")) normalized = normalized.removePrefix("./")
         require(normalized.isNotBlank()) { "Rootfs entry path is blank" }
         require(!normalized.contains('\u0000')) { "Rootfs entry path contains invalid character" }
         require(normalized.split('/').none { it == ".." }) { "Rootfs entry escapes target directory: $path" }
@@ -586,7 +679,7 @@ class SandboxRootfsInstaller(
 
     private fun ByteArray.string(offset: Int, length: Int): String {
         val end = (offset until offset + length).firstOrNull { this[it] == 0.toByte() } ?: (offset + length)
-        return copyOfRange(offset, end).toString(StandardCharsets.UTF_8).trim()
+        return copyOfRange(offset, end).toString(StandardCharsets.UTF_8)
     }
 
     private fun ByteArray.octal(offset: Int, length: Int): Long {
@@ -594,15 +687,18 @@ class SandboxRootfsInstaller(
         return if (value.isBlank()) 0L else value.toLong(8)
     }
 
-    private fun parsePax(text: String): Map<String, String> {
+    private fun parsePax(bytes: ByteArray): Map<String, String> {
         val result = mutableMapOf<String, String>()
         var index = 0
-        while (index < text.length) {
-            val space = text.indexOf(' ', index)
-            if (space < 0) break
-            val length = text.substring(index, space).toIntOrNull() ?: break
-            val end = (index + length).coerceAtMost(text.length)
-            val record = text.substring(space + 1, end).trimEnd('\n')
+        while (index < bytes.size) {
+            var space = index
+            while (space < bytes.size && bytes[space] != ' '.code.toByte()) space++
+            if (space >= bytes.size) break
+            val length = bytes.copyOfRange(index, space).toString(StandardCharsets.US_ASCII).toIntOrNull() ?: break
+            if (length <= 0 || index + length > bytes.size) break
+            var recordEnd = index + length
+            if (recordEnd > space + 1 && bytes[recordEnd - 1] == '\n'.code.toByte()) recordEnd--
+            val record = bytes.copyOfRange(space + 1, recordEnd).toString(StandardCharsets.UTF_8)
             val equals = record.indexOf('=')
             if (equals > 0) result[record.substring(0, equals)] = record.substring(equals + 1)
             index += length
@@ -645,9 +741,42 @@ class SandboxRootfsInstaller(
         const val TAR_BLOCK_SIZE = 512
         const val BUFFER_SIZE = 64 * 1024
         const val PROGRESS_STEP_BYTES = 512 * 1024
+        const val MAX_TAR_METADATA_ENTRY_BYTES = 1024L * 1024
+        const val MAX_TAR_METADATA_BYTES = 16L * 1024 * 1024
+        const val MAX_TAR_METADATA_ENTRIES = 100_000L
         const val CONNECT_TIMEOUT_MS = 30_000
         const val READ_TIMEOUT_MS = 60_000
     }
+}
+
+/** 删除目录树时不跟随符号链接，避免清理导入内容时越过工作区边界。 */
+private fun File.deleteRecursivelyNoFollow(): Boolean {
+    val root = toPath()
+    if (!Files.exists(root, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return true
+    var success = true
+    runCatching {
+        Files.walkFileTree(
+            root,
+            object : SimpleFileVisitor<Path>() {
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    if (!runCatching { Files.deleteIfExists(file); true }.getOrDefault(false)) success = false
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun visitFileFailed(file: Path, error: IOException): FileVisitResult {
+                    if (!runCatching { Files.deleteIfExists(file); true }.getOrDefault(false)) success = false
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun postVisitDirectory(dir: Path, error: IOException?): FileVisitResult {
+                    if (error != null) success = false
+                    if (!runCatching { Files.deleteIfExists(dir); true }.getOrDefault(false)) success = false
+                    return FileVisitResult.CONTINUE
+                }
+            }
+        )
+    }.onFailure { success = false }
+    return success && !Files.exists(root, java.nio.file.LinkOption.NOFOLLOW_LINKS)
 }
 
 private fun Process.readResult(timeoutMillis: Long, stdin: ByteArray?): SandboxCommandResult {

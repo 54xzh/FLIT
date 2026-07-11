@@ -12,6 +12,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
@@ -38,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.repository.WorkspaceFileEntry
@@ -50,6 +52,9 @@ import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import me.rerere.rikkahub.workspace.WORKSPACE_TRANSFER_MIME
 
 @Composable
 fun WorkspaceDetailPage(
@@ -61,6 +66,7 @@ fun WorkspaceDetailPage(
     val friendlyRootPath by vm.friendlyRootPath.collectAsStateWithLifecycle()
     val filesState by vm.filesState.collectAsStateWithLifecycle()
     val installState by vm.installState.collectAsStateWithLifecycle()
+    val transferState by vm.transferState.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
     val toaster = LocalToaster.current
     val haptics = rememberPremiumHaptics()
@@ -107,6 +113,29 @@ fun WorkspaceDetailPage(
             toaster.show(context.getString(R.string.workspace_detail_import_failed, ""))
         } else {
             vm.exportFile(target, output)
+        }
+    }
+
+    val exportWorkspacePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument(WORKSPACE_TRANSFER_MIME),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val output = runCatching { context.contentResolver.openOutputStream(uri) }.getOrNull()
+        if (output == null) {
+            toaster.show(context.getString(R.string.workspace_transfer_export_failed, ""))
+            return@rememberLauncherForActivityResult
+        }
+        vm.exportWorkspace(output) { result ->
+            result.onSuccess {
+                haptics.perform(HapticPattern.Success)
+                toaster.show(context.getString(R.string.workspace_transfer_export_success))
+            }.onFailure { error ->
+                runCatching { context.contentResolver.delete(uri, null, null) }
+                if (error !is CancellationException) {
+                    haptics.perform(HapticPattern.Error)
+                    toaster.show(context.getString(R.string.workspace_transfer_export_failed, error.message.orEmpty()))
+                }
+            }
         }
     }
 
@@ -167,6 +196,24 @@ fun WorkspaceDetailPage(
                         }
                     }
                     if (ws != null) {
+                        if (pagerState.currentPage == 0 && ws.type == WorkspaceType.SANDBOX) {
+                            IconButton(
+                                enabled = !transferState.active,
+                                onClick = {
+                                    haptics.perform(HapticPattern.Pop)
+                                    val timestamp = LocalDateTime.now()
+                                        .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
+                                    exportWorkspacePicker.launch(
+                                        "FLIT_workspace_${workspaceTransferSafeName(ws.name)}_$timestamp.flitspace"
+                                    )
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Rounded.FileDownload,
+                                    contentDescription = stringResource(R.string.workspace_transfer_export_action),
+                                )
+                            }
+                        }
                         IconButton(onClick = { haptics.perform(HapticPattern.Pop); renaming = true }) {
                             Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.workspace_page_rename))
                         }
@@ -351,4 +398,12 @@ fun WorkspaceDetailPage(
             },
         )
     }
+
+    WorkspaceTransferDialog(state = transferState, onCancel = vm::cancelTransfer)
 }
+
+private fun workspaceTransferSafeName(name: String): String = name
+    .replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_")
+    .trim()
+    .ifBlank { "Sandbox" }
+    .take(80)

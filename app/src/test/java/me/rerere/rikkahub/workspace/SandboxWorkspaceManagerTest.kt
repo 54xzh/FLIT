@@ -48,6 +48,35 @@ class SandboxWorkspaceManagerTest {
     }
 
     @Test
+    fun deletingWorkspaceDoesNotFollowDirectorySymlink() {
+        val manager = manager()
+        manager.ensureWorkspace("sandbox-link")
+        val outside = temporaryFolder.newFolder("outside").apply {
+            resolve("keep.txt").writeText("keep")
+        }
+        Files.createSymbolicLink(
+            File(manager.filesDir("sandbox-link"), "outside-link").toPath(),
+            outside.toPath(),
+        )
+
+        assertTrue(manager.deleteWorkspace("sandbox-link"))
+
+        assertEquals("keep", File(outside, "keep.txt").readText())
+    }
+
+    @Test
+    fun startupCleanupRemovesOnlyUnknownWorkspaceDirectories() {
+        val manager = manager()
+        manager.writeText("known", "keep.txt", "keep", overwrite = true)
+        manager.writeText("orphan", "remove.txt", "remove", overwrite = true)
+
+        manager.cleanupOrphanedWorkspaceDirectories(setOf("known"))
+
+        assertEquals("keep", manager.readText("known", "keep.txt"))
+        assertEquals(false, manager.workspaceDir("orphan").exists())
+    }
+
+    @Test
     fun cleanRootfsResidueRemovesLinuxAndTmpButKeepsFiles() {
         val manager = manager()
         // 模拟恢复后本机残留的旧 rootfs：linux/、tmp/ 与用户 files/ 共存

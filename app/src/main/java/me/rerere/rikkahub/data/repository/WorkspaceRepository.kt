@@ -2,6 +2,8 @@ package me.rerere.rikkahub.data.repository
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.StatFs
 import android.system.Os
 import android.system.OsConstants
 import android.system.StructStat
@@ -37,6 +39,11 @@ import me.rerere.rikkahub.workspace.SandboxFileEntry
 import me.rerere.rikkahub.workspace.SandboxRootfsInstallProgress
 import me.rerere.rikkahub.workspace.SandboxRootfsInstaller
 import me.rerere.rikkahub.workspace.SandboxWorkspaceManager
+import me.rerere.rikkahub.workspace.WorkspaceTransferArchive
+import me.rerere.rikkahub.workspace.WorkspaceTransferManifest
+import me.rerere.rikkahub.workspace.WorkspaceTransferProgress
+import me.rerere.rikkahub.workspace.WorkspaceTransferStage
+import me.rerere.rikkahub.workspace.estimateWorkspaceImportBytes
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -72,8 +79,10 @@ class WorkspaceRepository(
     private val context: Context,
     private val sandboxManager: SandboxWorkspaceManager,
     private val rootfsInstaller: SandboxRootfsInstaller,
+    private val workspaceTransferArchive: WorkspaceTransferArchive,
 ) {
     private val sandboxLocks = ConcurrentHashMap<String, Mutex>()
+    private val workspaceImportMutex = Mutex()
 
     fun listFlow(): Flow<List<Workspace>> = dao.listFlow().map { records ->
         val resolved = mutableListOf<Workspace>()
@@ -138,6 +147,137 @@ class WorkspaceRepository(
             dao.upsertSandboxDetail(SandboxWorkspaceEntity(workspaceId = record.id))
             resolve(record) ?: error("Failed to create sandbox")
         }
+    }
+
+    suspend fun exportSandboxWorkspace(
+        id: String,
+        output: OutputStream,
+        onProgress: (WorkspaceTransferProgress) -> Unit = {},
+    ) = sandboxLock(id).withLock {
+        val workspace = requireSandbox(id)
+        val detail = workspace.sandbox ?: error("Sandbox details are missing")
+        runInterruptible(Dispatchers.IO) {
+            val workspaceDir = sandboxManager.workspaceDir(id)
+            val summary = workspaceTransferArchive.scan(workspaceDir, onProgress)
+            val manifest = WorkspaceTransferManifest(
+                sourceWorkspaceId = workspace.id,
+                name = workspace.name,
+                toolApprovals = workspace.toolApprovals,
+                rootfsStatus = detail.rootfsStatus.name,
+                rootfsSourceUrl = detail.rootfsSourceUrl,
+                rootfsVersion = detail.rootfsVersion,
+                rootfsInstalledAt = detail.rootfsInstalledAt,
+                sourceAbi = Build.SUPPORTED_ABIS.firstOrNull(),
+                createdAt = System.currentTimeMillis(),
+                payloadBytes = summary.bytes,
+                payloadEntries = summary.entries,
+            )
+            workspaceTransferArchive.export(workspaceDir, manifest, output, onProgress)
+            onProgress(
+                WorkspaceTransferProgress(
+                    stage = WorkspaceTransferStage.FINALIZING,
+                    processedBytes = summary.bytes,
+                    totalBytes = summary.bytes,
+                    processedEntries = summary.entries,
+                    totalEntries = summary.entries,
+                )
+            )
+        }
+    }
+
+    suspend fun importSandboxWorkspace(
+        input: InputStream,
+        onProgress: (WorkspaceTransferProgress) -> Unit = {},
+    ): Workspace = workspaceImportMutex.withLock {
+        val newId = Uuid.random().toString()
+        val staging = withContext(Dispatchers.IO) { sandboxManager.prepareImportStaging(newId) }
+        var movedToFinal = false
+        var databaseCommitted = false
+        try {
+            val manifest = runInterruptible(Dispatchers.IO) {
+                workspaceTransferArchive.import(
+                    input = input,
+                    stagingDir = staging,
+                    onManifest = ::validateWorkspaceImportCapacity,
+                    onProgress = onProgress,
+                )
+            }
+            val importedName = nextAvailableName(manifest.name)
+            val importedApprovals = runCatching {
+                JsonInstant.decodeFromString<Map<String, Boolean>>(manifest.toolApprovals)
+            }.getOrElse { error("Workspace tool settings are invalid") }
+                .filterKeys { it in workspaceToolNames(WorkspaceType.SANDBOX) }
+            val importedStatus = SandboxRootfsStatus.entries
+                .firstOrNull { it.name == manifest.rootfsStatus }
+                ?: error("Workspace Linux status is invalid")
+            val status = if (importedStatus == SandboxRootfsStatus.READY && !File(staging, "linux/bin/sh").isFile) {
+                SandboxRootfsStatus.BROKEN
+            } else {
+                importedStatus
+            }
+            val now = System.currentTimeMillis()
+            val record = WorkspaceEntity(
+                id = newId,
+                name = importedName,
+                type = WorkspaceType.SANDBOX,
+                toolApprovals = JsonInstant.encodeToString(importedApprovals),
+                createdAt = now,
+                updatedAt = now,
+            )
+            onProgress(WorkspaceTransferProgress(stage = WorkspaceTransferStage.FINALIZING))
+            db.withTransaction {
+                withContext(Dispatchers.IO) {
+                    sandboxManager.commitImportStaging(newId, staging)
+                    movedToFinal = true
+                }
+                dao.upsert(record)
+                dao.upsertSandboxDetail(
+                    SandboxWorkspaceEntity(
+                        workspaceId = newId,
+                        rootfsStatus = status,
+                        rootfsSourceUrl = manifest.rootfsSourceUrl,
+                        rootfsVersion = manifest.rootfsVersion,
+                        rootfsInstalledAt = manifest.rootfsInstalledAt,
+                    )
+                )
+            }
+            databaseCommitted = true
+            resolve(record) ?: error("Failed to import workspace")
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) {
+                sandboxManager.discardImportStaging(newId)
+                if (movedToFinal && !databaseCommitted) sandboxManager.deleteWorkspace(newId)
+            }
+        }
+    }
+
+    private fun validateWorkspaceImportCapacity(manifest: WorkspaceTransferManifest) {
+        val sourceAbi = manifest.sourceAbi
+        if (
+            manifest.rootfsStatus != SandboxRootfsStatus.DISABLED.name &&
+            !sourceAbi.isNullOrBlank() && sourceAbi !in Build.SUPPORTED_ABIS
+        ) {
+            error("Workspace Linux environment is not compatible with this device")
+        }
+        val storage = StatFs(context.filesDir.absolutePath)
+        val required = estimateWorkspaceImportBytes(
+            payloadBytes = manifest.payloadBytes,
+            payloadEntries = manifest.payloadEntries,
+            blockSizeBytes = storage.blockSizeLong,
+        )
+        val available = storage.availableBytes
+        require(available >= required) { "Not enough storage space to import this workspace" }
+    }
+
+    private suspend fun nextAvailableName(sourceName: String): String {
+        val base = sourceName.trim().ifBlank { "Sandbox" }.take(200)
+        if (!isNameTaken(base, null)) return base
+        for (index in 2..10_000) {
+            val suffix = " $index"
+            val candidate = base.take(200 - suffix.length).trimEnd() + suffix
+            if (!isNameTaken(candidate, null)) return candidate
+        }
+        error("Cannot create a unique workspace name")
     }
 
     suspend fun rename(id: String, name: String): Boolean = withContext(Dispatchers.IO) {
@@ -217,6 +357,11 @@ class WorkspaceRepository(
     }
 
     suspend fun checkIntegrity() = withContext(Dispatchers.IO) {
+        sandboxManager.cleanupImportStagingDirectories()
+        val workspaceRecords = dao.getAll()
+        sandboxManager.cleanupOrphanedWorkspaceDirectories(
+            workspaceRecords.filter { it.type == WorkspaceType.SANDBOX }.mapTo(mutableSetOf()) { it.id }
+        )
         // 检测沙盒恢复 sentinel：恢复成功后由 WebdavSync 写入，标志本次启动需要把所有沙盒工作区
         // 的旧 rootfs（linux/ 与 tmp/）清掉并降级状态。备份不含 rootfs，恢复到本机后旧 linux/
         // 残留会让 hasRootfs 误判已就绪；按 zip 条目清理会漏掉 files/ 为空的工作区，所以集中到
@@ -225,7 +370,7 @@ class WorkspaceRepository(
         if (pendingSandboxClean) {
             Log.i(TAG, "checkIntegrity: 检测到沙盒恢复 sentinel，开始清理旧 rootfs 残留")
         }
-        dao.getAll().forEach { record ->
+        workspaceRecords.forEach { record ->
             val workspace = resolve(record) ?: return@forEach
             when (workspace.type) {
                 WorkspaceType.LIGHTWEIGHT -> {
@@ -303,25 +448,34 @@ class WorkspaceRepository(
         sandboxManager.readText(id, path)
     }
 
-    suspend fun writeSandboxText(id: String, path: String, text: String, overwrite: Boolean): WorkspaceFileEntry = withContext(Dispatchers.IO) {
-        requireSandbox(id)
-        sandboxManager.writeText(id, path, text, overwrite).toWorkspaceEntry()
-    }
+    suspend fun writeSandboxText(id: String, path: String, text: String, overwrite: Boolean): WorkspaceFileEntry =
+        sandboxLock(id).withLock {
+            withContext(Dispatchers.IO) {
+                requireSandbox(id)
+                sandboxManager.writeText(id, path, text, overwrite).toWorkspaceEntry()
+            }
+        }
 
-    suspend fun importSandboxFile(id: String, path: String, fileName: String, input: InputStream): WorkspaceFileEntry = withContext(Dispatchers.IO) {
-        requireSandbox(id)
-        sandboxManager.importFile(id, path, fileName, input).toWorkspaceEntry()
-    }
+    suspend fun importSandboxFile(id: String, path: String, fileName: String, input: InputStream): WorkspaceFileEntry =
+        sandboxLock(id).withLock {
+            withContext(Dispatchers.IO) {
+                requireSandbox(id)
+                sandboxManager.importFile(id, path, fileName, input).toWorkspaceEntry()
+            }
+        }
 
     suspend fun exportSandboxFile(id: String, path: String, output: OutputStream) = withContext(Dispatchers.IO) {
         requireSandbox(id)
         sandboxManager.exportFile(id, path, output)
     }
 
-    suspend fun deleteSandboxFile(id: String, path: String, recursive: Boolean): Boolean = withContext(Dispatchers.IO) {
-        requireSandbox(id)
-        sandboxManager.deleteFile(id, path, recursive)
-    }
+    suspend fun deleteSandboxFile(id: String, path: String, recursive: Boolean): Boolean =
+        sandboxLock(id).withLock {
+            withContext(Dispatchers.IO) {
+                requireSandbox(id)
+                sandboxManager.deleteFile(id, path, recursive)
+            }
+        }
 
     suspend fun executeSandboxCommand(
         id: String,
