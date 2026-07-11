@@ -43,6 +43,12 @@ class WorkspaceTransferArchiveTest {
         }
         Files.createSymbolicLink(File(manager.linuxDir("source"), "bin/sh").toPath(), File("hello").toPath())
         Files.createLink(File(manager.linuxDir("source"), "bin/hello-copy").toPath(), executable.toPath())
+        // Common rootfs self-link: import must keep "." instead of rewriting to empty.
+        File(manager.linuxDir("source"), "usr/bin").mkdirs()
+        Files.createSymbolicLink(
+            File(manager.linuxDir("source"), "usr/bin/X11").toPath(),
+            File(".").toPath(),
+        )
 
         val summary = archive.scan(manager.workspaceDir("source"))
         val manifest = manifest(summary)
@@ -60,6 +66,7 @@ class WorkspaceTransferArchiveTest {
         assertEquals("hello", File(target, "linux/bin/hello").readText())
         assertTrue(File(target, "linux/bin/hello").canExecute())
         assertEquals("hello", Files.readSymbolicLink(File(target, "linux/bin/sh").toPath()).toString())
+        assertEquals(".", Files.readSymbolicLink(File(target, "linux/usr/bin/X11").toPath()).toString())
         assertTrue(Files.isSameFile(File(target, "linux/bin/hello").toPath(), File(target, "linux/bin/hello-copy").toPath()))
     }
 

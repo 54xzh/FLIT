@@ -536,18 +536,18 @@ class SandboxRootfsInstaller(
 
     private fun createSymlink(root: File, target: File, linkName: String) {
         require(linkName.isNotBlank()) { "Symbolic link target is missing" }
-        val linkTarget = if (File(linkName).isAbsolute) {
-            File(linkName)
-        } else {
-            val resolved = File(target.parentFile ?: root, linkName).canonicalFile
+        // Keep the original link text. Rewriting via canonical + relativize turns
+        // self-links like "X11 -> ." into an empty path and breaks createSymbolicLink.
+        val normalizedLinkName = linkName.replace('\\', '/')
+        if (!File(normalizedLinkName).isAbsolute) {
+            val resolved = File(target.parentFile ?: root, normalizedLinkName).canonicalFile
             val rootFile = root.canonicalFile
             require(resolved.path == rootFile.path || resolved.path.startsWith(rootFile.path + File.separator)) {
                 "Symlink escapes rootfs: ${target.name}"
             }
-            (target.parentFile ?: root).toPath().relativize(resolved.toPath()).toFile()
         }
         target.delete()
-        Files.createSymbolicLink(target.toPath(), linkTarget.toPath())
+        Files.createSymbolicLink(target.toPath(), File(normalizedLinkName).toPath())
     }
 
     private fun createHardLink(root: File, target: File, linkName: String) {

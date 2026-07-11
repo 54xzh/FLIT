@@ -130,6 +130,9 @@ class SandboxWorkspaceManagerTest {
             output.writeTarEntry(name = "ignored", type = '0', mode = 0b111_101_101, content = "hello".toByteArray())
             output.writeTarEntry(name = "bin/sh", type = '2', linkName = "hello")
             output.writeTarEntry(name = "bin/absolute-link", type = '2', linkName = "/usr/bin/hello")
+            // Debian/Ubuntu rootfs commonly has usr/bin/X11 -> .
+            output.writeTarEntry(name = "usr/bin/", type = '5', mode = 0b111_101_101)
+            output.writeTarEntry(name = "usr/bin/X11", type = '2', linkName = ".")
             output.writeTarEntry(name = "bin/hello-copy", type = '1', linkName = "bin/hello")
             output.write(ByteArray(1024))
         }
@@ -142,6 +145,7 @@ class SandboxWorkspaceManagerTest {
         assertEquals("hello", File(target, "bin/hello-copy").readText())
         assertEquals("hello", Files.readSymbolicLink(File(target, "bin/sh").toPath()).toString())
         assertEquals("/usr/bin/hello", Files.readSymbolicLink(File(target, "bin/absolute-link").toPath()).toString())
+        assertEquals(".", Files.readSymbolicLink(File(target, "usr/bin/X11").toPath()).toString())
     }
 
     @Test
