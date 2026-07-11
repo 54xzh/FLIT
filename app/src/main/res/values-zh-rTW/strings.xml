@@ -2352,6 +2352,7 @@
     <string name="tool_approval_sandbox_shell">沙盒：執行 Shell 命令</string>
     <string name="workspace_transfer_import_action">匯入工作區</string>
     <string name="workspace_transfer_export_action">匯出完整工作區</string>
+    <string name="workspace_page_export">匯出</string>
     <string name="workspace_transfer_import_title">正在匯入工作區</string>
     <string name="workspace_transfer_export_title">正在匯出工作區</string>
     <string name="workspace_transfer_preparing">正在準備…</string>

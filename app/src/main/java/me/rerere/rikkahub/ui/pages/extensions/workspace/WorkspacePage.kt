@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.AlertDialog
@@ -66,6 +67,8 @@ import me.rerere.rikkahub.ui.theme.AppShapes
 import org.koin.compose.koinInject
 import org.koin.androidx.compose.koinViewModel
 import me.rerere.rikkahub.workspace.WORKSPACE_TRANSFER_MIME
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
@@ -84,6 +87,7 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
     var showCreateDialog by remember { mutableStateOf(false) }
     var renamingWorkspace by remember { mutableStateOf<Workspace?>(null) }
     var deletingWorkspace by remember { mutableStateOf<Workspace?>(null) }
+    var exportingWorkspace by remember { mutableStateOf<Workspace?>(null) }
 
     val folderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -117,6 +121,31 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
                 if (error !is CancellationException) {
                     haptics.perform(HapticPattern.Error)
                     toaster.show(context.getString(R.string.workspace_transfer_import_failed, error.message.orEmpty()))
+                }
+            }
+        }
+    }
+
+    val exportWorkspaceLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument(WORKSPACE_TRANSFER_MIME),
+    ) { uri ->
+        val ws = exportingWorkspace
+        exportingWorkspace = null
+        if (uri == null || ws == null) return@rememberLauncherForActivityResult
+        val output = runCatching { context.contentResolver.openOutputStream(uri) }.getOrNull()
+        if (output == null) {
+            toaster.show(context.getString(R.string.workspace_transfer_export_failed, ""))
+            return@rememberLauncherForActivityResult
+        }
+        vm.exportWorkspace(ws, output) { result ->
+            result.onSuccess {
+                haptics.perform(HapticPattern.Success)
+                toaster.show(context.getString(R.string.workspace_transfer_export_success))
+            }.onFailure { error ->
+                runCatching { context.contentResolver.delete(uri, null, null) }
+                if (error !is CancellationException) {
+                    haptics.perform(HapticPattern.Error)
+                    toaster.show(context.getString(R.string.workspace_transfer_export_failed, error.message.orEmpty()))
                 }
             }
         }
@@ -178,6 +207,15 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
                         onOpen = { navController.navigate(Screen.WorkspaceDetail(workspace.id)) },
                         onRename = { renamingWorkspace = workspace },
                         onDelete = { deletingWorkspace = workspace },
+                        onExport = {
+                            exportingWorkspace = workspace
+                            val timestamp = LocalDateTime.now()
+                                .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
+                            exportWorkspaceLauncher.launch(
+                                "FLIT_workspace_${workspaceTransferSafeName(workspace.name)}_$timestamp.flitspace"
+                            )
+                        },
+                        exportEnabled = !transferState.active,
                     )
                 }
             }
@@ -310,6 +348,8 @@ private fun WorkspaceCard(
     onOpen: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    onExport: () -> Unit,
+    exportEnabled: Boolean = true,
 ) {
     val haptics = rememberPremiumHaptics()
     var menuExpanded by remember { mutableStateOf(false) }
@@ -351,6 +391,14 @@ private fun WorkspaceCard(
                         leadingIcon = { Icon(Icons.Rounded.Edit, null) },
                         onClick = { menuExpanded = false; onRename() },
                     )
+                    if (workspace.type == WorkspaceType.SANDBOX) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.workspace_page_export)) },
+                            leadingIcon = { Icon(Icons.Rounded.FileUpload, null) },
+                            enabled = exportEnabled,
+                            onClick = { menuExpanded = false; onExport() },
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.workspace_page_delete), color = MaterialTheme.colorScheme.error) },
                         leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },

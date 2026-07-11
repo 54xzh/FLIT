@@ -2363,6 +2363,7 @@
     <string name="tool_approval_sandbox_shell">Sandbox: Run Shell command</string>
     <string name="workspace_transfer_import_action">Import workspace</string>
     <string name="workspace_transfer_export_action">Export full workspace</string>
+    <string name="workspace_page_export">Export</string>
     <string name="workspace_transfer_import_title">Importing workspace</string>
     <string name="workspace_transfer_export_title">Exporting workspace</string>
     <string name="workspace_transfer_preparing">Preparing…</string>

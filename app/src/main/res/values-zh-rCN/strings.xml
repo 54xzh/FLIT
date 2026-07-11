@@ -760,6 +760,7 @@
     <string name="assistant_page_local_tools_workspace_files_desc">允许助手使用已绑定的工作区。轻量模式使用你授权的文件夹，沙盒模式使用独立 Linux 环境。</string>
     <string name="workspace_transfer_import_action">导入工作区</string>
     <string name="workspace_transfer_export_action">导出完整工作区</string>
+    <string name="workspace_page_export">导出</string>
     <string name="workspace_transfer_import_title">正在导入工作区</string>
     <string name="workspace_transfer_export_title">正在导出工作区</string>
     <string name="workspace_transfer_preparing">正在准备…</string>

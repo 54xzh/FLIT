@@ -18,7 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MoreVert
@@ -179,7 +179,7 @@ private fun WorkspaceFileCard(
                     if (!entry.isDirectory) {
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.workspace_detail_export_file)) },
-                            leadingIcon = { Icon(Icons.Rounded.FileDownload, contentDescription = null) },
+                            leadingIcon = { Icon(Icons.Rounded.FileUpload, contentDescription = null) },
                             onClick = { menuExpanded = false; onExport() },
                         )
                     }

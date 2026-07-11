@@ -3,32 +3,19 @@ package me.rerere.rikkahub.ui.pages.extensions.workspace
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.InputStream
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
+import java.io.OutputStream
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.repository.Workspace
-import me.rerere.rikkahub.workspace.WorkspaceTransferProgress
-
-enum class WorkspaceTransferOperation { IMPORT, EXPORT }
-
-data class WorkspaceTransferUiState(
-    val operation: WorkspaceTransferOperation? = null,
-    val progress: WorkspaceTransferProgress? = null,
-) {
-    val active: Boolean get() = operation != null
-}
 
 class WorkspaceVM(
     private val repository: WorkspaceRepository,
 ) : ViewModel() {
-    private val _transferState = kotlinx.coroutines.flow.MutableStateFlow(WorkspaceTransferUiState())
-    val transferState = _transferState.asStateFlow()
-    private var transferJob: Job? = null
+    private val transferController = WorkspaceTransferController(repository, viewModelScope)
+    val transferState = transferController.transferState
 
     val workspaces: StateFlow<List<Workspace>> =
         repository.listFlow().stateIn(
@@ -65,36 +52,11 @@ class WorkspaceVM(
         }
     }
 
-    fun importWorkspace(input: InputStream, onResult: (Result<Workspace>) -> Unit) {
-        if (_transferState.value.active) {
-            input.close()
-            return
-        }
-        transferJob = viewModelScope.launch {
-            _transferState.value = WorkspaceTransferUiState(operation = WorkspaceTransferOperation.IMPORT)
-            try {
-                val workspace = input.use { stream ->
-                    repository.importSandboxWorkspace(stream) { progress ->
-                        _transferState.value = WorkspaceTransferUiState(
-                            operation = WorkspaceTransferOperation.IMPORT,
-                            progress = progress,
-                        )
-                    }
-                }
-                onResult(Result.success(workspace))
-            } catch (error: CancellationException) {
-                onResult(Result.failure(error))
-                throw error
-            } catch (error: Throwable) {
-                onResult(Result.failure(error))
-            } finally {
-                _transferState.value = WorkspaceTransferUiState()
-                transferJob = null
-            }
-        }
-    }
+    fun importWorkspace(input: InputStream, onResult: (Result<Workspace>) -> Unit) =
+        transferController.importWorkspace(input, onResult)
 
-    fun cancelTransfer() {
-        transferJob?.cancel()
-    }
+    fun exportWorkspace(workspace: Workspace, output: OutputStream, onResult: (Result<Unit>) -> Unit) =
+        transferController.exportWorkspace(workspace, output, onResult)
+
+    fun cancelTransfer() = transferController.cancelTransfer()
 }

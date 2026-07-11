@@ -209,7 +209,7 @@ fun WorkspaceDetailPage(
                                 }
                             ) {
                                 Icon(
-                                    Icons.Rounded.FileDownload,
+                                    Icons.Rounded.FileUpload,
                                     contentDescription = stringResource(R.string.workspace_transfer_export_action),
                                 )
                             }
@@ -250,7 +250,7 @@ fun WorkspaceDetailPage(
                     onClick = { haptics.perform(HapticPattern.Pop); filePicker.launch(arrayOf("*/*")) },
                     shape = AppShapes.ButtonPill,
                 ) {
-                    Icon(Icons.Rounded.FileUpload, contentDescription = stringResource(R.string.workspace_detail_import_file))
+                    Icon(Icons.Rounded.FileDownload, contentDescription = stringResource(R.string.workspace_detail_import_file))
                 }
             }
         },
@@ -401,9 +401,3 @@ fun WorkspaceDetailPage(
 
     WorkspaceTransferDialog(state = transferState, onCancel = vm::cancelTransfer)
 }
-
-private fun workspaceTransferSafeName(name: String): String = name
-    .replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_")
-    .trim()
-    .ifBlank { "Sandbox" }
-    .take(80)
