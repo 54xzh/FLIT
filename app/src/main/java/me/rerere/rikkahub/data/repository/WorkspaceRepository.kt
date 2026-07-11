@@ -52,6 +52,29 @@ import kotlin.uuid.Uuid
 
 private const val TAG = "WorkspaceRepository"
 
+/**
+ * 根据已有名称集合，生成不重复的工作区名。
+ * 未被占用则原样返回；否则依次尝试 `名字 2`、`名字 3`…（与导入逻辑一致）。
+ */
+fun uniqueWorkspaceName(
+    sourceName: String,
+    existingNames: Collection<String>,
+    blankFallback: String = "Sandbox",
+): String {
+    val taken = existingNames.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    val fallback = blankFallback.trim()
+    val base = sourceName.trim().ifBlank { fallback }.take(200)
+    if (base.isEmpty()) error("Workspace name is invalid")
+    if (base !in taken) return base
+    for (index in 2..10_000) {
+        val suffix = " $index"
+        val maxBaseLen = (200 - suffix.length).coerceAtLeast(1)
+        val candidate = base.take(maxBaseLen).trimEnd() + suffix
+        if (candidate !in taken) return candidate
+    }
+    error("Cannot create a unique workspace name")
+}
+
 data class Workspace(
     val id: String,
     val name: String,
@@ -115,7 +138,8 @@ class WorkspaceRepository(
 
     suspend fun createLightweight(name: String, treeUri: String): Workspace = withContext(Dispatchers.IO) {
         db.withTransaction {
-            val finalName = validateName(name)
+            // 新建时自动避重：已有同名则变成「名字 2」「名字 3」…
+            val finalName = nextAvailableName(name, blankFallback = "Workspace")
             require(dao.getSafDetailByTreeUri(treeUri) == null) { "Workspace folder is already used" }
             val now = System.currentTimeMillis()
             val record = WorkspaceEntity(
@@ -133,7 +157,8 @@ class WorkspaceRepository(
 
     suspend fun createSandbox(name: String): Workspace = withContext(Dispatchers.IO) {
         db.withTransaction {
-            val finalName = validateName(name)
+            // 新建时自动避重：默认 Sandbox 被占用则变成 Sandbox 2…
+            val finalName = nextAvailableName(name, blankFallback = "Sandbox")
             val now = System.currentTimeMillis()
             val record = WorkspaceEntity(
                 id = Uuid.random().toString(),
@@ -269,15 +294,13 @@ class WorkspaceRepository(
         require(available >= required) { "Not enough storage space to import this workspace" }
     }
 
-    private suspend fun nextAvailableName(sourceName: String): String {
-        val base = sourceName.trim().ifBlank { "Sandbox" }.take(200)
-        if (!isNameTaken(base, null)) return base
-        for (index in 2..10_000) {
-            val suffix = " $index"
-            val candidate = base.take(200 - suffix.length).trimEnd() + suffix
-            if (!isNameTaken(candidate, null)) return candidate
-        }
-        error("Cannot create a unique workspace name")
+    /**
+     * 为新建/导入工作区挑选不重复名称。
+     * 规则与 [uniqueWorkspaceName] 一致：先用原名，被占用则追加 ` 2`、` 3`…
+     */
+    suspend fun nextAvailableName(sourceName: String, blankFallback: String = "Sandbox"): String {
+        val existing = dao.getAll().map { it.name }
+        return uniqueWorkspaceName(sourceName, existing, blankFallback)
     }
 
     suspend fun rename(id: String, name: String): Boolean = withContext(Dispatchers.IO) {
@@ -645,7 +668,9 @@ class WorkspaceRepository(
     private fun rootfsVersion(url: String): String = url.substringBefore('?').substringAfterLast('/').take(128)
 
     private suspend fun validateName(name: String, fallback: String = "Workspace", excludeId: String? = null): String {
-        val finalName = name.trim().ifBlank { fallback }
+        // 重命名仍严格禁止重名；新建走 nextAvailableName 自动加序号
+        val finalName = name.trim().ifBlank { fallback }.take(200)
+        require(finalName.isNotEmpty()) { "Workspace name is invalid" }
         require(!isNameTaken(finalName, excludeId)) { "Workspace name already exists: $finalName" }
         return finalName
     }

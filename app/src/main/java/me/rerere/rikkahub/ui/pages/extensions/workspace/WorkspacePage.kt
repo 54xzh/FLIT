@@ -57,6 +57,7 @@ import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.db.entity.WorkspaceType
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.repository.Workspace
+import me.rerere.rikkahub.data.repository.uniqueWorkspaceName
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
 import me.rerere.rikkahub.ui.context.LocalNavController
@@ -240,9 +241,21 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
 
     if (showCreateDialog && createType != null && (createType == WorkspaceType.SANDBOX || pendingUri != null)) {
         val uri = pendingUri
-        val defaultName = if (createType == WorkspaceType.LIGHTWEIGHT) {
+        val createTypeSnapshot = createType
+        // 用当前列表同步算出不冲突的默认名，避免先显示 Sandbox 再闪成 Sandbox 2
+        val preferredName = if (createTypeSnapshot == WorkspaceType.LIGHTWEIGHT) {
             runCatching { repository.friendlyName(uri!!.toString(), "Workspace") }.getOrDefault("Workspace")
-        } else "Sandbox"
+        } else {
+            "Sandbox"
+        }
+        val blankFallback = if (createTypeSnapshot == WorkspaceType.LIGHTWEIGHT) "Workspace" else "Sandbox"
+        val defaultName = remember(createTypeSnapshot, preferredName, workspaces) {
+            uniqueWorkspaceName(
+                sourceName = preferredName,
+                existingNames = workspaces.map { it.name },
+                blankFallback = blankFallback,
+            )
+        }
         CreateWorkspaceDialog(
             defaultName = defaultName,
             onDismiss = { showCreateDialog = false; pendingUri = null; createType = null },
@@ -261,7 +274,7 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
                             toaster.show(message = context.getString(R.string.workspace_page_create_failed, it.message ?: ""))
                         }
                 }
-                if (createType == WorkspaceType.LIGHTWEIGHT) vm.createLightweight(name, uri!!.toString(), onResult)
+                if (createTypeSnapshot == WorkspaceType.LIGHTWEIGHT) vm.createLightweight(name, uri!!.toString(), onResult)
                 else vm.createSandbox(name, onResult)
                 showCreateDialog = false
                 pendingUri = null
@@ -446,7 +459,7 @@ private fun CreateWorkspaceDialog(
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit,
 ) {
-    var name by remember { mutableStateOf(defaultName) }
+    var name by remember(defaultName) { mutableStateOf(defaultName) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.workspace_page_create)) },

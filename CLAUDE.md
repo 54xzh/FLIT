@@ -12,6 +12,8 @@ Requires `JAVA_HOME`, `GRADLE_USER_HOME`, and `ANDROID_USER_HOME` set to project
 
 **Always package after code changes:** After making any code change that is not purely UI copy or prompt text, run the full release build command above before reporting the task done. Do not stop at `compileKotlin` — produce the actual APK. Only skip when the change falls under the build exception above.
 
+**Release packaging timeout:** Do not set a timeout for `assembleExpRelease`; run it in the background.
+
 **Run all unit tests:**
 ```bash
 ./gradlew test --no-daemon
