@@ -73,6 +73,16 @@ private fun resolveLocalBuildMeta(
     )
 }
 
+// 本地打包元数据只用于 APK 文件名，不写入 versionName，避免每次构建都改应用版本信息。
+private val localBuildMetaForApkName: LocalBuildMeta? = if (!isGithubActionsBuild) {
+    resolveLocalBuildMeta(
+        versionFile = rootProject.file("app/version.properties"),
+        shouldBump = shouldBumpLocalBuildNumber(gradle.startParameter.taskNames),
+    )
+} else {
+    null
+}
+
 android {
     namespace = "me.rerere.rikkahub"
     compileSdk = 36
@@ -81,19 +91,10 @@ android {
         applicationId = "lastchat.rikkafork.cocolal"
         minSdk = 31
         targetSdk = 36
-        versionCode = ((System.currentTimeMillis() - 1577808000000) / 60000).toInt() // 基于 2020-01-01 00:00:00 UTC 的分钟数
-        val baseVersionName = "1.5.0"
-        versionName = if (isGithubActionsBuild) {
-            baseVersionName
-        } else {
-            val localBuildMeta = resolveLocalBuildMeta(
-                versionFile = rootProject.file("app/version.properties"),
-                shouldBump = shouldBumpLocalBuildNumber(gradle.startParameter.taskNames),
-            )
-            val buildDate = localBuildMeta.buildDate.takeLast(4) // MMdd
-            val buildNumber = localBuildMeta.buildNumber.toString().padStart(2, '0')
-            "$baseVersionName-build.$buildDate.$buildNumber"
-        }
+        // 固定版本号：需高于历史时间戳方案水位（约 343 万），保证可覆盖安装旧包。
+        // 以后真正发版时再手动递增。
+        versionCode = 3_500_000
+        versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -224,7 +225,12 @@ android {
                 else -> "FLIT"
             }
             val buildTypeSuffix = buildType.name // release / debug
-            val apkName = "${displayName}_${defaultConfig.versionName}-${buildTypeSuffix}.apk"
+            // 版本名固定；本地包文件名仍附带日期+次数，方便区分产物。
+            val apkName = localBuildMetaForApkName?.let { meta ->
+                val buildDate = meta.buildDate.takeLast(4) // MMdd
+                val buildNumber = meta.buildNumber.toString().padStart(2, '0')
+                "${displayName}_${defaultConfig.versionName}-$buildDate.$buildNumber-${buildTypeSuffix}.apk"
+            } ?: "${displayName}_${defaultConfig.versionName}-${buildTypeSuffix}.apk"
 
             outputFileName = apkName
         }
