@@ -464,10 +464,13 @@ class WorkspaceRepository(
             }
         }
 
-    suspend fun exportSandboxFile(id: String, path: String, output: OutputStream) = withContext(Dispatchers.IO) {
-        requireSandbox(id)
-        sandboxManager.exportFile(id, path, output)
-    }
+    suspend fun exportSandboxFile(id: String, path: String, output: OutputStream) =
+        sandboxLock(id).withLock {
+            withContext(Dispatchers.IO) {
+                requireSandbox(id)
+                sandboxManager.exportFile(id, path, output)
+            }
+        }
 
     suspend fun deleteSandboxFile(id: String, path: String, recursive: Boolean): Boolean =
         sandboxLock(id).withLock {
