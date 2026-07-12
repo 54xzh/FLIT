@@ -115,7 +115,7 @@ data class Assistant(
     val customBodies: List<CustomBody> = emptyList(),
     val mcpServers: Set<Uuid> = emptySet(),
     val localTools: List<LocalToolOption> = emptyList(),
-    val enabledSkillIds: Set<Uuid> = emptySet(), // Skills enabled for this assistant
+    val enabledSkills: Set<String> = emptySet(), // Skills enabled for this assistant (by skill name)
     val enabledModeIds: Set<Uuid> = emptySet(), // Modes enabled by default for new chats of this assistant
     val background: String? = null,
     val backgroundOverlay: BackgroundOverlaySettings = BackgroundOverlaySettings(),

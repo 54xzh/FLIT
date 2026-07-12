@@ -14,6 +14,7 @@ import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.GenMediaDAO
 import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
 import me.rerere.rikkahub.data.model.Avatar
+import me.rerere.rikkahub.data.model.Skill
 import me.rerere.rikkahub.utils.JsonInstant
 import java.io.File
 import java.time.YearMonth
@@ -253,7 +254,6 @@ class StorageManagerRepository(
 
     private suspend fun computeOverview(): StorageOverview = withContext(Dispatchers.IO) {
         val settings = settingsStore.settingsFlow.value
-        val referencedSkillIds = settings.skills.map { it.id.toString() }.toSet()
 
         // The referenced-file set must be computed first: the per-directory walks below depend on it.
         val referencedFilePaths = buildReferencedFilePathSet(settings = settings)
@@ -284,7 +284,7 @@ class StorageManagerRepository(
             countManagedFilesInDir(customIconsDir, referencedFilePaths, treatAllAsImages = true)
         }
         val skillsUsage = async {
-            countSkillsUsage(skillsDir, referencedSkillIds)
+            countSkillsUsage(skillsDir)
         }
         val sandboxUsage = async {
             // 沙盒工作区占用（含 rootfs，是存储管理与系统显示差额的主要来源）。明细走独立缓存，
@@ -979,7 +979,6 @@ class StorageManagerRepository(
     suspend fun scanOrphans(previewLimit: Int = 40): OrphanScanResult = withContext(Dispatchers.IO) {
         val settings = settingsStore.settingsFlow.value
         val referencedFilePaths = buildReferencedFilePathSet(settings = settings)
-        val referencedSkillIds = settings.skills.map { it.id.toString() }.toSet()
 
         val preview = mutableListOf<OrphanEntry>()
         var totalBytes = 0L
@@ -1013,18 +1012,15 @@ class StorageManagerRepository(
                 }
         }
 
-        // Orphan skills: folders under filesDir/skills/{uuid} not referenced by settings.skills.
+        // 技能目录：名字形态（小写+连字符）的目录都是用户技能数据（含已登记与未登记），
+        // 一律不当孤儿清理——未登记技能交给一致性检查入口单独标记/重新登记，不在此静默删除。
+        // 仅 skills/ 根下杂散的非目录文件（意外落入）才算孤儿。
         val skillsDir = File(context.filesDir, "skills")
         if (skillsDir.exists()) {
             skillsDir.listFiles()
-                ?.filter { it.isDirectory }
-                ?.forEach { dir ->
-                    val isUuidFolder = runCatching { Uuid.parse(dir.name) }.isSuccess
-                    if (isUuidFolder && dir.name !in referencedSkillIds) {
-                        dir.walkTopDown()
-                            .filter { it.isFile }
-                            .forEach(::addOrphan)
-                    }
+                ?.filter { it.isFile }
+                ?.forEach { file ->
+                    addOrphan(file)
                 }
         }
 
@@ -1038,7 +1034,6 @@ class StorageManagerRepository(
     suspend fun clearAllOrphans(): DeleteResult = withContext(Dispatchers.IO) {
         val settings = settingsStore.settingsFlow.value
         val referencedFilePaths = buildReferencedFilePathSet(settings = settings)
-        val referencedSkillIds = settings.skills.map { it.id.toString() }.toSet()
 
         var deletedCount = 0
         var failedCount = 0
@@ -1075,21 +1070,12 @@ class StorageManagerRepository(
 
         val skillsDir = File(context.filesDir, "skills")
         if (skillsDir.exists()) {
+            // 合法名目录（含未登记技能）一律不删——未登记技能交给一致性检查入口处理。
+            // 仅清理 skills/ 根下意外落入的杂散文件（非目录）。
             skillsDir.listFiles()
-                ?.filter { it.isDirectory }
-                ?.forEach { dir ->
-                    val isUuidFolder = runCatching { Uuid.parse(dir.name) }.isSuccess
-                    if (!isUuidFolder) return@forEach
-                    if (dir.name in referencedSkillIds) return@forEach
-
-                    val usage = countDirUsage(dir)
-                    val ok = runCatching { dir.deleteRecursively() }.getOrNull() == true
-                    if (ok) {
-                        deletedCount += usage.count
-                        deletedBytes += usage.bytes
-                    } else {
-                        failedCount += 1
-                    }
+                ?.filter { it.isFile }
+                ?.forEach { file ->
+                    deleteFile(file)
                 }
         }
 
@@ -1100,6 +1086,58 @@ class StorageManagerRepository(
         )
         invalidateOverviewCache()
         result
+    }
+
+    /**
+     * 技能一致性检查结果。
+     *
+     * - [unregisteredSkillNames]：磁盘上有合法名技能目录但 [Settings.skills] 没有对应记录的技能。
+     *   一律**不删**——这些是用户数据（可能是旧迁移残留或手动放入），交给用户决定重新登记或手动清理。
+     * - [missingSkillNames]：[Settings.skills] 里有记录但磁盘无对应目录的技能。助手侧的失效启用引用
+     *   由 [Settings.sanitize] 过滤；会话侧的失效引用由本检查调 [ConversationRepository.removeInvalidSkillContexts] 清理。
+     * - [conversationsCleaned]：本次实际清理了失效技能引用的会话条数。
+     */
+    @Serializable
+    data class SkillIntegrityResult(
+        val unregisteredSkillNames: List<String>,
+        val missingSkillNames: List<String>,
+        val conversationsCleaned: Int,
+    )
+
+    /**
+     * 技能一致性检查（6.8）：
+     * - 扫描 `filesDir/skills/` 下合法名但未登记的目录（不删，仅报告，交用户处理）；
+     * - 扫描 [Settings.skills] 里有记录但磁盘缺失目录的技能（仅报告，不误删设置引用）；
+     * - 用剩余有效技能名清理会话侧失效引用（助手侧由 sanitize 兜底）。
+     *
+     * 调用方：合理时机（启动维护、用户触发"检查一致性"）调用；不应当在导入/删除主路径上频繁跑。
+     */
+    suspend fun runSkillIntegrityCheck(): SkillIntegrityResult = withContext(Dispatchers.IO) {
+        val settings = settingsStore.settingsFlow.value
+        val registeredNames = settings.skills.map { it.name }.toSet()
+        val skillsDir = File(context.filesDir, "skills")
+
+        val diskNames = mutableSetOf<String>()
+        if (skillsDir.exists()) {
+            skillsDir.listFiles().orEmpty()
+                .filter { it.isDirectory && Skill.isValidName(it.name) }
+                .forEach { diskNames.add(it.name) }
+        }
+
+        val unregistered = diskNames.filter { it !in registeredNames }.sorted()
+        val missing = registeredNames.filter { it !in diskNames }.sorted()
+
+        // 会话侧失效引用清理（有效技能名 = 磁盘与设置的交集；缺失的技能引用会被移除）。
+        val validNames = diskNames.intersect(registeredNames)
+        val cleaned = runCatching {
+            conversationRepository.removeInvalidSkillContexts(validNames)
+        }.getOrDefault(0)
+
+        SkillIntegrityResult(
+            unregisteredSkillNames = unregistered,
+            missingSkillNames = missing,
+            conversationsCleaned = cleaned,
+        )
     }
 
     suspend fun clearCache(): DeleteResult = withContext(Dispatchers.IO) {
@@ -1195,7 +1233,6 @@ class StorageManagerRepository(
 
     private fun countSkillsUsage(
         skillsDir: File,
-        referencedSkillIds: Set<String>,
     ): SkillSplitUsage {
         if (!skillsDir.exists()) return SkillSplitUsage(files = Usage(0, 0), history = Usage(0, 0))
 
@@ -1207,16 +1244,17 @@ class StorageManagerRepository(
         skillsDir.listFiles().orEmpty().forEach { entry ->
             if (!entry.exists()) return@forEach
 
-            val isUuidFolder = entry.isDirectory && runCatching { Uuid.parse(entry.name) }.isSuccess
-            val isReferenced = isUuidFolder && entry.name in referencedSkillIds
+            val isSkillFolder = entry.isDirectory && Skill.isValidName(entry.name)
             val usage = countDirUsage(entry)
 
-            if (isUuidFolder && !isReferenced) {
-                historyCount += usage.count
-                historyBytes += usage.bytes
-            } else {
+            // 合法名目录（无论是否登记）都是用户技能数据，不当清理候选；只有杂散的非目录文件
+            // （如意外落入 skills/ 根的文件）才计为可清理。未登记技能由一致性检查入口单独标记处理。
+            if (isSkillFolder) {
                 filesCount += usage.count
                 filesBytes += usage.bytes
+            } else {
+                historyCount += usage.count
+                historyBytes += usage.bytes
             }
         }
 

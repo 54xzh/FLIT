@@ -70,8 +70,8 @@ data class EditMessageRequest(
 )
 
 @Serializable
-data class UpdateConversationSkillsRequest(
-    val skillIds: List<String>
+data class UpdateConversationModesRequest(
+    val modeIds: List<String>
 )
 
 @Serializable
@@ -201,7 +201,7 @@ data class ConversationDto(
     val assistantId: String,
     val title: String,
     val messages: List<MessageNodeDto>,
-    val enabledSkillIds: List<String>,
+    val enabledModeIds: List<String>,
     val truncateIndex: Int,
     val chatSuggestions: List<String>,
     val isPinned: Boolean,
@@ -632,7 +632,7 @@ fun Conversation.toDto(
     assistantId = assistantId.toString(),
     title = title.ifBlank { "New chat" },
     messages = messageNodes.map { it.toDto(settings, context) },
-    enabledSkillIds = enabledModeIds.map(Uuid::toString),
+    enabledModeIds = enabledModeIds.map(Uuid::toString),
     truncateIndex = truncateIndex,
     chatSuggestions = chatSuggestions,
     isPinned = isPinned,

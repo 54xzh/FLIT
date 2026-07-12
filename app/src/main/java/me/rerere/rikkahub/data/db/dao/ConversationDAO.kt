@@ -6,6 +6,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.ColumnInfo
 import kotlinx.coroutines.flow.Flow
 import me.rerere.rikkahub.data.db.entity.ConversationEntity
 import me.rerere.rikkahub.data.repository.LightConversationEntity
@@ -30,6 +31,12 @@ data class ConversationHistoryScanRow(
 data class ConversationSearchIndexRow(
     val id: String,
     val nodes: String,
+)
+
+data class ExplicitSkillContextRow(
+    val id: String,
+    @ColumnInfo(name = "explicit_skill_context_ids")
+    val explicitSkillContextIds: String,
 )
 
 data class ChatSearchResultRow(
@@ -167,6 +174,18 @@ interface ConversationDAO {
 
     @Query("SELECT * FROM conversationentity ORDER BY update_at DESC")
     suspend fun getAllConversationsSuspend(): List<ConversationEntity>
+
+    /**
+     * 仅取 id 和 explicit_skill_context_ids 列，供技能 UUID→名 迁移批量重写使用。
+     */
+    @Query("SELECT id, explicit_skill_context_ids FROM conversationentity")
+    suspend fun getAllExplicitSkillContexts(): List<ExplicitSkillContextRow>
+
+    /**
+     * 重写单条会话的 explicit_skill_context_ids 列（技能 UUID→名 迁移用）。
+     */
+    @Query("UPDATE conversationentity SET explicit_skill_context_ids = :json WHERE id = :id")
+    suspend fun updateExplicitSkillContexts(id: String, json: String)
 
     @Query("UPDATE conversationentity SET is_pinned = :isPinned WHERE id = :id")
     suspend fun updatePinStatus(id: String, isPinned: Boolean)

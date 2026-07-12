@@ -26,8 +26,6 @@ val LIGHTWEIGHT_WORKSPACE_TOOL_NAMES: List<String> = listOf(
     "workspace_mkdir",
     "workspace_delete",
     "workspace_rename",
-    "eval_python",
-    "run_skill_script",
 )
 
 /** 沙盒模式只会暴露这一组独立协议的工具。 */
@@ -44,8 +42,6 @@ val WORKSPACE_TOOL_NAMES: List<String> = LIGHTWEIGHT_WORKSPACE_TOOL_NAMES
 private val DEFAULT_NEEDS_APPROVAL_TOOLS: Set<String> = setOf(
     "workspace_write_file",
     "workspace_delete",
-    "eval_python",
-    "run_skill_script",
     "sandbox_shell",
 )
 

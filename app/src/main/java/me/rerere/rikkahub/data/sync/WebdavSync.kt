@@ -18,6 +18,9 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.WebDavConfig
 import me.rerere.rikkahub.data.datastore.sanitize
 import me.rerere.rikkahub.data.db.AppDatabase
+import me.rerere.rikkahub.data.migration.RestoreTargets
+import me.rerere.rikkahub.data.migration.SettingsJsonHolder
+import me.rerere.rikkahub.data.migration.SkillUuidMigration
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.asRequestBody
@@ -64,6 +67,7 @@ class WebdavSync(
     private val json: Json,
     private val context: Context,
     private val database: AppDatabase,
+    private val skillUuidMigration: SkillUuidMigration,
 ) {
     suspend fun testWebdav(webDavConfig: WebDavConfig) {
         val davCollection = DavCollection(
@@ -377,6 +381,12 @@ class WebdavSync(
             // Temp directory for extraction
             val restoreTempDir = File(context.cacheDir, "restore_temp_${System.currentTimeMillis()}")
             if (!restoreTempDir.exists()) restoreTempDir.mkdirs()
+            // 技能目录恢复到临时区（restoreTempDir/skills），迁移后才整体替换正式 filesDir/skills。
+            // 其余 FILES_DIR_BACKUP_PATHS 仍按原样直接解到 filesDir（与技能迁移无关）。
+            val tempSkillsRoot = File(restoreTempDir, "skills")
+            tempSkillsRoot.mkdirs()
+            // settings.json 暂存到 holder，先迁移、最后才 sanitize 落盘，确保旧 UUID 备份被改写。
+            val settingsJsonHolder = SettingsJsonHolder(json = null)
 
             var sanitizationResult = DatabaseSanitizer.SanitizationResult()
 
@@ -398,27 +408,10 @@ class WebdavSync(
 
                             when (zipEntry.name) {
                                 "settings.json" -> {
-                                    // 恢复设置
+                                    // 恢复设置：先暂存原始字符串，技能迁移后再 sanitize 落盘。
                                     val settingsJson = zipIn.readBytes().toString(Charsets.UTF_8)
-                                    Log.i(TAG, "restoreFromBackupFile: Restoring settings")
-                                    try {
-                                        val settings = json.decodeFromString<Settings>(settingsJson)
-                                        // Sanitize settings to clean up deprecated/invalid data and fix avatar paths
-                                        val (cleanedSettings, cleanupResult) = settings.sanitize(context)
-                                        settingsCleanupResult = cleanupResult
-                                        settingsStore.update(cleanedSettings)
-                                        Log.i(
-                                            TAG,
-                                            "restoreFromBackupFile: Settings restored and sanitized (issues fixed: ${cleanupResult.totalIssuesFixed})"
-                                        )
-                                    } catch (e: Exception) {
-                                        Log.e(
-                                            TAG,
-                                            "restoreFromBackupFile: Failed to restore settings",
-                                            e
-                                        )
-                                        throw Exception("Failed to restore settings: ${e.message}")
-                                    }
+                                    Log.i(TAG, "restoreFromBackupFile: Captured settings (deferred)")
+                                    settingsJsonHolder.json = settingsJson
                                 }
 
                                 "rikka_hub.db", "rikka_hub-wal", "rikka_hub-shm" -> {
@@ -461,14 +454,21 @@ class WebdavSync(
                                     return canonicalTarget.takeIf { it.path.startsWith(basePath) }
                                 }
 
-                                fun restoreToFilesDirSubfolder(subfolder: String, prefix: String) {
+                                    fun restoreToFilesDirSubfolder(subfolder: String, prefix: String) {
                                     val relativePath = zipEntry.name.removePrefix(prefix)
                                     if (relativePath.isBlank()) return
 
-                                    val baseDir = File(context.filesDir, subfolder)
-                                    if (!baseDir.exists()) {
-                                        baseDir.mkdirs()
-                                        Log.i(TAG, "restoreFromBackupFile: Created $subfolder directory")
+                                    val baseDir = when (subfolder) {
+                                        // 技能目录先解到临时区，迁移后才整体替换正式目录。
+                                        "skills" -> tempSkillsRoot
+                                        else -> {
+                                            val live = File(context.filesDir, subfolder)
+                                            if (!live.exists()) {
+                                                live.mkdirs()
+                                                Log.i(TAG, "restoreFromBackupFile: Created $subfolder directory")
+                                            }
+                                            live
+                                        }
                                     }
 
                                     val targetFile = safeResolveTargetFile(baseDir, relativePath)
@@ -528,10 +528,78 @@ class WebdavSync(
                     }
                 }
 
-                // Sanitize and Restore Database
+                // 临时数据就位后：对临时技能目录 + 临时 settings JSON + 临时 DB 跑技能 UUID→名迁移。
+                // 迁移作用于临时数据，不写 KEY_DONE、不持久化进度、不碰正式存储。
+                // 只有当本次恢复同时包含 settings、skills、DB 时迁移才有意义；部分恢复（只设置/只文件）
+                // 交由一致性检查（G 段）处理，不在此强行迁移。
+                val restoreSettings = settingsJsonHolder.json != null
+                val restoreFiles = webDavConfig.items.contains(WebDavConfig.BackupItem.FILES)
+                val restoreDb = webDavConfig.items.contains(WebDavConfig.BackupItem.DATABASE)
                 val tempDbFile = File(restoreTempDir, "rikka_hub")
-                
-                if (tempDbFile.exists()) {
+                val tempDbRestored = tempDbFile.exists()
+
+                if (restoreSettings && restoreFiles && restoreDb && tempDbRestored) {
+                    Log.i(TAG, "restoreFromBackupFile: Running skill UUID→name migration on restored temp data")
+                    RestoreTargets(
+                        context = context,
+                        settingsJsonHolder = settingsJsonHolder,
+                        tempDbFile = tempDbFile,
+                    ).use { targets ->
+                        skillUuidMigration.migrateRestoreData(
+                            tempSkillsRoot = tempSkillsRoot,
+                            targets = targets,
+                        )
+                    }
+                    Log.i(TAG, "restoreFromBackupFile: Temp skill migration completed")
+                } else if (restoreSettings || restoreFiles || tempDbRestored) {
+                    Log.i(
+                        TAG,
+                        "restoreFromBackupFile: Partial restore (settings=$restoreSettings files=$restoreFiles db=$tempDbRestored); deferring skill consistency to integrity check"
+                    )
+                }
+
+                // ---- 迁移成功后才把临时数据落为正式数据 ----
+
+                // 1) settings：sanitize + 写回 DataStore（旧 UUID 已被迁移改写）。
+                if (restoreSettings) {
+                    val migratedJson = settingsJsonHolder.json
+                        ?: throw Exception("Failed to restore settings: no settings captured")
+                    try {
+                        val settings = json.decodeFromString<Settings>(migratedJson)
+                        // Sanitize settings to clean up deprecated/invalid data and fix avatar paths
+                        val (cleanedSettings, cleanupResult) = settings.sanitize(context)
+                        settingsCleanupResult = cleanupResult
+                        settingsStore.update(cleanedSettings)
+                        Log.i(
+                            TAG,
+                            "restoreFromBackupFile: Settings restored and sanitized (issues fixed: ${cleanupResult.totalIssuesFixed})"
+                        )
+                    } catch (e: Exception) {
+                        Log.e(
+                            TAG,
+                            "restoreFromBackupFile: Failed to restore settings",
+                            e
+                        )
+                        throw Exception("Failed to restore settings: ${e.message}")
+                    }
+                }
+
+                // 2) skills 目录：用迁移后的临时 skills 整体替换正式 filesDir/skills。
+                if (restoreFiles && tempSkillsRoot.exists()) {
+                    val liveSkills = File(context.filesDir, "skills")
+                    runCatching {
+                        if (liveSkills.exists()) liveSkills.deleteRecursively()
+                        if (!liveSkills.exists()) liveSkills.mkdirs()
+                        tempSkillsRoot.copyRecursively(liveSkills, overwrite = true)
+                    }.onFailure {
+                        Log.e(TAG, "restoreFromBackupFile: Failed to land migrated skills dir", it)
+                        throw Exception("Failed to land restored skills: ${it.message}")
+                    }
+                    Log.i(TAG, "restoreFromBackupFile: Migrated skills landed to filesDir/skills")
+                }
+
+                // 3) DB：净化临时库 → 替换正式库（沿用原有逻辑）。
+                if (tempDbRestored) {
                     Log.i(TAG, "Starting database sanitization...")
                     try {
                          val (cleanDb, result) = DatabaseSanitizer.sanitize(context, tempDbFile)

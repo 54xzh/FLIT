@@ -71,6 +71,7 @@ import me.rerere.rikkahub.data.ai.transformers.onGenerationFinish
 import me.rerere.rikkahub.data.ai.transformers.transforms
 import me.rerere.rikkahub.data.ai.transformers.visualTransforms
 import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.files.SkillPaths
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getHttpRetryDelaySeconds
@@ -355,7 +356,7 @@ class GenerationHandler(
         truncateIndex: Int = -1,
         maxSteps: Int = 256,
         enabledModeIds: Set<Uuid> = emptySet(),
-        explicitSkillContextIds: Set<Uuid> = emptySet(),
+        explicitSkillContexts: Set<String> = emptySet(),
         source: AIRequestSource = AIRequestSource.OTHER,
         toolApprovalHandler: ToolApprovalHandler? = null,
         askUserHandler: AskUserHandler? = null,
@@ -438,7 +439,7 @@ class GenerationHandler(
                 truncateIndex = truncateIndex,
                 stream = assistant.streamOutput,
                 enabledModeIds = enabledModeIds,
-                explicitSkillContextIds = explicitSkillContextIds,
+                explicitSkillContexts = explicitSkillContexts,
                 source = source,
             )
             messages = messages.visualTransforms(
@@ -847,7 +848,7 @@ class GenerationHandler(
         sessionMemories: List<SessionMemory>,
         truncateIndex: Int,
         enabledModeIds: Set<Uuid> = emptySet(),
-        explicitSkillContextIds: Set<Uuid> = emptySet(),
+        explicitSkillContexts: Set<String> = emptySet(),
     ): BuildMessagesResult {
         val allMessages = messages.truncate(truncateIndex)
         val conversation = conversationId?.let { conversationRepo.getConversationById(it) }
@@ -1208,7 +1209,7 @@ class GenerationHandler(
         val explicitSkillContextPrompt = buildExplicitSkillContextPrompt(
             settings = settings,
             assistant = assistant,
-            explicitSkillContextIds = explicitSkillContextIds,
+            explicitSkillContexts = explicitSkillContexts,
         )
         if (explicitSkillContextPrompt.isNotBlank()) {
             baseSystemPromptBuilder.appendLine()
@@ -1545,7 +1546,7 @@ class GenerationHandler(
         truncateIndex: Int,
         stream: Boolean,
         enabledModeIds: Set<Uuid> = emptySet(),
-        explicitSkillContextIds: Set<Uuid> = emptySet(),
+        explicitSkillContexts: Set<String> = emptySet(),
         source: AIRequestSource,
     ) {
         val buildResult = buildMessages(
@@ -1559,7 +1560,7 @@ class GenerationHandler(
             sessionMemories = sessionMemories,
             truncateIndex = truncateIndex,
             enabledModeIds = enabledModeIds,
-            explicitSkillContextIds = explicitSkillContextIds,
+            explicitSkillContexts = explicitSkillContexts,
         )
         val internalMessages = buildResult.messages
             .transforms(transformers, context, model, assistant)
@@ -2111,28 +2112,30 @@ class GenerationHandler(
     private suspend fun buildExplicitSkillContextPrompt(
         settings: Settings,
         assistant: Assistant,
-        explicitSkillContextIds: Set<Uuid>,
+        explicitSkillContexts: Set<String>,
     ): String {
-        if (explicitSkillContextIds.isEmpty()) return ""
-        val enabledSkillIds = assistant.enabledSkillIds
-        if (enabledSkillIds.isEmpty()) return ""
+        if (explicitSkillContexts.isEmpty()) return ""
+        val enabledSkillNames = assistant.enabledSkills
+        if (enabledSkillNames.isEmpty()) return ""
 
-        val skillsById = settings.skills
+        val skillsByName = settings.skills
             .asSequence()
-            .filter { skill -> skill.id in enabledSkillIds }
-            .associateBy { it.id }
-        if (skillsById.isEmpty()) return ""
+            .filter { skill -> skill.name in enabledSkillNames }
+            .associateBy { it.name }
+        if (skillsByName.isEmpty()) return ""
 
-        val selectedSkills = explicitSkillContextIds.mapNotNull { skillId -> skillsById[skillId] }
+        val selectedSkills = explicitSkillContexts.mapNotNull { name -> skillsByName[name] }
         if (selectedSkills.isEmpty()) return ""
 
+        val skillsRoot = File(context.filesDir, "skills")
         val loadedSkills = withContext(Dispatchers.IO) {
             selectedSkills.mapNotNull { skill ->
-                val skillFile = File(context.filesDir, "skills/${skill.id}/SKILL.md")
+                val skillDir = SkillPaths.resolveSkillDir(skillsRoot, skill.name) ?: return@mapNotNull null
+                val skillFile = File(skillDir, "SKILL.md")
                 val content = runCatching {
                     if (skillFile.isFile) skillFile.readText() else ""
                 }.getOrElse { error ->
-                    Log.w(TAG, "Failed to read explicit SKILL.md for ${skill.id}", error)
+                    Log.w(TAG, "Failed to read explicit SKILL.md for ${skill.name}", error)
                     ""
                 }
                 if (content.isBlank()) {
@@ -2153,9 +2156,7 @@ class GenerationHandler(
             loadedSkills.forEach { (skill, content) ->
                 appendLine()
                 append("<skill name=\"")
-                append(escapeXmlAttribute(skill.name.ifBlank { skill.id.toString() }))
-                append("\" id=\"")
-                append(skill.id)
+                append(escapeXmlAttribute(skill.name))
                 appendLine("\">")
                 appendLine(content)
                 appendLine("</skill>")

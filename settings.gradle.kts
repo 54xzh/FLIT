@@ -26,7 +26,6 @@ pluginManagement {
                 "com.google.gms.google-services" -> useModule("com.google.gms:google-services:${requested.version}")
                 "com.google.firebase.crashlytics" -> useModule("com.google.firebase:firebase-crashlytics-gradle:${requested.version}")
                 "androidx.baselineprofile" -> useModule("androidx.baselineprofile:androidx.baselineprofile.gradle.plugin:${requested.version}")
-                "com.chaquo.python" -> useModule("com.chaquo.python:gradle:${requested.version}")
                 "io.objectbox" -> useModule("io.objectbox:objectbox-gradle-plugin:${requested.version}")
             }
         }

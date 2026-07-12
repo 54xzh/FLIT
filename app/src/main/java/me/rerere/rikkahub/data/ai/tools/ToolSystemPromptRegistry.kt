@@ -122,12 +122,6 @@ object ToolSystemPromptRegistry {
             ),
         ),
         ToolSystemPromptDefinition(
-            toolName = "run_skill_script",
-            group = ToolSystemPromptGroup.Skills,
-            defaultTemplate = RUN_SKILL_SCRIPT_SYSTEM_PROMPT_TEMPLATE,
-            variables = listOf(ToolSystemPromptVariable(SCRIPTABLE_SKILL_LIST_VARIABLE)),
-        ),
-        ToolSystemPromptDefinition(
             toolName = "workspace_list",
             group = ToolSystemPromptGroup.Workspace,
             defaultTemplate = workspaceToolSystemPromptTemplate(
@@ -182,12 +176,6 @@ object ToolSystemPromptRegistry {
             variables = listOf(ToolSystemPromptVariable(WORKSPACE_COMMON_RULES_VARIABLE)),
         ),
         ToolSystemPromptDefinition(
-            toolName = "eval_python",
-            group = ToolSystemPromptGroup.Workspace,
-            defaultTemplate = EVAL_PYTHON_SYSTEM_PROMPT_TEMPLATE,
-            variables = listOf(ToolSystemPromptVariable(WORKSPACE_COMMON_RULES_VARIABLE)),
-        ),
-        ToolSystemPromptDefinition(
             toolName = SCHEDULED_TASKS_MANAGEMENT_TOOL_NAME,
             group = ToolSystemPromptGroup.ScheduledTasks,
             defaultTemplate = SCHEDULED_TASK_SYSTEM_PROMPT_TEMPLATE,
@@ -228,7 +216,6 @@ const val MEMORY_CONTEXT_VARIABLE = "memory_context"
 const val SESSION_MEMORY_CONTEXT_VARIABLE = "session_memory_context"
 const val SKILL_LIST_VARIABLE = "skill_list"
 const val SKILL_NOTE_VARIABLE = "skill_note"
-const val SCRIPTABLE_SKILL_LIST_VARIABLE = "scriptable_skill_list"
 const val WORKSPACE_COMMON_RULES_VARIABLE = "workspace_common_rules"
 
 val MEMORY_MANAGEMENT_AFFECTED_TOOL_NAMES = listOf(
@@ -438,19 +425,6 @@ val READ_SKILL_FILE_SYSTEM_PROMPT_TEMPLATE = """
     - Never invent skill contents; use this tool to read files.
 """.trimIndent()
 
-val RUN_SKILL_SCRIPT_SYSTEM_PROMPT_TEMPLATE = """
-    ## tool: run_skill_script
-
-    ### rules
-    - `skill_name` MUST be a skill marked `[script]` in the skills list (or pass `skill_id`).
-    - `skill_name` is a Skill package name, NOT a workspace path. Do NOT use placeholders like "." or "/".
-    - The script path must be under `scripts/` and end with `.py`.
-    - Requires a user-authorized workspace folder.
-    - Scripts run with the working directory set to the current conversation's workspace folder.
-    - Prefer reading SKILL.md / script source via `read_skill_file` before running.
-    - If the script is CLI-style (no run(input)), pass `argv` (e.g., ["--help"]) to run it.
-""".trimIndent()
-
 val WORKSPACE_COMMON_RULES_PROMPT = """
     ## workspace tools (common rules)
 
@@ -521,20 +495,6 @@ fun workspaceToolSystemPromptTemplate(
         }
     }.trimEnd()
 }
-
-val EVAL_PYTHON_SYSTEM_PROMPT_TEMPLATE = """
-    {{workspace_common_rules}}
-
-    ## tool: eval_python
-
-    ### execution
-    - The Python code runs locally via Chaquopy.
-    - Requires a user-authorized workspace folder.
-    - The working directory is the current conversation workspace directory.
-    - Prefer a `run(input: dict)` entrypoint and return JSON-serializable data.
-    - Use print() for logs; stdout/stderr will be returned.
-    - Avoid network access and avoid reading/writing files unless explicitly requested by the user.
-""".trimIndent()
 
 fun renderToolSystemPromptTemplate(
     template: String,

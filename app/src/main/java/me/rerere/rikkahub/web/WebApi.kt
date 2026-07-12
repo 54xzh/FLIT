@@ -473,12 +473,12 @@ private fun Route.webRoutes(
 
         post("/{id}/skills") {
             val conversationId = call.parameters["id"].toUuid("conversation id")
-            val request = call.receive<UpdateConversationSkillsRequest>()
+            val request = call.receive<UpdateConversationModesRequest>()
             val settings = settingsStore.settingsFlow.value
             val validModeIds = settings.modes.map { it.id }.toSet()
-            val requestedModeIds = request.skillIds.map { it.toUuid("mode id") }.toSet()
+            val requestedModeIds = request.modeIds.map { it.toUuid("mode id") }.toSet()
             if (!validModeIds.containsAll(requestedModeIds)) {
-                throw BadRequestException("skillIds contains unknown mode id")
+                throw BadRequestException("modeIds contains unknown mode id")
             }
 
             val conversation = withContext(Dispatchers.IO) {
@@ -1120,7 +1120,7 @@ private fun ConversationDto.singleNodeDiffOrNull(current: ConversationDto): Node
     if (
         title != current.title ||
         isPinned != current.isPinned ||
-        enabledSkillIds != current.enabledSkillIds ||
+        enabledModeIds != current.enabledModeIds ||
         truncateIndex != current.truncateIndex ||
         chatSuggestions != current.chatSuggestions
     ) {

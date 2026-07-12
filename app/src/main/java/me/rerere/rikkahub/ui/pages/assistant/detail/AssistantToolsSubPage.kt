@@ -111,25 +111,6 @@ fun AssistantToolsSubPage(
                 }
             )
 
-            // Python Engine
-            SettingGroupItem(
-                title = stringResource(R.string.assistant_page_local_tools_python_engine_title),
-                subtitle = stringResource(R.string.assistant_page_local_tools_python_engine_desc),
-                trailing = {
-                    HapticSwitch(
-                        checked = assistant.localTools.contains(LocalToolOption.PythonEngine),
-                        onCheckedChange = { enabled ->
-                            val newLocalTools = if (enabled) {
-                                assistant.localTools + LocalToolOption.PythonEngine
-                            } else {
-                                assistant.localTools - LocalToolOption.PythonEngine
-                            }
-                            onUpdate(assistant.copy(localTools = newLocalTools))
-                        }
-                    )
-                }
-            )
-
             // Workspace Files
             SettingGroupItem(
                 title = stringResource(R.string.assistant_page_local_tools_workspace_files_title),
@@ -359,8 +340,8 @@ fun AssistantToolsSubPage(
                     val skillsInFolder = settings.skills.filter { it.folderId == folder.id }
                     if (skillsInFolder.isEmpty()) return@forEach
 
-                    val folderSkillIds = skillsInFolder.map { it.id }.toSet()
-                    val enabledCount = skillsInFolder.count { assistant.enabledSkillIds.contains(it.id) }
+                    val folderSkillNames = skillsInFolder.map { it.name }.toSet()
+                    val enabledCount = skillsInFolder.count { assistant.enabledSkills.contains(it.name) }
                     val folderEnabled = enabledCount > 0
 
                     Column {
@@ -400,12 +381,12 @@ fun AssistantToolsSubPage(
                                     HapticSwitch(
                                         checked = folderEnabled,
                                         onCheckedChange = { enabled ->
-                                            val newIds = if (enabled) {
-                                                assistant.enabledSkillIds + folderSkillIds
+                                            val newNames = if (enabled) {
+                                                assistant.enabledSkills + folderSkillNames
                                             } else {
-                                                assistant.enabledSkillIds - folderSkillIds
+                                                assistant.enabledSkills - folderSkillNames
                                             }
-                                            onUpdate(assistant.copy(enabledSkillIds = newIds))
+                                            onUpdate(assistant.copy(enabledSkills = newNames))
                                         }
                                     )
                                 }
@@ -428,7 +409,7 @@ fun AssistantToolsSubPage(
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 skillsInFolder.forEach { skill ->
-                                    val isEnabled = assistant.enabledSkillIds.contains(skill.id)
+                                    val isEnabled = assistant.enabledSkills.contains(skill.name)
                                     SettingGroupItem(
                                         title = skill.name.ifBlank { stringResource(R.string.skills_unnamed) },
                                         subtitle = skill.description.ifBlank { stringResource(R.string.skills_no_description) },
@@ -436,12 +417,12 @@ fun AssistantToolsSubPage(
                                             HapticSwitch(
                                                 checked = isEnabled,
                                                 onCheckedChange = { enabled ->
-                                                    val newIds = if (enabled) {
-                                                        assistant.enabledSkillIds + skill.id
+                                                    val newNames = if (enabled) {
+                                                        assistant.enabledSkills + skill.name
                                                     } else {
-                                                        assistant.enabledSkillIds - skill.id
+                                                        assistant.enabledSkills - skill.name
                                                     }
-                                                    onUpdate(assistant.copy(enabledSkillIds = newIds))
+                                                    onUpdate(assistant.copy(enabledSkills = newNames))
                                                 }
                                             )
                                         }
@@ -453,8 +434,8 @@ fun AssistantToolsSubPage(
                 }
 
                 if (ungroupedSkills.isNotEmpty()) {
-                    val folderSkillIds = ungroupedSkills.map { it.id }.toSet()
-                    val enabledCount = ungroupedSkills.count { assistant.enabledSkillIds.contains(it.id) }
+                    val folderSkillNames = ungroupedSkills.map { it.name }.toSet()
+                    val enabledCount = ungroupedSkills.count { assistant.enabledSkills.contains(it.name) }
                     val folderEnabled = enabledCount > 0
 
                     Column {
@@ -488,12 +469,12 @@ fun AssistantToolsSubPage(
                                     HapticSwitch(
                                         checked = folderEnabled,
                                         onCheckedChange = { enabled ->
-                                            val newIds = if (enabled) {
-                                                assistant.enabledSkillIds + folderSkillIds
+                                            val newNames = if (enabled) {
+                                                assistant.enabledSkills + folderSkillNames
                                             } else {
-                                                assistant.enabledSkillIds - folderSkillIds
+                                                assistant.enabledSkills - folderSkillNames
                                             }
-                                            onUpdate(assistant.copy(enabledSkillIds = newIds))
+                                            onUpdate(assistant.copy(enabledSkills = newNames))
                                         }
                                     )
                                 }
@@ -516,7 +497,7 @@ fun AssistantToolsSubPage(
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 ungroupedSkills.forEach { skill ->
-                                    val isEnabled = assistant.enabledSkillIds.contains(skill.id)
+                                    val isEnabled = assistant.enabledSkills.contains(skill.name)
                                     SettingGroupItem(
                                         title = skill.name.ifBlank { stringResource(R.string.skills_unnamed) },
                                         subtitle = skill.description.ifBlank { stringResource(R.string.skills_no_description) },
@@ -524,12 +505,12 @@ fun AssistantToolsSubPage(
                                             HapticSwitch(
                                                 checked = isEnabled,
                                                 onCheckedChange = { enabled ->
-                                                    val newIds = if (enabled) {
-                                                        assistant.enabledSkillIds + skill.id
+                                                    val newNames = if (enabled) {
+                                                        assistant.enabledSkills + skill.name
                                                     } else {
-                                                        assistant.enabledSkillIds - skill.id
+                                                        assistant.enabledSkills - skill.name
                                                     }
-                                                    onUpdate(assistant.copy(enabledSkillIds = newIds))
+                                                    onUpdate(assistant.copy(enabledSkills = newNames))
                                                 }
                                             )
                                         }

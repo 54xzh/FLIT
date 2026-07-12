@@ -71,6 +71,30 @@ class ConversationRepository(
         private const val INITIAL_LOAD_SIZE = 40
         private const val MAX_LOADED_MESSAGE_NODES_FOR_HUGE_CHAT = 320
         private val ISO_DATE_REGEX = Regex("\\d{4}-\\d{2}-\\d{2}")
+
+        /**
+         * 把 [raw]（`explicit_skill_context_ids` 列的 JSON 数组串）里不在 [validNames] 中的条目移除。
+         * 返回新的 JSON 数组串；无变化或解析失败时返回 null（表示该行无需更新）。
+         *
+         * 放 companion 便于单测直接调用（纯 JVM，不依赖 DAO / Android）。
+         */
+        internal fun rewriteSkillContextsColumnKeepValid(raw: String, validNames: Set<String>): String? {
+            val arr = runCatching {
+                kotlinx.serialization.json.Json.parseToJsonElement(raw) as? kotlinx.serialization.json.JsonArray
+            }.getOrNull() ?: return null
+            val kept = mutableListOf<String>()
+            var changed = false
+            for (el in arr) {
+                val s = el.jsonPrimitiveOrNull?.contentOrNull ?: continue
+                if (s in validNames) {
+                    kept.add(s)
+                } else {
+                    changed = true
+                }
+            }
+            if (!changed) return null
+            return JsonInstant.encodeToString(kept)
+        }
     }
 
     data class MessageNodeChunk(
@@ -353,7 +377,7 @@ class ConversationRepository(
             isPinned = conversation.isPinned,
             isConsolidated = conversation.isConsolidated,
             enabledModeIds = JsonInstant.encodeToString(conversation.enabledModeIds.map { it.toString() }),
-            explicitSkillContextIds = JsonInstant.encodeToString(conversation.explicitSkillContextIds.map { it.toString() }),
+            explicitSkillContextIds = JsonInstant.encodeToString(conversation.explicitSkillContexts.toList()),
             contextSummary = conversation.contextSummary.orEmpty(),
             contextSummaryUpToIndex = conversation.contextSummaryUpToIndex,
             lastPruneTime = conversation.lastPruneTime,
@@ -374,10 +398,8 @@ class ConversationRepository(
         } catch (_: Exception) {
             emptySet()
         }
-        val explicitSkillContextIds = try {
-            JsonInstant.decodeFromString<List<String>>(conversationEntity.explicitSkillContextIds)
-                .mapNotNull { value -> runCatching { Uuid.parse(value) }.getOrNull() }
-                .toSet()
+        val explicitSkillContexts = try {
+            JsonInstant.decodeFromString<List<String>>(conversationEntity.explicitSkillContextIds).toSet()
         } catch (_: Exception) {
             emptySet()
         }
@@ -400,7 +422,7 @@ class ConversationRepository(
             isPinned = conversationEntity.isPinned,
             isConsolidated = conversationEntity.isConsolidated,
             enabledModeIds = enabledModeIds,
-            explicitSkillContextIds = explicitSkillContextIds,
+            explicitSkillContexts = explicitSkillContexts,
             contextSummary = conversationEntity.contextSummary.takeIf { it.isNotBlank() },
             contextSummaryUpToIndex = conversationEntity.contextSummaryUpToIndex,
             lastPruneTime = conversationEntity.lastPruneTime,
@@ -875,6 +897,28 @@ class ConversationRepository(
                 )
             }
         }
+    }
+
+    /**
+     * 一致性检查：把所有会话的 [explicitSkillContexts] 里不在 [validNames] 中的引用移除。
+     *
+     * 用于删除技能 / 一致性检查时，清理会话侧残留的失效技能名引用（每条会话单独存了一份）。
+     * 直接走 DAO 的列读写，避免把整条会话解码再写回（nodes 等字段不动）。
+     *
+     * @return 实际改写的会话条数。
+     */
+    suspend fun removeInvalidSkillContexts(validNames: Set<String>): Int = withContext(Dispatchers.IO) {
+        if (validNames.isEmpty()) {
+            // 没有任何有效技能：所有会话的技能引用都是无效的，逐条写回空数组。
+        }
+        var changed = 0
+        val rows = runCatching { conversationDAO.getAllExplicitSkillContexts() }.getOrNull() ?: return@withContext 0
+        for (row in rows) {
+            val rewritten = rewriteSkillContextsColumnKeepValid(row.explicitSkillContextIds, validNames) ?: continue
+            runCatching { conversationDAO.updateExplicitSkillContexts(row.id, rewritten) }
+            changed += 1
+        }
+        changed
     }
 
     private fun conversationSummaryToConversation(entity: LightConversationEntity): Conversation {

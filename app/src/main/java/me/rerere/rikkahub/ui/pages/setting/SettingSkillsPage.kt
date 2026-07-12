@@ -51,7 +51,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -76,6 +75,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.files.SkillPaths
 import me.rerere.rikkahub.data.model.Skill
 import me.rerere.rikkahub.data.model.SkillFolder
 import me.rerere.rikkahub.ui.components.nav.BackButton
@@ -89,12 +89,14 @@ import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.SkillZipImport
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 import java.io.File
 import kotlin.uuid.Uuid
 
 @Composable
 fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val conversationRepository = koinInject<me.rerere.rikkahub.data.repository.ConversationRepository>()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -103,7 +105,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
 
     var deletingSkill by remember { mutableStateOf<Skill?>(null) }
     var isSelectionMode by remember { mutableStateOf(false) }
-    var selectedSkillIds by remember { mutableStateOf<Set<Uuid>>(emptySet()) }
+    var selectedSkillNames by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedFolderIds by remember { mutableStateOf<Set<Uuid>>(emptySet()) }
 
     var expandedFolderIds by remember { mutableStateOf<Set<Uuid>>(emptySet()) }
@@ -117,14 +119,16 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
     var renamingFolder by remember { mutableStateOf<SkillFolder?>(null) }
     var renameFolderName by remember { mutableStateOf("") }
 
-    var skillHasScriptsById by remember { mutableStateOf<Map<Uuid, Boolean>>(emptyMap()) }
-
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            when (val result = SkillZipImport.importFromUri(context, uri)) {
+            when (val result = SkillZipImport.importFromUri(
+                context = context,
+                uri = uri,
+                existingSkillNames = settings.skills.map { it.name }.toSet(),
+            )) {
                 is SkillZipImport.ImportResult.Success -> {
                     vm.updateSettings { old ->
                         val installed = result.skills
@@ -172,19 +176,25 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
 
     fun exitSelectionMode() {
         isSelectionMode = false
-        selectedSkillIds = emptySet()
+        selectedSkillNames = emptySet()
         selectedFolderIds = emptySet()
     }
 
-    fun deleteSelectedItems(skillIds: Set<Uuid>, folderIds: Set<Uuid>) {
-        if (skillIds.isEmpty() && folderIds.isEmpty()) return
+    fun deleteSelectedItems(skillNames: Set<String>, folderIds: Set<Uuid>) {
+        if (skillNames.isEmpty() && folderIds.isEmpty()) return
         scope.launch {
+            // 删除后剩余的有效技能名，用于清理会话侧失效引用（每条会话单独存了一份 explicitSkillContexts）。
+            val remainingSkillNames = settings.skills
+                .filter { it.name !in skillNames }
+                .map { it.name }
+                .toSet()
+
             // 1) Update settings first (so UI/assistant state is consistent immediately).
             vm.updateSettings { old ->
-                val deletedSkills = old.skills.filter { it.id in skillIds }
+                val deletedSkills = old.skills.filter { it.name in skillNames }
                 val affectedFolderIds = deletedSkills.mapNotNull { it.folderId }.toSet()
 
-                var remainingSkills = old.skills.filter { it.id !in skillIds }
+                var remainingSkills = old.skills.filter { it.name !in skillNames }
 
                 // Safety: in case a folder got deleted while still referenced.
                 if (folderIds.isNotEmpty()) {
@@ -202,37 +212,43 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                     skillFolders = cleanedFolders,
                     skills = remainingSkills,
                     assistants = old.assistants.map { assistant ->
-                        assistant.copy(enabledSkillIds = assistant.enabledSkillIds - skillIds)
+                        assistant.copy(enabledSkills = assistant.enabledSkills - skillNames)
                     },
                 )
             }
 
             // 2) Remove files on IO dispatcher.
             withContext(Dispatchers.IO) {
-                skillIds.forEach { id ->
+                val skillsRoot = File(context.filesDir, "skills")
+                skillNames.forEach { name ->
                     runCatching {
-                        File(context.filesDir, "skills/$id").deleteRecursively()
+                        SkillPaths.resolveSkillDir(skillsRoot, name)?.deleteRecursively()
                     }
                 }
+
+                // 3) 清理会话侧被删技能的失效引用（一致性保护：会话存的 explicitSkillContexts 不会随 settings 自动更新）。
+                runCatching {
+                    conversationRepository.removeInvalidSkillContexts(remainingSkillNames)
+                }.getOrNull()
             }
         }
     }
 
     fun deleteSkill(skill: Skill) {
-        deleteSelectedItems(skillIds = setOf(skill.id), folderIds = emptySet())
+        deleteSelectedItems(skillNames = setOf(skill.name), folderIds = emptySet())
     }
 
-    fun deleteSkills(skillIds: Set<Uuid>) {
-        deleteSelectedItems(skillIds = skillIds, folderIds = emptySet())
+    fun deleteSkills(skillNames: Set<String>) {
+        deleteSelectedItems(skillNames = skillNames, folderIds = emptySet())
     }
 
-    fun moveSkills(skillIds: Set<Uuid>, folderId: Uuid?) {
-        if (skillIds.isEmpty()) return
+    fun moveSkills(skillNames: Set<String>, folderId: Uuid?) {
+        if (skillNames.isEmpty()) return
         scope.launch {
             vm.updateSettings { old ->
                 old.copy(
                     skills = old.skills.map { skill ->
-                        if (skill.id in skillIds) skill.copy(folderId = folderId) else skill
+                        if (skill.name in skillNames) skill.copy(folderId = folderId) else skill
                     }
                 )
             }
@@ -248,11 +264,11 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
     }
 
     LaunchedEffect(settings.skills, settings.skillFolders) {
-        if (selectedSkillIds.isNotEmpty()) {
-            val validIds = settings.skills.map { it.id }.toSet()
-            val cleaned = selectedSkillIds.intersect(validIds)
-            if (cleaned != selectedSkillIds) {
-                selectedSkillIds = cleaned
+        if (selectedSkillNames.isNotEmpty()) {
+            val validNames = settings.skills.map { it.name }.toSet()
+            val cleaned = selectedSkillNames.intersect(validNames)
+            if (cleaned != selectedSkillNames) {
+                selectedSkillNames = cleaned
             }
         }
 
@@ -278,20 +294,6 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
         }
     }
 
-    LaunchedEffect(settings.skills) {
-        val ids = settings.skills.map { it.id }
-        skillHasScriptsById = withContext(Dispatchers.IO) {
-            ids.associateWith { id ->
-                runCatching {
-                    val scriptsDir = File(context.filesDir, "skills/$id/scripts")
-                    scriptsDir.isDirectory && scriptsDir.walkTopDown().any { file ->
-                        file.isFile && file.extension.equals("py", ignoreCase = true)
-                    }
-                }.getOrDefault(false)
-            }
-        }
-    }
-
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -299,7 +301,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                 title = when {
                     isSelectionMode -> stringResource(
                         R.string.skills_selected_count,
-                        selectedSkillIds.size + selectedFolderIds.size
+                        selectedSkillNames.size + selectedFolderIds.size
                     )
                     else -> stringResource(R.string.skills_page_title)
                 },
@@ -317,23 +319,23 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                 },
                 actions = {
                     if (isSelectionMode) {
-                        val allSkillIds = settings.skills.map { it.id }.toSet()
+                        val allSkillNames = settings.skills.map { it.name }.toSet()
                         val emptyFolderIds = settings.skillFolders
                             .filter { folder -> settings.skills.none { it.folderId == folder.id } }
                             .map { it.id }
                             .toSet()
 
-                        val allSelected = (allSkillIds.isNotEmpty() || emptyFolderIds.isNotEmpty()) &&
-                            selectedSkillIds.containsAll(allSkillIds) &&
+                        val allSelected = (allSkillNames.isNotEmpty() || emptyFolderIds.isNotEmpty()) &&
+                            selectedSkillNames.containsAll(allSkillNames) &&
                             selectedFolderIds.containsAll(emptyFolderIds)
 
                         HapticIconButton(
                             onClick = {
                                 if (allSelected) {
-                                    selectedSkillIds = emptySet()
+                                    selectedSkillNames = emptySet()
                                     selectedFolderIds = emptySet()
                                 } else {
-                                    selectedSkillIds = allSkillIds
+                                    selectedSkillNames = allSkillNames
                                     selectedFolderIds = emptyFolderIds
                                 }
                             }
@@ -354,7 +356,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                             onClick = {
                                 if (settings.skills.isNotEmpty() || settings.skillFolders.isNotEmpty()) {
                                     isSelectionMode = true
-                                    selectedSkillIds = emptySet()
+                                    selectedSkillNames = emptySet()
                                     selectedFolderIds = emptySet()
                                 }
                             }
@@ -380,8 +382,8 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
         },
         bottomBar = {
             if (isSelectionMode) {
-                val selectedCount = selectedSkillIds.size + selectedFolderIds.size
-                val hasSkillSelection = selectedSkillIds.isNotEmpty()
+                val selectedCount = selectedSkillNames.size + selectedFolderIds.size
+                val hasSkillSelection = selectedSkillNames.isNotEmpty()
                 val hasAnySelection = selectedCount > 0
                 BottomAppBar {
                     Text(
@@ -499,7 +501,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                                 val isFolderSelected = if (skillsInFolder.isEmpty()) {
                                     selectedFolderIds.contains(folder.id)
                                 } else {
-                                    skillsInFolder.all { selectedSkillIds.contains(it.id) }
+                                    skillsInFolder.all { selectedSkillNames.contains(it.name) }
                                 }
 
                                 ListSelectableItem(
@@ -512,11 +514,11 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                                                 selectedFolderIds - folder.id
                                             }
                                         } else {
-                                            val ids = skillsInFolder.map { it.id }.toSet()
-                                            selectedSkillIds = if (selected) {
-                                                selectedSkillIds + ids
+                                            val names = skillsInFolder.map { it.name }.toSet()
+                                            selectedSkillNames = if (selected) {
+                                                selectedSkillNames + names
                                             } else {
-                                                selectedSkillIds - ids
+                                                selectedSkillNames - names
                                             }
                                         }
                                     },
@@ -571,31 +573,15 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                                                 skill = skill,
                                                 position = position,
                                                 isSelectionMode = isSelectionMode,
-                                                isSelected = selectedSkillIds.contains(skill.id),
+                                                isSelected = selectedSkillNames.contains(skill.name),
                                                 onToggleSelected = { selected ->
-                                                    selectedSkillIds = if (selected) {
-                                                        selectedSkillIds + skill.id
+                                                    selectedSkillNames = if (selected) {
+                                                        selectedSkillNames + skill.name
                                                     } else {
-                                                        selectedSkillIds - skill.id
+                                                        selectedSkillNames - skill.name
                                                     }
                                                 },
                                                 onRequestDelete = { deletingSkill = skill },
-                                                scriptEnabled = settings.enabledSkillScriptIds.contains(skill.id),
-                                                scriptToggleEnabled = settings.enableSkillScriptExecution,
-                                                onToggleScriptEnabled = if (skillHasScriptsById[skill.id] == true) {
-                                                    { enabled ->
-                                                        vm.updateSettings { old ->
-                                                            val updated = if (enabled) {
-                                                                old.enabledSkillScriptIds + skill.id
-                                                            } else {
-                                                                old.enabledSkillScriptIds - skill.id
-                                                            }
-                                                            old.copy(enabledSkillScriptIds = updated)
-                                                        }
-                                                    }
-                                                } else {
-                                                    null
-                                                },
                                             )
                                         }
                                     }
@@ -616,15 +602,15 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                     item(key = "folder_group_ungrouped") {
                         Column {
                             if (isSelectionMode) {
-                                val isGroupSelected = ungroupedSkills.all { selectedSkillIds.contains(it.id) }
+                                val isGroupSelected = ungroupedSkills.all { selectedSkillNames.contains(it.name) }
                                 ListSelectableItem(
                                     isSelected = isGroupSelected,
                                     onSelectChange = { selected ->
-                                        val ids = ungroupedSkills.map { it.id }.toSet()
-                                        selectedSkillIds = if (selected) {
-                                            selectedSkillIds + ids
+                                        val names = ungroupedSkills.map { it.name }.toSet()
+                                        selectedSkillNames = if (selected) {
+                                            selectedSkillNames + names
                                         } else {
-                                            selectedSkillIds - ids
+                                            selectedSkillNames - names
                                         }
                                     }
                                 ) {
@@ -672,31 +658,15 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                                             skill = skill,
                                             position = position,
                                             isSelectionMode = isSelectionMode,
-                                            isSelected = selectedSkillIds.contains(skill.id),
+                                            isSelected = selectedSkillNames.contains(skill.name),
                                             onToggleSelected = { selected ->
-                                                selectedSkillIds = if (selected) {
-                                                    selectedSkillIds + skill.id
+                                                selectedSkillNames = if (selected) {
+                                                    selectedSkillNames + skill.name
                                                 } else {
-                                                    selectedSkillIds - skill.id
+                                                    selectedSkillNames - skill.name
                                                 }
                                             },
                                             onRequestDelete = { deletingSkill = skill },
-                                            scriptEnabled = settings.enabledSkillScriptIds.contains(skill.id),
-                                            scriptToggleEnabled = settings.enableSkillScriptExecution,
-                                            onToggleScriptEnabled = if (skillHasScriptsById[skill.id] == true) {
-                                                { enabled ->
-                                                    vm.updateSettings { old ->
-                                                        val updated = if (enabled) {
-                                                            old.enabledSkillScriptIds + skill.id
-                                                        } else {
-                                                            old.enabledSkillScriptIds - skill.id
-                                                        }
-                                                        old.copy(enabledSkillScriptIds = updated)
-                                                    }
-                                                }
-                                            } else {
-                                                null
-                                            },
                                         )
                                     }
                                 }
@@ -711,7 +681,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { deletingSkill = null },
                 title = { Text(stringResource(R.string.skills_delete_title)) },
-                text = { Text(stringResource(R.string.skills_delete_desc, skill.name.ifBlank { skill.id.toString() })) },
+                text = { Text(stringResource(R.string.skills_delete_desc, skill.name)) },
                 confirmButton = {
                     androidx.compose.material3.TextButton(
                         onClick = {
@@ -732,16 +702,16 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
         if (showBatchDeleteDialog) {
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showBatchDeleteDialog = false },
-                title = { Text(stringResource(R.string.skills_delete_multiple_title, selectedSkillIds.size + selectedFolderIds.size)) },
-                text = { Text(stringResource(R.string.skills_delete_multiple_desc, selectedSkillIds.size + selectedFolderIds.size)) },
+                title = { Text(stringResource(R.string.skills_delete_multiple_title, selectedSkillNames.size + selectedFolderIds.size)) },
+                text = { Text(stringResource(R.string.skills_delete_multiple_desc, selectedSkillNames.size + selectedFolderIds.size)) },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            val skillIds = selectedSkillIds
+                            val skillNames = selectedSkillNames
                             val folderIds = selectedFolderIds
                             showBatchDeleteDialog = false
                             exitSelectionMode()
-                            deleteSelectedItems(skillIds = skillIds, folderIds = folderIds)
+                            deleteSelectedItems(skillNames = skillNames, folderIds = folderIds)
                         }
                     ) { Text(stringResource(R.string.delete)) }
                 },
@@ -890,7 +860,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                         SettingSheetItem(
                             title = stringResource(R.string.skills_folder_ungrouped),
                             onClick = {
-                                val ids = selectedSkillIds
+                                val ids = selectedSkillNames
                                 showMoveSheet = false
                                 exitSelectionMode()
                                 moveSkills(ids, folderId = null)
@@ -900,7 +870,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                             SettingSheetItem(
                                 title = folder.name.ifBlank { stringResource(R.string.skills_folder_unnamed) },
                                 onClick = {
-                                    val ids = selectedSkillIds
+                                    val ids = selectedSkillNames
                                     showMoveSheet = false
                                     exitSelectionMode()
                                     moveSkills(ids, folderId = folder.id)
@@ -923,9 +893,6 @@ private fun SkillRow(
     isSelected: Boolean,
     onToggleSelected: (Boolean) -> Unit,
     onRequestDelete: () -> Unit,
-    scriptEnabled: Boolean,
-    scriptToggleEnabled: Boolean,
-    onToggleScriptEnabled: ((Boolean) -> Unit)?,
 ) {
     if (isSelectionMode) {
         ListSelectableItem(
@@ -935,9 +902,6 @@ private fun SkillRow(
         ) {
             SkillRowContent(
                 skill = skill,
-                scriptEnabled = scriptEnabled,
-                scriptToggleEnabled = false,
-                onToggleScriptEnabled = null,
             )
         }
         return
@@ -952,9 +916,6 @@ private fun SkillRow(
         SkillCard(
             skill = skill,
             position = position,
-            scriptEnabled = scriptEnabled,
-            scriptToggleEnabled = scriptToggleEnabled,
-            onToggleScriptEnabled = onToggleScriptEnabled,
         )
     }
 }
@@ -962,11 +923,7 @@ private fun SkillRow(
 @Composable
 private fun SkillRowContent(
     skill: Skill,
-    scriptEnabled: Boolean,
-    scriptToggleEnabled: Boolean,
-    onToggleScriptEnabled: ((Boolean) -> Unit)?,
 ) {
-    val haptics = rememberPremiumHaptics()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -983,33 +940,6 @@ private fun SkillRowContent(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Text(
-            text = skill.id.toString(),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
-        )
-
-        if (onToggleScriptEnabled != null) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = stringResource(R.string.skill_scripts_skill_toggle_label),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Switch(
-                    checked = scriptEnabled,
-                    onCheckedChange = { checked ->
-                        haptics.perform(HapticPattern.Pop)
-                        onToggleScriptEnabled(checked)
-                    },
-                    enabled = scriptToggleEnabled,
-                )
-            }
-        }
     }
 }
 
@@ -1017,9 +947,6 @@ private fun SkillRowContent(
 private fun SkillCard(
     skill: Skill,
     position: ItemPosition,
-    scriptEnabled: Boolean,
-    scriptToggleEnabled: Boolean,
-    onToggleScriptEnabled: ((Boolean) -> Unit)?,
 ) {
     val cornerRadius = 28.dp
     val smallCorner = 8.dp
@@ -1044,9 +971,6 @@ private fun SkillCard(
     ) {
         SkillRowContent(
             skill = skill,
-            scriptEnabled = scriptEnabled,
-            scriptToggleEnabled = scriptToggleEnabled,
-            onToggleScriptEnabled = onToggleScriptEnabled,
         )
     }
 }

@@ -94,16 +94,12 @@ import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_CONTEXT_SUMMARY_PROMPT
 import me.rerere.rikkahub.data.ai.rag.EmbeddingService
 import me.rerere.rikkahub.data.ai.tools.ASK_USER_SYSTEM_PROMPT_TEMPLATE
-import me.rerere.rikkahub.data.ai.tools.EVAL_PYTHON_SYSTEM_PROMPT_TEMPLATE
 import me.rerere.rikkahub.data.ai.tools.LorebookTools
 import me.rerere.rikkahub.data.ai.tools.LocalToolOption
 import me.rerere.rikkahub.data.ai.tools.LocalTools
-import me.rerere.rikkahub.data.ai.tools.RUN_SKILL_SCRIPT_SYSTEM_PROMPT_TEMPLATE
-import me.rerere.rikkahub.data.ai.tools.SCRIPTABLE_SKILL_LIST_VARIABLE
 import me.rerere.rikkahub.data.ai.tools.SearchAgentProgressStore
 import me.rerere.rikkahub.data.ai.tools.SearchAgentTools
 import me.rerere.rikkahub.data.ai.tools.createSandboxWorkspaceTools
-import me.rerere.rikkahub.data.ai.tools.SkillScriptRunner
 import me.rerere.rikkahub.data.ai.tools.WORKSPACE_COMMON_RULES_PROMPT
 import me.rerere.rikkahub.data.ai.tools.WORKSPACE_COMMON_RULES_VARIABLE
 import me.rerere.rikkahub.data.ai.tools.renderToolSystemPromptTemplate
@@ -264,8 +260,6 @@ class ChatService(
 
     private val keepAliveActiveGenerationCount = AtomicInteger(0)
 
-    private val skillScriptRunner by lazy { SkillScriptRunner(context) }
-    private val skillScriptMutexes = ConcurrentHashMap<Uuid, Mutex>()
     private val olderHistoryLoadMutexes = ConcurrentHashMap<Uuid, Mutex>()
 
     private val toolApprovalEarlyResponses = ConcurrentHashMap<String, Boolean>()
@@ -2206,28 +2200,9 @@ class ChatService(
                             null -> Unit
                         }
                     }
-                    if (assistant.localTools.contains(LocalToolOption.PythonEngine) && boundWorkspace?.type != WorkspaceType.SANDBOX) {
-                        add(
-                            createWorkspacePythonTool(
-                                assistant = assistant,
-                                conversationId = conversation.id,
-                                settingsSnapshot = settings,
-                                includeCommonRules = !hasWorkspaceFiles,
-                            )
-                        )
-                    }
-
-                    val enabledSkills = settings.skills.filter { skill -> skill.id in assistant.enabledSkillIds }
+                    val enabledSkills = settings.skills.filter { skill -> skill.name in assistant.enabledSkills }
                     if (enabledSkills.isNotEmpty()) {
-                        val scriptableSkills = if (settings.enableSkillScriptExecution && boundWorkspace?.type != WorkspaceType.SANDBOX) {
-                            enabledSkills.filter { skill -> skill.id in settings.enabledSkillScriptIds }
-                        } else {
-                            emptyList()
-                        }
-                        add(localTools.createSkillFileTool(enabledSkills, scriptableSkills))
-                        if (scriptableSkills.isNotEmpty()) {
-                            add(createSkillScriptTool(assistant = assistant, conversationId = conversation.id, allowedSkills = scriptableSkills))
-                        }
+                        add(localTools.createSkillFileTool(enabledSkills))
                     }
                     mcpManager.getAllAvailableTools().forEach { tool ->
                         add(
@@ -2248,7 +2223,7 @@ class ChatService(
                 },
                 truncateIndex = conversation.truncateIndex,
                 enabledModeIds = conversation.enabledModeIds,
-                explicitSkillContextIds = conversation.explicitSkillContextIds,
+                explicitSkillContexts = conversation.explicitSkillContexts,
                 source = AIRequestSource.CHAT,
                 toolApprovalHandler = ToolApprovalHandler { request -> awaitToolApproval(request) },
                 askUserHandler = AskUserHandler { request -> awaitAskUserResponse(request.conversationId, request.toolCallId) },
@@ -2761,28 +2736,9 @@ class ChatService(
                         )
                     )
                 }
-                if (seatAssistant.localTools.contains(LocalToolOption.PythonEngine) && boundWorkspace?.type != WorkspaceType.SANDBOX) {
-                    add(
-                        createWorkspacePythonTool(
-                            assistant = seatAssistant,
-                            conversationId = conversation.id,
-                            settingsSnapshot = settings,
-                            includeCommonRules = !hasWorkspaceFiles,
-                        )
-                    )
-                }
-
-                val enabledSkills = settings.skills.filter { skill -> skill.id in seatAssistant.enabledSkillIds }
+                val enabledSkills = settings.skills.filter { skill -> skill.name in seatAssistant.enabledSkills }
                 if (enabledSkills.isNotEmpty()) {
-                    val scriptableSkills = if (settings.enableSkillScriptExecution && boundWorkspace?.type != WorkspaceType.SANDBOX) {
-                        enabledSkills.filter { skill -> skill.id in settings.enabledSkillScriptIds }
-                    } else {
-                        emptyList()
-                    }
-                    add(localTools.createSkillFileTool(enabledSkills, scriptableSkills))
-                    if (scriptableSkills.isNotEmpty()) {
-                        add(createSkillScriptTool(assistant = seatAssistant, conversationId = conversation.id, allowedSkills = scriptableSkills))
-                    }
+                    add(localTools.createSkillFileTool(enabledSkills))
                     if (seatAssistant.localTools.contains(LocalToolOption.GetCurrentTime)) {
                         add(localTools.currentTimeTool)
                     }
@@ -2922,7 +2878,7 @@ class ChatService(
                 outputTransformers = outputTransformers,
                 truncateIndex = conversation.truncateIndex,
                 enabledModeIds = conversation.enabledModeIds,
-                explicitSkillContextIds = conversation.explicitSkillContextIds,
+                explicitSkillContexts = conversation.explicitSkillContexts,
                 maxSteps = seatMaxSteps,
                 source = AIRequestSource.CHAT,
                 toolApprovalHandler = ToolApprovalHandler { request -> awaitToolApproval(request) },
@@ -3735,537 +3691,6 @@ class ChatService(
         return trimmed.substring(start, end + 1)
     }
 
-    private suspend fun createSkillScriptTool(
-        assistant: Assistant,
-        conversationId: Uuid,
-        allowedSkills: List<Skill>,
-    ): Tool {
-        val requiresApproval = toolNeedsApproval(assistant, "skill_script_execute")
-        val allowedSkillIds = allowedSkills.map { it.id.toString() }.toSet()
-        val allowedSkillsById = allowedSkills.associateBy { it.id.toString() }
-        val allowedSkillsByName = allowedSkills.groupBy { it.name.trim().lowercase(Locale.ROOT) }
-        val promptVariables = mapOf(
-            SCRIPTABLE_SKILL_LIST_VARIABLE to allowedSkills.joinToString(separator = "\n") { skill ->
-                buildString {
-                    append("- ")
-                    append(skill.name)
-                    append(" | id: ")
-                    append(skill.id.toString())
-                    if (skill.description.isNotBlank()) {
-                        append(" | desc: ")
-                        append(skill.description.replace('\n', ' ').trim())
-                    }
-                }
-            }
-        )
-
-        return Tool(
-            name = "run_skill_script",
-            description = "Run a Python script from an installed Skill package.",
-            parameters = {
-                InputSchema.Obj(
-                    properties = buildJsonObject {
-                        put("skill_name", buildJsonObject {
-                            put("type", "string")
-                            put("description", "Skill name from the available skills list (preferred). If duplicated, also pass skill_id to disambiguate.")
-                        })
-                        put("skill_id", buildJsonObject {
-                            put("type", "string")
-                            put("description", "Skill id (UUID) from the available skills list (for disambiguation / backward compatibility)")
-                        })
-                        put("path", buildJsonObject {
-                            put("type", "string")
-                            put("description", "Relative script path inside the skill folder (must start with scripts/ and end with .py)")
-                        })
-                        put("input", buildJsonObject {
-                            put("type", "object")
-                            put("description", "Input object passed to the script's run(input: dict) function (default: {}). For CLI-style scripts, use `argv` instead.")
-                        })
-                        put("argv", buildJsonObject {
-                            put("type", "array")
-                            put("items", buildJsonObject { put("type", "string") })
-                            put("description", "Optional argv list for CLI-style scripts (when the script has no run(input)). Example: [\"--help\"]")
-                        })
-                        put("timeout_ms", buildJsonObject {
-                            put("type", "integer")
-                            put("description", "Execution timeout in milliseconds (default: 60000, max: 300000)")
-                        })
-                        put("max_stdout_chars", buildJsonObject {
-                            put("type", "integer")
-                            put("description", "Maximum stdout characters to return (default: 20000, max: 200000)")
-                        })
-                        put("max_stderr_chars", buildJsonObject {
-                            put("type", "integer")
-                            put("description", "Maximum stderr characters to return (default: 20000, max: 200000)")
-                        })
-                    },
-                    required = listOf("skill_name", "path"),
-                )
-            },
-            systemPrompt = { _, _ ->
-                if (allowedSkills.isEmpty()) return@Tool ""
-                renderToolSystemPromptTemplate(
-                    template = RUN_SKILL_SCRIPT_SYSTEM_PROMPT_TEMPLATE,
-                    variables = promptVariables,
-                )
-            },
-            systemPromptVariables = { _, _ -> promptVariables },
-            execute = { args ->
-                val obj = args.jsonObject
-                val skillNameRaw = parseWorkspaceToolString(obj, "skill_name", "skillName", "skill")
-                val skillIdRaw = parseWorkspaceToolString(obj, "skill_id", "skillId")
-
-                fun skillToolAllowedListJson(): JsonArray {
-                    return buildJsonArray {
-                        allowedSkills.forEach { skill ->
-                            add(buildJsonObject {
-                                put("id", skill.id.toString())
-                                put("name", skill.name)
-                            })
-                        }
-                    }
-                }
-
-                val resolvedSkill = when {
-                    !skillIdRaw.isNullOrBlank() -> {
-                        if (skillIdRaw !in allowedSkillIds) {
-                            return@Tool buildJsonObject {
-                                put("ok", false)
-                                put("error", "Skill not allowed: $skillIdRaw")
-                                put("error_code", "skill_not_allowed")
-                                put("hint", "Set `skill_name` to a permitted skill name or pass a permitted `skill_id` from the allowed list.")
-                                put("allowed_skills", skillToolAllowedListJson())
-                            }
-                        }
-                        allowedSkillsById[skillIdRaw]
-                    }
-
-                    !skillNameRaw.isNullOrBlank() -> {
-                        val candidates = allowedSkillsByName[skillNameRaw.lowercase(Locale.ROOT)].orEmpty()
-                        when {
-                            candidates.isEmpty() -> {
-                                return@Tool buildJsonObject {
-                                    put("ok", false)
-                                    put("error", "Skill not allowed: $skillNameRaw")
-                                    put("error_code", "skill_not_allowed")
-                                    put("hint", "Set `skill_name` to one of the allowed skill names below (it is NOT a path), or pass `skill_id` instead.")
-                                    put("allowed_skills", skillToolAllowedListJson())
-                                }
-                            }
-
-                            candidates.size > 1 -> {
-                                return@Tool buildJsonObject {
-                                    put("ok", false)
-                                    put("error", "Ambiguous skill_name: $skillNameRaw")
-                                    put("error_code", "ambiguous_skill_name")
-                                    put("hint", "Pass `skill_id` to disambiguate.")
-                                    put("candidates", buildJsonArray {
-                                        candidates.forEach { skill ->
-                                            add(buildJsonObject {
-                                                put("id", skill.id.toString())
-                                                put("name", skill.name)
-                                            })
-                                        }
-                                    })
-                                }
-                            }
-
-                            else -> candidates.single()
-                        }
-                    }
-
-                    else -> null
-                }
-
-                if (resolvedSkill == null) {
-                    return@Tool buildJsonObject {
-                        put("ok", false)
-                        put("error", "Missing skill_name")
-                        put("error_code", "missing_skill_name")
-                        put("hint", "Set `skill_name` to one of the allowed skill names below, or pass `skill_id` instead.")
-                        put("allowed_skills", skillToolAllowedListJson())
-                    }
-                }
-
-                val scriptPathRaw = obj["path"]?.jsonPrimitiveOrNull?.contentOrNull?.trim().orEmpty()
-                val scriptRelativePath = SkillScriptPathUtils.normalizeAndValidateScriptPath(scriptPathRaw)
-                    ?: return@Tool buildJsonObject {
-                        put("ok", false)
-                        put("error", "Invalid script path")
-                    }
-
-                val inputElement = obj["input"]
-                val inputObject = when (inputElement) {
-                    null -> buildJsonObject {}
-                    is JsonObject -> inputElement
-                    else -> return@Tool buildJsonObject {
-                        put("ok", false)
-                        put("error", "Invalid input: expected object")
-                    }
-                }
-
-                val argvElement = obj["argv"]
-                val argv = when (argvElement) {
-                    null -> null
-                    is JsonArray -> {
-                        val parsed = argvElement.mapNotNull { it.jsonPrimitiveOrNull?.contentOrNull }
-                        if (parsed.size != argvElement.size) {
-                            return@Tool buildJsonObject {
-                                put("ok", false)
-                                put("error", "Invalid argv: expected array of strings")
-                            }
-                        }
-                        parsed
-                    }
-
-                    else -> return@Tool buildJsonObject {
-                        put("ok", false)
-                        put("error", "Invalid argv: expected array of strings")
-                    }
-                }
-
-                val timeoutMs = obj["timeout_ms"]?.jsonPrimitiveOrNull?.contentOrNull
-                    ?.toLongOrNull()
-                    ?.coerceIn(1_000, 300_000)
-                    ?: 60_000L
-                val maxStdoutChars = obj["max_stdout_chars"]?.jsonPrimitiveOrNull?.contentOrNull
-                    ?.toIntOrNull()
-                    ?.coerceIn(1, 200_000)
-                    ?: 20_000
-                val maxStderrChars = obj["max_stderr_chars"]?.jsonPrimitiveOrNull?.contentOrNull
-                    ?.toIntOrNull()
-                    ?.coerceIn(1, 200_000)
-                    ?: 20_000
-
-                val mutex = skillScriptMutexes.computeIfAbsent(conversationId) { Mutex() }
-                mutex.withLock {
-                    withContext(Dispatchers.IO) {
-                        val settingsSnapshot = settingsStore.settingsFlow.value
-                        if (!settingsSnapshot.enableSkillScriptExecution) {
-                            return@withContext buildJsonObject {
-                                put("ok", false)
-                                put("error", "Skill script execution is disabled in settings")
-                            }
-                        }
-                        if (resolvedSkill.id !in settingsSnapshot.enabledSkillScriptIds) {
-                            return@withContext buildJsonObject {
-                                put("ok", false)
-                                put("error", "Skill script execution not allowed for this skill")
-                            }
-                        }
-
-                        val skillId = resolvedSkill.id.toString()
-                        val skillRoot = File(context.filesDir, "skills/$skillId")
-                        val scriptFile = runCatching {
-                            val target = File(skillRoot, scriptRelativePath)
-                            val rootPath = skillRoot.canonicalFile.toPath()
-                            val filePath = target.canonicalFile.toPath()
-                            if (!filePath.startsWith(rootPath)) null else target
-                        }.getOrNull()
-                            ?: return@withContext buildJsonObject {
-                                put("ok", false)
-                                put("error", "Invalid script path")
-                            }
-
-                        val externalWorkDir = runCatching {
-                            resolveAssistantWorkspaceDir(assistant)
-                        }.getOrNull()
-                            ?: return@withContext buildJsonObject {
-                                put("ok", false)
-                                put("error", "Assistant has no workspace bound or workspace is not accessible")
-                            }
-
-                        val internalWorkDir = resolveAssistantWorkspaceInternalDir(assistant)
-                        val limits = WorkspaceSyncLimits()
-
-                        val syncIn = runCatching {
-                            WorkspaceSync.syncExternalToInternal(
-                                context = context,
-                                externalDir = externalWorkDir,
-                                internalDir = internalWorkDir,
-                                limits = limits,
-                            )
-                        }.getOrElse {
-                            return@withContext buildJsonObject {
-                                put("ok", false)
-                                put("error", "Failed to sync workspace in: ${it.message}")
-                            }
-                        }
-
-                        val mergedInputObject = if (argv == null) {
-                            inputObject
-                        } else {
-                            JsonObject(inputObject.toMutableMap().apply {
-                                put("argv", buildJsonArray { argv.forEach { add(JsonPrimitive(it)) } })
-                            })
-                        }
-
-                        val inputJson = mergedInputObject.toString()
-                        if (inputJson.length > 200_000) {
-                            return@withContext buildJsonObject {
-                                put("ok", false)
-                                put("error", "Input is too large")
-                            }
-                        }
-
-                        val scriptResult = skillScriptRunner.run(
-                            scriptFile = scriptFile,
-                            inputJson = inputJson,
-                            workDir = internalWorkDir,
-                            timeoutMs = timeoutMs,
-                            maxStdoutChars = maxStdoutChars,
-                            maxStderrChars = maxStderrChars,
-                        )
-
-                        val syncOut = runCatching {
-                            WorkspaceSync.syncInternalToExternal(
-                                context = context,
-                                internalDir = internalWorkDir,
-                                externalDir = externalWorkDir,
-                                limits = limits,
-                            )
-                        }.getOrElse {
-                            return@withContext buildJsonObject {
-                                put("ok", false)
-                                put("error", "Failed to sync workspace out: ${it.message}")
-                            }
-                        }
-
-                        val baseResult: MutableMap<String, JsonElement> =
-                            (scriptResult as? JsonObject)?.toMutableMap()
-                                ?: mutableMapOf<String, JsonElement>(
-                                    "ok" to JsonPrimitive(false),
-                                    "error" to JsonPrimitive("Invalid script output"),
-                                )
-                        baseResult["skill_id"] = JsonPrimitive(skillId)
-                        baseResult["skill_name"] = JsonPrimitive(resolvedSkill.name)
-                        baseResult["script_path"] = JsonPrimitive(scriptRelativePath)
-                        baseResult["workspace_id"] = JsonPrimitive(assistant.workspaceId)
-                        baseResult["sync"] = buildJsonObject {
-                            put("in_files", syncIn.filesCopied)
-                            put("in_bytes", syncIn.bytesCopied)
-                            put("in_skipped", syncIn.skippedFiles)
-                            put("out_files", syncOut.filesCopied)
-                            put("out_bytes", syncOut.bytesCopied)
-                            put("out_skipped", syncOut.skippedFiles)
-                        }
-                        JsonObject(baseResult)
-                    }
-                }
-            }
-        )
-    }
-
-    private suspend fun createWorkspacePythonTool(
-        assistant: Assistant,
-        conversationId: Uuid,
-        settingsSnapshot: Settings,
-        includeCommonRules: Boolean,
-    ): Tool {
-        val requiresApproval = toolNeedsApproval(assistant, "eval_python")
-        return Tool(
-            name = "eval_python",
-            description = "Execute Python code with Chaquopy.",
-            parameters = {
-                InputSchema.Obj(
-                    properties = buildJsonObject {
-                        put("code", buildJsonObject {
-                            put("type", "string")
-                            put("description", "Python code to execute. Prefer providing `def run(input: dict): ...` and returning a JSON-serializable result.")
-                        })
-                        put("input", buildJsonObject {
-                            put("type", "object")
-                            put("description", "Input object passed to the script's run(input: dict) function (default: {}). For CLI-style scripts, use `argv` instead.")
-                        })
-                        put("argv", buildJsonObject {
-                            put("type", "array")
-                            put("items", buildJsonObject { put("type", "string") })
-                            put("description", "Optional argv list for CLI-style scripts (when the script has no run(input)). Example: [\"--help\"]")
-                        })
-                        put("timeout_ms", buildJsonObject {
-                            put("type", "integer")
-                            put("description", "Execution timeout in milliseconds (default: 60000, max: 300000)")
-                        })
-                        put("max_stdout_chars", buildJsonObject {
-                            put("type", "integer")
-                            put("description", "Maximum stdout characters to return (default: 20000, max: 200000)")
-                        })
-                        put("max_stderr_chars", buildJsonObject {
-                            put("type", "integer")
-                            put("description", "Maximum stderr characters to return (default: 20000, max: 200000)")
-                        })
-                    },
-                    required = listOf("code"),
-                )
-            },
-            systemPrompt = { _, _ ->
-                renderToolSystemPromptTemplate(
-                    template = EVAL_PYTHON_SYSTEM_PROMPT_TEMPLATE,
-                    variables = workspaceToolPromptVariables(includeCommonRules),
-                )
-            },
-            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
-            requiresUserApproval = requiresApproval,
-            execute = { args ->
-                val obj = args.jsonObject
-
-                val rawCode = obj["code"]?.jsonPrimitiveOrNull?.contentOrNull
-                    ?.replace("\r", "")
-                    ?: return@Tool buildJsonObject {
-                        put("ok", false)
-                        put("error", "Missing code")
-                    }
-                val code = rawCode.trimEnd()
-                if (code.isBlank()) {
-                    return@Tool buildJsonObject {
-                        put("ok", false)
-                        put("error", "Code is empty")
-                    }
-                }
-                if (code.length > 200_000) {
-                    return@Tool buildJsonObject {
-                        put("ok", false)
-                        put("error", "Code is too large")
-                    }
-                }
-
-                val inputObject = (obj["input"] as? JsonObject) ?: buildJsonObject { }
-                val argv = (obj["argv"] as? JsonArray)
-                    ?.mapNotNull { it.jsonPrimitiveOrNull?.contentOrNull?.trim() }
-                    ?.filter { it.isNotBlank() }
-                    ?.takeIf { it.isNotEmpty() }
-
-                val timeoutMs = obj["timeout_ms"]?.jsonPrimitiveOrNull?.contentOrNull
-                    ?.toLongOrNull()
-                    ?.coerceIn(1_000, 300_000)
-                    ?: 60_000L
-                val maxStdoutChars = obj["max_stdout_chars"]?.jsonPrimitiveOrNull?.contentOrNull
-                    ?.toIntOrNull()
-                    ?.coerceIn(1, 200_000)
-                    ?: 20_000
-                val maxStderrChars = obj["max_stderr_chars"]?.jsonPrimitiveOrNull?.contentOrNull
-                    ?.toIntOrNull()
-                    ?.coerceIn(1, 200_000)
-                    ?: 20_000
-
-                val mergedInputObject = if (argv == null) {
-                    inputObject
-                } else {
-                    JsonObject(inputObject.toMutableMap().apply {
-                        put("argv", buildJsonArray { argv.forEach { add(JsonPrimitive(it)) } })
-                    })
-                }
-
-                val inputJson = mergedInputObject.toString()
-                if (inputJson.length > 200_000) {
-                    return@Tool buildJsonObject {
-                        put("ok", false)
-                        put("error", "Input is too large")
-                    }
-                }
-
-                val mutex = skillScriptMutexes.computeIfAbsent(conversationId) { Mutex() }
-                mutex.withLock {
-                    runCatching {
-                        withContext(Dispatchers.IO) {
-                            val externalWorkDir = runCatching {
-                                resolveAssistantWorkspaceDir(assistant = assistant)
-                            }.getOrElse {
-                                return@withContext buildJsonObject {
-                                    put("ok", false)
-                                    put("error", it.message ?: "Workspace is not accessible")
-                                }
-                            }
-
-                            val internalWorkDir = resolveAssistantWorkspaceInternalDir(assistant)
-                            val limits = WorkspaceSyncLimits()
-
-                            val syncIn = runCatching {
-                                WorkspaceSync.syncExternalToInternal(
-                                    context = context,
-                                    externalDir = externalWorkDir,
-                                    internalDir = internalWorkDir,
-                                    limits = limits,
-                                )
-                            }.getOrElse {
-                                return@withContext buildJsonObject {
-                                    put("ok", false)
-                                    put("error", "Failed to sync workspace in: ${it.message}")
-                                }
-                            }
-
-                            val scriptFile = File(internalWorkDir, "__assistant_eval__.py")
-                            val scriptWritten = runCatching {
-                                scriptFile.writeText(code, Charsets.UTF_8)
-                                true
-                            }.getOrDefault(false)
-                            if (!scriptWritten) {
-                                return@withContext buildJsonObject {
-                                    put("ok", false)
-                                    put("error", "Failed to write script")
-                                }
-                            }
-
-                            val scriptResult = runCatching {
-                                skillScriptRunner.run(
-                                    scriptFile = scriptFile,
-                                    inputJson = inputJson,
-                                    workDir = internalWorkDir,
-                                    timeoutMs = timeoutMs,
-                                    maxStdoutChars = maxStdoutChars,
-                                    maxStderrChars = maxStderrChars,
-                                )
-                            }.getOrElse { e ->
-                                buildJsonObject {
-                                    put("ok", false)
-                                    put("error", "Python execution failed: ${e.message}")
-                                }
-                            }.also {
-                                runCatching { scriptFile.delete() }
-                            }
-
-                            val syncOut = runCatching {
-                                WorkspaceSync.syncInternalToExternal(
-                                    context = context,
-                                    internalDir = internalWorkDir,
-                                    externalDir = externalWorkDir,
-                                    limits = limits,
-                                )
-                            }.getOrElse {
-                                return@withContext buildJsonObject {
-                                    put("ok", false)
-                                    put("error", "Failed to sync workspace out: ${it.message}")
-                                }
-                            }
-
-                            val baseResult: MutableMap<String, JsonElement> =
-                                (scriptResult as? JsonObject)?.toMutableMap()
-                                    ?: mutableMapOf<String, JsonElement>(
-                                        "ok" to JsonPrimitive(false),
-                                        "error" to JsonPrimitive("Invalid script output"),
-                                    )
-                            baseResult["engine"] = JsonPrimitive("chaquopy")
-                            baseResult["sync"] = buildJsonObject {
-                                put("in_files", syncIn.filesCopied)
-                                put("in_bytes", syncIn.bytesCopied)
-                                put("in_skipped", syncIn.skippedFiles)
-                                put("out_files", syncOut.filesCopied)
-                                put("out_bytes", syncOut.bytesCopied)
-                                put("out_skipped", syncOut.skippedFiles)
-                            }
-                            JsonObject(baseResult)
-                        }
-                    }.getOrElse { e ->
-                        buildJsonObject {
-                            put("ok", false)
-                            put("error", e.message ?: "Unknown error")
-                        }
-                    }
-                }
-            },
-        )
-    }
-
     private fun guessMimeType(name: String): String {
         val ext = name.substringAfterLast('.', missingDelimiterValue = "").lowercase(Locale.ROOT)
         if (ext.isBlank()) return "application/octet-stream"
@@ -4302,19 +3727,6 @@ class ChatService(
             error("Workspace directory is not accessible")
         }
         rootDoc
-    }
-
-    /**
-     * 解析助手工作区对应的内部中转目录（供 Chaquopy 脚本执行使用，Python 无法直接访问 SAF）。
-     *
-     * 键为 workspaceId（同一工作区的多会话共享同一中转目录，符合助手级隔离语义）。
-     */
-    private fun resolveAssistantWorkspaceInternalDir(
-        assistant: Assistant,
-    ): File {
-        val workspaceId = assistant.workspaceId
-        require(!workspaceId.isNullOrBlank()) { "Assistant has no workspace bound" }
-        return File(context.filesDir, "skill_workspaces/$workspaceId")
     }
 
     /**

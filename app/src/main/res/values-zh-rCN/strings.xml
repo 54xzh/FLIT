@@ -316,21 +316,6 @@
     <string name="workspace_file_tools_allow_all_enable_action">启用</string>
     <string name="workspace_file_tools_allow_all_enabled_success">已启用“全部允许”模式</string>
 
-    <string name="python_wheels_online_fetch_title">在线获取依赖</string>
-    <string name="python_wheels_online_fetch_description">浏览 Chaquopy PyPI 并下载 .whl</string>
-    <string name="python_wheels_online_fetch_dialog_title">在线获取 .whl</string>
-    <string name="python_wheels_online_fetch_package_label">依赖名</string>
-    <string name="python_wheels_online_fetch_version_label">版本（可选）</string>
-    <string name="python_wheels_online_fetch_action">下载并安装</string>
-    <string name="python_wheels_online_fetch_working">处理中…</string>
-    <string name="python_wheels_online_fetch_search_packages_placeholder">搜索依赖</string>
-    <string name="python_wheels_online_fetch_packages_load_failed_title">加载依赖列表失败</string>
-    <string name="python_wheels_online_fetch_packages_empty">未找到匹配的依赖</string>
-    <string name="python_wheels_online_fetch_search_wheels_placeholder">搜索 .whl</string>
-    <string name="python_wheels_online_fetch_wheels_load_failed_title">加载 .whl 失败</string>
-    <string name="python_wheels_online_fetch_wheels_empty">未找到可用的 .whl</string>
-    <string name="python_wheels_online_fetch_incompatible_hint">可能不适配当前设备或 Python 版本</string>
-    <string name="python_wheels_online_fetch_install_incompatible_note">该 .whl 可能不适配当前设备或 Python 版本。</string>
     <string name="setting_tts_page_api_key_placeholder_mimo">MIMO_API_KEY</string>
     <string name="setting_tts_page_default_system_name">系统TTS</string>
     <string name="setting_tts_page_default_mimo_name">MiMo TTS</string>
@@ -347,22 +332,6 @@
     <string name="setting_tts_page_provider_minimax">MiniMax</string>
     <string name="setting_tts_page_provider_openai">OpenAI</string>
     <string name="setting_tts_page_voice_placeholder_mimo">mimo_default</string>
-
-    <string name="python_wheels_dependency_check_action">依赖检查</string>
-    <string name="python_wheels_dependency_check_title">依赖检查</string>
-    <string name="python_wheels_dependency_list_title">依赖列表</string>
-    <string name="python_wheels_dependency_loading">加载中…</string>
-    <string name="python_wheels_dependency_empty">未找到 Requires-Dist</string>
-    <string name="python_wheels_dependency_status_installed">已安装</string>
-    <string name="python_wheels_dependency_status_missing">缺失</string>
-    <string name="python_wheels_dependency_install_action">安装</string>
-    <string name="python_wheels_dependency_install_success">已安装 %1$s</string>
-    <string name="python_wheels_dependency_install_success_restart_required">已安装 %1$s，请重启 App 以应用更改。</string>
-    <string name="python_wheels_dependency_install_duplicated">%1$s 已安装</string>
-    <string name="python_wheels_dependency_install_failed">安装 %1$s 失败</string>
-    <string name="python_wheels_dependency_optional_title">可选（%1$d）</string>
-    <string name="python_wheels_dependency_optional_show">点按展开</string>
-    <string name="python_wheels_dependency_optional_hide">点按收起</string>
 
     <string name="permission_grant">授权</string>
     <string name="permission_read_media_images">图片</string>

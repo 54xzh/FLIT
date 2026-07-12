@@ -16,7 +16,6 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.google.services)
     alias(libs.plugins.firebase.crashlytics)
-    alias(libs.plugins.chaquopy)
 }
 
 private data class LocalBuildMeta(
@@ -125,8 +124,8 @@ android {
 
     splits {
         abi {
-            // Chaquopy requires ndk.abiFilters, and AGP rejects overlapping
-            // ndk/split ABI filters. Keep ndk filtering as the single ABI gate.
+            // 统一通过下面的 ndk.abiFilters 过滤 ABI；AGP 不允许 ndk 与 splits
+            // 的 ABI 过滤重叠，因此这里关闭 splits，由 ndk 作为唯一 ABI 闸门。
             isEnable = false
             reset()
             val buildAbis = if (isGithubActionsBuild) githubActionsBuildAbis else localBuildAbis
@@ -246,12 +245,6 @@ android {
         compilerOptions.optIn.add("kotlin.uuid.ExperimentalUuidApi")
         compilerOptions.optIn.add("kotlin.time.ExperimentalTime")
         compilerOptions.optIn.add("kotlinx.coroutines.ExperimentalCoroutinesApi")
-    }
-}
-
-chaquopy {
-    defaultConfig {
-        version = "3.13"
     }
 }
 

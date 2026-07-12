@@ -20,6 +20,7 @@ import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.rikkahub.data.db.dao.ScheduledTaskDao
+import me.rerere.rikkahub.data.files.SkillPaths
 import me.rerere.rikkahub.data.model.Skill
 import me.rerere.rikkahub.service.scheduledtask.ScheduledTaskScheduler
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
@@ -406,18 +407,10 @@ class LocalTools(
 
     fun createSkillFileTool(
         allowedSkills: List<Skill>,
-        scriptableSkills: List<Skill> = emptyList(),
     ): Tool {
-        val allowedSkillIds = allowedSkills.map { it.id.toString() }.toSet()
-        val allowedSkillsById = allowedSkills.associateBy { it.id.toString() }
-        val allowedSkillsByName = allowedSkills.groupBy { it.name.trim().lowercase(Locale.ROOT) }
-        val duplicatedNameKeys = allowedSkillsByName.filterValues { it.size > 1 }.keys
-        val scriptableSkillIds = scriptableSkills.map { it.id.toString() }.toSet()
-        val promptVariables = buildReadSkillFilePromptVariables(
-            allowedSkills = allowedSkills,
-            scriptableSkillIds = scriptableSkillIds,
-            duplicatedNameKeys = duplicatedNameKeys,
-        )
+        // 技能名是唯一键；导入时已强制重名报错，运行时按名精确匹配即可。
+        val allowedSkillsByName = allowedSkills.associateBy { it.name.trim().lowercase(Locale.ROOT) }
+        val promptVariables = buildReadSkillFilePromptVariables(allowedSkills = allowedSkills)
         return Tool(
             name = "read_skill_file",
             description = "Read a file from an installed Skill package.",
@@ -426,11 +419,7 @@ class LocalTools(
                     properties = buildJsonObject {
                         put("skill_name", buildJsonObject {
                             put("type", "string")
-                            put("description", "Skill name from the available skills list (preferred). If duplicated, also pass skill_id to disambiguate.")
-                        })
-                        put("skill_id", buildJsonObject {
-                            put("type", "string")
-                            put("description", "Skill id (UUID) from the available skills list (for disambiguation / backward compatibility)")
+                            put("description", "Skill name from the available skills list.")
                         })
                         put("path", buildJsonObject {
                             put("type", "string")
@@ -455,59 +444,23 @@ class LocalTools(
             execute = { args ->
                 val obj = args.jsonObject
                 val skillNameRaw = obj["skill_name"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
-                val skillIdRaw = obj["skill_id"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
 
-                val resolvedSkill = when {
-                    !skillIdRaw.isNullOrBlank() -> {
-                        if (skillIdRaw !in allowedSkillIds) {
-                            return@Tool buildJsonObject { put("error", "Skill not allowed: $skillIdRaw") }
-                        }
-                        allowedSkillsById[skillIdRaw]
-                    }
-
-                    !skillNameRaw.isNullOrBlank() -> {
-                        val candidates = allowedSkillsByName[skillNameRaw.lowercase(Locale.ROOT)].orEmpty()
-                        when {
-                            candidates.isEmpty() -> {
-                                buildJsonObject {
-                                    put("error", "Skill not allowed: $skillNameRaw")
-                                }.let { return@Tool it }
-                            }
-
-                            candidates.size > 1 -> {
-                                buildJsonObject {
-                                    put("error", "Ambiguous skill_name: $skillNameRaw")
-                                    put("candidates", buildJsonArray {
-                                        candidates.forEach { skill ->
-                                            add(buildJsonObject {
-                                                put("id", skill.id.toString())
-                                                put("name", skill.name)
-                                            })
-                                        }
-                                    })
-                                }.let { return@Tool it }
-                            }
-
-                            else -> candidates.single()
-                        }
-                    }
-
-                    else -> null
-                }
-
-                if (resolvedSkill == null) {
+                if (skillNameRaw.isNullOrBlank()) {
                     return@Tool buildJsonObject { put("error", "Missing skill_name") }
                 }
 
-                val resolvedSkillId = resolvedSkill.id.toString()
+                val resolvedSkill = allowedSkillsByName[skillNameRaw.lowercase(Locale.ROOT)]
+                    ?: return@Tool buildJsonObject { put("error", "Skill not allowed: $skillNameRaw") }
 
                 val pathRaw = obj["path"]?.jsonPrimitiveOrNull?.contentOrNull?.trim().orEmpty()
                 val relativePath = if (pathRaw.isBlank()) "SKILL.md" else pathRaw
 
                 val maxChars = obj["max_chars"]?.jsonPrimitiveOrNull?.intOrNull?.coerceIn(1, 200_000) ?: 20_000
 
-                val skillRoot = File(context.filesDir, "skills/$resolvedSkillId")
-                val target = safeResolve(skillRoot, relativePath)
+                val skillsRoot = File(context.filesDir, "skills")
+                val skillRoot = SkillPaths.resolveSkillDir(skillsRoot, resolvedSkill.name)
+                    ?: return@Tool buildJsonObject { put("error", "Invalid skill directory") }
+                val target = SkillPaths.resolveSkillFile(skillRoot, relativePath)
                     ?: return@Tool buildJsonObject { put("error", "Invalid path") }
 
                 if (!target.exists() || !target.isFile) {
@@ -527,7 +480,6 @@ class LocalTools(
 
                 buildJsonObject {
                     put("ok", true)
-                    put("skill_id", resolvedSkillId)
                     put("skill_name", resolvedSkill.name)
                     put("path", relativePath)
                     put("truncated", truncated)
@@ -539,22 +491,11 @@ class LocalTools(
 
     private fun buildReadSkillFilePromptVariables(
         allowedSkills: List<Skill>,
-        scriptableSkillIds: Set<String>,
-        duplicatedNameKeys: Set<String>,
     ): Map<String, String> {
         val skillList = buildString {
             allowedSkills.forEach { skill ->
-                val name = skill.name
-                val nameKey = name.trim().lowercase(Locale.ROOT)
-                val isScriptable = skill.id.toString() in scriptableSkillIds
-
                 append("- ")
-                append(name)
-                if (isScriptable) append(" [script]")
-                if (nameKey in duplicatedNameKeys) {
-                    append(" | id: ")
-                    append(skill.id.toString())
-                }
+                append(skill.name)
                 if (skill.description.isNotBlank()) {
                     append(" | desc: ")
                     append(skill.description.replace('\n', ' ').trim())
@@ -563,16 +504,7 @@ class LocalTools(
             }
         }.trimEnd()
 
-        val skillNote = buildString {
-            if (duplicatedNameKeys.isEmpty()) {
-                appendLine("- Skill names are unique; prefer using `skill_name` without `skill_id`.")
-            } else {
-                appendLine("- If multiple skills share the same name, pass `skill_id` to disambiguate (ids are shown for duplicated names).")
-            }
-            if (scriptableSkillIds.isNotEmpty()) {
-                appendLine("- Skills marked `[script]` can be executed via `run_skill_script`.")
-            }
-        }.trimEnd()
+        val skillNote = "- Skill names are unique; use `skill_name` directly."
 
         return mapOf(
             SKILL_LIST_VARIABLE to skillList,

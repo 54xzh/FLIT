@@ -30,6 +30,7 @@ import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.ModelCapabilityRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.migration.WorkspaceMigration
+import me.rerere.rikkahub.data.migration.SkillUuidMigration
 import me.rerere.rikkahub.utils.DatabaseUtil
 import org.koin.android.ext.android.get
 import org.koin.android.ext.koin.androidContext
@@ -244,6 +245,16 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
                 get<WorkspaceMigration>().migrateIfNeeded(prefs)
             } catch (e: Exception) {
                 Log.e(TAG, "Workspace v2 migration failed", e)
+            }
+        }
+
+        // 一次性迁移：技能主键 UUID → 技能名（文件系统 / DataStore 设置 / Room 会话三处原子改写）
+        get<AppScope>().launch(Dispatchers.IO) {
+            val prefs = getSharedPreferences("app_migrations", MODE_PRIVATE)
+            try {
+                get<SkillUuidMigration>().migrateIfNeeded(prefs)
+            } catch (e: Exception) {
+                Log.e(TAG, "Skill UUID→name migration failed", e)
             }
         }
 

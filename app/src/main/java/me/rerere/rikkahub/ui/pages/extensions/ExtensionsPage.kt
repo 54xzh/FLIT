@@ -7,7 +7,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Extension
-import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
@@ -65,12 +64,6 @@ fun ExtensionsPage() {
                         subtitle = stringResource(R.string.extensions_page_workspace_desc),
                         icon = { Icon(Icons.Rounded.Folder, null, modifier = Modifier.size(20.dp)) },
                         onClick = { navController.navigate(Screen.Workspaces) },
-                    )
-                    SettingGroupItem(
-                        title = stringResource(R.string.extensions_page_scripts),
-                        subtitle = stringResource(R.string.extensions_page_scripts_desc),
-                        icon = { Icon(Icons.Rounded.SmartToy, null, modifier = Modifier.size(20.dp)) },
-                        onClick = { navController.navigate(Screen.SettingScriptsWorkspace) },
                     )
                 }
             }

@@ -265,8 +265,6 @@ class SettingsStore(
         // Skills
         val SKILLS = stringPreferencesKey("skills")
         val SKILL_FOLDERS = stringPreferencesKey("skill_folders")
-        val ENABLE_SKILL_SCRIPT_EXECUTION = booleanPreferencesKey("enable_skill_script_execution")
-        val ENABLED_SKILL_SCRIPT_IDS = stringPreferencesKey("enabled_skill_script_ids")
         val WORKSPACE_FILE_TOOLS_ALLOW_ALL = booleanPreferencesKey("workspace_file_tools_allow_all")
         val WORKSPACE_ROOT_TREE_URI = stringPreferencesKey("workspace_root_tree_uri")
         val CONVERSATION_WORKSPACE_ROOTS = stringPreferencesKey("conversation_workspace_roots")
@@ -286,6 +284,13 @@ class SettingsStore(
     }
 
     private val dataStore = context.settingsStore
+
+    /**
+     * 供一次性迁移（`SkillUuidMigration`）直接读写原始 preference 键使用。
+     * 迁移需要用 legacy 解码器读旧形态 JSON（含 Skill.id / Assistant.enabledSkillIds），
+     * 不能走 [settingsFlow] 的新类型化解码器（会丢掉旧字段）。
+     */
+    internal val rawDataStore get() = dataStore
 
     private fun normalizeTextSelectionTemplate(text: String): String {
         return text.replace("\r\n", "\n").trim()
@@ -539,10 +544,6 @@ class SettingsStore(
                 skills = preferences[SKILLS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
-                enableSkillScriptExecution = preferences[ENABLE_SKILL_SCRIPT_EXECUTION] == true,
-                enabledSkillScriptIds = preferences[ENABLED_SKILL_SCRIPT_IDS]?.let {
-                    runCatching { JsonInstant.decodeFromString<Set<Uuid>>(it) }.getOrNull()
-                } ?: emptySet(),
                 workspaceFileToolsAllowAll = preferences[WORKSPACE_FILE_TOOLS_ALLOW_ALL] == true,
                 workspaceRootTreeUri = preferences[WORKSPACE_ROOT_TREE_URI],
                 conversationWorkspaceRoots = preferences[CONVERSATION_WORKSPACE_ROOTS]?.let { raw ->
@@ -606,7 +607,7 @@ class SettingsStore(
                 }
             }
             val validModeIds = settings.modes.map { it.id }.toSet()
-            val validSkillIds = sanitizedSkills.map { it.id }.toSet()
+            val validSkillNames = sanitizedSkills.map { it.name }.toSet()
             val dedupedAssistants = settings.assistants.distinctBy { it.id }.map { assistant ->
                 assistant.copy(
                     mcpServers = assistant.mcpServers.filter { serverId ->
@@ -615,8 +616,8 @@ class SettingsStore(
                     enabledModeIds = assistant.enabledModeIds.filter { modeId ->
                         modeId in validModeIds
                     }.toSet(),
-                    enabledSkillIds = assistant.enabledSkillIds.filter { skillId ->
-                        skillId in validSkillIds
+                    enabledSkills = assistant.enabledSkills.filter { skillName ->
+                        skillName in validSkillNames
                     }.toSet()
                 ).normalizeContextManagementFlags()
             }
@@ -806,8 +807,6 @@ class SettingsStore(
                 JsonInstant.encodeToString(finalSettingsToSave.customToolSystemPrompts)
             preferences[SKILL_FOLDERS] = JsonInstant.encodeToString(finalSettingsToSave.skillFolders)
             preferences[SKILLS] = JsonInstant.encodeToString(finalSettingsToSave.skills)
-            preferences[ENABLE_SKILL_SCRIPT_EXECUTION] = finalSettingsToSave.enableSkillScriptExecution
-            preferences[ENABLED_SKILL_SCRIPT_IDS] = JsonInstant.encodeToString(finalSettingsToSave.enabledSkillScriptIds)
             preferences[WORKSPACE_FILE_TOOLS_ALLOW_ALL] = finalSettingsToSave.workspaceFileToolsAllowAll
             finalSettingsToSave.workspaceRootTreeUri?.let {
                 preferences[WORKSPACE_ROOT_TREE_URI] = it
@@ -940,9 +939,7 @@ data class Settings(
     val skillFolders: List<SkillFolder> = emptyList(),
     val skills: List<Skill> = emptyList(),
 
-    // Skill scripts & workspace (Android SAF workspace root + per-conversation work dirs)
-    val enableSkillScriptExecution: Boolean = false,
-    val enabledSkillScriptIds: Set<Uuid> = emptySet(),
+    // Workspace (Android SAF workspace root + per-conversation work dirs)
     val workspaceRootTreeUri: String? = null,
     val conversationWorkspaceRoots: Map<String, String> = emptyMap(),
     val workspaceFileToolsAllowAll: Boolean = false,
@@ -1776,9 +1773,8 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
             skill
         }
     }
-    val validSkillIds = cleanedSkills.map { it.id }.toSet()
+    val validSkillNames = cleanedSkills.map { it.name }.toSet()
     val validModeIds = modes.map { it.id }.toSet()
-    val cleanedEnabledSkillScriptIds = enabledSkillScriptIds.filter { it in validSkillIds }.toSet()
     val cleanedConversationWorkspaceRoots = conversationWorkspaceRoots
         .mapNotNull { (conversationId, uriString) ->
             val key = conversationId.trim()
@@ -1816,14 +1812,14 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
     // 2.5 Remove orphaned mode / skill references from assistants
     val cleanedAssistantsWithSkills = cleanedAssistants.map { assistant ->
         val filteredModeIds = assistant.enabledModeIds.filter { it in validModeIds }.toSet()
-        val filteredSkillIds = assistant.enabledSkillIds.filter { it in validSkillIds }.toSet()
+        val filteredSkillNames = assistant.enabledSkills.filter { it in validSkillNames }.toSet()
         if (
             filteredModeIds.size != assistant.enabledModeIds.size ||
-            filteredSkillIds.size != assistant.enabledSkillIds.size
+            filteredSkillNames.size != assistant.enabledSkills.size
         ) {
             assistant.copy(
                 enabledModeIds = filteredModeIds,
-                enabledSkillIds = filteredSkillIds,
+                enabledSkills = filteredSkillNames,
             )
         } else {
             assistant
@@ -1896,7 +1892,6 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
         assistants = cleanedAssistantsWithSkills,
         skillFolders = dedupedSkillFolders,
         skills = cleanedSkills,
-        enabledSkillScriptIds = cleanedEnabledSkillScriptIds,
         workspaceRootTreeUri = workspaceRootTreeUri?.trim().takeIf { !it.isNullOrBlank() },
         conversationWorkspaceRoots = cleanedConversationWorkspaceRoots,
         conversationWorkDirs = cleanedConversationWorkDirs,

@@ -797,16 +797,16 @@ private fun MinimalPickerContent(
     }
     val mcpSyncStatus by mcpManager.syncingStatus.collectAsStateWithLifecycle()
     val mcpLoading = mcpSyncStatus.values.any { it == McpStatus.Connecting }
-    val enabledSkills = remember(settings.skills, assistant.enabledSkillIds) {
-        settings.skills.filter { skill -> skill.id in assistant.enabledSkillIds }
+    val enabledSkills = remember(settings.skills, assistant.enabledSkills) {
+        settings.skills.filter { skill -> skill.name in assistant.enabledSkills }
     }
-    val activeExplicitSkillIds = remember(
-        conversation.explicitSkillContextIds,
-        assistant.enabledSkillIds,
+    val activeExplicitSkillNames = remember(
+        conversation.explicitSkillContexts,
+        assistant.enabledSkills,
         enabledSkills,
     ) {
-        conversation.explicitSkillContextIds.filter { skillId ->
-            skillId in assistant.enabledSkillIds && enabledSkills.any { skill -> skill.id == skillId }
+        conversation.explicitSkillContexts.filter { skillName ->
+            skillName in assistant.enabledSkills && enabledSkills.any { skill -> skill.name == skillName }
         }.toSet()
     }
     
@@ -1199,7 +1199,7 @@ private fun MinimalPickerContent(
             lorebook.id in assistant.enabledLorebookIds
         }
         val showSkillsTab = uiMode == ChatInputUiMode.Normal && enabledSkills.isNotEmpty()
-        val activeSkillCount = if (showSkillsTab) activeExplicitSkillIds.size else 0
+        val activeSkillCount = if (showSkillsTab) activeExplicitSkillNames.size else 0
         val activeInjectionCount = activeModesCount + activeLorebooksCount + activeSkillCount
         val injectionSummary = injectionPickerSummaryText(
             showSkills = showSkillsTab,
@@ -1319,7 +1319,7 @@ private fun MinimalPickerContent(
             conversation = conversation,
             assistant = assistant,
             enabledSkills = enabledSkills,
-            selectedSkillIds = activeExplicitSkillIds,
+            selectedSkillNames = activeExplicitSkillNames,
             uiMode = uiMode,
             onUpdateConversation = onUpdateConversation,
             onUpdateAssistant = onUpdateAssistant,
@@ -1327,8 +1327,8 @@ private fun MinimalPickerContent(
                 showInjectionPicker = false
                 onNavigateToLorebook(lorebookId)
             },
-            onSelectedSkillIdsChange = { nextIds: Set<Uuid> ->
-                onUpdateConversation(conversation.copy(explicitSkillContextIds = nextIds))
+            onSelectedSkillNamesChange = { nextNames: Set<String> ->
+                onUpdateConversation(conversation.copy(explicitSkillContexts = nextNames))
             },
             onDismiss = { showInjectionPicker = false },
         )

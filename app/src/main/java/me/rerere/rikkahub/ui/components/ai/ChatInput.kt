@@ -592,9 +592,9 @@ fun ChatInput(
                     val activeInjectionCount = remember(
                         uiMode,
                         conversation.enabledModeIds,
-                        conversation.explicitSkillContextIds,
+                        conversation.explicitSkillContexts,
                         assistant.enabledLorebookIds,
-                        assistant.enabledSkillIds,
+                        assistant.enabledSkills,
                         settings.modes,
                         settings.lorebooks,
                         settings.skills,
@@ -605,14 +605,14 @@ fun ChatInput(
                         val activeLorebookCount = settings.lorebooks.count { lorebook ->
                             lorebook.id in assistant.enabledLorebookIds
                         }
-                        val validSkillIds = settings.skills
+                        val validSkillNames = settings.skills
                             .asSequence()
-                            .filter { skill -> skill.id in assistant.enabledSkillIds }
-                            .map { skill -> skill.id }
+                            .filter { skill -> skill.name in assistant.enabledSkills }
+                            .map { skill -> skill.name }
                             .toSet()
                         val activeSkillCount = if (uiMode == ChatInputUiMode.Normal) {
-                            conversation.explicitSkillContextIds.count { skillId ->
-                                skillId in validSkillIds
+                            conversation.explicitSkillContexts.count { skillName ->
+                                skillName in validSkillNames
                             }
                         } else {
                             0
@@ -1559,16 +1559,16 @@ private fun FilesPicker(
     val enabledMcpServersCount = remember(mcpServers, assistant.mcpServers) {
         mcpServers.count { it.commonOptions.enable && it.id in assistant.mcpServers }
     }
-    val enabledSkills = remember(settings.skills, assistant.enabledSkillIds) {
-        settings.skills.filter { skill -> skill.id in assistant.enabledSkillIds }
+    val enabledSkills = remember(settings.skills, assistant.enabledSkills) {
+        settings.skills.filter { skill -> skill.name in assistant.enabledSkills }
     }
-    val activeExplicitSkillIds = remember(
-        conversation.explicitSkillContextIds,
-        assistant.enabledSkillIds,
+    val activeExplicitSkillNames = remember(
+        conversation.explicitSkillContexts,
+        assistant.enabledSkills,
         enabledSkills,
     ) {
-        conversation.explicitSkillContextIds.filter { skillId ->
-            skillId in assistant.enabledSkillIds && enabledSkills.any { skill -> skill.id == skillId }
+        conversation.explicitSkillContexts.filter { skillName ->
+            skillName in assistant.enabledSkills && enabledSkills.any { skill -> skill.name == skillName }
         }.toSet()
     }
     val mcpSyncStatus by mcpManager.syncingStatus.collectAsStateWithLifecycle()
@@ -1657,7 +1657,7 @@ private fun FilesPicker(
                 lorebook.id in assistant.enabledLorebookIds
             }
             val showSkillsTab = uiMode == ChatInputUiMode.Normal && enabledSkills.isNotEmpty()
-            val activeSkillCount = if (showSkillsTab) activeExplicitSkillIds.size else 0
+            val activeSkillCount = if (showSkillsTab) activeExplicitSkillNames.size else 0
             val activeInjectionCount = activeModeCount + activeLorebookCount + activeSkillCount
             val totalInjectionCount = settings.modes.size + settings.lorebooks.size + if (showSkillsTab) enabledSkills.size else 0
             val injectionSummary = injectionPickerSummaryText(
@@ -1949,7 +1949,7 @@ private fun FilesPicker(
             conversation = conversation,
             assistant = assistant,
             enabledSkills = enabledSkills,
-            selectedSkillIds = activeExplicitSkillIds,
+            selectedSkillNames = activeExplicitSkillNames,
             uiMode = uiMode,
             onUpdateConversation = onUpdateConversation,
             onUpdateAssistant = onUpdateAssistant,
@@ -1957,8 +1957,8 @@ private fun FilesPicker(
                 showInjectionPicker = false
                 onNavigateToLorebook(lorebookId)
             },
-            onSelectedSkillIdsChange = { nextIds ->
-                onUpdateConversation(conversation.copy(explicitSkillContextIds = nextIds))
+            onSelectedSkillNamesChange = { nextNames ->
+                onUpdateConversation(conversation.copy(explicitSkillContexts = nextNames))
             },
             onDismiss = { showInjectionPicker = false },
         )
@@ -2474,20 +2474,20 @@ internal fun InjectionPickerSheet(
     conversation: Conversation,
     assistant: Assistant,
     enabledSkills: List<Skill>,
-    selectedSkillIds: Set<Uuid>,
+    selectedSkillNames: Set<String>,
     uiMode: ChatInputUiMode,
     onUpdateConversation: (Conversation) -> Unit,
     onUpdateAssistant: (Assistant) -> Unit,
     onNavigateToLorebook: (String) -> Unit,
-    onSelectedSkillIdsChange: (Set<Uuid>) -> Unit,
+    onSelectedSkillNamesChange: (Set<String>) -> Unit,
     onDismiss: () -> Unit
 ) {
     val haptics = rememberPremiumHaptics()
     val amoledMode by rememberAmoledDarkMode()
     val isDarkMode = LocalDarkMode.current
     val showSkillsTab = uiMode == ChatInputUiMode.Normal && enabledSkills.isNotEmpty()
-    var localSelectedSkillIds by remember(enabledSkills, selectedSkillIds) {
-        mutableStateOf(selectedSkillIds.filter { skillId -> enabledSkills.any { it.id == skillId } }.toSet())
+    var localSelectedSkillNames by remember(enabledSkills, selectedSkillNames) {
+        mutableStateOf(selectedSkillNames.filter { skillName -> enabledSkills.any { it.name == skillName } }.toSet())
     }
     var localEnabledLorebookIds by remember(assistant.id, assistant.enabledLorebookIds) {
         mutableStateOf(assistant.enabledLorebookIds)
@@ -2502,9 +2502,9 @@ internal fun InjectionPickerSheet(
             add(InjectionPickerTab.Modes)
         }
     }
-    val initialTab = remember(showSkillsTab, enabledSkills, selectedSkillIds, assistant.enabledLorebookIds, settings.lorebooks, settings.modes, conversation.enabledModeIds) {
+    val initialTab = remember(showSkillsTab, enabledSkills, selectedSkillNames, assistant.enabledLorebookIds, settings.lorebooks, settings.modes, conversation.enabledModeIds) {
         when {
-            showSkillsTab && localSelectedSkillIds.isNotEmpty() -> InjectionPickerTab.Skills
+            showSkillsTab && localSelectedSkillNames.isNotEmpty() -> InjectionPickerTab.Skills
             localEnabledLorebookIds.isNotEmpty() -> InjectionPickerTab.Lorebooks
             localEnabledModeIds.isNotEmpty() -> InjectionPickerTab.Modes
             showSkillsTab -> InjectionPickerTab.Skills
@@ -2564,7 +2564,7 @@ internal fun InjectionPickerSheet(
             ) {
                 tabs.forEach { tab ->
                     val countText = when (tab) {
-                        InjectionPickerTab.Skills -> "${localSelectedSkillIds.size}/${enabledSkills.size}"
+                        InjectionPickerTab.Skills -> "${localSelectedSkillNames.size}/${enabledSkills.size}"
                         InjectionPickerTab.Lorebooks -> "${settings.lorebooks.count { it.id in localEnabledLorebookIds }}/${settings.lorebooks.size}"
                         InjectionPickerTab.Modes -> "${settings.modes.count { it.id in localEnabledModeIds }}/${settings.modes.size}"
                     }
@@ -2620,10 +2620,10 @@ internal fun InjectionPickerSheet(
                     when (tab) {
                         InjectionPickerTab.Skills -> ExplicitSkillsPickerContent(
                             skills = enabledSkills,
-                            selectedSkillIds = localSelectedSkillIds,
-                            onSelectedSkillIdsChange = { nextIds ->
-                                localSelectedSkillIds = nextIds
-                                onSelectedSkillIdsChange(nextIds)
+                            selectedSkillNames = localSelectedSkillNames,
+                            onSelectedSkillNamesChange = { nextNames ->
+                                localSelectedSkillNames = nextNames
+                                onSelectedSkillNamesChange(nextNames)
                             },
                             emptyText = stringResource(R.string.injection_picker_empty_skills),
                         )
@@ -2656,8 +2656,8 @@ internal fun InjectionPickerSheet(
 @Composable
 private fun ExplicitSkillsPickerContent(
     skills: List<Skill>,
-    selectedSkillIds: Set<Uuid>,
-    onSelectedSkillIdsChange: (Set<Uuid>) -> Unit,
+    selectedSkillNames: Set<String>,
+    onSelectedSkillNamesChange: (Set<String>) -> Unit,
     emptyText: String,
 ) {
     val haptics = rememberPremiumHaptics()
@@ -2665,8 +2665,8 @@ private fun ExplicitSkillsPickerContent(
     val isDarkMode = LocalDarkMode.current
     val cornerRadius = 28.dp
     val smallCorner = 8.dp
-    var localSelectedIds by remember(skills, selectedSkillIds) {
-        mutableStateOf(selectedSkillIds.filter { skillId -> skills.any { it.id == skillId } }.toSet())
+    var localSelectedNames by remember(skills, selectedSkillNames) {
+        mutableStateOf(selectedSkillNames.filter { skillName -> skills.any { it.name == skillName } }.toSet())
     }
 
     if (skills.isEmpty()) {
@@ -2679,7 +2679,7 @@ private fun ExplicitSkillsPickerContent(
     }
 
     skills.forEachIndexed { index, skill ->
-        val isEnabled = skill.id in localSelectedIds
+        val isEnabled = skill.name in localSelectedNames
         val shape = when {
             skills.size == 1 -> RoundedCornerShape(cornerRadius)
             index == 0 -> RoundedCornerShape(
@@ -2712,13 +2712,13 @@ private fun ExplicitSkillsPickerContent(
                         .heightIn(min = 80.dp)
                         .clickable {
                             haptics.perform(HapticPattern.Pop)
-                            val nextIds = if (isEnabled) {
-                                localSelectedIds - skill.id
+                            val nextNames = if (isEnabled) {
+                                localSelectedNames - skill.name
                             } else {
-                                localSelectedIds + skill.id
+                                localSelectedNames + skill.name
                             }
-                            localSelectedIds = nextIds
-                            onSelectedSkillIdsChange(nextIds)
+                            localSelectedNames = nextNames
+                            onSelectedSkillNamesChange(nextNames)
                         }
                         .padding(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
