@@ -387,6 +387,7 @@ class WebdavSync(
             tempSkillsRoot.mkdirs()
             // settings.json 暂存到 holder，先迁移、最后才 sanitize 落盘，确保旧 UUID 备份被改写。
             val settingsJsonHolder = SettingsJsonHolder(json = null)
+            var restoredSkillFile = false
 
             var sanitizationResult = DatabaseSanitizer.SanitizationResult()
 
@@ -491,6 +492,7 @@ class WebdavSync(
                                         FileOutputStream(targetFile).use { outputStream ->
                                             zipIn.copyTo(outputStream)
                                         }
+                                        if (subfolder == "skills") restoredSkillFile = true
                                         Log.i(
                                             TAG,
                                             "restoreFromBackupFile: Restored ${zipEntry.name} (${targetFile.length()} bytes)"
@@ -530,28 +532,29 @@ class WebdavSync(
 
                 // 临时数据就位后：对临时技能目录 + 临时 settings JSON + 临时 DB 跑技能 UUID→名迁移。
                 // 迁移作用于临时数据，不写 KEY_DONE、不持久化进度、不碰正式存储。
-                // 只有当本次恢复同时包含 settings、skills、DB 时迁移才有意义；部分恢复（只设置/只文件）
-                // 交由一致性检查（G 段）处理，不在此强行迁移。
+                // 只要恢复了 settings 就先迁移其中的技能引用；实际恢复到技能文件或数据库时，再同步迁移对应存储。
                 val restoreSettings = settingsJsonHolder.json != null
-                val restoreFiles = webDavConfig.items.contains(WebDavConfig.BackupItem.FILES)
+                val restoreFiles = restoredSkillFile
                 val restoreDb = webDavConfig.items.contains(WebDavConfig.BackupItem.DATABASE)
                 val tempDbFile = File(restoreTempDir, "rikka_hub")
                 val tempDbRestored = tempDbFile.exists()
 
-                if (restoreSettings && restoreFiles && restoreDb && tempDbRestored) {
+                if (restoreSettings) {
                     Log.i(TAG, "restoreFromBackupFile: Running skill UUID→name migration on restored temp data")
                     RestoreTargets(
                         context = context,
                         settingsJsonHolder = settingsJsonHolder,
-                        tempDbFile = tempDbFile,
+                        tempDbFile = tempDbFile.takeIf { tempDbRestored },
                     ).use { targets ->
                         skillUuidMigration.migrateRestoreData(
                             tempSkillsRoot = tempSkillsRoot,
                             targets = targets,
+                            migrateFiles = restoreFiles,
+                            migrateDatabase = restoreDb && tempDbRestored,
                         )
                     }
                     Log.i(TAG, "restoreFromBackupFile: Temp skill migration completed")
-                } else if (restoreSettings || restoreFiles || tempDbRestored) {
+                } else if (restoreFiles || tempDbRestored) {
                     Log.i(
                         TAG,
                         "restoreFromBackupFile: Partial restore (settings=$restoreSettings files=$restoreFiles db=$tempDbRestored); deferring skill consistency to integrity check"
@@ -559,6 +562,34 @@ class WebdavSync(
                 }
 
                 // ---- 迁移成功后才把临时数据落为正式数据 ----
+
+                val previousSettings = settingsStore.settingsFlow.value
+                val liveSkills = File(context.filesDir, "skills")
+                val liveSkillsExisted = liveSkills.exists()
+                val skillsRollbackDir = File(restoreTempDir, "live_skills_rollback")
+                if (restoreFiles && liveSkillsExisted) {
+                    check(liveSkills.copyRecursively(skillsRollbackDir, overwrite = false)) {
+                        "Failed to prepare skills rollback snapshot"
+                    }
+                }
+
+                val finalDbFile = context.getDatabasePath("rikka_hub")
+                val liveDbFiles = listOf(
+                    finalDbFile,
+                    File(finalDbFile.path + "-wal"),
+                    File(finalDbFile.path + "-shm"),
+                )
+                val dbRollbackDir = File(restoreTempDir, "live_db_rollback")
+                if (tempDbRestored) {
+                    database.openHelper.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)")
+                    dbRollbackDir.mkdirs()
+                    liveDbFiles.filter { it.isFile }.forEach { file ->
+                        file.copyTo(File(dbRollbackDir, file.name), overwrite = true)
+                    }
+                }
+
+                var settingsApplied = false
+                try {
 
                 // 1) settings：sanitize + 写回 DataStore（旧 UUID 已被迁移改写）。
                 if (restoreSettings) {
@@ -570,6 +601,7 @@ class WebdavSync(
                         val (cleanedSettings, cleanupResult) = settings.sanitize(context)
                         settingsCleanupResult = cleanupResult
                         settingsStore.update(cleanedSettings)
+                        settingsApplied = true
                         Log.i(
                             TAG,
                             "restoreFromBackupFile: Settings restored and sanitized (issues fixed: ${cleanupResult.totalIssuesFixed})"
@@ -586,11 +618,14 @@ class WebdavSync(
 
                 // 2) skills 目录：用迁移后的临时 skills 整体替换正式 filesDir/skills。
                 if (restoreFiles && tempSkillsRoot.exists()) {
-                    val liveSkills = File(context.filesDir, "skills")
                     runCatching {
-                        if (liveSkills.exists()) liveSkills.deleteRecursively()
-                        if (!liveSkills.exists()) liveSkills.mkdirs()
-                        tempSkillsRoot.copyRecursively(liveSkills, overwrite = true)
+                        if (liveSkills.exists()) check(liveSkills.deleteRecursively()) {
+                            "Failed to clear current skills directory"
+                        }
+                        check(liveSkills.mkdirs()) { "Failed to create skills directory" }
+                        check(tempSkillsRoot.copyRecursively(liveSkills, overwrite = true)) {
+                            "Failed to copy restored skills directory"
+                        }
                     }.onFailure {
                         Log.e(TAG, "restoreFromBackupFile: Failed to land migrated skills dir", it)
                         throw Exception("Failed to land restored skills: ${it.message}")
@@ -606,8 +641,9 @@ class WebdavSync(
                          sanitizationResult = result
                          
                          // Move clean DB to final location
-                         val finalDbFile = context.getDatabasePath("rikka_hub")
-                         if(finalDbFile.exists()) finalDbFile.delete()
+                         if (finalDbFile.exists()) check(finalDbFile.delete()) {
+                             "Failed to replace current database"
+                         }
                          
                          cleanDb.copyTo(finalDbFile, overwrite = true)
                          
@@ -631,6 +667,45 @@ class WebdavSync(
                         Log.e(TAG, "Failed to sanitize database", e)
                         throw Exception("Database sanitization failed: ${e.message}")
                     }
+                }
+                } catch (restoreError: Exception) {
+                    val rollbackErrors = mutableListOf<Throwable>()
+
+                    if (restoreFiles) {
+                        runCatching {
+                            if (liveSkills.exists()) {
+                                check(liveSkills.deleteRecursively()) {
+                                    "Failed to remove partially restored skills"
+                                }
+                            }
+                            if (liveSkillsExisted) {
+                                check(skillsRollbackDir.copyRecursively(liveSkills, overwrite = false)) {
+                                    "Failed to restore previous skills snapshot"
+                                }
+                            }
+                        }.onFailure(rollbackErrors::add)
+                    }
+
+                    if (tempDbRestored) {
+                        runCatching {
+                            liveDbFiles.forEach { current ->
+                                if (current.exists()) check(current.delete()) {
+                                    "Failed to remove partially restored database file ${current.name}"
+                                }
+                            }
+                            dbRollbackDir.listFiles().orEmpty().forEach { backup ->
+                                backup.copyTo(File(finalDbFile.parentFile, backup.name), overwrite = true)
+                            }
+                        }.onFailure(rollbackErrors::add)
+                    }
+
+                    if (settingsApplied) {
+                        runCatching { settingsStore.update(previousSettings) }
+                            .onFailure(rollbackErrors::add)
+                    }
+
+                    rollbackErrors.forEach(restoreError::addSuppressed)
+                    throw restoreError
                 }
 
                 Log.i(TAG, "restoreFromBackupFile: Restore completed successfully")

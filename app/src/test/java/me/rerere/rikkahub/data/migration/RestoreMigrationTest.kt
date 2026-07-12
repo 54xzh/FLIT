@@ -231,4 +231,146 @@ class RestoreMigrationTest {
         assertEquals("""{"skills":[],"assistants":[]}""", targets.settingsJson)
         assertNull(targets.convRows.firstOrNull())
     }
+
+    @Test
+    fun `settings-only restore migrates assistant skill references without files or database`() = runBlocking {
+        val skillsRoot = tempFolder.newFolder("settings-only-skills")
+        val uuid = "11111111-1111-4111-8111-111111111111"
+        val targets = FakeTargets(
+            settingsJson = """{"skills":[{"id":"$uuid","name":"translator"}],"assistants":[{"enabledSkillIds":["$uuid"]}]}""",
+            convRows = mutableListOf(),
+        )
+
+        migration.runMigration(
+            skillsRoot = skillsRoot,
+            targets = targets,
+            startStage = 0,
+            onStage = null,
+            loadPersistedMap = { emptyMap() },
+            savePersistedMap = {},
+            migrateFiles = false,
+            migrateDatabase = false,
+        )
+
+        assertFalse(targets.settingsJson!!.contains("enabledSkillIds"))
+        assertTrue(targets.settingsJson!!.contains("\"enabledSkills\":[\"translator\"]"))
+        assertFalse(targets.settingsJson!!.contains("\"id\":\"$uuid\""))
+    }
+
+    @Test
+    fun `missing legacy directory stops migration before settings are rewritten`() = runBlocking {
+        val skillsRoot = tempFolder.newFolder("missing-dir-skills")
+        val uuid = "11111111-1111-4111-8111-111111111111"
+        val original = """{"skills":[{"id":"$uuid","name":"translator"}],"assistants":[{"enabledSkillIds":["$uuid"]}]}"""
+        val targets = FakeTargets(settingsJson = original, convRows = mutableListOf())
+
+        val error = runCatching {
+            migration.runMigration(
+                skillsRoot = skillsRoot,
+                targets = targets,
+                startStage = 0,
+                onStage = null,
+                loadPersistedMap = { emptyMap() },
+                savePersistedMap = {},
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertEquals(original, targets.settingsJson)
+    }
+
+    @Test
+    fun `database failure keeps legacy directory for a safe retry`() = runBlocking {
+        val skillsRoot = tempFolder.newFolder("db-failure-skills")
+        val uuid = "11111111-1111-4111-8111-111111111111"
+        makeSkillDir(skillsRoot, uuid, "translator")
+        val targets = object : SkillUuidMigration.Targets {
+            private var skills = """[{"id":"$uuid","name":"translator"}]"""
+            private var assistants = """[{"enabledSkillIds":["$uuid"]}]"""
+            override suspend fun readSkillsJson() = skills
+            override suspend fun readAssistantsJson() = assistants
+            override suspend fun writeSkillsJson(value: String) { skills = value }
+            override suspend fun writeAssistantsJson(value: String) { assistants = value }
+            override suspend fun clearLegacyScriptKeys() = Unit
+            override suspend fun readAllExplicitSkillContexts() = listOf(
+                ExplicitSkillContextRow("c1", """["$uuid"]"""),
+            )
+            override suspend fun updateExplicitSkillContexts(id: String, json: String) {
+                error("database write failed")
+            }
+        }
+
+        val error = runCatching {
+            migration.runMigration(
+                skillsRoot = skillsRoot,
+                targets = targets,
+                startStage = 0,
+                onStage = null,
+                loadPersistedMap = { emptyMap() },
+                savePersistedMap = {},
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error != null)
+        assertTrue(File(skillsRoot, uuid).isDirectory)
+        assertTrue(File(skillsRoot, "translator").isDirectory)
+    }
+
+    @Test
+    fun `partial target directory is rejected and complete legacy source is kept`() = runBlocking {
+        val skillsRoot = tempFolder.newFolder("partial-target-skills")
+        val uuid = "11111111-1111-4111-8111-111111111111"
+        val source = makeSkillDir(skillsRoot, uuid, "translator")
+        File(source, "scripts/run.py").apply {
+            parentFile?.mkdirs()
+            writeText("print('complete')")
+        }
+        makeSkillDir(skillsRoot, "translator", "translator") // 模拟中断后只复制了 SKILL.md。
+        val original = """{"skills":[{"id":"$uuid","name":"translator"}],"assistants":[]}"""
+        val targets = FakeTargets(settingsJson = original, convRows = mutableListOf())
+
+        val error = runCatching {
+            migration.runMigration(
+                skillsRoot = skillsRoot,
+                targets = targets,
+                startStage = 1,
+                onStage = null,
+                loadPersistedMap = { mapOf(uuid to "translator") },
+                savePersistedMap = {},
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertTrue(File(skillsRoot, uuid).isDirectory)
+        assertTrue(File(source, "scripts/run.py").isFile)
+        assertEquals(original, targets.settingsJson)
+    }
+
+    @Test
+    fun `cleanup resumes when some legacy directories were already removed`() = runBlocking {
+        val skillsRoot = tempFolder.newFolder("cleanup-resume-skills")
+        val uuid1 = "11111111-1111-4111-8111-111111111111"
+        val uuid2 = "22222222-2222-4222-8222-222222222222"
+        makeSkillDir(skillsRoot, "translator", "translator")
+        makeSkillDir(skillsRoot, uuid2, "pdf-reader")
+        makeSkillDir(skillsRoot, "pdf-reader", "pdf-reader")
+        val targets = FakeTargets(
+            settingsJson = """{"skills":[{"name":"translator"},{"name":"pdf-reader"}],"assistants":[]}""",
+            convRows = mutableListOf(),
+        )
+
+        migration.runMigration(
+            skillsRoot = skillsRoot,
+            targets = targets,
+            startStage = 4,
+            onStage = null,
+            loadPersistedMap = { mapOf(uuid1 to "translator", uuid2 to "pdf-reader") },
+            savePersistedMap = {},
+        )
+
+        assertFalse(File(skillsRoot, uuid1).exists())
+        assertFalse(File(skillsRoot, uuid2).exists())
+        assertTrue(File(skillsRoot, "translator").isDirectory)
+        assertTrue(File(skillsRoot, "pdf-reader").isDirectory)
+    }
 }

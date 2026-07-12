@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import me.rerere.common.android.appTempFolder
 import me.rerere.rikkahub.di.appModule
 import me.rerere.rikkahub.di.dataSourceModule
@@ -248,13 +249,14 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
             }
         }
 
-        // 一次性迁移：技能主键 UUID → 技能名（文件系统 / DataStore 设置 / Room 会话三处原子改写）
-        get<AppScope>().launch(Dispatchers.IO) {
+        // 一次性迁移：必须在应用继续启动前完成，避免新模型先读取并覆盖旧 UUID 字段。
+        runBlocking(Dispatchers.IO) {
             val prefs = getSharedPreferences("app_migrations", MODE_PRIVATE)
             try {
                 get<SkillUuidMigration>().migrateIfNeeded(prefs)
             } catch (e: Exception) {
                 Log.e(TAG, "Skill UUID→name migration failed", e)
+                throw IllegalStateException("Skill data migration failed", e)
             }
         }
 

@@ -349,7 +349,7 @@ object SkillZipImport {
         return runCatching { skillFile.writeText(rewriteFrontMatterName(original, skillName)) }.isSuccess
     }
 
-    private fun rewriteFrontMatterName(text: String, skillName: String): String {
+    internal fun rewriteFrontMatterName(text: String, skillName: String): String {
         val lines = text.lineSequence().toList()
         if (lines.isEmpty() || lines.first().trim() != "---") {
             // 无 front matter，补一段。

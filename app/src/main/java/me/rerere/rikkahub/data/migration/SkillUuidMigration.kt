@@ -92,9 +92,9 @@ class SkillUuidMigration(
             }
         }
         override suspend fun readAllExplicitSkillContexts() =
-            runCatching { conversationDAO.getAllExplicitSkillContexts() }.getOrDefault(emptyList())
+            conversationDAO.getAllExplicitSkillContexts()
         override suspend fun updateExplicitSkillContexts(id: String, json: String) {
-            runCatching { conversationDAO.updateExplicitSkillContexts(id, json) }
+            conversationDAO.updateExplicitSkillContexts(id, json)
         }
     }
 
@@ -109,14 +109,24 @@ class SkillUuidMigration(
                 skillsRoot = File(context.filesDir, "skills"),
                 targets = LiveTargets(),
                 startStage = stage,
-                onStage = { s -> prefs.edit().putInt(KEY_STAGE, s).apply() },
+                onStage = { s ->
+                    check(prefs.edit().putInt(KEY_STAGE, s).commit()) {
+                        "Failed to persist skill migration stage $s"
+                    }
+                },
                 loadPersistedMap = { loadUuidMap() },
                 savePersistedMap = { saveUuidMap(it) },
             )
-            prefs.edit().putBoolean(KEY_DONE, true).putInt(KEY_STAGE, STAGE_COMPLETE).apply()
+            check(
+                prefs.edit()
+                    .putBoolean(KEY_DONE, true)
+                    .putInt(KEY_STAGE, STAGE_COMPLETE)
+                    .commit(),
+            ) { "Failed to persist skill migration completion" }
             Log.i(TAG, "Skill UUID→name migration completed successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Skill UUID→name migration failed at stage ${prefs.getInt(KEY_STAGE, STAGE_NOT_STARTED)}", e)
+            throw e
         }
     }
 
@@ -131,6 +141,8 @@ class SkillUuidMigration(
     suspend fun migrateRestoreData(
         tempSkillsRoot: File,
         targets: Targets,
+        migrateFiles: Boolean = true,
+        migrateDatabase: Boolean = true,
     ) {
         Companion.runMigration(
             skillsRoot = tempSkillsRoot,
@@ -139,6 +151,8 @@ class SkillUuidMigration(
             onStage = null,
             loadPersistedMap = { emptyMap() },
             savePersistedMap = { /* 恢复路径不持久化映射 */ },
+            migrateFiles = migrateFiles,
+            migrateDatabase = migrateDatabase,
         )
     }
 
@@ -146,15 +160,16 @@ class SkillUuidMigration(
 
     private fun loadUuidMap(): Map<String, String> {
         val file = uuidMapFile()
-        if (!file.isFile) return emptyMap()
-        return runCatching {
-            JsonInstant.decodeFromString<Map<String, String>>(file.readText())
-        }.getOrNull() ?: emptyMap()
+        check(file.isFile) { "Skill migration map is missing" }
+        return JsonInstant.decodeFromString<Map<String, String>>(file.readText())
     }
 
     private fun saveUuidMap(map: Map<String, String>) {
-        runCatching {
-            uuidMapFile().writeText(JsonInstant.encodeToString(map))
+        val target = uuidMapFile()
+        val temp = File(target.parentFile, "${target.name}.tmp")
+        temp.writeText(JsonInstant.encodeToString(map))
+        check(temp.renameTo(target) || (temp.copyTo(target, overwrite = true).let { temp.delete(); true })) {
+            "Failed to persist skill migration map"
         }
     }
 
@@ -163,9 +178,7 @@ class SkillUuidMigration(
     // ---- 原始 preference 读取（升级路径 LiveTargets 用） ----
 
     private suspend fun readRawPreference(key: androidx.datastore.preferences.core.Preferences.Key<String>): String? {
-        return runCatching {
-            settingsStore.rawDataStore.data.first()[key]
-        }.getOrNull()
+        return settingsStore.rawDataStore.data.first()[key]
     }
 
     companion object {
@@ -290,6 +303,8 @@ class SkillUuidMigration(
             onStage: ((Int) -> Unit)?,
             loadPersistedMap: () -> Map<String, String>,
             savePersistedMap: (Map<String, String>) -> Unit,
+            migrateFiles: Boolean = true,
+            migrateDatabase: Boolean = true,
         ) {
             // 阶段 1：建立 UUID → 最终名 映射（含文件系统扫描 + 安全名分配）。
             val uuidToName: Map<String, String> = if (startStage >= STAGE_MAP_BUILT) {
@@ -302,7 +317,7 @@ class SkillUuidMigration(
             }
 
             // 阶段 2：文件系统 skills/<UUID>/ → skills/<name>/，改写 SKILL.md front matter。
-            if (startStage < STAGE_FILES_MIGRATED) {
+            if (migrateFiles && startStage < STAGE_FILES_MIGRATED) {
                 migrateSkillDirs(skillsRoot, uuidToName)
                 onStage?.invoke(STAGE_FILES_MIGRATED)
             }
@@ -314,9 +329,14 @@ class SkillUuidMigration(
             }
 
             // 阶段 4：会话 explicit_skill_context_ids 列内容重写（UUID 串 → 名）。
-            if (startStage < STAGE_DB_MIGRATED) {
+            if (migrateDatabase && startStage < STAGE_DB_MIGRATED) {
                 rewriteConversationSkillContexts(targets, uuidToName)
                 onStage?.invoke(STAGE_DB_MIGRATED)
+            }
+
+            // 所有引用都已更新后，才清理旧 UUID 目录。中途失败时旧数据仍完整保留。
+            if (migrateFiles) {
+                cleanupLegacySkillDirs(skillsRoot, uuidToName)
             }
         }
 
@@ -326,7 +346,7 @@ class SkillUuidMigration(
             targets: Targets,
         ): Map<String, String> {
             val rawSkillsJson = targets.readSkillsJson() ?: return emptyMap()
-            val arr = runCatching { Json.parseToJsonElement(rawSkillsJson).jsonArray }.getOrNull() ?: return emptyMap()
+            val arr = Json.parseToJsonElement(rawSkillsJson).jsonArray
 
             val usedNames = mutableSetOf<String>()
             // 把磁盘上已有的、看起来已经是新形态（名字合法）的目录名纳入占用，避免迁移产物撞名。
@@ -338,7 +358,7 @@ class SkillUuidMigration(
 
             val uuidToName = LinkedHashMap<String, String>()
             for (el in arr) {
-                val obj = runCatching { el.jsonObject }.getOrNull() ?: continue
+                val obj = el.jsonObject
                 val idEl = obj["id"] ?: continue // 新形态条目无 id，跳过
                 val uuidStr = idEl.jsonPrimitive.contentOrNull ?: continue
 
@@ -358,53 +378,91 @@ class SkillUuidMigration(
          * 使其与目录名一致。已存在且内容一致的目标目录跳过；目标已存在但来源不同则跳过、不覆盖。
          */
         private fun migrateSkillDirs(skillsRoot: File, uuidToName: Map<String, String>) {
-            if (!skillsRoot.exists()) return
+            if (uuidToName.isEmpty()) return
+            check(skillsRoot.isDirectory) { "Skills directory is missing" }
 
             for ((uuidStr, finalName) in uuidToName) {
                 val srcDir = File(skillsRoot, uuidStr)
-                if (!srcDir.isDirectory) {
-                    Log.w(TAG, "Skill dir missing for UUID $uuidStr -> $finalName; skipping file move")
-                    continue
-                }
+                check(srcDir.isDirectory) { "Skill dir missing for UUID $uuidStr -> $finalName" }
 
                 val targetDir = SkillPaths.resolveSkillDir(skillsRoot, finalName)
-                if (targetDir == null) {
-                    Log.w(TAG, "Resolved skill dir escapes root for $finalName; skipping")
-                    continue
-                }
+                checkNotNull(targetDir) { "Resolved skill dir escapes root for $finalName" }
 
-                // 目标已存在：若已经是最终态（含 SKILL.md 且 name 一致），跳过并清旧目录；否则记录不覆盖。
+                // 目标已存在：必须与源目录的完整预期内容一致才能跳过，不能只看 SKILL.md 名称。
                 if (targetDir.isDirectory) {
-                    val alreadyOk = runCatching {
-                        val md = File(targetDir, "SKILL.md")
-                        md.isFile && SkillZipImport.parseFrontMatter(md.readText()).name?.trim() == finalName
-                    }.getOrDefault(false)
-                    if (alreadyOk) {
-                        runCatching { srcDir.deleteRecursively() }
-                        continue
+                    check(isMigratedCopyComplete(srcDir, targetDir, finalName)) {
+                        "Target skill dir already exists for $finalName but content differs"
                     }
-                    Log.w(TAG, "Target skill dir already exists for $finalName but content differs; won't overwrite")
                     continue
                 }
 
                 // 改写 SKILL.md front matter name -> finalName（先在源目录改，再改名）。
                 val md = File(srcDir, "SKILL.md")
-                if (md.isFile) {
-                    runCatching { SkillZipImport.ensureFrontMatterName(md, finalName) }
+                check(md.isFile) { "SKILL.md missing for UUID $uuidStr" }
+
+                // 先复制到临时目标，旧 UUID 目录保留到设置和数据库全部更新成功。
+                val tempTarget = File(skillsRoot, ".$finalName.migrating")
+                if (tempTarget.exists()) {
+                    check(tempTarget.deleteRecursively()) { "Failed to clear stale migration temp for $finalName" }
+                }
+                check(srcDir.copyRecursively(tempTarget, overwrite = false)) {
+                    "Failed to copy skill dir $uuidStr -> $finalName"
+                }
+                val tempMd = File(tempTarget, "SKILL.md")
+                check(SkillZipImport.ensureFrontMatterName(tempMd, finalName)) {
+                    "Failed to rewrite SKILL.md for $finalName"
                 }
 
-                // 原子落地：先 renameTo 目标；跨挂载点失败则 copy+delete。
-                val renamed = runCatching { srcDir.renameTo(targetDir) }.getOrDefault(false)
-                if (!renamed) {
-                    val copied = runCatching {
-                        targetDir.mkdirs() && srcDir.copyRecursively(targetDir, overwrite = false)
-                    }.getOrDefault(false)
-                    if (copied) {
-                        runCatching { srcDir.deleteRecursively() }
-                    } else {
-                        runCatching { targetDir.deleteRecursively() }
-                        Log.w(TAG, "Failed to land skill dir $uuidStr -> $finalName")
+                if (!tempTarget.renameTo(targetDir)) {
+                    check(tempTarget.copyRecursively(targetDir, overwrite = false)) {
+                        "Failed to land skill dir $uuidStr -> $finalName"
                     }
+                    check(tempTarget.deleteRecursively()) {
+                        "Failed to clear migration temp for $finalName"
+                    }
+                }
+            }
+        }
+
+        private fun cleanupLegacySkillDirs(skillsRoot: File, uuidToName: Map<String, String>) {
+            for ((uuidStr, finalName) in uuidToName) {
+                val targetDir = SkillPaths.resolveSkillDir(skillsRoot, finalName)
+                check(targetDir?.isDirectory == true) { "Migrated skill dir missing for $finalName" }
+                val legacyDir = File(skillsRoot, uuidStr)
+                if (!legacyDir.exists()) {
+                    // 可能在上一轮清理后、写完成标记前被系统终止；目标完整即可视为已清理。
+                    continue
+                }
+                check(legacyDir.isDirectory) { "Legacy skill path is not a directory for $uuidStr" }
+                check(isMigratedCopyComplete(legacyDir, targetDir, finalName)) {
+                    "Migrated skill content is inconsistent for $finalName"
+                }
+                check(legacyDir.deleteRecursively()) { "Failed to clean legacy skill dir $uuidStr" }
+            }
+        }
+
+        private fun isMigratedCopyComplete(sourceDir: File, targetDir: File, finalName: String): Boolean {
+            if (!sourceDir.isDirectory || !targetDir.isDirectory) return false
+
+            val sourceEntries = sourceDir.walkTopDown()
+                .drop(1)
+                .associateBy { it.relativeTo(sourceDir).invariantSeparatorsPath }
+            val targetEntries = targetDir.walkTopDown()
+                .drop(1)
+                .associateBy { it.relativeTo(targetDir).invariantSeparatorsPath }
+            if (sourceEntries.keys != targetEntries.keys) return false
+
+            return sourceEntries.all { (relativePath, source) ->
+                val target = targetEntries.getValue(relativePath)
+                if (source.isDirectory != target.isDirectory) return@all false
+                if (source.isDirectory) return@all true
+                if (!target.isFile) return@all false
+
+                if (relativePath == "SKILL.md") {
+                    val expected = SkillZipImport.rewriteFrontMatterName(source.readText(Charsets.UTF_8), finalName)
+                    target.readText(Charsets.UTF_8) == expected
+                } else {
+                    source.length() == target.length() && source.readBytes().contentEquals(target.readBytes())
                 }
             }
         }
@@ -416,6 +474,9 @@ class SkillUuidMigration(
         private suspend fun rewriteSettingsInPlace(targets: Targets, uuidToName: Map<String, String>) {
             val rawSkills = targets.readSkillsJson()
             val rawAssistants = targets.readAssistantsJson()
+
+            rawSkills?.let { Json.parseToJsonElement(it).jsonArray }
+            rawAssistants?.let { Json.parseToJsonElement(it).jsonArray }
 
             val newSkillsJson = rawSkills?.let { rewriteSkillsJson(it) }
             val newAssistantsJson = rawAssistants?.let { rewriteAssistantsJson(it, uuidToName) }
@@ -430,10 +491,10 @@ class SkillUuidMigration(
             targets: Targets,
             uuidToName: Map<String, String>,
         ) {
-            val rows = runCatching { targets.readAllExplicitSkillContexts() }.getOrNull() ?: return
+            val rows = targets.readAllExplicitSkillContexts()
             for (row in rows) {
                 val rewritten = rewriteSkillContextsColumn(row.explicitSkillContextIds, uuidToName) ?: continue
-                runCatching { targets.updateExplicitSkillContexts(row.id, rewritten) }
+                targets.updateExplicitSkillContexts(row.id, rewritten)
             }
         }
     }

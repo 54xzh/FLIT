@@ -26,22 +26,24 @@ import java.io.File
 class RestoreTargets(
     private val context: Context,
     private val settingsJsonHolder: SettingsJsonHolder,
-    tempDbFile: File,
+    tempDbFile: File?,
 ) : SkillUuidMigration.Targets, AutoCloseable {
 
-    private val tempRoomDb: AppDatabase = Room.databaseBuilder(
-        context,
-        AppDatabase::class.java,
-        tempDbFile.absolutePath,
-    )
-        .allowMainThreadQueries() // 仅用于恢复期一次性迁移
-        .build()
+    private val tempRoomDb: AppDatabase? = tempDbFile?.let { file ->
+        Room.databaseBuilder(
+            context,
+            AppDatabase::class.java,
+            file.absolutePath,
+        )
+            .allowMainThreadQueries() // 仅用于恢复期一次性迁移
+            .build()
+    }
 
-    private val rawDb: SupportSQLiteDatabase = tempRoomDb.openHelper.writableDatabase
+    private val rawDb: SupportSQLiteDatabase? = tempRoomDb?.openHelper?.writableDatabase
 
     init {
         // 备份库可能带 wal，先强制 checkpoint 让数据落主文件，保证后续读到完整行。
-        runCatching { rawDb.execSQL("PRAGMA wal_checkpoint(FULL)") }
+        rawDb?.let { db -> runCatching { db.execSQL("PRAGMA wal_checkpoint(FULL)") } }
     }
 
     override suspend fun readSkillsJson(): String? {
@@ -73,9 +75,8 @@ class RestoreTargets(
     }
 
     override suspend fun readAllExplicitSkillContexts(): List<ExplicitSkillContextRow> {
-        val cursor = runCatching {
-            rawDb.query("SELECT id, explicit_skill_context_ids FROM conversationentity")
-        }.getOrNull() ?: return emptyList()
+        val db = rawDb ?: return emptyList()
+        val cursor = db.query("SELECT id, explicit_skill_context_ids FROM conversationentity")
 
         val rows = ArrayList<ExplicitSkillContextRow>()
         cursor.use { c ->
@@ -92,22 +93,22 @@ class RestoreTargets(
     }
 
     override suspend fun updateExplicitSkillContexts(id: String, json: String) {
-        runCatching {
-            val cv = android.content.ContentValues().apply {
-                put("explicit_skill_context_ids", json)
-            }
-            rawDb.update(
-                "conversationentity",
-                SQLiteDatabase.CONFLICT_REPLACE,
-                cv,
-                "id = ?",
-                arrayOf(id),
-            )
+        val db = checkNotNull(rawDb) { "Temporary database is unavailable" }
+        val cv = android.content.ContentValues().apply {
+            put("explicit_skill_context_ids", json)
         }
+        val updated = db.update(
+            "conversationentity",
+            SQLiteDatabase.CONFLICT_REPLACE,
+            cv,
+            "id = ?",
+            arrayOf(id),
+        )
+        check(updated == 1) { "Conversation $id was not updated during skill migration" }
     }
 
     override fun close() {
-        runCatching { tempRoomDb.close() }
+        runCatching { tempRoomDb?.close() }
     }
 
     // ---- settings.json 顶层字段的字符串级操作 ----
