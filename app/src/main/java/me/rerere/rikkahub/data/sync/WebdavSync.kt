@@ -42,6 +42,102 @@ private const val BACKUP_FILE_SUFFIX = ".zip"
 private val BACKUP_FILE_PREFIXES = setOf(BACKUP_FILE_PREFIX, "LastChat_backup_")
 private const val DATABASE_SNAPSHOT_PREFIX = "rikka_hub_snapshot_"
 private val STALE_BACKUP_TEMP_MAX_AGE_MS = TimeUnit.HOURS.toMillis(24)
+
+internal data class RestoreDirectorySnapshot(
+    val relativePath: String,
+    val existed: Boolean,
+    val backupDir: File,
+)
+
+private fun resolveRestoreDirectory(root: File, relativePath: String): File {
+    val canonicalRoot = root.canonicalFile
+    val target = canonicalRoot.resolve(relativePath).canonicalFile
+    check(target.path.startsWith(canonicalRoot.path + File.separator)) {
+        "Restore path escapes files root: $relativePath"
+    }
+    return target
+}
+
+internal fun sandboxRestoreRollbackPath(relativePath: String): String? {
+    val parts = relativePath.replace('\\', '/').split('/')
+    if (parts.any { it.isBlank() || it == "." || it == ".." }) return null
+    if (parts.size < 3 || parts[1] != "files") return null
+    return "sandbox_workspaces/${parts[0]}/files"
+}
+
+internal fun prepareRestoreDirectorySnapshots(
+    filesDir: File,
+    rollbackRoot: File,
+    relativePaths: Collection<String>,
+): List<RestoreDirectorySnapshot> {
+    check(rollbackRoot.mkdirs() || rollbackRoot.isDirectory) {
+        "Failed to create restore rollback directory"
+    }
+    return relativePaths.distinct().sorted().mapIndexed { index, relativePath ->
+        val liveDir = resolveRestoreDirectory(filesDir, relativePath)
+        val backupDir = File(rollbackRoot, index.toString())
+        val existed = liveDir.exists()
+        if (existed) {
+            check(liveDir.isDirectory) { "Restore target is not a directory: $relativePath" }
+            check(liveDir.copyRecursively(backupDir, overwrite = false)) {
+                "Failed to snapshot restore directory: $relativePath"
+            }
+        }
+        RestoreDirectorySnapshot(relativePath, existed, backupDir)
+    }
+}
+
+internal fun landStagedRestoreDirectories(
+    filesDir: File,
+    stagedFilesRoot: File,
+    relativePaths: Collection<String>,
+    replacePaths: Set<String> = setOf("skills"),
+) {
+    relativePaths.distinct().sorted().forEach { relativePath ->
+        val stagedDir = resolveRestoreDirectory(stagedFilesRoot, relativePath)
+        check(stagedDir.isDirectory) { "Staged restore directory is missing: $relativePath" }
+        val liveDir = resolveRestoreDirectory(filesDir, relativePath)
+        if (relativePath in replacePaths && liveDir.exists()) {
+            check(liveDir.deleteRecursively()) { "Failed to clear restore directory: $relativePath" }
+        }
+        liveDir.parentFile?.let { parent ->
+            check(parent.mkdirs() || parent.isDirectory) {
+                "Failed to create restore parent directory: $relativePath"
+            }
+        }
+        check(stagedDir.copyRecursively(liveDir, overwrite = true)) {
+            "Failed to land restore directory: $relativePath"
+        }
+    }
+}
+
+internal fun restoreDirectorySnapshots(
+    filesDir: File,
+    snapshots: List<RestoreDirectorySnapshot>,
+) {
+    val failures = mutableListOf<Throwable>()
+    snapshots.asReversed().forEach { snapshot ->
+        runCatching {
+            val liveDir = resolveRestoreDirectory(filesDir, snapshot.relativePath)
+            if (liveDir.exists()) {
+                check(liveDir.deleteRecursively()) {
+                    "Failed to remove partially restored directory: ${snapshot.relativePath}"
+                }
+            }
+            if (snapshot.existed) {
+                check(snapshot.backupDir.copyRecursively(liveDir, overwrite = false)) {
+                    "Failed to restore directory snapshot: ${snapshot.relativePath}"
+                }
+            }
+        }.onFailure(failures::add)
+    }
+    if (failures.isNotEmpty()) {
+        val error = IllegalStateException("Failed to roll back restored file directories")
+        failures.forEach(error::addSuppressed)
+        throw error
+    }
+}
+
 /**
  * 沙盒恢复后待清理的 sentinel 文件名（写在 filesDir 根下，不在 sandbox_workspaces 目录里，
  * 避免被当成工作区遍历）。恢复成功后写入，启动时 checkIntegrity 检测到它就逐个工作区清掉
@@ -381,13 +477,14 @@ class WebdavSync(
             // Temp directory for extraction
             val restoreTempDir = File(context.cacheDir, "restore_temp_${System.currentTimeMillis()}")
             if (!restoreTempDir.exists()) restoreTempDir.mkdirs()
-            // 技能目录恢复到临时区（restoreTempDir/skills），迁移后才整体替换正式 filesDir/skills。
-            // 其余 FILES_DIR_BACKUP_PATHS 仍按原样直接解到 filesDir（与技能迁移无关）。
-            val tempSkillsRoot = File(restoreTempDir, "skills")
-            tempSkillsRoot.mkdirs()
+            // 所有文件先恢复到临时区，完成迁移和净化后再统一落盘，失败时正式数据保持不变。
+            val tempFilesRoot = File(restoreTempDir, "files")
+            check(tempFilesRoot.mkdirs()) { "Failed to create temporary restore files directory" }
+            val tempSkillsRoot = File(tempFilesRoot, "skills")
             // settings.json 暂存到 holder，先迁移、最后才 sanitize 落盘，确保旧 UUID 备份被改写。
             val settingsJsonHolder = SettingsJsonHolder(json = null)
-            var restoredSkillFile = false
+            val restoredFilePaths = linkedSetOf<String>()
+            val rollbackFilePaths = linkedSetOf<String>()
 
             var sanitizationResult = DatabaseSanitizer.SanitizationResult()
 
@@ -459,16 +556,20 @@ class WebdavSync(
                                     val relativePath = zipEntry.name.removePrefix(prefix)
                                     if (relativePath.isBlank()) return
 
-                                    val baseDir = when (subfolder) {
-                                        // 技能目录先解到临时区，迁移后才整体替换正式目录。
-                                        "skills" -> tempSkillsRoot
-                                        else -> {
-                                            val live = File(context.filesDir, subfolder)
-                                            if (!live.exists()) {
-                                                live.mkdirs()
-                                                Log.i(TAG, "restoreFromBackupFile: Created $subfolder directory")
-                                            }
-                                            live
+                                    val rollbackPath = if (subfolder == "sandbox_workspaces") {
+                                        sandboxRestoreRollbackPath(relativePath) ?: run {
+                                            Log.w(TAG, "restoreFromBackupFile: Skipping unsupported sandbox entry ${zipEntry.name}")
+                                            skipEntry(reason = "unsupported sandbox")
+                                            return
+                                        }
+                                    } else {
+                                        subfolder
+                                    }
+
+                                    val baseDir = resolveRestoreDirectory(tempFilesRoot, subfolder)
+                                    if (!baseDir.exists()) {
+                                        check(baseDir.mkdirs()) {
+                                            "Failed to create staged restore directory: $subfolder"
                                         }
                                     }
 
@@ -492,7 +593,8 @@ class WebdavSync(
                                         FileOutputStream(targetFile).use { outputStream ->
                                             zipIn.copyTo(outputStream)
                                         }
-                                        if (subfolder == "skills") restoredSkillFile = true
+                                        restoredFilePaths.add(subfolder)
+                                        rollbackFilePaths.add(rollbackPath)
                                         Log.i(
                                             TAG,
                                             "restoreFromBackupFile: Restored ${zipEntry.name} (${targetFile.length()} bytes)"
@@ -534,7 +636,7 @@ class WebdavSync(
                 // 迁移作用于临时数据，不写 KEY_DONE、不持久化进度、不碰正式存储。
                 // 只要恢复了 settings 就先迁移其中的技能引用；实际恢复到技能文件或数据库时，再同步迁移对应存储。
                 val restoreSettings = settingsJsonHolder.json != null
-                val restoreFiles = restoredSkillFile
+                val restoreFiles = "skills" in restoredFilePaths
                 val restoreDb = webDavConfig.items.contains(WebDavConfig.BackupItem.DATABASE)
                 val tempDbFile = File(restoreTempDir, "rikka_hub")
                 val tempDbRestored = tempDbFile.exists()
@@ -555,23 +657,49 @@ class WebdavSync(
                     }
                     Log.i(TAG, "restoreFromBackupFile: Temp skill migration completed")
                 } else if (restoreFiles || tempDbRestored) {
-                    Log.i(
-                        TAG,
-                        "restoreFromBackupFile: Partial restore (settings=$restoreSettings files=$restoreFiles db=$tempDbRestored); deferring skill consistency to integrity check"
-                    )
+                    throw Exception("Backup is missing settings.json required for skill migration")
                 }
 
-                // ---- 迁移成功后才把临时数据落为正式数据 ----
+                // ---- 正式数据不变的前提下，先完成设置解析和数据库净化 ----
 
-                val previousSettings = settingsStore.settingsFlow.value
-                val liveSkills = File(context.filesDir, "skills")
-                val liveSkillsExisted = liveSkills.exists()
-                val skillsRollbackDir = File(restoreTempDir, "live_skills_rollback")
-                if (restoreFiles && liveSkillsExisted) {
-                    check(liveSkills.copyRecursively(skillsRollbackDir, overwrite = false)) {
-                        "Failed to prepare skills rollback snapshot"
+                val cleanedSettings = if (restoreSettings) {
+                    val migratedJson = settingsJsonHolder.json
+                        ?: throw Exception("Failed to restore settings: no settings captured")
+                    try {
+                        val settings = json.decodeFromString<Settings>(migratedJson)
+                        val (cleaned, cleanupResult) = settings.sanitize(context)
+                        settingsCleanupResult = cleanupResult
+                        cleaned
+                    } catch (e: Exception) {
+                        Log.e(TAG, "restoreFromBackupFile: Failed to prepare settings", e)
+                        throw Exception("Failed to restore settings: ${e.message}")
                     }
+                } else {
+                    null
                 }
+
+                val cleanDb = if (tempDbRestored) {
+                    Log.i(TAG, "Starting database sanitization...")
+                    try {
+                        val (cleaned, result) = DatabaseSanitizer.sanitize(context, tempDbFile)
+                        sanitizationResult = result
+                        cleaned
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to sanitize database", e)
+                        throw Exception("Database sanitization failed: ${e.message}")
+                    }
+                } else {
+                    null
+                }
+
+                // ---- 所有预检查成功后，准备回滚快照并统一落盘 ----
+
+                val settingsSnapshot = settingsStore.createRestoreSnapshot()
+                val fileSnapshots = prepareRestoreDirectorySnapshots(
+                    filesDir = context.filesDir,
+                    rollbackRoot = File(restoreTempDir, "live_files_rollback"),
+                    relativePaths = rollbackFilePaths,
+                )
 
                 val finalDbFile = context.getDatabasePath("rikka_hub")
                 val liveDbFiles = listOf(
@@ -588,105 +716,63 @@ class WebdavSync(
                     }
                 }
 
-                var settingsApplied = false
+                var filesAttempted = false
+                var databaseAttempted = false
+                var settingsAttempted = false
                 try {
+                    if (restoredFilePaths.isNotEmpty()) {
+                        filesAttempted = true
+                        landStagedRestoreDirectories(
+                            filesDir = context.filesDir,
+                            stagedFilesRoot = tempFilesRoot,
+                            relativePaths = restoredFilePaths,
+                        )
+                        Log.i(TAG, "restoreFromBackupFile: Restored file directories landed")
+                    }
 
-                // 1) settings：sanitize + 写回 DataStore（旧 UUID 已被迁移改写）。
-                if (restoreSettings) {
-                    val migratedJson = settingsJsonHolder.json
-                        ?: throw Exception("Failed to restore settings: no settings captured")
-                    try {
-                        val settings = json.decodeFromString<Settings>(migratedJson)
-                        // Sanitize settings to clean up deprecated/invalid data and fix avatar paths
-                        val (cleanedSettings, cleanupResult) = settings.sanitize(context)
-                        settingsCleanupResult = cleanupResult
+                    if (cleanDb != null) {
+                        databaseAttempted = true
+                        if (finalDbFile.exists()) check(finalDbFile.delete()) {
+                            "Failed to replace current database"
+                        }
+
+                        cleanDb.copyTo(finalDbFile, overwrite = true)
+
+                        val cleanWal = File(cleanDb.path + "-wal")
+                        val cleanShm = File(cleanDb.path + "-shm")
+
+                        if (cleanWal.exists()) {
+                            cleanWal.copyTo(File(finalDbFile.path + "-wal"), overwrite = true)
+                        } else {
+                            File(finalDbFile.path + "-wal").delete()
+                        }
+
+                        if (cleanShm.exists()) {
+                            cleanShm.copyTo(File(finalDbFile.path + "-shm"), overwrite = true)
+                        } else {
+                            File(finalDbFile.path + "-shm").delete()
+                        }
+
+                        Log.i(TAG, "Database restored and sanitized: $sanitizationResult")
+                    }
+
+                    if (cleanedSettings != null) {
+                        settingsAttempted = true
                         settingsStore.update(cleanedSettings)
-                        settingsApplied = true
                         Log.i(
                             TAG,
-                            "restoreFromBackupFile: Settings restored and sanitized (issues fixed: ${cleanupResult.totalIssuesFixed})"
+                            "restoreFromBackupFile: Settings restored and sanitized (issues fixed: ${settingsCleanupResult.totalIssuesFixed})"
                         )
-                    } catch (e: Exception) {
-                        Log.e(
-                            TAG,
-                            "restoreFromBackupFile: Failed to restore settings",
-                            e
-                        )
-                        throw Exception("Failed to restore settings: ${e.message}")
                     }
-                }
-
-                // 2) skills 目录：用迁移后的临时 skills 整体替换正式 filesDir/skills。
-                if (restoreFiles && tempSkillsRoot.exists()) {
-                    runCatching {
-                        if (liveSkills.exists()) check(liveSkills.deleteRecursively()) {
-                            "Failed to clear current skills directory"
-                        }
-                        check(liveSkills.mkdirs()) { "Failed to create skills directory" }
-                        check(tempSkillsRoot.copyRecursively(liveSkills, overwrite = true)) {
-                            "Failed to copy restored skills directory"
-                        }
-                    }.onFailure {
-                        Log.e(TAG, "restoreFromBackupFile: Failed to land migrated skills dir", it)
-                        throw Exception("Failed to land restored skills: ${it.message}")
-                    }
-                    Log.i(TAG, "restoreFromBackupFile: Migrated skills landed to filesDir/skills")
-                }
-
-                // 3) DB：净化临时库 → 替换正式库（沿用原有逻辑）。
-                if (tempDbRestored) {
-                    Log.i(TAG, "Starting database sanitization...")
-                    try {
-                         val (cleanDb, result) = DatabaseSanitizer.sanitize(context, tempDbFile)
-                         sanitizationResult = result
-                         
-                         // Move clean DB to final location
-                         if (finalDbFile.exists()) check(finalDbFile.delete()) {
-                             "Failed to replace current database"
-                         }
-                         
-                         cleanDb.copyTo(finalDbFile, overwrite = true)
-                         
-                         val cleanWal = File(cleanDb.path + "-wal")
-                         val cleanShm = File(cleanDb.path + "-shm")
-                         
-                         if(cleanWal.exists()) {
-                             cleanWal.copyTo(File(finalDbFile.path + "-wal"), overwrite = true)
-                         } else {
-                             File(finalDbFile.path + "-wal").delete()
-                         }
-                         
-                         if(cleanShm.exists()) {
-                             cleanShm.copyTo(File(finalDbFile.path + "-shm"), overwrite = true)
-                         } else {
-                             File(finalDbFile.path + "-shm").delete()
-                         }
-                         
-                         Log.i(TAG, "Database restored and sanitized: $sanitizationResult")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to sanitize database", e)
-                        throw Exception("Database sanitization failed: ${e.message}")
-                    }
-                }
                 } catch (restoreError: Exception) {
                     val rollbackErrors = mutableListOf<Throwable>()
 
-                    if (restoreFiles) {
-                        runCatching {
-                            if (liveSkills.exists()) {
-                                check(liveSkills.deleteRecursively()) {
-                                    "Failed to remove partially restored skills"
-                                }
-                            }
-                            if (liveSkillsExisted) {
-                                check(skillsRollbackDir.copyRecursively(liveSkills, overwrite = false)) {
-                                    "Failed to restore previous skills snapshot"
-                                }
-                            }
-                        }.onFailure(rollbackErrors::add)
+                    if (filesAttempted) {
+                        runCatching { restoreDirectorySnapshots(context.filesDir, fileSnapshots) }
+                            .onFailure(rollbackErrors::add)
                     }
 
-                    if (tempDbRestored) {
+                    if (databaseAttempted) {
                         runCatching {
                             liveDbFiles.forEach { current ->
                                 if (current.exists()) check(current.delete()) {
@@ -699,8 +785,8 @@ class WebdavSync(
                         }.onFailure(rollbackErrors::add)
                     }
 
-                    if (settingsApplied) {
-                        runCatching { settingsStore.update(previousSettings) }
+                    if (settingsAttempted) {
+                        runCatching { settingsStore.restoreSnapshot(settingsSnapshot) }
                             .onFailure(rollbackErrors::add)
                     }
 

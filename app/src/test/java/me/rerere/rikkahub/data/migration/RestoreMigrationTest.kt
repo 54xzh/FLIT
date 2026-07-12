@@ -212,6 +212,62 @@ class RestoreMigrationTest {
         assertTrue(File(skillsRoot, "translator").isDirectory)
         assertTrue(File(skillsRoot, "translator1").isDirectory)
         assertFalse(File(skillsRoot, uuid1).exists())
+        assertTrue(targets.settingsJson!!.contains("\"name\":\"translator1\""))
+    }
+
+    @Test
+    fun `duplicate legacy names stay consistent across files settings assistants and conversations`() = runBlocking {
+        val skillsRoot = tempFolder.newFolder("duplicate-name-skills")
+        val uuid1 = "11111111-1111-4111-8111-111111111111"
+        val uuid2 = "22222222-2222-4222-8222-222222222222"
+        makeSkillDir(skillsRoot, uuid1, "translator")
+        makeSkillDir(skillsRoot, uuid2, "translator")
+        val targets = FakeTargets(
+            settingsJson = """{"skills":[{"id":"$uuid1","name":"translator"},{"id":"$uuid2","name":"translator"}],"assistants":[{"enabledSkillIds":["$uuid1","$uuid2"]}]}""",
+            convRows = mutableListOf(ExplicitSkillContextRow("c1", """["$uuid1","$uuid2"]""")),
+        )
+
+        migration.runMigration(
+            skillsRoot = skillsRoot,
+            targets = targets,
+            startStage = 0,
+            onStage = null,
+            loadPersistedMap = { emptyMap() },
+            savePersistedMap = {},
+        )
+
+        assertTrue(File(skillsRoot, "translator").isDirectory)
+        assertTrue(File(skillsRoot, "translator1").isDirectory)
+        val migrated = targets.settingsJson!!
+        assertTrue(migrated.contains("\"name\":\"translator\""))
+        assertTrue(migrated.contains("\"name\":\"translator1\""))
+        assertTrue(migrated.contains("\"enabledSkills\":[\"translator\",\"translator1\"]"))
+        assertEquals("""["translator","translator1"]""", targets.convRows.single().explicitSkillContextIds)
+    }
+
+    @Test
+    fun `invalid legacy name uses the same safe name everywhere`() = runBlocking {
+        val skillsRoot = tempFolder.newFolder("invalid-name-skills")
+        val uuid = "11111111-1111-4111-8111-111111111111"
+        makeSkillDir(skillsRoot, uuid, "Bad Name")
+        val targets = FakeTargets(
+            settingsJson = """{"skills":[{"id":"$uuid","name":"Bad Name"}],"assistants":[{"enabledSkillIds":["$uuid"]}]}""",
+            convRows = mutableListOf(ExplicitSkillContextRow("c1", """["$uuid"]""")),
+        )
+
+        migration.runMigration(
+            skillsRoot = skillsRoot,
+            targets = targets,
+            startStage = 0,
+            onStage = null,
+            loadPersistedMap = { emptyMap() },
+            savePersistedMap = {},
+        )
+
+        assertTrue(File(skillsRoot, "skill1").isDirectory)
+        assertTrue(targets.settingsJson!!.contains("\"name\":\"skill1\""))
+        assertTrue(targets.settingsJson!!.contains("\"enabledSkills\":[\"skill1\"]"))
+        assertEquals("""["skill1"]""", targets.convRows.single().explicitSkillContextIds)
     }
 
     @Test
@@ -258,25 +314,51 @@ class RestoreMigrationTest {
     }
 
     @Test
-    fun `missing legacy directory stops migration before settings are rewritten`() = runBlocking {
+    fun `missing legacy directory still migrates references without blocking startup`() = runBlocking {
         val skillsRoot = tempFolder.newFolder("missing-dir-skills")
         val uuid = "11111111-1111-4111-8111-111111111111"
-        val original = """{"skills":[{"id":"$uuid","name":"translator"}],"assistants":[{"enabledSkillIds":["$uuid"]}]}"""
-        val targets = FakeTargets(settingsJson = original, convRows = mutableListOf())
+        val targets = FakeTargets(
+            settingsJson = """{"skills":[{"id":"$uuid","name":"translator"}],"assistants":[{"enabledSkillIds":["$uuid"]}]}""",
+            convRows = mutableListOf(ExplicitSkillContextRow("c1", """["$uuid"]""")),
+        )
 
-        val error = runCatching {
-            migration.runMigration(
-                skillsRoot = skillsRoot,
-                targets = targets,
-                startStage = 0,
-                onStage = null,
-                loadPersistedMap = { emptyMap() },
-                savePersistedMap = {},
-            )
-        }.exceptionOrNull()
+        migration.runMigration(
+            skillsRoot = skillsRoot,
+            targets = targets,
+            startStage = 0,
+            onStage = null,
+            loadPersistedMap = { emptyMap() },
+            savePersistedMap = {},
+        )
 
-        assertTrue(error is IllegalStateException)
-        assertEquals(original, targets.settingsJson)
+        assertFalse(targets.settingsJson!!.contains("enabledSkillIds"))
+        assertTrue(targets.settingsJson!!.contains("\"enabledSkills\":[\"translator\"]"))
+        assertFalse(targets.settingsJson!!.contains("\"id\":\"$uuid\""))
+        assertEquals("""["translator"]""", targets.convRows.single().explicitSkillContextIds)
+        assertFalse(File(skillsRoot, "translator").exists())
+    }
+
+    @Test
+    fun `missing skills root still migrates references`() = runBlocking {
+        val skillsRoot = File(tempFolder.root, "missing-skills-root")
+        val uuid = "11111111-1111-4111-8111-111111111111"
+        val targets = FakeTargets(
+            settingsJson = """{"skills":[{"id":"$uuid","name":"translator"}],"assistants":[{"enabledSkillIds":["$uuid"]}]}""",
+            convRows = mutableListOf(ExplicitSkillContextRow("c1", """["$uuid"]""")),
+        )
+
+        migration.runMigration(
+            skillsRoot = skillsRoot,
+            targets = targets,
+            startStage = 0,
+            onStage = null,
+            loadPersistedMap = { emptyMap() },
+            savePersistedMap = {},
+        )
+
+        assertTrue(targets.settingsJson!!.contains("\"enabledSkills\":[\"translator\"]"))
+        assertEquals("""["translator"]""", targets.convRows.single().explicitSkillContextIds)
+        assertFalse(skillsRoot.exists())
     }
 
     @Test

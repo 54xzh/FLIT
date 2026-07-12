@@ -162,7 +162,7 @@ private fun Assistant.normalizeContextManagementFlags(
     return normalized
 }
 
-private val Context.settingsStore by preferencesDataStore(
+internal val Context.settingsDataStore by preferencesDataStore(
     name = "settings",
     produceMigrations = { context ->
         listOf(
@@ -283,14 +283,7 @@ class SettingsStore(
             booleanPreferencesKey("text_selection_localized_default_applied")
     }
 
-    private val dataStore = context.settingsStore
-
-    /**
-     * 供一次性迁移（`SkillUuidMigration`）直接读写原始 preference 键使用。
-     * 迁移需要用 legacy 解码器读旧形态 JSON（含 Skill.id / Assistant.enabledSkillIds），
-     * 不能走 [settingsFlow] 的新类型化解码器（会丢掉旧字段）。
-     */
-    internal val rawDataStore get() = dataStore
+    private val dataStore = context.settingsDataStore
 
     private fun normalizeTextSelectionTemplate(text: String): String {
         return text.replace("\r\n", "\n").trim()
@@ -677,6 +670,23 @@ class SettingsStore(
     val settingsFlow = settingsFlowRaw
         .distinctUntilChanged()
         .toMutableStateFlow(scope, Settings.dummy())
+
+    internal data class RestoreSnapshot(
+        val preferences: androidx.datastore.preferences.core.Preferences,
+        val settings: Settings,
+    )
+
+    internal suspend fun createRestoreSnapshot(): RestoreSnapshot {
+        return RestoreSnapshot(
+            preferences = dataStore.data.first(),
+            settings = settingsFlow.value,
+        )
+    }
+
+    internal suspend fun restoreSnapshot(snapshot: RestoreSnapshot) {
+        dataStore.updateData { snapshot.preferences }
+        settingsFlow.value = snapshot.settings
+    }
 
 	    suspend fun update(settings: Settings) {
 	        if(settings.init) {

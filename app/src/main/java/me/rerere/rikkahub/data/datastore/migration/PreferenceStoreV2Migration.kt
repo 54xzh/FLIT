@@ -2,6 +2,9 @@ package me.rerere.rikkahub.data.datastore.migration
 
 import androidx.datastore.core.DataMigration
 import androidx.datastore.preferences.core.Preferences
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.utils.JsonInstant
@@ -21,8 +24,10 @@ class PreferenceStoreV2Migration : DataMigration<Preferences> {
 
         if (!assistantsJson.isNullOrBlank()) {
             runCatching {
-                val assistants = JsonInstant.decodeFromString<List<Assistant>>(assistantsJson)
-                val migratedAssistants = assistants.map { assistant ->
+                val assistantObjects = JsonInstant.parseToJsonElement(assistantsJson).jsonArray
+                val migratedAssistants = assistantObjects.map { element ->
+                    val original = element.jsonObject
+                    val assistant = JsonInstant.decodeFromJsonElement(Assistant.serializer(), element)
                     var normalized = assistant
 
                     // Dynamic pruning and auto-summarize are mutually exclusive.
@@ -48,7 +53,8 @@ class PreferenceStoreV2Migration : DataMigration<Preferences> {
                         normalized = normalized.copy(maxHistoryMessages = DEFAULT_CONTEXT_HISTORY_LIMIT)
                     }
 
-                    normalized
+                    val normalizedObject = JsonInstant.encodeToJsonElement(Assistant.serializer(), normalized).jsonObject
+                    JsonObject(original.toMutableMap().apply { putAll(normalizedObject) })
                 }
                 prefs[SettingsStore.ASSISTANTS] = JsonInstant.encodeToString(migratedAssistants)
             }

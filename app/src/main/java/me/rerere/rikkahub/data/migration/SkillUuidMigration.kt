@@ -13,7 +13,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.datastore.settingsDataStore
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.ExplicitSkillContextRow
 import me.rerere.rikkahub.data.files.SkillPaths
@@ -51,9 +51,9 @@ import java.io.File
  */
 class SkillUuidMigration(
     private val context: Context,
-    private val settingsStore: SettingsStore,
     private val conversationDAO: ConversationDAO,
 ) {
+    private val dataStore = context.settingsDataStore
     /**
      * 迁移作用的目标存储。把"读写设置 JSON"和"读写会话技能上下文列"抽象出来，
      * 升级路径用正式 DataStore + 正式 Room，恢复路径用内存 JSON + 临时 SQLiteDatabase。
@@ -80,13 +80,13 @@ class SkillUuidMigration(
         override suspend fun readSkillsJson() = readRawPreference(SKILLS_KEY)
         override suspend fun readAssistantsJson() = readRawPreference(ASSISTANTS_KEY)
         override suspend fun writeSkillsJson(value: String) {
-            settingsStore.rawDataStore.edit { it[SKILLS_KEY] = value }
+            dataStore.edit { it[SKILLS_KEY] = value }
         }
         override suspend fun writeAssistantsJson(value: String) {
-            settingsStore.rawDataStore.edit { it[ASSISTANTS_KEY] = value }
+            dataStore.edit { it[ASSISTANTS_KEY] = value }
         }
         override suspend fun clearLegacyScriptKeys() {
-            settingsStore.rawDataStore.edit {
+            dataStore.edit {
                 it.remove(ENABLED_SKILL_SCRIPT_IDS_KEY)
                 it.remove(ENABLE_SKILL_SCRIPT_EXECUTION_KEY)
             }
@@ -178,7 +178,7 @@ class SkillUuidMigration(
     // ---- 原始 preference 读取（升级路径 LiveTargets 用） ----
 
     private suspend fun readRawPreference(key: androidx.datastore.preferences.core.Preferences.Key<String>): String? {
-        return settingsStore.rawDataStore.data.first()[key]
+        return dataStore.data.first()[key]
     }
 
     companion object {
@@ -215,14 +215,24 @@ class SkillUuidMigration(
         }
 
         /**
-         * 重写 SKILLS JSON：每个元素删 `id` 键，保留 name/description/folderId。
+         * 重写 SKILLS JSON：每个元素删 `id` 键，并把旧 UUID 对应的 name 更新为最终分配名。
          */
-        internal fun rewriteSkillsJson(raw: String): String {
+        internal fun rewriteSkillsJson(raw: String, uuidToName: Map<String, String>): String {
             val arr = runCatching { Json.parseToJsonElement(raw).jsonArray }.getOrNull() ?: return raw
             val out = buildJsonArray {
                 for (el in arr) {
                     val obj = el.jsonObject
-                    add(JsonObject(obj.toMutableMap().apply { remove("id") }))
+                    val uuid = obj["id"]?.jsonPrimitive?.contentOrNull
+                    add(
+                        JsonObject(
+                            obj.toMutableMap().apply {
+                                remove("id")
+                                uuid?.let { uuidToName[it] }?.let { finalName ->
+                                    this["name"] = JsonPrimitive(finalName)
+                                }
+                            },
+                        ),
+                    )
                 }
             }
             return out.toString()
@@ -379,11 +389,19 @@ class SkillUuidMigration(
          */
         private fun migrateSkillDirs(skillsRoot: File, uuidToName: Map<String, String>) {
             if (uuidToName.isEmpty()) return
-            check(skillsRoot.isDirectory) { "Skills directory is missing" }
+            if (!skillsRoot.exists()) {
+                Log.w(TAG, "Skills directory is missing; references will still be migrated")
+                return
+            }
+            check(skillsRoot.isDirectory) { "Skills path is not a directory" }
 
             for ((uuidStr, finalName) in uuidToName) {
                 val srcDir = File(skillsRoot, uuidStr)
-                check(srcDir.isDirectory) { "Skill dir missing for UUID $uuidStr -> $finalName" }
+                if (!srcDir.exists()) {
+                    Log.w(TAG, "Skill dir missing for UUID $uuidStr -> $finalName; references will still be migrated")
+                    continue
+                }
+                check(srcDir.isDirectory) { "Legacy skill path is not a directory for UUID $uuidStr" }
 
                 val targetDir = SkillPaths.resolveSkillDir(skillsRoot, finalName)
                 checkNotNull(targetDir) { "Resolved skill dir escapes root for $finalName" }
@@ -426,14 +444,15 @@ class SkillUuidMigration(
 
         private fun cleanupLegacySkillDirs(skillsRoot: File, uuidToName: Map<String, String>) {
             for ((uuidStr, finalName) in uuidToName) {
-                val targetDir = SkillPaths.resolveSkillDir(skillsRoot, finalName)
-                check(targetDir?.isDirectory == true) { "Migrated skill dir missing for $finalName" }
                 val legacyDir = File(skillsRoot, uuidStr)
                 if (!legacyDir.exists()) {
-                    // 可能在上一轮清理后、写完成标记前被系统终止；目标完整即可视为已清理。
+                    // 可能是技能文件早已缺失，也可能是上一轮清理后、写完成标记前被系统终止。
+                    // 引用迁移不依赖文件存在，交给技能一致性检查向用户报告缺失目录。
                     continue
                 }
                 check(legacyDir.isDirectory) { "Legacy skill path is not a directory for $uuidStr" }
+                val targetDir = SkillPaths.resolveSkillDir(skillsRoot, finalName)
+                check(targetDir?.isDirectory == true) { "Migrated skill dir missing for $finalName" }
                 check(isMigratedCopyComplete(legacyDir, targetDir, finalName)) {
                     "Migrated skill content is inconsistent for $finalName"
                 }
@@ -478,7 +497,7 @@ class SkillUuidMigration(
             rawSkills?.let { Json.parseToJsonElement(it).jsonArray }
             rawAssistants?.let { Json.parseToJsonElement(it).jsonArray }
 
-            val newSkillsJson = rawSkills?.let { rewriteSkillsJson(it) }
+            val newSkillsJson = rawSkills?.let { rewriteSkillsJson(it, uuidToName) }
             val newAssistantsJson = rawAssistants?.let { rewriteAssistantsJson(it, uuidToName) }
 
             if (newSkillsJson != null) targets.writeSkillsJson(newSkillsJson)

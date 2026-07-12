@@ -56,7 +56,6 @@ val appModule = module {
     single {
         SkillUuidMigration(
             context = get(),
-            settingsStore = get(),
             conversationDAO = get(),
         )
     }

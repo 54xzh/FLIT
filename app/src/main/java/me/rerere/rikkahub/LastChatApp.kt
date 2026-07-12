@@ -104,6 +104,18 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
             workManagerFactory()
             modules(appModule, viewModelModule, dataSourceModule, repositoryModule)
         }
+
+        // 一次性迁移：必须先于任何设置读取、后台任务和完整性检查完成，避免新模型覆盖旧 UUID 字段。
+        runBlocking(Dispatchers.IO) {
+            val prefs = getSharedPreferences("app_migrations", MODE_PRIVATE)
+            try {
+                get<SkillUuidMigration>().migrateIfNeeded(prefs)
+            } catch (e: Exception) {
+                Log.e(TAG, "Skill UUID→name migration failed", e)
+                throw IllegalStateException("Skill data migration failed", e)
+            }
+        }
+
         this.createNotificationChannel()
 
         // Foreground-only auto backup scheduler
@@ -246,17 +258,6 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
                 get<WorkspaceMigration>().migrateIfNeeded(prefs)
             } catch (e: Exception) {
                 Log.e(TAG, "Workspace v2 migration failed", e)
-            }
-        }
-
-        // 一次性迁移：必须在应用继续启动前完成，避免新模型先读取并覆盖旧 UUID 字段。
-        runBlocking(Dispatchers.IO) {
-            val prefs = getSharedPreferences("app_migrations", MODE_PRIVATE)
-            try {
-                get<SkillUuidMigration>().migrateIfNeeded(prefs)
-            } catch (e: Exception) {
-                Log.e(TAG, "Skill UUID→name migration failed", e)
-                throw IllegalStateException("Skill data migration failed", e)
             }
         }
 

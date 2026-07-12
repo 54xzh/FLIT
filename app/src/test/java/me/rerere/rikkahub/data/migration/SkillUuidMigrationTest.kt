@@ -42,7 +42,10 @@ class SkillUuidMigrationTest {
     @Test
     fun `rewriteSkillsJson removes id field`() {
         val raw = """[{"id":"123e4567-e89b-12d3-a456-426614174000","name":"translator","description":"t","folderId":null}]"""
-        val out = migration.rewriteSkillsJson(raw)
+        val out = migration.rewriteSkillsJson(
+            raw,
+            mapOf("123e4567-e89b-12d3-a456-426614174000" to "translator"),
+        )
         assertTrue("id should be removed: $out", !out.contains("\"id\""))
         assertTrue(out.contains("\"name\":\"translator\""))
         assertTrue(out.contains("\"description\":\"t\""))
@@ -51,7 +54,7 @@ class SkillUuidMigrationTest {
     @Test
     fun `rewriteSkillsJson preserves entries already without id`() {
         val raw = """[{"name":"pdf-reader","description":"p","folderId":null}]"""
-        val out = migration.rewriteSkillsJson(raw)
+        val out = migration.rewriteSkillsJson(raw, emptyMap())
         assertTrue(out.contains("\"name\":\"pdf-reader\""))
         assertTrue(!out.contains("\"id\""))
     }
@@ -59,7 +62,18 @@ class SkillUuidMigrationTest {
     @Test
     fun `rewriteSkillsJson returns raw on parse failure`() {
         val raw = "not json"
-        assertEquals(raw, migration.rewriteSkillsJson(raw))
+        assertEquals(raw, migration.rewriteSkillsJson(raw, emptyMap()))
+    }
+
+    @Test
+    fun `rewriteSkillsJson writes allocated final name`() {
+        val uuid = "123e4567-e89b-12d3-a456-426614174000"
+        val raw = """[{"id":"$uuid","name":"translator","description":"t"}]"""
+
+        val out = migration.rewriteSkillsJson(raw, mapOf(uuid to "translator1"))
+
+        assertTrue(out.contains("\"name\":\"translator1\""))
+        assertTrue(!out.contains("\"id\""))
     }
 
     // ---- rewriteAssistantsJson ----

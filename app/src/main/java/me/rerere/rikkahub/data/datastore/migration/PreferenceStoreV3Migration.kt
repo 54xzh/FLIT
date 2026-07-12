@@ -2,6 +2,9 @@ package me.rerere.rikkahub.data.datastore.migration
 
 import androidx.datastore.core.DataMigration
 import androidx.datastore.preferences.core.Preferences
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import me.rerere.rikkahub.data.datastore.DEFAULT_ASSISTANTS
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.model.Assistant
@@ -30,17 +33,23 @@ class PreferenceStoreV3Migration : DataMigration<Preferences> {
 
                 if (legacyDefaultEnabledModeIds.isNotEmpty()) {
                     val assistantsJson = prefs[SettingsStore.ASSISTANTS]
-                    val assistants = if (assistantsJson.isNullOrBlank()) {
-                        DEFAULT_ASSISTANTS
+                    val assistantObjects = if (assistantsJson.isNullOrBlank()) {
+                        DEFAULT_ASSISTANTS.map { assistant ->
+                            JsonInstant.encodeToJsonElement(Assistant.serializer(), assistant).jsonObject
+                        }
                     } else {
-                        JsonInstant.decodeFromString<List<Assistant>>(assistantsJson)
+                        JsonInstant.parseToJsonElement(assistantsJson).jsonArray.map { it.jsonObject }
                     }
 
                     prefs[SettingsStore.ASSISTANTS] = JsonInstant.encodeToString(
-                        assistants.map { assistant ->
-                            assistant.copy(
+                        assistantObjects.map { original ->
+                            val assistant = JsonInstant.decodeFromJsonElement(Assistant.serializer(), original)
+                            val normalized = assistant.copy(
                                 enabledModeIds = assistant.enabledModeIds + legacyDefaultEnabledModeIds
                             )
+                            val normalizedObject =
+                                JsonInstant.encodeToJsonElement(Assistant.serializer(), normalized).jsonObject
+                            JsonObject(original.toMutableMap().apply { putAll(normalizedObject) })
                         }
                     )
                 }
