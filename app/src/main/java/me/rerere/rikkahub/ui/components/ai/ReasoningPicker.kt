@@ -116,16 +116,19 @@ fun ReasoningPicker(
     val currentIndex = levels.indexOf(reasoningLevel).coerceAtLeast(0)
     var sliderValue by remember { mutableFloatStateOf(currentIndex.toFloat()) }
     var lastHapticIndex by remember { mutableIntStateOf(currentIndex) }
-    val previewIndex = sliderValue.roundToInt().coerceIn(0, levelCount - 1)
+    var targetPreviewIndex by remember { mutableStateOf<Int?>(null) }
+    val previewIndex = targetPreviewIndex
+        ?: sliderValue.roundToInt().coerceIn(0, levelCount - 1)
     val previewLevel = levels[previewIndex]
     val haptics = rememberPremiumHaptics()
     val scope = rememberCoroutineScope()
     var snapAnimation by remember { mutableStateOf<Job?>(null) }
 
-    val animateToLevel: (Int) -> Unit = { targetIndex ->
+    val animateToLevel: (Int, Boolean) -> Unit = { targetIndex, keepTargetPreview ->
         val targetValue = targetIndex.toFloat()
         val initialValue = sliderValue
         snapAnimation?.cancel()
+        targetPreviewIndex = if (keepTargetPreview) targetIndex else null
         snapAnimation = scope.launch {
             animate(
                 initialValue = initialValue,
@@ -142,6 +145,7 @@ fun ReasoningPicker(
 
     LaunchedEffect(currentIndex) {
         snapAnimation?.cancel()
+        targetPreviewIndex = null
         sliderValue = currentIndex.toFloat()
         lastHapticIndex = currentIndex
     }
@@ -217,6 +221,7 @@ fun ReasoningPicker(
                     value = sliderValue,
                     onValueChange = { value ->
                         snapAnimation?.cancel()
+                        targetPreviewIndex = null
                         sliderValue = value
                         val crossedIndex = value.roundToInt().coerceIn(0, levelCount - 1)
                         if (crossedIndex != lastHapticIndex) {
@@ -225,7 +230,10 @@ fun ReasoningPicker(
                         }
                     },
                     onValueChangeFinished = {
-                        animateToLevel(sliderValue.roundToInt().coerceIn(0, levelCount - 1))
+                        animateToLevel(
+                            sliderValue.roundToInt().coerceIn(0, levelCount - 1),
+                            false,
+                        )
                     },
                     valueRange = 0f..(levelCount - 1).toFloat(),
                     steps = 0,
@@ -258,7 +266,7 @@ fun ReasoningPicker(
                 ReasoningScale(
                     selectedLevel = previewLevel,
                     onSelect = { level ->
-                        animateToLevel(levels.indexOf(level))
+                        animateToLevel(levels.indexOf(level), true)
                     }
                 )
             }
@@ -293,6 +301,8 @@ private fun ReasoningScale(
             ) {
                 ToggleSurface(
                     checked = selected,
+                    checkedColor = Color.Transparent,
+                    uncheckedColor = Color.Transparent,
                     onClick = { onSelect(level) },
                     modifier = Modifier,
                 ) {
@@ -305,8 +315,8 @@ private fun ReasoningScale(
                     ) {
                         Box(
                             modifier = Modifier
-                                .width(if (selected) 20.dp else 16.dp)
-                                .height(if (selected) 6.dp else 4.dp)
+                                .width(16.dp)
+                                .height(4.dp)
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(tickColor)
                         )
