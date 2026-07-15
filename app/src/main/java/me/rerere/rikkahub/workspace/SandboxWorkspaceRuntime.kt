@@ -29,6 +29,11 @@ data class SandboxFileEntry(
     val updatedAt: Long,
 )
 
+enum class SandboxStorageArea {
+    FILES,
+    ROOTFS,
+}
+
 data class SandboxCommandResult(
     val exitCode: Int,
     val stdout: String,
@@ -60,7 +65,7 @@ data class SandboxBindMount(val source: File, val target: String) {
 
 /**
  * 应用私有沙盒目录：每个 workspace 都有 files、linux 和 tmp 三块存储。
- * 所有直接文件操作只允许在 files 目录内；Rootfs 只由安装器与 PRoot 使用。
+ * AI 工具仍只访问 files；工作区管理界面可显式选择 files 或 Rootfs。
  */
 class SandboxWorkspaceManager(
     private val baseDir: File,
@@ -160,8 +165,12 @@ class SandboxWorkspaceManager(
         return deleted
     }
 
-    fun listFiles(id: String, path: String = ""): List<SandboxFileEntry> {
-        val root = filesDir(id).also { it.mkdirs() }
+    fun listFiles(
+        id: String,
+        path: String = "",
+        area: SandboxStorageArea = SandboxStorageArea.FILES,
+    ): List<SandboxFileEntry> {
+        val root = storageRoot(id, area)
         val dir = resolve(root, path)
         require(dir.exists()) { "Path does not exist: $path" }
         require(dir.isDirectory) { "Path is not a directory: $path" }
@@ -191,8 +200,14 @@ class SandboxWorkspaceManager(
         return file.toEntry(root)
     }
 
-    fun importFile(id: String, destinationPath: String, fileName: String, input: InputStream): SandboxFileEntry {
-        val root = filesDir(id).also { it.mkdirs() }
+    fun importFile(
+        id: String,
+        destinationPath: String,
+        fileName: String,
+        input: InputStream,
+        area: SandboxStorageArea = SandboxStorageArea.FILES,
+    ): SandboxFileEntry {
+        val root = storageRoot(id, area)
         val directory = resolve(root, destinationPath)
         directory.mkdirs()
         require(directory.isDirectory) { "Destination is not a directory" }
@@ -201,21 +216,34 @@ class SandboxWorkspaceManager(
         return target.toEntry(root)
     }
 
-    fun exportFile(id: String, path: String, output: OutputStream) {
-        val root = filesDir(id).also { it.mkdirs() }
+    fun exportFile(
+        id: String,
+        path: String,
+        output: OutputStream,
+        area: SandboxStorageArea = SandboxStorageArea.FILES,
+    ) {
+        val root = storageRoot(id, area)
         val file = resolve(root, path)
         require(file.isFile) { "Path is not a file: $path" }
         file.inputStream().use { it.copyTo(output) }
     }
 
-    fun deleteFile(id: String, path: String, recursive: Boolean): Boolean {
+    fun deleteFile(
+        id: String,
+        path: String,
+        recursive: Boolean,
+        area: SandboxStorageArea = SandboxStorageArea.FILES,
+    ): Boolean {
         require(path.isNotBlank() && path != ".") { "Refusing to delete workspace root" }
-        val file = resolve(filesDir(id), path)
-        if (!file.exists()) return false
-        return if (file.isDirectory) {
+        val file = resolveWithoutFollowingFinalLink(storageRoot(id, area), path)
+        val targetPath = file.toPath()
+        if (!Files.exists(targetPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return false
+        return if (Files.isDirectory(targetPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             require(recursive) { "Directory delete requires recursive = true" }
             file.deleteRecursivelyNoFollow()
-        } else file.delete()
+        } else {
+            Files.deleteIfExists(targetPath)
+        }
     }
 
     fun executeCommand(
@@ -245,14 +273,40 @@ class SandboxWorkspaceManager(
 
     private fun resolve(root: File, path: String): File {
         root.mkdirs()
-        val normalized = path.replace('\\', '/').trim().trimStart('/').ifBlank { "." }
-        require(!normalized.contains('\u0000')) { "Path contains invalid character" }
+        val normalized = normalizeRelativePath(path)
         val rootFile = root.canonicalFile
         val target = if (normalized == ".") rootFile else File(rootFile, normalized).canonicalFile
         require(target.path == rootFile.path || target.path.startsWith(rootFile.path + File.separator)) {
             "Path escapes workspace: $path"
         }
         return target
+    }
+
+    private fun resolveWithoutFollowingFinalLink(root: File, path: String): File {
+        root.mkdirs()
+        val normalized = normalizeRelativePath(path)
+        val rootFile = root.canonicalFile
+        if (normalized == ".") return rootFile
+        val rawTarget = File(rootFile, normalized)
+        val parent = rawTarget.parentFile?.canonicalFile ?: rootFile
+        require(parent.path == rootFile.path || parent.path.startsWith(rootFile.path + File.separator)) {
+            "Path escapes workspace: $path"
+        }
+        return File(parent, rawTarget.name)
+    }
+
+    private fun normalizeRelativePath(path: String): String {
+        val normalized = path.replace('\\', '/').trim().trimStart('/').ifBlank { "." }
+        require(!normalized.contains('\u0000')) { "Path contains invalid character" }
+        require(normalized.split('/').none { it == ".." }) { "Path escapes workspace: $path" }
+        return normalized
+    }
+
+    private fun storageRoot(id: String, area: SandboxStorageArea): File = when (area) {
+        SandboxStorageArea.FILES -> filesDir(id).also { it.mkdirs() }
+        SandboxStorageArea.ROOTFS -> linuxDir(id).also {
+            require(it.isDirectory) { "Rootfs is not installed" }
+        }
     }
 
     private fun File.toEntry(root: File) = SandboxFileEntry(
@@ -264,13 +318,13 @@ class SandboxWorkspaceManager(
     )
 
     private fun resolveConflict(file: File): File {
-        if (!file.exists()) return file
+        if (!Files.exists(file.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) return file
         val stem = file.nameWithoutExtension
         val extension = file.extension.takeIf { it.isNotBlank() }?.let { ".$it" }.orEmpty()
         var index = 1
         while (true) {
             val candidate = File(file.parentFile, "$stem ($index)$extension")
-            if (!candidate.exists()) return candidate
+            if (!Files.exists(candidate.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) return candidate
             index++
         }
     }

@@ -94,6 +94,7 @@ import me.rerere.rikkahub.ui.pages.setting.SettingSkillsPage
 import me.rerere.rikkahub.ui.pages.extensions.ExtensionsPage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspacePage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceDetailPage
+import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceTerminalPage
 import me.rerere.rikkahub.ui.pages.share.handler.ShareHandlerPage
 import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
@@ -701,6 +702,11 @@ class RouteActivity : ComponentActivity() {
                         WorkspaceDetailPage(workspaceId = route.workspaceId)
                     }
 
+                    composable<Screen.WorkspaceTerminal> { backStackEntry ->
+                        val route = backStackEntry.toRoute<Screen.WorkspaceTerminal>()
+                        WorkspaceTerminalPage(workspaceId = route.workspaceId)
+                    }
+
                     composable<Screen.SettingRpOptimizations> {
                         SettingRpOptimizationsPage()
                     }
@@ -860,6 +866,9 @@ sealed interface Screen {
 
     @Serializable
     data class WorkspaceDetail(val workspaceId: String) : Screen
+
+    @Serializable
+    data class WorkspaceTerminal(val workspaceId: String) : Screen
 
     @Serializable
     data object SettingRpOptimizations : Screen

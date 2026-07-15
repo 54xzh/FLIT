@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -42,6 +43,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
 import me.rerere.rikkahub.data.repository.WorkspaceFileEntry
 import me.rerere.rikkahub.data.db.entity.WorkspaceType
 import me.rerere.rikkahub.ui.components.nav.BackButton
@@ -55,6 +58,7 @@ import org.koin.core.parameter.parametersOf
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import me.rerere.rikkahub.workspace.WORKSPACE_TRANSFER_MIME
+import me.rerere.rikkahub.workspace.SandboxStorageArea
 
 @Composable
 fun WorkspaceDetailPage(
@@ -196,6 +200,22 @@ fun WorkspaceDetailPage(
                         }
                     }
                     if (ws != null) {
+                        if (
+                            ws.type == WorkspaceType.SANDBOX &&
+                            ws.sandboxStatus == SandboxRootfsStatus.READY
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    haptics.perform(HapticPattern.Pop)
+                                    navController.navigate(Screen.WorkspaceTerminal(workspaceId))
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Terminal,
+                                    contentDescription = stringResource(R.string.workspace_terminal_open),
+                                )
+                            }
+                        }
                         if (pagerState.currentPage == 0 && ws.type == WorkspaceType.SANDBOX) {
                             IconButton(
                                 enabled = !transferState.active,
@@ -245,7 +265,12 @@ fun WorkspaceDetailPage(
             }
         },
         floatingActionButton = {
-            if (pagerState.currentPage == 1 && ws != null) {
+            val canImport = ws != null && (
+                filesState.area == SandboxStorageArea.FILES ||
+                    ws.sandboxStatus == SandboxRootfsStatus.READY ||
+                    ws.sandboxStatus == SandboxRootfsStatus.BROKEN
+                )
+            if (pagerState.currentPage == 1 && canImport) {
                 FloatingActionButton(
                     onClick = { haptics.perform(HapticPattern.Pop); filePicker.launch(arrayOf("*/*")) },
                     shape = AppShapes.ButtonPill,
@@ -289,6 +314,8 @@ fun WorkspaceDetailPage(
                 ) {
                     WorkspaceFilesPage(
                         state = filesState,
+                        showAreaSelector = ws?.type == WorkspaceType.SANDBOX,
+                        onSelectArea = vm::selectArea,
                         onGoUp = vm::goUp,
                         onOpen = vm::open,
                         onDelete = { deleteFileTarget = it },
@@ -385,7 +412,15 @@ fun WorkspaceDetailPage(
         AlertDialog(
             onDismissRequest = { deleteFileTarget = null },
             title = { Text(stringResource(R.string.workspace_detail_delete_file_or_dir)) },
-            text = { Text(stringResource(R.string.workspace_detail_will_delete, target.path)) },
+            text = {
+                Text(
+                    if (filesState.area == SandboxStorageArea.ROOTFS) {
+                        stringResource(R.string.workspace_rootfs_delete_warning, target.path)
+                    } else {
+                        stringResource(R.string.workspace_detail_will_delete, target.path)
+                    }
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     haptics.perform(HapticPattern.Thud)

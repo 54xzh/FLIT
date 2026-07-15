@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
 import me.rerere.rikkahub.data.db.entity.WorkspaceType
 import me.rerere.rikkahub.data.db.entity.toolDefaultNeedsApproval
@@ -28,6 +29,7 @@ import me.rerere.rikkahub.data.repository.WorkspaceFileEntry
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.workspace.SandboxRootfsInstallProgress
 import me.rerere.rikkahub.workspace.SandboxRootfsInstallStage
+import me.rerere.rikkahub.workspace.SandboxStorageArea
 
 class WorkspaceDetailVM(
     private val workspaceId: String,
@@ -60,7 +62,12 @@ class WorkspaceDetailVM(
         viewModelScope.launch {
             workspace.collect { ws ->
                 _toolApprovals.value = ws?.toolApprovalOverrides().orEmpty()
-                if (ws != null) refreshFiles()
+                if (ws != null) {
+                    if (ws.type != WorkspaceType.SANDBOX && _filesState.value.area != SandboxStorageArea.FILES) {
+                        _filesState.value = FilesState()
+                    }
+                    refreshFiles()
+                }
             }
         }
     }
@@ -76,6 +83,13 @@ class WorkspaceDetailVM(
         }
     }
 
+    fun selectArea(area: SandboxStorageArea) {
+        val ws = workspace.value ?: return
+        if (ws.type != WorkspaceType.SANDBOX || _filesState.value.area == area) return
+        _filesState.value = FilesState(area = area, loading = true)
+        refreshFiles()
+    }
+
     fun goUp() {
         val path = _filesState.value.path
         if (path.isNotBlank()) {
@@ -87,25 +101,50 @@ class WorkspaceDetailVM(
     fun refreshFiles() {
         val ws = workspace.value ?: return
         _filesState.update { it.copy(loading = true, error = null) }
+        val request = _filesState.value
         viewModelScope.launch {
             runCatching {
                 val entries = when (ws.type) {
                     WorkspaceType.LIGHTWEIGHT -> withContext(Dispatchers.IO) {
                         val root = safRoot ?: repository.resolveRoot(ws.treeUri ?: error("Workspace folder is missing")).also { safRoot = it }
                             ?: error("Workspace folder is not accessible")
-                        safRepository.listChildren(root, _filesState.value.path)
+                        safRepository.listChildren(root, request.path)
                     }
-                    WorkspaceType.SANDBOX -> repository.listSandboxFiles(ws.id, _filesState.value.path)
+                    WorkspaceType.SANDBOX -> {
+                        if (
+                            request.area == SandboxStorageArea.ROOTFS &&
+                            (
+                                ws.sandboxStatus == SandboxRootfsStatus.DISABLED ||
+                                    ws.sandboxStatus == SandboxRootfsStatus.INSTALLING
+                                )
+                        ) {
+                            error(context.getString(R.string.workspace_rootfs_not_installed))
+                        }
+                        repository.listSandboxFiles(ws.id, request.path, request.area)
+                    }
                 }
-                _filesState.update { it.copy(entries = entries, loading = false, error = null) }
+                _filesState.update { current ->
+                    if (current.area == request.area && current.path == request.path) {
+                        current.copy(entries = entries, loading = false, error = null)
+                    } else {
+                        current
+                    }
+                }
             }.onFailure { error ->
-                _filesState.update { it.copy(loading = false, error = error.message ?: error.javaClass.simpleName) }
+                _filesState.update { current ->
+                    if (current.area == request.area && current.path == request.path) {
+                        current.copy(loading = false, error = error.message ?: error.javaClass.simpleName)
+                    } else {
+                        current
+                    }
+                }
             }
         }
     }
 
     fun importFile(input: InputStream, displayName: String) {
         val ws = workspace.value ?: run { input.close(); return }
+        val target = _filesState.value
         _filesState.update { it.copy(loading = true) }
         viewModelScope.launch {
             runCatching {
@@ -113,9 +152,15 @@ class WorkspaceDetailVM(
                     WorkspaceType.LIGHTWEIGHT -> withContext(Dispatchers.IO) {
                         val root = safRoot ?: repository.resolveRoot(ws.treeUri ?: error("Workspace folder is missing")).also { safRoot = it }
                             ?: error("Workspace folder is not accessible")
-                        safRepository.importFromUri(root, _filesState.value.path, input, displayName) ?: error("Import failed")
+                        safRepository.importFromUri(root, target.path, input, displayName) ?: error("Import failed")
                     }
-                    WorkspaceType.SANDBOX -> repository.importSandboxFile(ws.id, _filesState.value.path, displayName, input)
+                    WorkspaceType.SANDBOX -> repository.importSandboxFile(
+                        ws.id,
+                        target.path,
+                        displayName,
+                        input,
+                        target.area,
+                    )
                 }
             }.onSuccess { refreshFiles() }.onFailure { error ->
                 input.close()
@@ -126,6 +171,7 @@ class WorkspaceDetailVM(
 
     fun deleteFile(entry: WorkspaceFileEntry) {
         val ws = workspace.value ?: return
+        val area = _filesState.value.area
         _filesState.update { it.copy(loading = true) }
         viewModelScope.launch {
             runCatching {
@@ -134,7 +180,14 @@ class WorkspaceDetailVM(
                         val root = safRoot ?: error("Workspace folder is not accessible")
                         check(safRepository.delete(root, entry.path)) { "Delete failed" }
                     }
-                    WorkspaceType.SANDBOX -> check(repository.deleteSandboxFile(ws.id, entry.path, entry.isDirectory)) { "Delete failed" }
+                    WorkspaceType.SANDBOX -> check(
+                        repository.deleteSandboxFile(
+                            ws.id,
+                            entry.path,
+                            entry.isDirectory,
+                            area,
+                        )
+                    ) { "Delete failed" }
                 }
             }.onSuccess { refreshFiles() }.onFailure { error ->
                 _filesState.update { it.copy(loading = false, error = error.message ?: "Delete failed") }
@@ -144,6 +197,7 @@ class WorkspaceDetailVM(
 
     fun exportFile(entry: WorkspaceFileEntry, output: java.io.OutputStream) {
         val ws = workspace.value ?: run { output.close(); return }
+        val area = _filesState.value.area
         viewModelScope.launch {
             runCatching {
                 when (ws.type) {
@@ -155,7 +209,9 @@ class WorkspaceDetailVM(
                                 ?: error("Export failed")
                         } ?: error("File not found")
                     }
-                    WorkspaceType.SANDBOX -> output.use { repository.exportSandboxFile(ws.id, entry.path, it) }
+                    WorkspaceType.SANDBOX -> output.use {
+                        repository.exportSandboxFile(ws.id, entry.path, it, area)
+                    }
                 }
             }.onFailure { output.close() }
         }
@@ -164,6 +220,7 @@ class WorkspaceDetailVM(
     suspend fun resolveFileUri(entry: WorkspaceFileEntry): android.net.Uri? = withContext(Dispatchers.IO) {
         if (entry.isDirectory) return@withContext null
         val ws = workspace.value ?: return@withContext null
+        val area = _filesState.value.area
         when (ws.type) {
             WorkspaceType.LIGHTWEIGHT -> {
                 val root = safRoot ?: repository.resolveRoot(ws.treeUri ?: return@withContext null).also { safRoot = it }
@@ -171,7 +228,9 @@ class WorkspaceDetailVM(
             }
             WorkspaceType.SANDBOX -> runCatching {
                 val share = File(context.cacheDir, "sandbox_share/${ws.id}/${entry.name}").apply { parentFile?.mkdirs() }
-                share.outputStream().use { repository.exportSandboxFile(ws.id, entry.path, it) }
+                share.outputStream().use {
+                    repository.exportSandboxFile(ws.id, entry.path, it, area)
+                }
                 FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", share)
             }.getOrNull()
         }
@@ -225,7 +284,13 @@ class WorkspaceDetailVM(
     fun rename(name: String) = viewModelScope.launch { repository.rename(workspaceId, name) }
     fun delete(onDone: () -> Unit) = viewModelScope.launch { repository.delete(workspaceId); onDone() }
 
-    data class FilesState(val path: String = "", val entries: List<WorkspaceFileEntry> = emptyList(), val loading: Boolean = false, val error: String? = null)
+    data class FilesState(
+        val area: SandboxStorageArea = SandboxStorageArea.FILES,
+        val path: String = "",
+        val entries: List<WorkspaceFileEntry> = emptyList(),
+        val loading: Boolean = false,
+        val error: String? = null,
+    )
     data class SandboxInstallState(
         val installing: Boolean = false,
         val progress: SandboxRootfsInstallProgress? = null,

@@ -38,6 +38,7 @@ import me.rerere.rikkahub.workspace.SandboxCommandResult
 import me.rerere.rikkahub.workspace.SandboxFileEntry
 import me.rerere.rikkahub.workspace.SandboxRootfsInstallProgress
 import me.rerere.rikkahub.workspace.SandboxRootfsInstaller
+import me.rerere.rikkahub.workspace.SandboxStorageArea
 import me.rerere.rikkahub.workspace.SandboxWorkspaceManager
 import me.rerere.rikkahub.workspace.WorkspaceTransferArchive
 import me.rerere.rikkahub.workspace.WorkspaceTransferManifest
@@ -461,9 +462,13 @@ class WorkspaceRepository(
         }
     }
 
-    suspend fun listSandboxFiles(id: String, path: String): List<WorkspaceFileEntry> = withContext(Dispatchers.IO) {
+    suspend fun listSandboxFiles(
+        id: String,
+        path: String,
+        area: SandboxStorageArea = SandboxStorageArea.FILES,
+    ): List<WorkspaceFileEntry> = withContext(Dispatchers.IO) {
         requireSandbox(id)
-        sandboxManager.listFiles(id, path).map(SandboxFileEntry::toWorkspaceEntry)
+        sandboxManager.listFiles(id, path, area).map(SandboxFileEntry::toWorkspaceEntry)
     }
 
     suspend fun readSandboxText(id: String, path: String): String = withContext(Dispatchers.IO) {
@@ -479,27 +484,54 @@ class WorkspaceRepository(
             }
         }
 
-    suspend fun importSandboxFile(id: String, path: String, fileName: String, input: InputStream): WorkspaceFileEntry =
+    suspend fun importSandboxFile(
+        id: String,
+        path: String,
+        fileName: String,
+        input: InputStream,
+        area: SandboxStorageArea = SandboxStorageArea.FILES,
+    ): WorkspaceFileEntry =
         sandboxLock(id).withLock {
             withContext(Dispatchers.IO) {
                 requireSandbox(id)
-                sandboxManager.importFile(id, path, fileName, input).toWorkspaceEntry()
+                sandboxManager.importFile(id, path, fileName, input, area).toWorkspaceEntry()
             }
         }
 
-    suspend fun exportSandboxFile(id: String, path: String, output: OutputStream) =
+    suspend fun exportSandboxFile(
+        id: String,
+        path: String,
+        output: OutputStream,
+        area: SandboxStorageArea = SandboxStorageArea.FILES,
+    ) =
         sandboxLock(id).withLock {
             withContext(Dispatchers.IO) {
                 requireSandbox(id)
-                sandboxManager.exportFile(id, path, output)
+                sandboxManager.exportFile(id, path, output, area)
             }
         }
 
-    suspend fun deleteSandboxFile(id: String, path: String, recursive: Boolean): Boolean =
+    suspend fun deleteSandboxFile(
+        id: String,
+        path: String,
+        recursive: Boolean,
+        area: SandboxStorageArea = SandboxStorageArea.FILES,
+    ): Boolean =
         sandboxLock(id).withLock {
             withContext(Dispatchers.IO) {
-                requireSandbox(id)
-                sandboxManager.deleteFile(id, path, recursive)
+                val workspace = requireSandbox(id)
+                val deleted = sandboxManager.deleteFile(id, path, recursive, area)
+                if (deleted && area == SandboxStorageArea.ROOTFS && !sandboxManager.hasRootfs(id)) {
+                    val detail = workspace.sandbox
+                    updateSandboxStatus(
+                        id = id,
+                        status = SandboxRootfsStatus.BROKEN,
+                        sourceUrl = detail?.rootfsSourceUrl,
+                        version = detail?.rootfsVersion,
+                        installedAt = detail?.rootfsInstalledAt,
+                    )
+                }
+                deleted
             }
         }
 

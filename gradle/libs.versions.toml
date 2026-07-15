@@ -64,6 +64,7 @@ documentfile = "1.0.1"
 colorpicker = "1.1.3"
 haze = "1.7.2"
 xz = "1.10"
+termux = "0.118.0"
 
 [libraries]
 androidx-camera-core = { module = "androidx.camera:camera-core", version.ref = "cameraCore" }
@@ -168,6 +169,7 @@ compose-colorpicker = { module = "com.github.skydoves:colorpicker-compose", vers
 haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 haze-materials = { module = "dev.chrisbanes.haze:haze-materials", version.ref = "haze" }
 xz = { module = "org.tukaani:xz", version.ref = "xz" }
+termux-terminal-view = { module = "com.termux.termux-app:terminal-view", version.ref = "termux" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

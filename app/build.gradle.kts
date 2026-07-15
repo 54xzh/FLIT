@@ -100,6 +100,11 @@ android {
         ndk {
             abiFilters += if (isGithubActionsBuild) githubActionsBuildAbis else localBuildAbis
         }
+        externalNativeBuild {
+            cmake {
+                cppFlags += ""
+            }
+        }
     }
 
     // 让未被 mock 的 android.util.Log 等方法返回默认值而非抛异常，
@@ -212,6 +217,13 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            pickFirsts += "lib/*/libtermux.so"
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
         }
     }
     applicationVariants.all {
@@ -286,6 +298,7 @@ dependencies {
     implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.documentfile)
     implementation(libs.xz)
+    implementation(libs.termux.terminal.view)
 
     // Compose
     implementation(libs.androidx.activity.compose)

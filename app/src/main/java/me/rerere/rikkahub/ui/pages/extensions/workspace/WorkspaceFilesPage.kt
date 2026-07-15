@@ -29,6 +29,9 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,7 +47,10 @@ import androidx.compose.ui.unit.dp
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.repository.WorkspaceFileEntry
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceDetailVM.FilesState
+import me.rerere.rikkahub.ui.hooks.HapticPattern
+import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
+import me.rerere.rikkahub.workspace.SandboxStorageArea
 
 /**
  * 工作区详情 - 文件管理页（page 1）。
@@ -54,6 +60,8 @@ import me.rerere.rikkahub.ui.theme.AppShapes
 @Composable
 fun WorkspaceFilesPage(
     state: FilesState,
+    showAreaSelector: Boolean,
+    onSelectArea: (SandboxStorageArea) -> Unit,
     onGoUp: () -> Unit,
     onOpen: (WorkspaceFileEntry) -> Unit,
     onDelete: (WorkspaceFileEntry) -> Unit,
@@ -61,11 +69,23 @@ fun WorkspaceFilesPage(
     onExport: (WorkspaceFileEntry) -> Unit,
 ) {
     val context = LocalContext.current
+    val haptics = rememberPremiumHaptics()
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (showAreaSelector) {
+            item {
+                WorkspaceAreaSelector(
+                    selected = state.area,
+                    onSelected = { area ->
+                        haptics.perform(HapticPattern.Pop)
+                        onSelectArea(area)
+                    },
+                )
+            }
+        }
         item { WorkspacePathBar(path = state.path, canGoUp = state.path.isNotBlank(), onGoUp = onGoUp) }
 
         if (state.error != null) {
@@ -76,7 +96,7 @@ fun WorkspaceFilesPage(
             item { EmptyDirectoryState() }
         }
 
-        items(state.entries, key = { it.path }) { entry ->
+        items(state.entries, key = { "${state.area.name}:${it.path}" }) { entry ->
             WorkspaceFileCard(
                 entry = entry,
                 context = context,
@@ -89,6 +109,32 @@ fun WorkspaceFilesPage(
 
         // 底部留白，避免最后一条被导入 FAB 遮住
         item { Spacer(modifier = Modifier.height(96.dp)) }
+    }
+}
+
+@Composable
+private fun WorkspaceAreaSelector(
+    selected: SandboxStorageArea,
+    onSelected: (SandboxStorageArea) -> Unit,
+) {
+    val areas = listOf(
+        SandboxStorageArea.FILES to stringResource(R.string.workspace_detail_area_files),
+        SandboxStorageArea.ROOTFS to stringResource(R.string.workspace_detail_area_rootfs),
+    )
+    SingleChoiceSegmentedButtonRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+    ) {
+        areas.forEachIndexed { index, (area, label) ->
+            SegmentedButton(
+                selected = selected == area,
+                onClick = { onSelected(area) },
+                shape = SegmentedButtonDefaults.itemShape(index, areas.size),
+            ) {
+                Text(label)
+            }
+        }
     }
 }
 

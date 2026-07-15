@@ -1,6 +1,8 @@
 package me.rerere.rikkahub.workspace
 
 import java.io.File
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.util.zip.GZIPOutputStream
 import org.junit.Assert.assertEquals
@@ -34,6 +36,106 @@ class SandboxWorkspaceManagerTest {
             fail("Expected traversal path to be rejected")
         } catch (_: IllegalArgumentException) {
         }
+    }
+
+    @Test
+    fun fileManagerKeepsWorkspaceFilesAndRootfsSeparate() {
+        val manager = manager()
+        manager.ensureWorkspace("sandbox-areas")
+        manager.writeText("sandbox-areas", "notes.txt", "workspace", overwrite = true)
+        File(manager.linuxDir("sandbox-areas"), "bin").mkdirs()
+        File(manager.linuxDir("sandbox-areas"), "bin/sh").writeText("shell")
+
+        manager.importFile(
+            id = "sandbox-areas",
+            destinationPath = "etc",
+            fileName = "flit.conf",
+            input = ByteArrayInputStream("rootfs".toByteArray()),
+            area = SandboxStorageArea.ROOTFS,
+        )
+
+        assertEquals(listOf("notes.txt"), manager.listFiles("sandbox-areas").map { it.path })
+        assertTrue(
+            manager.listFiles("sandbox-areas", area = SandboxStorageArea.ROOTFS)
+                .any { it.path == "etc" && it.isDirectory }
+        )
+        val output = ByteArrayOutputStream()
+        manager.exportFile(
+            id = "sandbox-areas",
+            path = "etc/flit.conf",
+            output = output,
+            area = SandboxStorageArea.ROOTFS,
+        )
+        assertEquals("rootfs", output.toString(Charsets.UTF_8.name()))
+        assertTrue(
+            manager.deleteFile(
+                id = "sandbox-areas",
+                path = "etc/flit.conf",
+                recursive = false,
+                area = SandboxStorageArea.ROOTFS,
+            )
+        )
+        assertEquals("workspace", manager.readText("sandbox-areas", "notes.txt"))
+    }
+
+    @Test
+    fun rootfsFileManagerRejectsTraversal() {
+        val manager = manager()
+        File(manager.linuxDir("sandbox-rootfs-path"), "bin").mkdirs()
+        File(manager.linuxDir("sandbox-rootfs-path"), "bin/sh").writeText("shell")
+
+        try {
+            manager.listFiles(
+                id = "sandbox-rootfs-path",
+                path = "../files",
+                area = SandboxStorageArea.ROOTFS,
+            )
+            fail("Expected Rootfs traversal path to be rejected")
+        } catch (_: IllegalArgumentException) {
+        }
+    }
+
+    @Test
+    fun deletingRootfsSymlinkDoesNotDeleteItsTarget() {
+        val manager = manager()
+        val linuxDir = manager.linuxDir("sandbox-rootfs-link")
+        val targetDir = File(linuxDir, "usr/bin").apply { mkdirs() }
+        File(targetDir, "keep").writeText("keep")
+        Files.createSymbolicLink(File(linuxDir, "bin").toPath(), File("usr/bin").toPath())
+
+        assertTrue(
+            manager.deleteFile(
+                id = "sandbox-rootfs-link",
+                path = "bin",
+                recursive = true,
+                area = SandboxStorageArea.ROOTFS,
+            )
+        )
+
+        assertEquals("keep", File(targetDir, "keep").readText())
+        assertEquals(false, Files.exists(File(linuxDir, "bin").toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS))
+    }
+
+    @Test
+    fun importingRootfsFileDoesNotFollowDanglingSymlink() {
+        val manager = manager()
+        val linuxDir = manager.linuxDir("sandbox-rootfs-import-link")
+        val etcDir = File(linuxDir, "etc").apply { mkdirs() }
+        val outsideTarget = File(temporaryFolder.newFolder("outside-import"), "escaped.conf")
+        Files.createSymbolicLink(File(etcDir, "flit.conf").toPath(), outsideTarget.toPath())
+
+        val entry = manager.importFile(
+            id = "sandbox-rootfs-import-link",
+            destinationPath = "etc",
+            fileName = "flit.conf",
+            input = ByteArrayInputStream("safe".toByteArray()),
+            area = SandboxStorageArea.ROOTFS,
+        )
+
+        assertEquals("etc/flit (1).conf", entry.path)
+        assertEquals("safe", File(linuxDir, entry.path).readText())
+        assertEquals(false, outsideTarget.exists())
+        assertTrue(Files.isSymbolicLink(File(etcDir, "flit.conf").toPath()))
     }
 
     @Test
