@@ -14,6 +14,8 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.util.KeyRoulette
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class OpenAIReasoningEffortTest {
@@ -27,30 +29,98 @@ class OpenAIReasoningEffortTest {
 
     @Test
     fun `chat completions sends xhigh reasoning effort`() {
-        val api = ChatCompletionsAPI(OkHttpClient(), KeyRoulette.default())
         val body = buildChatCompletionRequest(
-            api = api,
-            params = reasoningParams(),
-            providerSetting = ProviderSetting.OpenAI()
+            params = reasoningParams(ReasoningLevel.XHIGH),
+            providerSetting = ProviderSetting.OpenAI(),
         )
 
         assertEquals("xhigh", body["reasoning_effort"]?.jsonPrimitive?.content)
     }
 
     @Test
+    fun `chat completions off sends none effort for openai compatible hosts`() {
+        val body = buildChatCompletionRequest(
+            params = reasoningParams(ReasoningLevel.OFF),
+            providerSetting = ProviderSetting.OpenAI(),
+        )
+
+        assertEquals("none", body["reasoning_effort"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `chat completions auto omits reasoning effort for openai compatible hosts`() {
+        val body = buildChatCompletionRequest(
+            params = reasoningParams(ReasoningLevel.AUTO),
+            providerSetting = ProviderSetting.OpenAI(),
+        )
+
+        assertFalse(body.containsKey("reasoning_effort"))
+    }
+
+    @Test
+    fun `unknown host falls back to openai style none`() {
+        val body = buildChatCompletionRequest(
+            params = reasoningParams(ReasoningLevel.OFF),
+            providerSetting = ProviderSetting.OpenAI(
+                baseUrl = "https://proxy.example.com/v1",
+            ),
+        )
+
+        assertEquals("none", body["reasoning_effort"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `deepseek off uses thinking disabled without effort`() {
+        val body = buildChatCompletionRequest(
+            params = reasoningParams(ReasoningLevel.OFF),
+            providerSetting = ProviderSetting.OpenAI(
+                baseUrl = "https://api.deepseek.com",
+            ),
+        )
+
+        assertEquals("disabled", body["thinking"]?.jsonObject?.get("type")?.jsonPrimitive?.content)
+        assertNull(body["reasoning_effort"])
+    }
+
+    @Test
+    fun `volcengine auto uses thinking auto`() {
+        val body = buildChatCompletionRequest(
+            params = reasoningParams(ReasoningLevel.AUTO),
+            providerSetting = ProviderSetting.OpenAI(
+                baseUrl = "https://ark.cn-beijing.volces.com/api/v3",
+            ),
+        )
+
+        assertEquals("auto", body["thinking"]?.jsonObject?.get("type")?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `minimax off uses thinking disabled`() {
+        val body = buildChatCompletionRequest(
+            params = reasoningParams(ReasoningLevel.OFF),
+            providerSetting = ProviderSetting.OpenAI(
+                baseUrl = "https://api.minimaxi.com/v1",
+            ),
+        )
+
+        assertEquals("disabled", body["thinking"]?.jsonObject?.get("type")?.jsonPrimitive?.content)
+        assertNull(body["reasoning_effort"])
+    }
+
+    @Test
     fun `responses sends xhigh reasoning effort`() {
         val api = ResponseAPI(OkHttpClient(), KeyRoulette.default())
-        val body = buildResponseRequest(api, reasoningParams())
+        val body = buildResponseRequest(api, reasoningParams(ReasoningLevel.XHIGH))
 
         assertEquals("xhigh", body["reasoning"]?.jsonObject?.get("effort")?.jsonPrimitive?.content)
     }
 
-    private fun reasoningParams() = TextGenerationParams(
+    private fun reasoningParams(level: ReasoningLevel) = TextGenerationParams(
         model = Model(
             modelId = "gpt-5-codex",
             abilities = listOf(ModelAbility.REASONING)
         ),
-        reasoningLevel = ReasoningLevel.XHIGH,
+        reasoningLevel = level,
     )
 
     private fun userMessages() = listOf(
@@ -58,10 +128,10 @@ class OpenAIReasoningEffortTest {
     )
 
     private fun buildChatCompletionRequest(
-        api: ChatCompletionsAPI,
         params: TextGenerationParams,
         providerSetting: ProviderSetting.OpenAI,
     ): JsonObject {
+        val api = ChatCompletionsAPI(OkHttpClient(), KeyRoulette.default())
         val method = ChatCompletionsAPI::class.java.getDeclaredMethod(
             "buildChatCompletionRequest",
             List::class.java,

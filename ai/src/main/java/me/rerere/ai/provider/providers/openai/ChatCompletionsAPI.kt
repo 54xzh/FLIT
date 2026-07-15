@@ -373,135 +373,11 @@ class ChatCompletionsAPI(
             }
 
             if (params.model.abilities.contains(ModelAbility.REASONING)) {
-                val level = params.reasoningLevel
-                when (host) {
-                    "openrouter.ai" -> {
-                        // https://openrouter.ai/docs/use-cases/reasoning-tokens
-                        put("reasoning", buildJsonObject {
-                            when (level) {
-                                ReasoningLevel.OFF -> put("effort", "none")
-                                ReasoningLevel.AUTO -> put("enabled", true)
-                                else -> put("effort", level.effort)
-                            }
-                        })
-                    }
-
-                    "dashscope.aliyuncs.com" -> {
-                        // 阿里云百炼
-                        // https://bailian.console.aliyun.com/console?tab=doc#/doc/?type=model&url=https%3A%2F%2Fhelp.aliyun.com%2Fdocument_detail%2F2870973.html&renderType=iframe
-                        put("enable_thinking", level.isEnabled)
-                        if (level != ReasoningLevel.AUTO) put("thinking_budget", level.budgetTokens)
-                    }
-
-                    "ark.cn-beijing.volces.com" -> {
-                        // 豆包 (火山)
-                        put("thinking", buildJsonObject {
-                            put("type", if (!level.isEnabled) "disabled" else "enabled")
-                        })
-                    }
-
-                    "api.mistral.ai" -> {
-                        // Mistral 不支持
-                    }
-
-                    "chat.intern-ai.org.cn" -> {
-                        // 书生
-                        // https://internlm.intern-ai.org.cn/api/document?lang=zh
-                        put("thinking_mode", level.isEnabled)
-                    }
-
-                    "api.siliconflow.cn" -> {
-                        // https://docs.siliconflow.cn/cn/userguide/capabilities/reasoning#3-1-api-%E5%8F%82%E6%95%B0
-                        val modelId = params.model.modelId
-                        val siliconflowThinkingModels = setOf(
-                            "Pro/moonshotai/Kimi-K2.5",
-                            "Pro/zai-org/GLM-5",
-                            "Pro/zai-org/GLM-5.1",
-                            "Pro/zai-org/GLM-4.7",
-                            "deepseek-ai/DeepSeek-V3.2",
-                            "Pro/deepseek-ai/DeepSeek-V3.2",
-                            "Qwen/Qwen3.5-397B-A17B",
-                            "Qwen/Qwen3.5-122B-A10B",
-                            "Qwen/Qwen3.5-35B-A3B",
-                            "Qwen/Qwen3.5-27B",
-                            "Qwen/Qwen3.5-9B",
-                            "Qwen/Qwen3.5-4B",
-                            "zai-org/GLM-4.6",
-                            "Qwen/Qwen3-8B",
-                            "Qwen/Qwen3-14B",
-                            "Qwen/Qwen3-32B",
-                            "Qwen/Qwen3-30B-A3B",
-                            "tencent/Hunyuan-A13B-Instruct",
-                            "zai-org/GLM-4.5V",
-                            "deepseek-ai/DeepSeek-V3.1-Terminus",
-                            "Pro/deepseek-ai/DeepSeek-V3.1-Terminus",
-                            "deepseek-ai/DeepSeek-V4-Flash",
-                            "Pro/deepseek-ai/DeepSeek-V4-Flash",
-                            "deepseek-ai/DeepSeek-V4-Pro",
-                            "Pro/deepseek-ai/DeepSeek-V4-Pro",
-                        )
-                        if (modelId in siliconflowThinkingModels) {
-                            put("enable_thinking", level.isEnabled)
-                        }
-                    }
-
-                    "aiping.cn" -> {
-                        put("enable_thinking", level.isEnabled)
-                    }
-
-                    "open.bigmodel.cn" -> {
-                        put("thinking", buildJsonObject {
-                            put("type", if (!level.isEnabled) "disabled" else "enabled")
-                        })
-                    }
-
-                    "api.moonshot.cn" -> {
-                        put("thinking", buildJsonObject {
-                            put("type", if (!level.isEnabled) "disabled" else "enabled")
-                        })
-                    }
-
-                    "api.deepseek.com" -> {
-                        put("thinking", buildJsonObject {
-                            put("type", if (!level.isEnabled) "disabled" else "enabled")
-                        })
-                        if (level.isEnabled && level != ReasoningLevel.AUTO) {
-                            put("reasoning_effort", level.completionsEffort())
-                        }
-                    }
-
-                    "integrate.api.nvidia.com" -> {
-                        if ("deepseek-v4" in params.model.modelId.lowercase()) {
-                            if (level != ReasoningLevel.AUTO) {
-                                val effort = when (level) {
-                                    ReasoningLevel.XHIGH, ReasoningLevel.MAX -> "max"
-                                    ReasoningLevel.OFF -> "none"
-                                    else -> "high"
-                                }
-                                put("reasoning_effort", effort)
-                            }
-                        } else {
-                            if (level != ReasoningLevel.AUTO) {
-                                put("reasoning_effort", level.completionsEffort())
-                            }
-                        }
-                    }
-
-                    "opencode.ai" -> {
-                        if (level != ReasoningLevel.AUTO) {
-                            put("reasoning_effort", level.completionsEffort())
-                        }
-                    }
-
-                    else -> {
-                        // OpenAI 官方
-                        // completions API 不接受 "none"（需降级为 low）；
-                        // "max" 是 GPT-5.6 Responses API 特性，completions 端保守降级为 high
-                        if (level != ReasoningLevel.AUTO) {
-                            put("reasoning_effort", level.completionsEffort())
-                        }
-                    }
-                }
+                applyChatCompletionsReasoning(
+                    host = host,
+                    modelId = params.model.modelId,
+                    level = params.reasoningLevel,
+                )
             }
 
             if (params.model.abilities.contains(ModelAbility.TOOL) && params.tools.isNotEmpty()) {
@@ -780,13 +656,190 @@ class ChatCompletionsAPI(
 }
 
 /**
- * Chat Completions API 的 reasoning_effort 取值有限：
- * - "none" 不被接受，降级为 "low"
- * - "max" 是 GPT-5.6 Responses API 特性，completions 端保守降级为 "high"
- * - 其余（minimal/low/medium/high/xhigh）原样发送
+ * 各家 Chat Completions 的推理开关协议不同。按 host 分流；未知 host 走 OpenAI 风格兜底。
+ * 只面向较新模型（GPT-5.1+ / 近年国内混合思考模型），不再为更老的 effort 枚举做降级。
  */
-private fun ReasoningLevel.completionsEffort(): String = when (effort) {
-    "none" -> "low"
-    "max" -> "high"
-    else -> effort
+private fun kotlinx.serialization.json.JsonObjectBuilder.applyChatCompletionsReasoning(
+    host: String,
+    modelId: String,
+    level: ReasoningLevel,
+) {
+    when (classifyCompletionsReasoningHost(host)) {
+        CompletionsReasoningHost.OPENROUTER -> {
+            // https://openrouter.ai/docs/use-cases/reasoning-tokens
+            put("reasoning", buildJsonObject {
+                when (level) {
+                    ReasoningLevel.OFF -> put("effort", "none")
+                    ReasoningLevel.AUTO -> put("enabled", true)
+                    else -> put("effort", level.effort)
+                }
+            })
+        }
+
+        CompletionsReasoningHost.DASHSCOPE -> {
+            // 阿里云百炼 / 国际站
+            put("enable_thinking", level.isEnabled)
+            if (level.isEnabled && level != ReasoningLevel.AUTO) {
+                put("thinking_budget", level.budgetTokens)
+            }
+        }
+
+        CompletionsReasoningHost.VOLCENGINE -> {
+            // 火山方舟：thinking.type = enabled | disabled | auto
+            put("thinking", buildJsonObject {
+                put(
+                    "type",
+                    when (level) {
+                        ReasoningLevel.OFF -> "disabled"
+                        ReasoningLevel.AUTO -> "auto"
+                        else -> "enabled"
+                    }
+                )
+            })
+        }
+
+        CompletionsReasoningHost.MISTRAL -> {
+            // 不支持推理强度控制
+        }
+
+        CompletionsReasoningHost.INTERN -> {
+            put("thinking_mode", level.isEnabled)
+        }
+
+        CompletionsReasoningHost.SILICONFLOW -> {
+            // https://docs.siliconflow.cn/cn/userguide/capabilities/reasoning
+            if (modelId in SILICONFLOW_THINKING_MODELS) {
+                put("enable_thinking", level.isEnabled)
+            }
+        }
+
+        CompletionsReasoningHost.ENABLE_THINKING -> {
+            put("enable_thinking", level.isEnabled)
+        }
+
+        CompletionsReasoningHost.THINKING_TYPE -> {
+            // DeepSeek 官方 / 智谱 / Kimi 等：thinking.type 开关
+            put("thinking", buildJsonObject {
+                put("type", if (!level.isEnabled) "disabled" else "enabled")
+            })
+            if (host.contains("deepseek", ignoreCase = true) &&
+                level.isEnabled &&
+                level != ReasoningLevel.AUTO
+            ) {
+                // DeepSeek 官方 effort 只有 high / max；其余档位映射到 high
+                put("reasoning_effort", level.deepseekEffort())
+            }
+        }
+
+        CompletionsReasoningHost.MINIMAX -> {
+            // MiniMax M3：disabled / adaptive；未知是否支持 enabled
+            put("thinking", buildJsonObject {
+                put("type", if (!level.isEnabled) "disabled" else "adaptive")
+            })
+        }
+
+        CompletionsReasoningHost.NVIDIA -> {
+            if ("deepseek-v4" in modelId.lowercase()) {
+                if (level != ReasoningLevel.AUTO) {
+                    put(
+                        "reasoning_effort",
+                        when (level) {
+                            ReasoningLevel.OFF -> "none"
+                            ReasoningLevel.XHIGH, ReasoningLevel.MAX -> "max"
+                            else -> "high"
+                        }
+                    )
+                }
+            } else {
+                putOpenAiStyleReasoningEffort(level)
+            }
+        }
+
+        CompletionsReasoningHost.OPENAI_COMPAT -> {
+            // OpenAI 官方、OpenCode，以及未命中 host 的通用兜底
+            putOpenAiStyleReasoningEffort(level)
+        }
+    }
 }
+
+private fun kotlinx.serialization.json.JsonObjectBuilder.putOpenAiStyleReasoningEffort(
+    level: ReasoningLevel,
+) {
+    // 较新模型支持 none；AUTO 不传，让服务端默认
+    if (level != ReasoningLevel.AUTO) {
+        put("reasoning_effort", level.effort)
+    }
+}
+
+private fun ReasoningLevel.deepseekEffort(): String = when (this) {
+    ReasoningLevel.XHIGH, ReasoningLevel.MAX -> "max"
+    else -> "high"
+}
+
+private enum class CompletionsReasoningHost {
+    OPENROUTER,
+    DASHSCOPE,
+    VOLCENGINE,
+    MISTRAL,
+    INTERN,
+    SILICONFLOW,
+    ENABLE_THINKING,
+    THINKING_TYPE,
+    MINIMAX,
+    NVIDIA,
+    OPENAI_COMPAT,
+}
+
+private fun classifyCompletionsReasoningHost(host: String): CompletionsReasoningHost {
+    val h = host.lowercase()
+    return when {
+        h.contains("openrouter.ai") -> CompletionsReasoningHost.OPENROUTER
+        h.contains("dashscope") -> CompletionsReasoningHost.DASHSCOPE
+        h.contains("volces.com") ||
+            h.contains("bytepluses.com") ||
+            h.contains("volcengine") ||
+            h.contains("bytedance.net") -> CompletionsReasoningHost.VOLCENGINE
+        h.contains("mistral.ai") -> CompletionsReasoningHost.MISTRAL
+        h.contains("intern-ai") -> CompletionsReasoningHost.INTERN
+        h.contains("siliconflow") -> CompletionsReasoningHost.SILICONFLOW
+        h.contains("aiping.cn") -> CompletionsReasoningHost.ENABLE_THINKING
+        h.contains("bigmodel.cn") ||
+            h.contains("zhipuai") -> CompletionsReasoningHost.THINKING_TYPE
+        h.contains("moonshot") ||
+            h.contains("kimi.com") ||
+            h.contains("kimi.ai") -> CompletionsReasoningHost.THINKING_TYPE
+        h.contains("deepseek.com") -> CompletionsReasoningHost.THINKING_TYPE
+        h.contains("minimax") -> CompletionsReasoningHost.MINIMAX
+        h.contains("nvidia.com") -> CompletionsReasoningHost.NVIDIA
+        h.contains("opencode.ai") -> CompletionsReasoningHost.OPENAI_COMPAT
+        else -> CompletionsReasoningHost.OPENAI_COMPAT
+    }
+}
+
+private val SILICONFLOW_THINKING_MODELS = setOf(
+    "Pro/moonshotai/Kimi-K2.5",
+    "Pro/zai-org/GLM-5",
+    "Pro/zai-org/GLM-5.1",
+    "Pro/zai-org/GLM-4.7",
+    "deepseek-ai/DeepSeek-V3.2",
+    "Pro/deepseek-ai/DeepSeek-V3.2",
+    "Qwen/Qwen3.5-397B-A17B",
+    "Qwen/Qwen3.5-122B-A10B",
+    "Qwen/Qwen3.5-35B-A3B",
+    "Qwen/Qwen3.5-27B",
+    "Qwen/Qwen3.5-9B",
+    "Qwen/Qwen3.5-4B",
+    "zai-org/GLM-4.6",
+    "Qwen/Qwen3-8B",
+    "Qwen/Qwen3-14B",
+    "Qwen/Qwen3-32B",
+    "Qwen/Qwen3-30B-A3B",
+    "tencent/Hunyuan-A13B-Instruct",
+    "zai-org/GLM-4.5V",
+    "deepseek-ai/DeepSeek-V3.1-Terminus",
+    "Pro/deepseek-ai/DeepSeek-V3.1-Terminus",
+    "deepseek-ai/DeepSeek-V4-Flash",
+    "Pro/deepseek-ai/DeepSeek-V4-Flash",
+    "deepseek-ai/DeepSeek-V4-Pro",
+    "Pro/deepseek-ai/DeepSeek-V4-Pro",
+)
