@@ -168,9 +168,10 @@ class SkillUuidMigration(
         val target = uuidMapFile()
         val temp = File(target.parentFile, "${target.name}.tmp")
         temp.writeText(JsonInstant.encodeToString(map))
-        check(temp.renameTo(target) || (temp.copyTo(target, overwrite = true).let { temp.delete(); true })) {
-            "Failed to persist skill migration map"
-        }
+        if (temp.renameTo(target)) return
+        // rename 跨文件系统会失败；退回复制，失败由 IO 异常暴露。
+        temp.copyTo(target, overwrite = true)
+        temp.delete()
     }
 
     private fun uuidMapFile(): File = File(context.filesDir, "skill_uuid_map.json")
@@ -216,9 +217,10 @@ class SkillUuidMigration(
 
         /**
          * 重写 SKILLS JSON：每个元素删 `id` 键，并把旧 UUID 对应的 name 更新为最终分配名。
+         * 解析失败直接抛，避免上层把“未改写”的旧 JSON 当成迁移成功。
          */
         internal fun rewriteSkillsJson(raw: String, uuidToName: Map<String, String>): String {
-            val arr = runCatching { Json.parseToJsonElement(raw).jsonArray }.getOrNull() ?: return raw
+            val arr = Json.parseToJsonElement(raw).jsonArray
             val out = buildJsonArray {
                 for (el in arr) {
                     val obj = el.jsonObject
@@ -241,9 +243,10 @@ class SkillUuidMigration(
         /**
          * 重写 ASSISTANTS JSON：把每个元素的 `enabledSkillIds`(UUID 数组) 换成 `enabledSkills`(名数组)，
          * 映射不到的 UUID 丢弃。
+         * 解析失败直接抛，避免上层把“未改写”的旧 JSON 当成迁移成功。
          */
         internal fun rewriteAssistantsJson(raw: String, uuidToName: Map<String, String>): String {
-            val arr = runCatching { Json.parseToJsonElement(raw).jsonArray }.getOrNull() ?: return raw
+            val arr = Json.parseToJsonElement(raw).jsonArray
             val out = buildJsonArray {
                 for (el in arr) {
                     val obj = el.jsonObject
@@ -494,9 +497,7 @@ class SkillUuidMigration(
             val rawSkills = targets.readSkillsJson()
             val rawAssistants = targets.readAssistantsJson()
 
-            rawSkills?.let { Json.parseToJsonElement(it).jsonArray }
-            rawAssistants?.let { Json.parseToJsonElement(it).jsonArray }
-
+            // 解析失败由 rewrite* 直接抛，避免“预解析 + 软失败”两层互相抵消。
             val newSkillsJson = rawSkills?.let { rewriteSkillsJson(it, uuidToName) }
             val newAssistantsJson = rawAssistants?.let { rewriteAssistantsJson(it, uuidToName) }
 

@@ -122,19 +122,16 @@ class RestoreTargets(
     }
 
     private fun putArrayField(settingsJson: String, field: String, arrayJson: String): String {
-        return runCatching {
-            val obj = JSONObject(settingsJson)
-            obj.put(field, JSONArray(arrayJson))
-            obj.toString()
-        }.getOrDefault(settingsJson)
+        // 恢复路径的写入失败必须上抛，交给调用方回滚；不能吞掉后装作成功。
+        val obj = JSONObject(settingsJson)
+        obj.put(field, JSONArray(arrayJson))
+        return obj.toString()
     }
 
     private fun removeFields(settingsJson: String, vararg fields: String): String {
-        return runCatching {
-            val obj = JSONObject(settingsJson)
-            for (f in fields) obj.remove(f)
-            obj.toString()
-        }.getOrDefault(settingsJson)
+        val obj = JSONObject(settingsJson)
+        for (f in fields) obj.remove(f)
+        return obj.toString()
     }
 }
 

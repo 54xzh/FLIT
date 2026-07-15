@@ -45,12 +45,12 @@ class RestoreMigrationTest {
         }
 
         private fun putArrayField(field: String, arrayJson: String) {
+            // 与正式 RestoreTargets 一致：写入失败直接抛，不能装作成功。
             val raw = settingsJson ?: return
-            runCatching {
-                val obj = Json.parseToJsonElement(raw) as? JsonObject ?: return@runCatching
-                val arr = Json.parseToJsonElement(arrayJson) as JsonArray
-                settingsJson = JsonObject(obj.toMutableMap().apply { set(field, arr) }).toString()
-            }
+            val obj = Json.parseToJsonElement(raw) as? JsonObject
+                ?: error("settings JSON root is not an object")
+            val arr = Json.parseToJsonElement(arrayJson) as JsonArray
+            settingsJson = JsonObject(obj.toMutableMap().apply { set(field, arr) }).toString()
         }
 
         override suspend fun readSkillsJson() = arrayField("skills")
@@ -59,15 +59,14 @@ class RestoreMigrationTest {
         override suspend fun writeAssistantsJson(value: String) = putArrayField("assistants", value)
         override suspend fun clearLegacyScriptKeys() {
             val raw = settingsJson ?: return
-            runCatching {
-                val obj = Json.parseToJsonElement(raw) as? JsonObject ?: return@runCatching
-                settingsJson = JsonObject(
-                    obj.toMutableMap().apply {
-                        remove("enabledSkillScriptIds")
-                        remove("enableSkillScriptExecution")
-                    }
-                ).toString()
-            }
+            val obj = Json.parseToJsonElement(raw) as? JsonObject
+                ?: error("settings JSON root is not an object")
+            settingsJson = JsonObject(
+                obj.toMutableMap().apply {
+                    remove("enabledSkillScriptIds")
+                    remove("enableSkillScriptExecution")
+                }
+            ).toString()
         }
         override suspend fun readAllExplicitSkillContexts() = convRows.toList()
         override suspend fun updateExplicitSkillContexts(id: String, json: String) {

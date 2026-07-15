@@ -59,10 +59,14 @@ class SkillUuidMigrationTest {
         assertTrue(!out.contains("\"id\""))
     }
 
-    @Test
-    fun `rewriteSkillsJson returns raw on parse failure`() {
-        val raw = "not json"
-        assertEquals(raw, migration.rewriteSkillsJson(raw, emptyMap()))
+    @Test(expected = Exception::class)
+    fun `rewriteSkillsJson throws on parse failure`() {
+        migration.rewriteSkillsJson("not json", emptyMap())
+    }
+
+    @Test(expected = Exception::class)
+    fun `rewriteAssistantsJson throws on parse failure`() {
+        migration.rewriteAssistantsJson("not json", emptyMap())
     }
 
     @Test
