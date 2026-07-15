@@ -113,5 +113,5 @@ Embeddings stored in source entities (`MemoryEntity`, `ChatEpisodeEntity`) AND `
 
 ## Operations
 - **Commits:** Conventional Commits (`feat:`, `fix:`, `chore:`).
-- **Localization:** New/modified user-visible text requires `values-zh-rCN/strings.xml` and `values-zh-rTW/strings.xml`. Do not add new languages unless requested.
+- **Localization:** Only three locales are maintained: English (`values/`, the default), Simplified Chinese (`values-zh-rCN/`), and Traditional Chinese (`values-zh-rTW/`). New/modified user-visible text requires updating both `values-zh-rCN/strings.xml` and `values-zh-rTW/strings.xml`. Do not add new languages unless explicitly requested.
 - **Unit tests** in `src/test`, **instrumented tests** in `src/androidTest`.

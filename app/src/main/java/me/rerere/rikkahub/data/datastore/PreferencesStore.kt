@@ -1199,7 +1199,7 @@ enum class MessageInputStyle {
  * [SYSTEM] 用 null 语言标签，对应 appcompat 的「跟随系统」约定（空 LocaleList）。
  * 其余项用 BCP-47 标签，与 res/values-* 资源目录匹配：
  * - en → values（英文默认）
- * - zh-CN → values-zh-rCN（缺的 key 回退到 values-zh）
+ * - zh-CN → values-zh-rCN（缺的 key 回退到默认 values）
  * - zh-TW → values-zh-rTW
  */
 @Serializable

@@ -6,7 +6,7 @@ import java.io.File
 
 class StorageStringsZhCompletenessTest {
     @Test
-    fun `values zh contains required storage keys`() {
+    fun `values zh rCN contains required storage keys`() {
         val stringsFile = resolveZhStringsFile()
         val content = stringsFile.readText(Charsets.UTF_8)
         val requiredKeys = listOf(
@@ -18,16 +18,16 @@ class StorageStringsZhCompletenessTest {
         )
 
         val missingKeys = requiredKeys.filterNot { key -> content.contains("name=\"$key\"") }
-        assertTrue("Missing keys in values-zh/strings.xml: $missingKeys", missingKeys.isEmpty())
+        assertTrue("Missing keys in values-zh-rCN/strings.xml: $missingKeys", missingKeys.isEmpty())
     }
 
     private fun resolveZhStringsFile(): File {
-        val fromModuleDir = File("src/main/res/values-zh/strings.xml")
+        val fromModuleDir = File("src/main/res/values-zh-rCN/strings.xml")
         if (fromModuleDir.exists()) return fromModuleDir
 
-        val fromRepoRoot = File("app/src/main/res/values-zh/strings.xml")
+        val fromRepoRoot = File("app/src/main/res/values-zh-rCN/strings.xml")
         if (fromRepoRoot.exists()) return fromRepoRoot
 
-        error("Cannot find values-zh/strings.xml from current working directory")
+        error("Cannot find values-zh-rCN/strings.xml from current working directory")
     }
 }
