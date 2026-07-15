@@ -330,6 +330,12 @@
   <string name="reasoning_off">オフ</string>
   <string name="reasoning_off_desc">推論機能を無効にし、モデルは直接質問に答えます。</string>
   <string name="reasoning_set_budget">推論予算を設定 (%1$d トークン)</string>
+  <string name="reasoning_xhigh">極限推論</string>
+  <string name="reasoning_xhigh_desc">モデルはサポート範囲内で最も強力な推論を使用します。</string>
+  <string name="reasoning_picker_title">モデルの思考深度を調整</string>
+  <string name="reasoning_picker_hint">すべてのモデルが深度調整をサポートしているわけではありません。モデルとプロバイダのドキュメントを参照してください。</string>
+  <string name="reasoning_max">最高推論</string>
+  <string name="reasoning_max_desc">モデルは最高強度の推論を使用します。難易度の高いタスクに適しています。</string>
   <string name="regenerate">再生成</string>
   <string name="render_with_webview">WebViewで表示</string>
   <string name="search_ability_scrape">スクレイピング</string>

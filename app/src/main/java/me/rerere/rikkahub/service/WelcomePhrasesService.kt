@@ -15,6 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
@@ -264,7 +265,7 @@ class WelcomePhrasesService(
         val params = TextGenerationParams(
             model = pending.model,
             temperature = 0.9f,
-            thinkingBudget = 0,
+            reasoningLevel = ReasoningLevel.OFF,
             onRequestBody = { requestBodyJson = it },
         )
         val startAt = System.currentTimeMillis()

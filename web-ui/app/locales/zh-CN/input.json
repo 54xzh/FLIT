@@ -21,13 +21,8 @@
   },
   "reasoning": {
     "title": "推理",
-    "description": "配置当前助手的推理强度和预算",
-    "update_failed": "更新推理预算失败",
-    "custom_budget": "自定义推理预算",
-    "custom_budget_placeholder": "输入预算 token 数",
-    "invalid_integer": "请输入有效的整数",
-    "apply": "应用",
-    "examples": "示例：0（关闭）、-1（自动）、1024、16000、32000",
+    "description": "调整当前助手的思考深度，并非所有模型都支持深度调节",
+    "update_failed": "更新推理档位失败",
     "presets": {
       "off": {
         "label": "关闭",
@@ -48,6 +43,14 @@
       "high": {
         "label": "重度推理",
         "description": "模型将使用大量推理来回答问题。"
+      },
+      "xhigh": {
+        "label": "极限推理",
+        "description": "模型将使用支持范围内最强的推理。"
+      },
+      "max": {
+        "label": "最高推理",
+        "description": "模型将使用最高强度推理，适合高难度任务。"
       }
     }
   },

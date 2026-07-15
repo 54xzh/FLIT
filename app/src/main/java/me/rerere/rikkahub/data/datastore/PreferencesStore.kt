@@ -27,6 +27,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.booleanOrNull
 import me.rerere.rikkahub.R
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.normalizeProviderApiKeys
@@ -42,6 +43,7 @@ import me.rerere.rikkahub.data.ai.prompts.DEFAULT_TRANSLATION_PROMPT
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV1Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV2Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV3Migration
+import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV4Migration
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantSearchMode
 import me.rerere.rikkahub.data.model.Avatar
@@ -169,6 +171,7 @@ internal val Context.settingsDataStore by preferencesDataStore(
             PreferenceStoreV1Migration(),
             PreferenceStoreV2Migration(),
             PreferenceStoreV3Migration(),
+            PreferenceStoreV4Migration(),
         )
     }
 )
@@ -745,7 +748,7 @@ class SettingsStore(
 
         settingsFlow.value = finalSettingsToSave
         dataStore.edit { preferences ->
-            preferences[VERSION] = 3
+            preferences[VERSION] = 4
             preferences[DYNAMIC_COLOR] = finalSettingsToSave.dynamicColor
             preferences[THEME_ID] = finalSettingsToSave.themeId
             preferences[DEVELOPER_MODE] = finalSettingsToSave.developerMode
@@ -844,6 +847,20 @@ class SettingsStore(
 
     suspend fun updateAssistant(assistantId: Uuid) {
         updateChatTarget(ChatTarget.Assistant(assistantId))
+    }
+
+    suspend fun updateAssistantReasoningLevel(assistantId: Uuid, reasoningLevel: ReasoningLevel) {
+        update { settings ->
+            settings.copy(
+                assistants = settings.assistants.map { assistant ->
+                    if (assistant.id == assistantId) {
+                        assistant.copy(reasoningLevel = reasoningLevel)
+                    } else {
+                        assistant
+                    }
+                }
+            )
+        }
     }
 
     suspend fun updateChatTarget(target: ChatTarget) {

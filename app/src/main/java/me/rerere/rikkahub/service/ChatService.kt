@@ -60,6 +60,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.MessageRole
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.ensureBuiltInSearchTool
@@ -3135,7 +3136,7 @@ class ChatService(
 
         return assistant.copy(
             chatModelId = overrides.chatModelId ?: assistant.chatModelId,
-            thinkingBudget = overrides.thinkingBudget ?: assistant.thinkingBudget,
+            reasoningLevel = overrides.reasoningLevel ?: assistant.reasoningLevel,
             maxTokens = overrides.maxTokens ?: assistant.maxTokens,
             searchMode = if (overrides.searchEnabled) overrides.searchMode else AssistantSearchMode.Off,
             preferBuiltInSearch = overrides.searchEnabled && overrides.preferBuiltInSearch,
@@ -3623,7 +3624,7 @@ class ChatService(
             preferBuiltInSearch = false,
             mcpServers = emptySet(),
             localTools = emptyList(),
-            thinkingBudget = 0,
+            reasoningLevel = ReasoningLevel.OFF,
         )
 
         var lastMessages: List<UIMessage> = emptyList()
@@ -4818,7 +4819,7 @@ class ChatService(
             val params = TextGenerationParams(
                 model = model,
                 temperature = 0.3f,
-                thinkingBudget = 0,
+                reasoningLevel = ReasoningLevel.OFF,
                 onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()
@@ -4955,7 +4956,7 @@ class ChatService(
             val params = TextGenerationParams(
                 model = model,
                 temperature = 1.0f,
-                thinkingBudget = 0,
+                reasoningLevel = ReasoningLevel.OFF,
                 onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()

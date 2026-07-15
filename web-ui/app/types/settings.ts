@@ -83,7 +83,7 @@ export interface LorebookProfile {
 export interface AssistantProfile {
   id: string;
   chatModelId?: string | null;
-  thinkingBudget?: number | null;
+  reasoningLevel?: ReasoningLevel;
   mcpServers?: string[];
   modeInjectionIds?: string[];
   lorebookIds?: string[];
@@ -121,6 +121,7 @@ export interface McpServerConfig {
 export type ModelType = "CHAT" | "IMAGE" | "EMBEDDING";
 export type ModelModality = "TEXT" | "IMAGE";
 export type ModelAbility = "TOOL" | "REASONING";
+export type ReasoningLevel = "off" | "auto" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface BuiltInTool {
   type?: string;

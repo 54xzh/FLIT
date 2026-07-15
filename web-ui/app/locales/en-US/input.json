@@ -21,13 +21,8 @@
   },
   "reasoning": {
     "title": "Reasoning",
-    "description": "Configure reasoning intensity and budget for current assistant",
-    "update_failed": "Failed to update reasoning budget",
-    "custom_budget": "Custom reasoning budget",
-    "custom_budget_placeholder": "Enter token budget",
-    "invalid_integer": "Please enter a valid integer",
-    "apply": "Apply",
-    "examples": "Examples: 0 (off), -1 (auto), 1024, 16000, 32000",
+    "description": "Adjust the thinking depth for the current assistant. Not all models support depth adjustment.",
+    "update_failed": "Failed to update reasoning level",
     "presets": {
       "off": {
         "label": "Off",
@@ -38,7 +33,7 @@
         "description": "Let the model decide the reasoning level automatically."
       },
       "low": {
-        "label": "Light",
+        "label": "Low",
         "description": "Use a small amount of reasoning to answer."
       },
       "medium": {
@@ -46,8 +41,16 @@
         "description": "Use more reasoning to answer."
       },
       "high": {
-        "label": "Heavy",
+        "label": "High",
         "description": "Use extensive reasoning to answer."
+      },
+      "xhigh": {
+        "label": "Extra High",
+        "description": "Use the deepest supported reasoning."
+      },
+      "max": {
+        "label": "Max",
+        "description": "Use the highest reasoning effort for demanding tasks."
       }
     }
   },

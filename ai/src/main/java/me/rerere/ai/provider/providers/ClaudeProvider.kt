@@ -371,7 +371,7 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             put("messages", buildMessages(messages))
             put("max_tokens", params.maxTokens ?: 64_000)
 
-            if (params.temperature != null && (params.thinkingBudget ?: 0) == 0) put(
+            if (params.temperature != null && !params.reasoningLevel.isEnabled) put(
                 "temperature",
                 params.temperature
             )
@@ -392,17 +392,32 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 })
             }
 
-            // 处理 thinking budget
+            // 处理 thinking
+            // Anthropic 新 API: adaptive 模式 + output_config.effort 控制强度
+            // 旧的 type=enabled + budget_tokens 在 Opus 4.7+ 上已不支持
             if (params.model.abilities.contains(ModelAbility.REASONING)) {
-                val level = ReasoningLevel.fromBudgetTokens(params.thinkingBudget ?: 0)
-                put("thinking", buildJsonObject {
-                    if (level == ReasoningLevel.OFF) {
-                        put("type", "disabled")
-                    } else {
-                        put("type", "enabled")
-                        if (level != ReasoningLevel.AUTO) put("budget_tokens", params.thinkingBudget ?: 0)
+                when (params.reasoningLevel) {
+                    ReasoningLevel.OFF -> {
+                        put("thinking", buildJsonObject { put("type", "disabled") })
                     }
-                })
+
+                    ReasoningLevel.AUTO -> {
+                        put("thinking", buildJsonObject {
+                            put("type", "adaptive")
+                            put("display", "summarized")
+                        })
+                    }
+
+                    else -> {
+                        put("thinking", buildJsonObject {
+                            put("type", "adaptive")
+                            put("display", "summarized")
+                        })
+                        put("output_config", buildJsonObject {
+                            put("effort", params.reasoningLevel.effort)
+                        })
+                    }
+                }
             }
 
             val builtInTools = buildClaudeBuiltInTools(params.model)

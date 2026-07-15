@@ -330,6 +330,12 @@
   <string name="reasoning_off">꺼짐</string>
   <string name="reasoning_off_desc">사고 기능 끄기, 모델이 질문에 직접 응답합니다</string>
   <string name="reasoning_set_budget">사고 예산 설정(%1$d 토큰)</string>
+  <string name="reasoning_xhigh">최고 사고</string>
+  <string name="reasoning_xhigh_desc">모델이 지원 범위 내에서 가장 강력한 사고를 사용합니다.</string>
+  <string name="reasoning_picker_title">모델 사고 깊이 조정</string>
+  <string name="reasoning_picker_hint">모든 모델이 깊이 조정을 지원하는 것은 아닙니다. 모델 및 제공업체 문서를 참조하세요.</string>
+  <string name="reasoning_max">최대 사고</string>
+  <string name="reasoning_max_desc">모델이 최고 강도의 사고를 사용합니다. 고난도 작업에 적합합니다.</string>
   <string name="regenerate">다시 생성</string>
   <string name="render_with_webview">WebView로 렌더링</string>
   <string name="search_ability_scrape">스크래핑</string>

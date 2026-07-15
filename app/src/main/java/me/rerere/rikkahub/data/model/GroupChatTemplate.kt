@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.model
 
 import kotlinx.serialization.Serializable
+import me.rerere.ai.core.ReasoningLevel
 import kotlin.uuid.Uuid
 
 @Serializable
@@ -28,7 +29,7 @@ data class GroupChatSeat(
 data class GroupChatSeatOverrides(
     val chatModelId: Uuid? = null,
     val systemPrompt: String? = null,
-    val thinkingBudget: Int? = null,
+    val reasoningLevel: ReasoningLevel? = null,
     val maxTokens: Int? = null,
     val searchEnabled: Boolean = false,
     val memoryEnabled: Boolean = false,

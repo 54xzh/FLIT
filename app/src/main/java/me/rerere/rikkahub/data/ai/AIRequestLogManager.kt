@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.core.MessageRole
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.CustomBody
 import me.rerere.ai.provider.CustomHeader
 import me.rerere.ai.provider.Model
@@ -63,7 +64,7 @@ private data class TextGenerationParamsLog(
     val temperature: Float?,
     val topP: Float?,
     val maxTokens: Int?,
-    val thinkingBudget: Int?,
+    val reasoningLevel: ReasoningLevel,
     val toolNames: List<String>,
     val customHeaders: List<CustomHeader>,
     val customBody: List<CustomBody>,
@@ -310,7 +311,7 @@ private fun buildTextGenerationParamsJson(params: TextGenerationParams): String 
         temperature = params.temperature,
         topP = params.topP,
         maxTokens = params.maxTokens,
-        thinkingBudget = params.thinkingBudget,
+        reasoningLevel = params.reasoningLevel,
         toolNames = params.tools.map { it.name },
         customHeaders = safeHeaders,
         customBody = safeBodies,

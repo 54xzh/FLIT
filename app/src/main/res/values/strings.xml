@@ -692,9 +692,13 @@
     <string name="reasoning_custom">Custom Budget</string>
     <string name="reasoning_heavy">Heavy</string>
     <string name="reasoning_heavy_desc">Model uses extensive reasoning.</string>
+    <string name="reasoning_max">Max</string>
+    <string name="reasoning_max_desc">Model uses the highest reasoning effort for demanding tasks.</string>
+    <string name="reasoning_picker_hint">Not all models support depth adjustment. Refer to the model and provider documentation.</string>
+    <string name="reasoning_picker_title">Adjust Model Thinking Depth</string>
     <string name="reasoning_xhigh">Extra High</string>
     <string name="reasoning_xhigh_desc">Model uses the deepest supported reasoning.</string>
-    <string name="reasoning_light">Light</string>
+    <string name="reasoning_light">Low</string>
     <string name="reasoning_light_desc">Model uses light reasoning.</string>
     <string name="reasoning_medium">Medium</string>
     <string name="reasoning_medium_desc">Model uses moderate reasoning.</string>

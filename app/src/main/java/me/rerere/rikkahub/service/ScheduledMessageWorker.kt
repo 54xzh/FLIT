@@ -7,6 +7,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.flow.first
 import me.rerere.ai.core.MessageRole
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.R
@@ -92,7 +93,7 @@ class ScheduledMessageWorker(
                 params = TextGenerationParams(
                     model = model,
                     temperature = 0.7f,
-                    thinkingBudget = 0
+                    reasoningLevel = ReasoningLevel.OFF
                 )
             )
 

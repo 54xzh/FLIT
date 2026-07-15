@@ -3,6 +3,7 @@ package me.rerere.rikkahub.service
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
@@ -34,7 +35,7 @@ class ModelNameGenerationService(
         var requestBodyJson: String? = null
         val params = TextGenerationParams(
             model = model,
-            thinkingBudget = -1,
+            reasoningLevel = ReasoningLevel.AUTO,
             onRequestBody = { requestBodyJson = it },
         )
         val startAt = System.currentTimeMillis()

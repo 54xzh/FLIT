@@ -19,7 +19,7 @@ import org.junit.Test
 class OpenAIReasoningEffortTest {
     @Test
     fun `xhigh budget maps to xhigh reasoning level`() {
-        val level = ReasoningLevel.fromBudgetTokens(64_000)
+        val level = ReasoningLevel.fromBudgetTokens(ReasoningLevel.XHIGH.budgetTokens)
 
         assertEquals(ReasoningLevel.XHIGH, level)
         assertEquals("xhigh", level.effort)
@@ -50,7 +50,7 @@ class OpenAIReasoningEffortTest {
             modelId = "gpt-5-codex",
             abilities = listOf(ModelAbility.REASONING)
         ),
-        thinkingBudget = 64_000,
+        reasoningLevel = ReasoningLevel.XHIGH,
     )
 
     private fun userMessages() = listOf(

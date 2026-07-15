@@ -217,7 +217,6 @@ class ImgGenVM(
             topP = null,
             maxTokens = null,
             tools = emptyList(),
-            thinkingBudget = null,
             customHeaders = model.customHeaders,
             customBody = model.customBodies
         )

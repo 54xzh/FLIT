@@ -373,14 +373,15 @@ class ChatCompletionsAPI(
             }
 
             if (params.model.abilities.contains(ModelAbility.REASONING)) {
-                val level = ReasoningLevel.fromBudgetTokens(params.thinkingBudget)
+                val level = params.reasoningLevel
                 when (host) {
                     "openrouter.ai" -> {
                         // https://openrouter.ai/docs/use-cases/reasoning-tokens
                         put("reasoning", buildJsonObject {
-                            if (level != ReasoningLevel.AUTO) put("max_tokens", params.thinkingBudget ?: 0)
-                            if (!level.isEnabled) {
-                                put("enabled", false)
+                            when (level) {
+                                ReasoningLevel.OFF -> put("effort", "none")
+                                ReasoningLevel.AUTO -> put("enabled", true)
+                                else -> put("effort", level.effort)
                             }
                         })
                     }
@@ -389,7 +390,7 @@ class ChatCompletionsAPI(
                         // 阿里云百炼
                         // https://bailian.console.aliyun.com/console?tab=doc#/doc/?type=model&url=https%3A%2F%2Fhelp.aliyun.com%2Fdocument_detail%2F2870973.html&renderType=iframe
                         put("enable_thinking", level.isEnabled)
-                        if (level != ReasoningLevel.AUTO) put("thinking_budget", params.thinkingBudget ?: 0)
+                        if (level != ReasoningLevel.AUTO) put("thinking_budget", level.budgetTokens)
                     }
 
                     "ark.cn-beijing.volces.com" -> {
@@ -412,9 +413,40 @@ class ChatCompletionsAPI(
                     "api.siliconflow.cn" -> {
                         // https://docs.siliconflow.cn/cn/userguide/capabilities/reasoning#3-1-api-%E5%8F%82%E6%95%B0
                         val modelId = params.model.modelId
-                        if(modelId.contains("DeepSeek-V3.1") || modelId.contains("GLM-4.5") || modelId.contains("Qwen3-8B")) {
+                        val siliconflowThinkingModels = setOf(
+                            "Pro/moonshotai/Kimi-K2.5",
+                            "Pro/zai-org/GLM-5",
+                            "Pro/zai-org/GLM-5.1",
+                            "Pro/zai-org/GLM-4.7",
+                            "deepseek-ai/DeepSeek-V3.2",
+                            "Pro/deepseek-ai/DeepSeek-V3.2",
+                            "Qwen/Qwen3.5-397B-A17B",
+                            "Qwen/Qwen3.5-122B-A10B",
+                            "Qwen/Qwen3.5-35B-A3B",
+                            "Qwen/Qwen3.5-27B",
+                            "Qwen/Qwen3.5-9B",
+                            "Qwen/Qwen3.5-4B",
+                            "zai-org/GLM-4.6",
+                            "Qwen/Qwen3-8B",
+                            "Qwen/Qwen3-14B",
+                            "Qwen/Qwen3-32B",
+                            "Qwen/Qwen3-30B-A3B",
+                            "tencent/Hunyuan-A13B-Instruct",
+                            "zai-org/GLM-4.5V",
+                            "deepseek-ai/DeepSeek-V3.1-Terminus",
+                            "Pro/deepseek-ai/DeepSeek-V3.1-Terminus",
+                            "deepseek-ai/DeepSeek-V4-Flash",
+                            "Pro/deepseek-ai/DeepSeek-V4-Flash",
+                            "deepseek-ai/DeepSeek-V4-Pro",
+                            "Pro/deepseek-ai/DeepSeek-V4-Pro",
+                        )
+                        if (modelId in siliconflowThinkingModels) {
                             put("enable_thinking", level.isEnabled)
                         }
+                    }
+
+                    "aiping.cn" -> {
+                        put("enable_thinking", level.isEnabled)
                     }
 
                     "open.bigmodel.cn" -> {
@@ -434,15 +466,39 @@ class ChatCompletionsAPI(
                             put("type", if (!level.isEnabled) "disabled" else "enabled")
                         })
                         if (level.isEnabled && level != ReasoningLevel.AUTO) {
-                            put("reasoning_effort", level.effort)
+                            put("reasoning_effort", level.completionsEffort())
+                        }
+                    }
+
+                    "integrate.api.nvidia.com" -> {
+                        if ("deepseek-v4" in params.model.modelId.lowercase()) {
+                            if (level != ReasoningLevel.AUTO) {
+                                val effort = when (level) {
+                                    ReasoningLevel.XHIGH, ReasoningLevel.MAX -> "max"
+                                    ReasoningLevel.OFF -> "none"
+                                    else -> "high"
+                                }
+                                put("reasoning_effort", effort)
+                            }
+                        } else {
+                            if (level != ReasoningLevel.AUTO) {
+                                put("reasoning_effort", level.completionsEffort())
+                            }
+                        }
+                    }
+
+                    "opencode.ai" -> {
+                        if (level != ReasoningLevel.AUTO) {
+                            put("reasoning_effort", level.completionsEffort())
                         }
                     }
 
                     else -> {
                         // OpenAI 官方
-                        // reasoning_effort 支持 none/minimal/low/medium/high/xhigh（具体取决于模型）
+                        // completions API 不接受 "none"（需降级为 low）；
+                        // "max" 是 GPT-5.6 Responses API 特性，completions 端保守降级为 high
                         if (level != ReasoningLevel.AUTO) {
-                            put("reasoning_effort", level.effort)
+                            put("reasoning_effort", level.completionsEffort())
                         }
                     }
                 }
@@ -721,4 +777,16 @@ class ChatCompletionsAPI(
         val texts = filter { it is UIMessagePart.Text }.size
         return gonnaSend == texts && texts == 1
     }
+}
+
+/**
+ * Chat Completions API 的 reasoning_effort 取值有限：
+ * - "none" 不被接受，降级为 "low"
+ * - "max" 是 GPT-5.6 Responses API 特性，completions 端保守降级为 "high"
+ * - 其余（minimal/low/medium/high/xhigh）原样发送
+ */
+private fun ReasoningLevel.completionsEffort(): String = when (effort) {
+    "none" -> "low"
+    "max" -> "high"
+    else -> effort
 }

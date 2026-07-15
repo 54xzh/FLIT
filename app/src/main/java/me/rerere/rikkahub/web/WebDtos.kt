@@ -15,6 +15,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
@@ -106,9 +107,9 @@ data class UpdateAssistantModelRequest(
 )
 
 @Serializable
-data class UpdateAssistantThinkingBudgetRequest(
+data class UpdateAssistantReasoningLevelRequest(
     val assistantId: String,
-    val thinkingBudget: Int?,
+    val reasoningLevel: ReasoningLevel,
 )
 
 @Serializable
@@ -386,7 +387,7 @@ data class WebLorebookDto(
 data class WebAssistantDto(
     val id: String,
     val chatModelId: String? = null,
-    val thinkingBudget: Int? = null,
+    val reasoningLevel: ReasoningLevel = ReasoningLevel.AUTO,
     val mcpServers: List<String> = emptyList(),
     val modeInjectionIds: List<String> = emptyList(),
     val lorebookIds: List<String> = emptyList(),
@@ -788,7 +789,7 @@ internal fun Assistant.toWebAssistantDto(context: Context): WebAssistantDto {
     return WebAssistantDto(
         id = id.toString(),
         chatModelId = chatModelId?.toString(),
-        thinkingBudget = thinkingBudget,
+        reasoningLevel = reasoningLevel,
         mcpServers = mcpServers.map(Uuid::toString),
         modeInjectionIds = enabledModeIds.map(Uuid::toString),
         lorebookIds = enabledLorebookIds.map(Uuid::toString),

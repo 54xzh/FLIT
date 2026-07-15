@@ -681,21 +681,15 @@ private fun Route.webRoutes(
             call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
         }
 
-        post("/assistant/thinking-budget") {
-            val request = call.receive<UpdateAssistantThinkingBudgetRequest>()
+        post("/assistant/reasoning-level") {
+            val request = call.receive<UpdateAssistantReasoningLevelRequest>()
             val assistantId = request.assistantId.toUuid("assistant id")
             val settings = settingsStore.settingsFlow.value
             if (settings.assistants.none { it.id == assistantId }) {
                 throw NotFoundException("Assistant not found")
             }
 
-            settingsStore.update { current ->
-                current.copy(
-                    assistants = current.assistants.replaceAssistant(assistantId) { assistant ->
-                        assistant.copy(thinkingBudget = request.thinkingBudget)
-                    }
-                )
-            }
+            settingsStore.updateAssistantReasoningLevel(assistantId, request.reasoningLevel)
             call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
         }
 

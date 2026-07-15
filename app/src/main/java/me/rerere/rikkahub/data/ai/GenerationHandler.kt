@@ -1584,7 +1584,7 @@ class GenerationHandler(
             topP = assistant.topP,
             maxTokens = assistant.maxTokens,
             tools = tools,
-            thinkingBudget = assistant.thinkingBudget,
+            reasoningLevel = assistant.reasoningLevel,
             customHeaders = buildList {
                 addAll(assistant.customHeaders)
                 addAll(model.customHeaders)

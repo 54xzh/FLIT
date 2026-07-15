@@ -47,6 +47,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_BACKGROUND_PROMPT
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_CONTEXT_SUMMARY_PROMPT
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_MEMORY_CONSOLIDATION_PROMPT
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.ui.components.ai.ModelSelector
 import me.rerere.rikkahub.ui.components.ai.ReasoningButton
@@ -425,15 +426,12 @@ fun AssistantModelSubPage(
             // Thinking Budget
             SettingGroupItem(
                 title = stringResource(R.string.assistant_page_thinking_budget),
-                subtitle = assistant.thinkingBudget
-                    ?.takeIf { it > 0 }
-                    ?.let { stringResource(R.string.tokens_format, it) }
-                    ?: stringResource(R.string.off),
+                subtitle = reasoningLevelLabel(assistant.reasoningLevel),
                 trailing = {
                     ReasoningButton(
-                        reasoningTokens = assistant.thinkingBudget ?: 0,
-                        onUpdateReasoningTokens = { tokens ->
-                            onUpdate(assistant.copy(thinkingBudget = tokens))
+                        reasoningLevel = assistant.reasoningLevel,
+                        onUpdateReasoningLevel = { level ->
+                            onUpdate(assistant.copy(reasoningLevel = level))
                         }
                     )
                 }
@@ -545,4 +543,15 @@ private fun AssistantPromptEditorSheet(
             }
         )
     }
+}
+
+@Composable
+private fun reasoningLevelLabel(level: ReasoningLevel): String = when (level) {
+    ReasoningLevel.OFF -> stringResource(R.string.reasoning_off)
+    ReasoningLevel.AUTO -> stringResource(R.string.reasoning_auto)
+    ReasoningLevel.LOW -> stringResource(R.string.reasoning_light)
+    ReasoningLevel.MEDIUM -> stringResource(R.string.reasoning_medium)
+    ReasoningLevel.HIGH -> stringResource(R.string.reasoning_heavy)
+    ReasoningLevel.XHIGH -> stringResource(R.string.reasoning_xhigh)
+    ReasoningLevel.MAX -> stringResource(R.string.reasoning_max)
 }

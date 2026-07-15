@@ -52,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.supportsBuiltInSearch
 import me.rerere.ai.provider.ModelType
 import me.rerere.ai.provider.ProviderSetting
@@ -619,8 +620,8 @@ private fun SeatOverridesEditor(
 ) {
     val mcpManager = koinInject<me.rerere.rikkahub.data.ai.mcp.McpManager>()
 
-    val defaultThinkingBudget = assistant?.thinkingBudget ?: 0
-    val effectiveThinkingBudget = seat.overrides.thinkingBudget ?: defaultThinkingBudget
+    val defaultReasoningLevel = assistant?.reasoningLevel ?: ReasoningLevel.AUTO
+    val effectiveReasoningLevel = seat.overrides.reasoningLevel ?: defaultReasoningLevel
     val effectiveModelId = seat.overrides.chatModelId ?: assistant?.chatModelId ?: settings.chatModelId
     val model = settings.findModelById(effectiveModelId)
 
@@ -677,14 +678,14 @@ private fun SeatOverridesEditor(
                     modifier = Modifier.weight(1f),
                 )
                 ReasoningButton(
-                    reasoningTokens = effectiveThinkingBudget,
-                    onUpdateReasoningTokens = { tokens ->
-                        onUpdateOverrides { it.copy(thinkingBudget = tokens) }
+                    reasoningLevel = effectiveReasoningLevel,
+                    onUpdateReasoningLevel = { level ->
+                        onUpdateOverrides { it.copy(reasoningLevel = level) }
                     }
                 )
                 IconButton(
-                    enabled = seat.overrides.thinkingBudget != null,
-                    onClick = { onUpdateOverrides { it.copy(thinkingBudget = null) } },
+                    enabled = seat.overrides.reasoningLevel != null,
+                    onClick = { onUpdateOverrides { it.copy(reasoningLevel = null) } },
                     modifier = Modifier.size(36.dp),
                 ) {
                     Icon(

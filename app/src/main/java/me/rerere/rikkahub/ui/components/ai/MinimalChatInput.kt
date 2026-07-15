@@ -19,6 +19,7 @@ import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.search.SearchServiceOptions
 import me.rerere.search.displayName
 import coil3.compose.AsyncImage
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.utils.deleteChatFiles
 import androidx.compose.foundation.horizontalScroll
@@ -1251,10 +1252,10 @@ private fun MinimalPickerContent(
     // Reasoning picker sheet
     if (uiMode == ChatInputUiMode.Normal && showReasoningPicker) {
         ReasoningPicker(
-            reasoningTokens = assistant.thinkingBudget ?: 0,
+            reasoningLevel = assistant.reasoningLevel,
             onDismissRequest = { showReasoningPicker = false },
-            onUpdateReasoningTokens = { tokens ->
-                onUpdateAssistant(assistant.copy(thinkingBudget = tokens))
+            onUpdateReasoningLevel = { level ->
+                onUpdateAssistant(assistant.copy(reasoningLevel = level))
                 showReasoningPicker = false
             }
         )

@@ -533,6 +533,10 @@
   <string name="reasoning_off">關閉</string>
   <string name="reasoning_off_desc">關閉推理功能，模型將直接回答問題。</string>
   <string name="reasoning_set_budget">設置推理預算 (%1$d tokens)</string>
+  <string name="reasoning_picker_title">調整模型思考深度</string>
+  <string name="reasoning_picker_hint">並非所有模型都支援深度調節，請參考模型與提供商文件。</string>
+  <string name="reasoning_max">最高推理</string>
+  <string name="reasoning_max_desc">模型將使用最高強度推理，適合高難度任務。</string>
   <string name="regenerate">重新生成</string>
   <string name="chat_continue_only_last_assistant_message">僅支援對最新一條模型訊息進行續寫。</string>
   <string name="chat_continue_group_chat_not_supported">群聊暫不支援續寫。</string>

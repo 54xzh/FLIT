@@ -9,6 +9,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.R
@@ -104,7 +105,7 @@ class SpontaneousWorker(
                 params = TextGenerationParams(
                     model = model,
                     temperature = 0.7f,
-                    thinkingBudget = 0
+                    reasoningLevel = ReasoningLevel.OFF
                 )
             )
 
