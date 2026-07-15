@@ -385,6 +385,8 @@
   <string name="copy_all">复制全部</string>
   <string name="create_fork">创建分支</string>
   <string name="chat_page_fork_title">分支 · %1$s</string>
+  <string name="chat_page_fork_title_numbered">分支%1$d · %2$s</string>
+  <string name="chat_page_rename">重命名</string>
   <string name="deep_thinking">深度思考</string>
   <string name="delete">删除</string>
   <string name="donate_page_afdian_desc">适用于🇨🇳用户</string>

@@ -70,7 +70,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         SafWorkspaceEntity::class,
         SandboxWorkspaceEntity::class,
     ],
-    version = 41,
+    version = 42,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -109,6 +109,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 38->39 is manual migration (MIGRATION_38_39) - adds explicit Skill context ids
         // 39->40 is manual migration (MIGRATION_39_40) - adds workspaces table
         // 40->41 is manual migration (MIGRATION_40_41) - splits workspace backends
+        // 41->42 is manual migration (MIGRATION_41_42) - adds branch counter (root_id, branch_number)
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -412,6 +413,22 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.execSQL("DROP TABLE workspaces_legacy")
                 Log.i(TAG, "migrate: migrate from 40 to 41 success")
+            }
+        }
+
+        val MIGRATION_41_42 = object : Migration(41, 42) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 41 to 42")
+                // 分支计数：root_id 记录所属分支树的根会话 id；branch_number 为树内编号（根会话/老数据 = NULL）。
+                // 老数据全部当作独立根会话（rootId = 自己、branchNumber = NULL），不解析旧标题里的「分支 ·」前缀。
+                // branch_number 可空，不加 NOT NULL，避免与根会话语义冲突。
+                db.execSQL("ALTER TABLE conversationentity ADD COLUMN root_id TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE conversationentity ADD COLUMN branch_number INTEGER")
+                // 每行 root_id 回填为自己的 id —— 全部视为独立根会话。
+                db.execSQL("UPDATE conversationentity SET root_id = id")
+                // 分支计数唯一索引: 同一棵树内分支编号唯一; 根会话(branch_number NULL)互不冲突。
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_conversationentity_root_id_branch_number` ON conversationentity(`root_id`, `branch_number`)")
+                Log.i(TAG, "migrate: migrate from 41 to 42 success")
             }
         }
     }

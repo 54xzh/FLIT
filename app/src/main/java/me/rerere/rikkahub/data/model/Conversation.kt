@@ -42,6 +42,8 @@ data class ConversationSummary(
     val createAt: Instant,
     val updateAt: Instant,
     val isConsolidated: Boolean = false,
+    val rootId: Uuid = id,
+    val branchNumber: Int? = null,
 )
 
 @Serializable
@@ -82,6 +84,9 @@ data class Conversation(
     val isPinned: Boolean = false,
     val enabledModeIds: Set<Uuid> = emptySet(), // Per-chat enabled modes
     val explicitSkillContexts: Set<String> = emptySet(), // Per-chat Skill.md files injected directly (by skill name)
+    // 分支计数：rootId 指向所属分支树的根会话 id（根会话/普通会话 = 自己）；branchNumber 为树内编号（根会话 = null）。
+    val rootId: Uuid = id,
+    val branchNumber: Int? = null,
     @Serializable(with = InstantSerializer::class)
     val createAt: Instant = Instant.now(),
     @Serializable(with = InstantSerializer::class)

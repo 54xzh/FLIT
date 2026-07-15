@@ -578,15 +578,25 @@ class ChatVM(
             }
         }
 
-        val sourceTitle = sourceConversation.title.ifBlank {
+        // 子分支后缀跟「树根标题」: 从改过后缀的分支再分叉时, 新分支后缀继承根标题, 不堆叠「分支N · 分支M · 」。
+        val rootTitle = conversationRepo.getRootTitle(sourceConversation.rootId)?.ifBlank { null }
+        val sourceTitle = (rootTitle ?: sourceConversation.title).ifBlank {
             context.getString(R.string.chat_page_new_chat)
         }
-        val forkTitle = context.getString(R.string.chat_page_fork_title, sourceTitle)
+        // 分支计数: 同一棵树共享递增编号。第一条分支(=1)沿用旧前缀「分支 · 」, 第二条起带号「分支N · 」。
+        val branchNumber = conversationRepo.allocateBranchNumber(sourceConversation.rootId)
+        val forkTitle = if (branchNumber <= 1) {
+            context.getString(R.string.chat_page_fork_title, sourceTitle)
+        } else {
+            context.getString(R.string.chat_page_fork_title_numbered, branchNumber, sourceTitle)
+        }
         val newConversation = Conversation(
             id = Uuid.random(),
             assistantId = sourceConversation.assistantId,
             title = forkTitle,
             messageNodes = nodes,
+            rootId = sourceConversation.rootId,
+            branchNumber = branchNumber,
         )
         chatService.saveConversation(newConversation.id, newConversation)
         return newConversation
@@ -745,9 +755,56 @@ class ChatVM(
 
     fun updateTitle(title: String) {
         viewModelScope.launch {
-            val updatedConversation = conversation.value.copy(title = title)
-            saveCurrentConversation(updatedConversation)
+            // 分支判定: 仅当破坏了「分支N · 」前缀才脱离原树、提升为独立根;
+            // 只动后缀(前缀还在)则不解绑, 继续属于原分支树。脱离不可逆。
+            if (conversation.value.branchNumber != null && keepsBranchPrefix(conversation.value, title)) {
+                val updatedConversation = conversation.value.copy(title = title)
+                saveCurrentConversation(updatedConversation)
+            } else {
+                conversationRepo.detachBranch(conversation.value.id)
+                val updatedConversation = conversation.value.copy(
+                    title = title,
+                    rootId = conversation.value.id,
+                    branchNumber = null,
+                )
+                saveCurrentConversation(updatedConversation)
+            }
         }
+    }
+
+    /**
+     * 重命名任意会话(列表长按菜单入口)。仅当破坏了「分支N · 」前缀才脱离原树、提升为独立根;
+     * 只动后缀(前缀还在)则不解绑。脱离不可逆。
+     */
+    fun renameConversation(conversation: Conversation, newTitle: String) {
+        viewModelScope.launch {
+            if (conversation.branchNumber != null && keepsBranchPrefix(conversation, newTitle)) {
+                val updated = conversation.copy(title = newTitle)
+                chatService.saveConversation(updated.id, updated)
+            } else {
+                conversationRepo.detachBranch(conversation.id)
+                val updated = conversation.copy(
+                    title = newTitle,
+                    rootId = conversation.id,
+                    branchNumber = null,
+                )
+                chatService.saveConversation(updated.id, updated)
+            }
+        }
+    }
+
+    /**
+     * 判断 [newTitle] 是否保留了该分支会话的「分支N · 」前缀(用户只动了后缀)。
+     * 用空串占位取出预期前缀再 startsWith 判断, 保证与本地化文案一致。
+     * 非分支会话(branchNumber == null)不应调用本方法。
+     */
+    private fun keepsBranchPrefix(conversation: Conversation, newTitle: String): Boolean {
+        val expectedPrefix = if (conversation.branchNumber!! <= 1) {
+            context.getString(R.string.chat_page_fork_title, "")
+        } else {
+            context.getString(R.string.chat_page_fork_title_numbered, conversation.branchNumber!!, "")
+        }
+        return newTitle.startsWith(expectedPrefix)
     }
 
     fun deleteConversation(conversation: Conversation) {

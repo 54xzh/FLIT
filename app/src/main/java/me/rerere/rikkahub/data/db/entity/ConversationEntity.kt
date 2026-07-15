@@ -7,7 +7,9 @@ import androidx.room.PrimaryKey
 
 @Entity(
     indices = [
-        Index(value = ["assistant_id", "is_pinned", "update_at"])
+        Index(value = ["assistant_id", "is_pinned", "update_at"]),
+        // 分支计数安全网: 同一棵树内分支编号唯一。SQLite 把 NULL 视为不同值, 根会话(branch_number NULL)互不冲突。
+        Index(value = ["root_id", "branch_number"], unique = true)
     ]
 )
 data class ConversationEntity(
@@ -39,6 +41,10 @@ data class ConversationEntity(
     val enabledModeIds: String = "[]",
     @ColumnInfo(name = "explicit_skill_context_ids", defaultValue = "[]")
     val explicitSkillContextIds: String = "[]",
+    @ColumnInfo(name = "root_id", defaultValue = "")
+    val rootId: String = "",
+    @ColumnInfo(name = "branch_number")
+    val branchNumber: Int? = null,
     @ColumnInfo(name = "context_summary", defaultValue = "''")
     val contextSummary: String = "",
     @ColumnInfo(name = "context_summary_up_to_index", defaultValue = "-1")

@@ -19,6 +19,8 @@ import kotlinx.serialization.json.put
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -302,6 +304,40 @@ class ConversationRepository(
             previous.truncateIndex != current.truncateIndex
     }
 
+    /**
+     * 分支编号分配的串行化锁。fork 是低频操作, 用单个全局锁足够, 避免同一棵树并发 fork 时分配到重复号。
+     */
+    private val branchNumberMutex = Mutex()
+
+    /**
+     * 为新分支分配树内编号: 取同一棵树(同 rootId)当前最大 branchNumber + 1。
+     * 在锁内完成「读最大值 + 由调用方写库」不现实(写库在 ChatService), 这里只锁「读最大值并 +1」,
+     * 调用方拿到号后应尽快写库; 由于 fork 低频且锁覆盖查询, 实际重号风险极低。
+     *
+     * 根会话 branchNumber 为 null, 不被 MAX 计入, 因此首个分支得到 1。
+     */
+    suspend fun allocateBranchNumber(rootId: Uuid): Int = withContext(Dispatchers.IO) {
+        branchNumberMutex.withLock {
+            (conversationDAO.getMaxBranchNumberInTree(rootId.toString()) ?: 0) + 1
+        }
+    }
+
+    /**
+     * 取某棵分支树根会话的标题（干净标题，不带「分支N · 」前缀），供子分支创建时继承后缀用。
+     * 根会话 title 本就不含前缀，直接返回; 找不到根时返回 null（调用方回退到源会话标题）。
+     */
+    suspend fun getRootTitle(rootId: Uuid): String? = withContext(Dispatchers.IO) {
+        conversationDAO.getTitleById(rootId.toString())
+    }
+
+    /**
+     * 重命名脱离: 把某条会话提升为独立树的根(rootId 改为自身、清空 branchNumber)。
+     * 用于手动改名 / AI 重新生成标题后, 使其不再属于原分支树; 之后从它分叉视为开新树、从 1 开始计数。
+     */
+    suspend fun detachBranch(conversationId: Uuid) = withContext(Dispatchers.IO) {
+        conversationDAO.detachBranch(conversationId.toString(), conversationId.toString())
+    }
+
     suspend fun deleteConversation(conversation: Conversation, deleteFiles: Boolean = true) {
         conversationDAO.delete(
             conversationToConversationEntity(conversation)
@@ -378,6 +414,8 @@ class ConversationRepository(
             isConsolidated = conversation.isConsolidated,
             enabledModeIds = JsonInstant.encodeToString(conversation.enabledModeIds.map { it.toString() }),
             explicitSkillContextIds = JsonInstant.encodeToString(conversation.explicitSkillContexts.toList()),
+            rootId = conversation.rootId.toString(),
+            branchNumber = conversation.branchNumber,
             contextSummary = conversation.contextSummary.orEmpty(),
             contextSummaryUpToIndex = conversation.contextSummaryUpToIndex,
             lastPruneTime = conversation.lastPruneTime,
@@ -423,6 +461,8 @@ class ConversationRepository(
             isConsolidated = conversationEntity.isConsolidated,
             enabledModeIds = enabledModeIds,
             explicitSkillContexts = explicitSkillContexts,
+            rootId = runCatching { Uuid.parse(conversationEntity.rootId) }.getOrElse { Uuid.parse(conversationEntity.id) },
+            branchNumber = conversationEntity.branchNumber,
             contextSummary = conversationEntity.contextSummary.takeIf { it.isNotBlank() },
             contextSummaryUpToIndex = conversationEntity.contextSummaryUpToIndex,
             lastPruneTime = conversationEntity.lastPruneTime,
@@ -931,6 +971,8 @@ class ConversationRepository(
             updateAt = Instant.ofEpochMilli(entity.updateAt),
             messageNodes = emptyList(),
             isConsolidated = entity.isConsolidated,
+            rootId = runCatching { Uuid.parse(entity.rootId) }.getOrElse { Uuid.parse(entity.id) },
+            branchNumber = entity.branchNumber,
         )
     }
     fun getAverageMessageLength(assistantId: Uuid): Flow<Int> {
@@ -1270,4 +1312,6 @@ data class LightConversationEntity(
     val createAt: Long,
     val updateAt: Long,
     val isConsolidated: Boolean,
+    val rootId: String = "",
+    val branchNumber: Int? = null,
 )

@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DrawerState
@@ -36,8 +37,10 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.surfaceColorAtElevation
@@ -70,6 +73,7 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DriveFileRenameOutline
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Delete
@@ -120,6 +124,7 @@ fun ColumnScope.ConversationList(
     onConsolidate: (Conversation) -> Unit = {},
     onPin: (Conversation) -> Unit = {},
     onExportConversationJson: (Conversation) -> Unit = {},
+    onRename: (Conversation, String) -> Unit = { _, _ -> },
     showUnconsolidatedDot: Boolean = false,
     showConsolidateOption: Boolean = false,
     showExportConversationJsonButton: Boolean = false,
@@ -398,6 +403,7 @@ fun ColumnScope.ConversationList(
                             onConsolidate = onConsolidate,
                             onPin = onPin,
                             onExportConversationJson = onExportConversationJson,
+                            onRename = onRename,
                             showUnconsolidatedDot = showUnconsolidatedDot,
                             showConsolidateOption = showConsolidateOption,
                             showExportConversationJsonButton = showExportConversationJsonButton,
@@ -539,6 +545,7 @@ private fun ConversationItem(
     onConsolidate: (Conversation) -> Unit = {},
     onPin: (Conversation) -> Unit = {},
     onExportConversationJson: (Conversation) -> Unit = {},
+    onRename: (Conversation, String) -> Unit = { _, _ -> },
     showUnconsolidatedDot: Boolean = false,
     showConsolidateOption: Boolean = false,
     showExportConversationJsonButton: Boolean = false,
@@ -590,6 +597,9 @@ private fun ConversationItem(
     var showDropdownMenu by remember {
         mutableStateOf(false)
     }
+    // 重命名弹框状态与输入内容(预填当前完整标题, 含「分支N · 」前缀)。
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var renameText by remember(showRenameDialog) { mutableStateOf(conversation.title) }
     Box(
         modifier = modifier
             .graphicsLayer {
@@ -697,6 +707,21 @@ private fun ConversationItem(
                     }
                 )
 
+                DropdownMenuItem(
+                    text = {
+                        Text(stringResource(id = R.string.chat_page_rename))
+                    },
+                    onClick = {
+                        haptics.perform(HapticPattern.Pop)
+                        renameText = conversation.title
+                        showRenameDialog = true
+                        showDropdownMenu = false
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Rounded.DriveFileRenameOutline, null)
+                    }
+                )
+
                 if (showExportConversationJsonButton) {
                     DropdownMenuItem(
                         text = {
@@ -744,5 +769,42 @@ private fun ConversationItem(
                 )
             }
         }
+    }
+
+    // 重命名弹框: 预填当前完整标题(含「分支N · 」前缀), 确认后脱离原分支树、提升为独立根。
+    if (showRenameDialog) {
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = { Text(stringResource(id = R.string.chat_page_rename)) },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val newTitle = renameText.trim()
+                        if (newTitle.isNotBlank()) {
+                            haptics.perform(HapticPattern.Pop)
+                            onRename(conversation, newTitle)
+                        }
+                        showRenameDialog = false
+                    }
+                ) {
+                    Text(stringResource(id = R.string.chat_page_rename))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showRenameDialog = false }
+                ) {
+                    Text(stringResource(id = R.string.cancel))
+                }
+            }
+        )
     }
 }

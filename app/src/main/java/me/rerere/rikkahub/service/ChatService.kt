@@ -1374,10 +1374,24 @@ class ChatService(
             emptyList()
         }
 
+        // 子分支后缀跟「树根标题」, 避免从改过后缀的分支再分叉时堆叠「分支N · 分支M · 」。
+        val rootTitle = conversationRepo.getRootTitle(currentConversation.rootId)?.ifBlank { null }
+        val sourceTitle = (rootTitle ?: currentConversation.title).ifBlank {
+            context.getString(R.string.chat_page_new_chat)
+        }
+        val branchNumber = conversationRepo.allocateBranchNumber(currentConversation.rootId)
+        val forkTitle = if (branchNumber <= 1) {
+            context.getString(R.string.chat_page_fork_title, sourceTitle)
+        } else {
+            context.getString(R.string.chat_page_fork_title_numbered, branchNumber, sourceTitle)
+        }
         val forkConversation = Conversation(
             id = Uuid.random(),
             assistantId = currentConversation.assistantId,
+            title = forkTitle,
             messageNodes = nodesToCopy,
+            rootId = currentConversation.rootId,
+            branchNumber = branchNumber,
         )
         saveConversation(forkConversation.id, forkConversation)
         return forkConversation
@@ -4874,7 +4888,13 @@ class ChatService(
                 return
             }
 
-            val patchedConversation = latestConversation.copy(title = titleTrimmed)
+            val patchedConversation = latestConversation.copy(
+                title = titleTrimmed,
+                // AI 重新生成标题后脱离原分支树: 提升为独立根, 后续从它分叉视为新树从1计数。
+                rootId = latestConversation.id,
+                branchNumber = null,
+            )
+            conversationRepo.detachBranch(conversationId)
             if (getGenerationJob(conversationId) != null) {
                 // 避免生成中写库（可能会落入一份“未完成的 messageNodes”），但 UI 需要立即看到标题变化。
                 updateConversation(conversationId, patchedConversation)
