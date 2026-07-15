@@ -4819,7 +4819,7 @@ class ChatService(
             val params = TextGenerationParams(
                 model = model,
                 temperature = 0.3f,
-                reasoningLevel = ReasoningLevel.OFF,
+                reasoningLevel = ReasoningLevel.AUTO,
                 onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()
@@ -4956,7 +4956,7 @@ class ChatService(
             val params = TextGenerationParams(
                 model = model,
                 temperature = 1.0f,
-                reasoningLevel = ReasoningLevel.OFF,
+                reasoningLevel = ReasoningLevel.AUTO,
                 onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()
@@ -5402,6 +5402,7 @@ class ChatService(
             val params = TextGenerationParams(
                 model = model,
                 temperature = 0.3f,
+                reasoningLevel = ReasoningLevel.AUTO,
                 onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()

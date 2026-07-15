@@ -217,6 +217,7 @@ class ImgGenVM(
             topP = null,
             maxTokens = null,
             tools = emptyList(),
+            reasoningLevel = me.rerere.ai.core.ReasoningLevel.AUTO,
             customHeaders = model.customHeaders,
             customBody = model.customBodies
         )

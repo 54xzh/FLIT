@@ -6,16 +6,12 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.rikkahub.data.datastore.SettingsStore
-import me.rerere.rikkahub.data.model.Assistant
-import me.rerere.rikkahub.data.model.GroupChatSeatOverrides
-import me.rerere.rikkahub.data.model.GroupChatTemplate
 import me.rerere.rikkahub.utils.JsonInstant
 
 private const val DATA_VERSION_V4 = 4
@@ -66,66 +62,85 @@ class PreferenceStoreV4Migration : DataMigration<Preferences> {
         val assistantsJson = prefs[SettingsStore.ASSISTANTS] ?: return
         if (assistantsJson.isBlank()) return
 
-        val assistantObjects = JsonInstant.parseToJsonElement(assistantsJson).jsonArray.map { it.jsonObject }
-        val migrated = assistantObjects.map { original ->
-            val legacyBudget = original["thinkingBudget"]
-            if (legacyBudget == null || legacyBudget is JsonNull) {
-                // 没有旧字段，原样保留（新数据类反序列化时 reasoningLevel 取默认 AUTO）
-                original
-            } else {
-                val level = mapLegacyBudgetToLevel(legacyBudget.jsonPrimitive)
-                // 解码成 Assistant 对象（旧 thinkingBudget 字段被忽略），写入 reasoningLevel 后重新编码
-                val assistant = JsonInstant.decodeFromJsonElement(Assistant.serializer(), original)
-                val updated = assistant.copy(reasoningLevel = level)
-                // 保留原始 JSON 里可能存在的其它未知字段（前向兼容）
-                val encoded = JsonInstant.encodeToJsonElement(Assistant.serializer(), updated).jsonObject
-                JsonObject(original.toMutableMap().apply { putAll(encoded); remove("thinkingBudget") })
-            }
-        }
-        prefs[SettingsStore.ASSISTANTS] = JsonInstant.encodeToString(JsonArray(migrated))
+        val assistants = JsonInstant.parseToJsonElement(assistantsJson).jsonArray
+        prefs[SettingsStore.ASSISTANTS] = JsonInstant.encodeToString(migrateAssistantsArray(assistants))
     }
 
     private fun migrateGroupChatTemplates(prefs: androidx.datastore.preferences.core.MutablePreferences) {
         val templatesJson = prefs[SettingsStore.GROUP_CHAT_TEMPLATES] ?: return
         if (templatesJson.isBlank()) return
 
-        val templates = JsonInstant.decodeFromString<List<GroupChatTemplate>>(templatesJson)
-        // GroupChatTemplate 反序列化时，旧 overrides.thinkingBudget 已被忽略（reasoningLevel 取默认 null）。
-        // 需要从原始 JSON 重新读出每个 seat 的旧 thinkingBudget，再覆盖到对应 overrides.reasoningLevel。
-        val templateObjects = JsonInstant.parseToJsonElement(templatesJson).jsonArray.map { it.jsonObject }
-
-        val migratedTemplates = templates.mapIndexed { index, template ->
-            val templateObject = templateObjects[index]
-            val seatsArray = templateObject["seats"]?.jsonArray ?: return@mapIndexed template
-            val migratedSeats = template.seats.mapIndexed { seatIndex, seat ->
-                val seatObject = seatsArray[seatIndex].jsonObject
-                val overridesObject = seatObject["overrides"]?.jsonObject
-                val legacyBudget = overridesObject?.get("thinkingBudget")
-                if (legacyBudget == null || legacyBudget is JsonNull) {
-                    seat
-                } else {
-                    val level = mapLegacyBudgetToLevel(legacyBudget.jsonPrimitive)
-                    seat.copy(overrides = seat.overrides.copy(reasoningLevel = level))
-                }
-            }
-            template.copy(seats = migratedSeats)
-        }
-        prefs[SettingsStore.GROUP_CHAT_TEMPLATES] = JsonInstant.encodeToString(migratedTemplates)
-    }
-
-    private fun mapLegacyBudgetToLevel(primitive: JsonPrimitive): ReasoningLevel {
-        val value = primitive.intOrNull
-        return when (value) {
-            null -> ReasoningLevel.AUTO
-            -1 -> ReasoningLevel.AUTO
-            0 -> ReasoningLevel.OFF
-            1024 -> ReasoningLevel.LOW
-            16000 -> ReasoningLevel.MEDIUM
-            32000 -> ReasoningLevel.HIGH
-            64000 -> ReasoningLevel.XHIGH
-            else -> ReasoningLevel.fromBudgetTokens(value)
-        }
+        val templates = JsonInstant.parseToJsonElement(templatesJson).jsonArray
+        prefs[SettingsStore.GROUP_CHAT_TEMPLATES] =
+            JsonInstant.encodeToString(migrateGroupChatTemplatesArray(templates))
     }
 
     override suspend fun cleanUp() {}
+}
+
+/**
+ * 恢复旧备份时复用 V4 的 JSON 迁移，避免先按新版 Settings 解码后丢失 thinkingBudget。
+ * 只改写已知字段，其它未知字段保持原样。
+ */
+internal fun migrateLegacyReasoningSettingsJson(settingsJson: String): String {
+    val original = JsonInstant.parseToJsonElement(settingsJson).jsonObject
+    val migrated = JsonObject(original.toMutableMap().apply {
+        (original["assistants"] as? JsonArray)?.let { assistants ->
+            put("assistants", migrateAssistantsArray(assistants))
+        }
+        (original["groupChatTemplates"] as? JsonArray)?.let { templates ->
+            put("groupChatTemplates", migrateGroupChatTemplatesArray(templates))
+        }
+    })
+    return JsonInstant.encodeToString(migrated)
+}
+
+private fun migrateAssistantsArray(assistants: JsonArray): JsonArray = JsonArray(
+    assistants.map { element ->
+        val original = element.jsonObject
+        val legacyBudget = original["thinkingBudget"]
+        JsonObject(original.toMutableMap().apply {
+            if ("reasoningLevel" !in original && legacyBudget != null && legacyBudget !is JsonNull) {
+                put("reasoningLevel", encodeReasoningLevel(mapLegacyBudgetToLevel(legacyBudget.jsonPrimitive)))
+            }
+            remove("thinkingBudget")
+        })
+    }
+)
+
+private fun migrateGroupChatTemplatesArray(templates: JsonArray): JsonArray = JsonArray(
+    templates.map { templateElement ->
+        val template = templateElement.jsonObject
+        val seats = template["seats"] as? JsonArray ?: return@map template
+        val migratedSeats = JsonArray(seats.map { seatElement ->
+            val seat = seatElement.jsonObject
+            val overrides = seat["overrides"] as? JsonObject ?: return@map seat
+            val legacyBudget = overrides["thinkingBudget"]
+            val migratedOverrides = JsonObject(overrides.toMutableMap().apply {
+                if ("reasoningLevel" !in overrides && legacyBudget != null && legacyBudget !is JsonNull) {
+                    put("reasoningLevel", encodeReasoningLevel(mapLegacyBudgetToLevel(legacyBudget.jsonPrimitive)))
+                }
+                remove("thinkingBudget")
+            })
+            JsonObject(seat.toMutableMap().apply { put("overrides", migratedOverrides) })
+        })
+        JsonObject(template.toMutableMap().apply { put("seats", migratedSeats) })
+    }
+)
+
+private fun encodeReasoningLevel(level: ReasoningLevel) =
+    JsonInstant.encodeToJsonElement(ReasoningLevel.serializer(), level)
+
+private fun mapLegacyBudgetToLevel(primitive: JsonPrimitive): ReasoningLevel {
+    val value = primitive.intOrNull
+    return when (value) {
+        null -> ReasoningLevel.AUTO
+        -1 -> ReasoningLevel.AUTO
+        0 -> ReasoningLevel.OFF
+        1024 -> ReasoningLevel.LOW
+        16000 -> ReasoningLevel.MEDIUM
+        32000 -> ReasoningLevel.HIGH
+        64000 -> ReasoningLevel.XHIGH
+        else -> ReasoningLevel.fromBudgetTokens(value)
+    }
 }
