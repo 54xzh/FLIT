@@ -1256,7 +1256,6 @@ private fun MinimalPickerContent(
             onDismissRequest = { showReasoningPicker = false },
             onUpdateReasoningLevel = { level ->
                 onUpdateAssistant(assistant.copy(reasoningLevel = level))
-                showReasoningPicker = false
             }
         )
     }

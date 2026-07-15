@@ -1,6 +1,9 @@
 package me.rerere.rikkahub.ui.components.ai
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,8 +27,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,9 +46,13 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.components.ui.ToggleSurface
+import me.rerere.rikkahub.ui.hooks.HapticPattern
+import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import androidx.compose.ui.graphics.Color
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 private val levels = ReasoningLevel.entries
 private val levelCount = levels.size
@@ -106,9 +115,35 @@ fun ReasoningPicker(
 ) {
     val currentIndex = levels.indexOf(reasoningLevel).coerceAtLeast(0)
     var sliderValue by remember { mutableFloatStateOf(currentIndex.toFloat()) }
+    var lastHapticIndex by remember { mutableIntStateOf(currentIndex) }
+    val previewIndex = sliderValue.roundToInt().coerceIn(0, levelCount - 1)
+    val previewLevel = levels[previewIndex]
+    val haptics = rememberPremiumHaptics()
+    val scope = rememberCoroutineScope()
+    var snapAnimation by remember { mutableStateOf<Job?>(null) }
+
+    val animateToLevel: (Int) -> Unit = { targetIndex ->
+        val targetValue = targetIndex.toFloat()
+        val initialValue = sliderValue
+        snapAnimation?.cancel()
+        snapAnimation = scope.launch {
+            animate(
+                initialValue = initialValue,
+                targetValue = targetValue,
+                animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+            ) { value, _ ->
+                sliderValue = value
+            }
+            sliderValue = targetValue
+            lastHapticIndex = targetIndex
+            onUpdateReasoningLevel(levels[targetIndex])
+        }
+    }
 
     LaunchedEffect(currentIndex) {
+        snapAnimation?.cancel()
         sliderValue = currentIndex.toFloat()
+        lastHapticIndex = currentIndex
     }
 
     val isDarkMode = LocalDarkMode.current
@@ -149,11 +184,11 @@ fun ReasoningPicker(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 val iconColor by animateColorAsState(
-                    if (reasoningLevel.isEnabled) MaterialTheme.colorScheme.primary
+                    if (previewLevel.isEnabled) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface
                 )
                 Icon(
-                    imageVector = when (reasoningLevel) {
+                    imageVector = when (previewLevel) {
                         ReasoningLevel.OFF -> Icons.Rounded.LightbulbCircle
                         ReasoningLevel.AUTO -> Icons.Rounded.AutoAwesome
                         else -> Icons.Rounded.Lightbulb
@@ -163,11 +198,11 @@ fun ReasoningPicker(
                     tint = iconColor,
                 )
                 Text(
-                    text = reasoningLevel.label(),
+                    text = previewLevel.label(),
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    text = reasoningLevel.desc(),
+                    text = previewLevel.desc(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -180,14 +215,20 @@ fun ReasoningPicker(
             ) {
                 Slider(
                     value = sliderValue,
-                    onValueChange = { sliderValue = it },
+                    onValueChange = { value ->
+                        snapAnimation?.cancel()
+                        sliderValue = value
+                        val crossedIndex = value.roundToInt().coerceIn(0, levelCount - 1)
+                        if (crossedIndex != lastHapticIndex) {
+                            haptics.perform(HapticPattern.Tick)
+                            lastHapticIndex = crossedIndex
+                        }
+                    },
                     onValueChangeFinished = {
-                        val snappedIndex = sliderValue.roundToInt().coerceIn(0, levelCount - 1)
-                        sliderValue = snappedIndex.toFloat()
-                        onUpdateReasoningLevel(levels[snappedIndex])
+                        animateToLevel(sliderValue.roundToInt().coerceIn(0, levelCount - 1))
                     },
                     valueRange = 0f..(levelCount - 1).toFloat(),
-                    steps = levelCount - 2,
+                    steps = 0,
                     modifier = Modifier.fillMaxWidth(),
                     thumb = {
                         Box(
@@ -215,10 +256,9 @@ fun ReasoningPicker(
                 )
 
                 ReasoningScale(
-                    selectedLevel = reasoningLevel,
+                    selectedLevel = previewLevel,
                     onSelect = { level ->
-                        sliderValue = levels.indexOf(level).toFloat()
-                        onUpdateReasoningLevel(level)
+                        animateToLevel(levels.indexOf(level))
                     }
                 )
             }
