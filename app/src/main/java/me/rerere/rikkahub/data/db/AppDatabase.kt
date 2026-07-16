@@ -31,6 +31,7 @@ import me.rerere.rikkahub.data.db.dao.WorkspaceDao
 import me.rerere.rikkahub.data.db.entity.AIRequestLogEntity
 import me.rerere.rikkahub.data.db.entity.BackupLogEntity
 import me.rerere.rikkahub.data.db.entity.ChatEpisodeEntity
+import me.rerere.rikkahub.data.db.entity.ConversationBranchCounterEntity
 import me.rerere.rikkahub.data.db.entity.ConversationEntity
 import me.rerere.rikkahub.data.db.entity.DailyActivityEntity
 import me.rerere.rikkahub.data.db.entity.EmbeddingCacheEntity
@@ -52,6 +53,7 @@ import me.rerere.rikkahub.utils.JsonInstant
 @Database(
     entities = [
         ConversationEntity::class,
+        ConversationBranchCounterEntity::class,
         MemoryEntity::class,
         GenMediaEntity::class,
         ChatEpisodeEntity::class,
@@ -70,7 +72,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         SafWorkspaceEntity::class,
         SandboxWorkspaceEntity::class,
     ],
-    version = 42,
+    version = 43,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -110,6 +112,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 39->40 is manual migration (MIGRATION_39_40) - adds workspaces table
         // 40->41 is manual migration (MIGRATION_40_41) - splits workspace backends
         // 41->42 is manual migration (MIGRATION_41_42) - adds branch counter (root_id, branch_number)
+        // 42->43 is manual migration (MIGRATION_42_43) - persists monotonic branch counters
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -429,6 +432,30 @@ abstract class AppDatabase : RoomDatabase() {
                 // 分支计数唯一索引: 同一棵树内分支编号唯一; 根会话(branch_number NULL)互不冲突。
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_conversationentity_root_id_branch_number` ON conversationentity(`root_id`, `branch_number`)")
                 Log.i(TAG, "migrate: migrate from 41 to 42 success")
+            }
+        }
+
+        val MIGRATION_42_43 = object : Migration(42, 43) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 42 to 43")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `conversation_branch_counters` (
+                        `root_id` TEXT NOT NULL PRIMARY KEY,
+                        `next_branch_number` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                // 旧树从当前最大编号的下一位继续。迁移完成后删除会话不再影响计数。
+                db.execSQL(
+                    """
+                    INSERT INTO conversation_branch_counters (root_id, next_branch_number)
+                    SELECT root_id, COALESCE(MAX(branch_number), 0) + 1
+                    FROM ConversationEntity
+                    GROUP BY root_id
+                    """.trimIndent()
+                )
+                Log.i(TAG, "migrate: migrate from 42 to 43 success")
             }
         }
     }

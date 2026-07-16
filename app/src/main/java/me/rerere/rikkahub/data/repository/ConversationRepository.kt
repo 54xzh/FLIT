@@ -19,8 +19,6 @@ import kotlinx.serialization.json.put
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -305,26 +303,16 @@ class ConversationRepository(
     }
 
     /**
-     * 分支编号分配的串行化锁。fork 是低频操作, 用单个全局锁足够, 避免同一棵树并发 fork 时分配到重复号。
-     */
-    private val branchNumberMutex = Mutex()
-
-    /**
-     * 在同一把锁内完成分支编号分配和写库，避免并发 fork 拿到同一个编号。
-     *
-     * 根会话 branchNumber 为 null, 不被 MAX 计入, 因此首个分支得到 1。
-     * 编号仍按当前最大值 + 1 分配；删除后编号复用的行为保持不变。
+     * 从持久计数器领取分支编号，再写入新分支。编号领取后只增不减。
      */
     suspend fun insertForkConversation(
         rootId: Uuid,
         buildConversation: (branchNumber: Int) -> Conversation,
     ): Conversation = withContext(Dispatchers.IO) {
-        branchNumberMutex.withLock {
-            val branchNumber = (conversationDAO.getMaxBranchNumberInTree(rootId.toString()) ?: 0) + 1
-            val conversationToStore = prepareConversationForStorage(buildConversation(branchNumber))
-            conversationDAO.insert(conversationToConversationEntity(conversationToStore))
-            conversationToStore
-        }
+        val branchNumber = conversationDAO.reserveNextBranchNumber(rootId.toString())
+        val conversationToStore = prepareConversationForStorage(buildConversation(branchNumber))
+        conversationDAO.insert(conversationToConversationEntity(conversationToStore))
+        conversationToStore
     }
 
     /**

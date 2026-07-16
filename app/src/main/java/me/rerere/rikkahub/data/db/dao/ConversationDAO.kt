@@ -5,6 +5,7 @@ import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import androidx.room.ColumnInfo
 import kotlinx.coroutines.flow.Flow
@@ -206,12 +207,40 @@ interface ConversationDAO {
     @Query("SELECT assistant_id as assistantId, COUNT(*) as count FROM conversationentity GROUP BY assistant_id ORDER BY count DESC LIMIT 1")
     fun getMostActiveAssistantFlow(): Flow<AssistantCountResult?>
 
+    @Query(
+        """
+        INSERT OR IGNORE INTO conversation_branch_counters (root_id, next_branch_number)
+        VALUES (
+            :rootId,
+            COALESCE(
+                (SELECT MAX(branch_number) + 1 FROM conversationentity WHERE root_id = :rootId),
+                1
+            )
+        )
+        """
+    )
+    suspend fun ensureBranchCounter(rootId: String)
+
+    @Query("SELECT next_branch_number FROM conversation_branch_counters WHERE root_id = :rootId")
+    suspend fun getNextBranchNumber(rootId: String): Int?
+
+    @Query("UPDATE conversation_branch_counters SET next_branch_number = next_branch_number + 1 WHERE root_id = :rootId")
+    suspend fun advanceBranchCounter(rootId: String): Int
+
     /**
-     * 取指定分支树（同 rootId）内已使用的最大分支编号；用于创建新分支时分配下一个号。
-     * 根会话的 branch_number 为 NULL，不会被 MAX 计入。
+     * 原子领取下一个分支编号。领取后即永久消耗，即使后续创建失败也不会回退。
      */
-    @Query("SELECT MAX(branch_number) FROM conversationentity WHERE root_id = :rootId")
-    suspend fun getMaxBranchNumberInTree(rootId: String): Int?
+    @Transaction
+    suspend fun reserveNextBranchNumber(rootId: String): Int {
+        ensureBranchCounter(rootId)
+        val branchNumber = checkNotNull(getNextBranchNumber(rootId)) {
+            "Branch counter is unavailable for root $rootId"
+        }
+        check(advanceBranchCounter(rootId) == 1) {
+            "Branch counter was not advanced for root $rootId"
+        }
+        return branchNumber
+    }
 
     /**
      * 取某条会话的标题，供分支创建时回溯树根标题用；避免 decode 整个 nodes。

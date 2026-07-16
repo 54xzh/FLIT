@@ -66,6 +66,7 @@ object DatabaseSanitizer {
 
             val tables = listOf(
                 "ConversationEntity",
+                "conversation_branch_counters",
                 "MemoryEntity",
                 "GenMediaEntity",
                 "ChatEpisodeEntity",
