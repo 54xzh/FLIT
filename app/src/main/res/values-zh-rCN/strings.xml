@@ -559,7 +559,6 @@
   <string name="chat_page_no_conversations">没有对话记录</string>
   <string name="chat_page_recent">最近</string>
   <string name="chat_page_regenerate_title">重新生成标题</string>
-  <string name="chat_page_rename">重命名</string>
   <string name="chat_page_save">保存</string>
   <string name="chat_page_scroll_to_bottom">滚动到底部</string>
   <string name="chat_page_search_placeholder">搜索聊天记录</string>

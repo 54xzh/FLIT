@@ -286,9 +286,6 @@ fun ChatDrawerContent(
                 onRegenerateTitle = {
                     vm.generateTitle(it, true)
                 },
-                onRename = { conversation, newTitle ->
-                    vm.renameConversation(conversation, newTitle)
-                },
                 onConsolidate = {
                     vm.consolidateConversation(it)
                 },
