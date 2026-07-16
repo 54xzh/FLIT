@@ -310,15 +310,20 @@ class ConversationRepository(
     private val branchNumberMutex = Mutex()
 
     /**
-     * 为新分支分配树内编号: 取同一棵树(同 rootId)当前最大 branchNumber + 1。
-     * 在锁内完成「读最大值 + 由调用方写库」不现实(写库在 ChatService), 这里只锁「读最大值并 +1」,
-     * 调用方拿到号后应尽快写库; 由于 fork 低频且锁覆盖查询, 实际重号风险极低。
+     * 在同一把锁内完成分支编号分配和写库，避免并发 fork 拿到同一个编号。
      *
      * 根会话 branchNumber 为 null, 不被 MAX 计入, 因此首个分支得到 1。
+     * 编号仍按当前最大值 + 1 分配；删除后编号复用的行为保持不变。
      */
-    suspend fun allocateBranchNumber(rootId: Uuid): Int = withContext(Dispatchers.IO) {
+    suspend fun insertForkConversation(
+        rootId: Uuid,
+        buildConversation: (branchNumber: Int) -> Conversation,
+    ): Conversation = withContext(Dispatchers.IO) {
         branchNumberMutex.withLock {
-            (conversationDAO.getMaxBranchNumberInTree(rootId.toString()) ?: 0) + 1
+            val branchNumber = (conversationDAO.getMaxBranchNumberInTree(rootId.toString()) ?: 0) + 1
+            val conversationToStore = prepareConversationForStorage(buildConversation(branchNumber))
+            conversationDAO.insert(conversationToConversationEntity(conversationToStore))
+            conversationToStore
         }
     }
 

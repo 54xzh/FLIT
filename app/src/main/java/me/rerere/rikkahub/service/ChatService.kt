@@ -1379,22 +1379,33 @@ class ChatService(
         val sourceTitle = (rootTitle ?: currentConversation.title).ifBlank {
             context.getString(R.string.chat_page_new_chat)
         }
-        val branchNumber = conversationRepo.allocateBranchNumber(currentConversation.rootId)
-        val forkTitle = if (branchNumber <= 1) {
-            context.getString(R.string.chat_page_fork_title, sourceTitle)
-        } else {
-            context.getString(R.string.chat_page_fork_title_numbered, branchNumber, sourceTitle)
+        return createForkConversation(currentConversation.rootId) { branchNumber ->
+            val forkTitle = if (branchNumber <= 1) {
+                context.getString(R.string.chat_page_fork_title, sourceTitle)
+            } else {
+                context.getString(R.string.chat_page_fork_title_numbered, branchNumber, sourceTitle)
+            }
+            Conversation(
+                id = Uuid.random(),
+                assistantId = currentConversation.assistantId,
+                title = forkTitle,
+                messageNodes = nodesToCopy,
+                rootId = currentConversation.rootId,
+                branchNumber = branchNumber,
+            )
         }
-        val forkConversation = Conversation(
-            id = Uuid.random(),
-            assistantId = currentConversation.assistantId,
-            title = forkTitle,
-            messageNodes = nodesToCopy,
-            rootId = currentConversation.rootId,
-            branchNumber = branchNumber,
-        )
-        saveConversation(forkConversation.id, forkConversation)
-        return forkConversation
+    }
+
+    /**
+     * 取号和写入分支必须由同一个仓库操作完成，只有写库成功后才更新内存态。
+     */
+    suspend fun createForkConversation(
+        rootId: Uuid,
+        buildConversation: (branchNumber: Int) -> Conversation,
+    ): Conversation {
+        val conversation = conversationRepo.insertForkConversation(rootId, buildConversation)
+        updateConversation(conversation.id, conversation)
+        return conversation
     }
 
     suspend fun deleteMessage(

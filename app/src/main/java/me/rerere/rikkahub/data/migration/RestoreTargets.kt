@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import androidx.sqlite.db.SupportSQLiteDatabase
 import me.rerere.rikkahub.data.db.AppDatabase
+import me.rerere.rikkahub.data.db.Migration_6_7
 import me.rerere.rikkahub.data.db.dao.ExplicitSkillContextRow
 import org.json.JSONArray
 import org.json.JSONObject
@@ -35,6 +36,20 @@ class RestoreTargets(
             AppDatabase::class.java,
             file.absolutePath,
         )
+            .addMigrations(
+                Migration_6_7,
+                AppDatabase.MIGRATION_11_12,
+                AppDatabase.MIGRATION_12_13,
+                AppDatabase.MIGRATION_14_16,
+                AppDatabase.MIGRATION_34_35,
+                AppDatabase.MIGRATION_35_36,
+                AppDatabase.MIGRATION_36_37,
+                AppDatabase.MIGRATION_37_38,
+                AppDatabase.MIGRATION_38_39,
+                AppDatabase.MIGRATION_39_40,
+                AppDatabase.MIGRATION_40_41,
+                AppDatabase.MIGRATION_41_42,
+            )
             .allowMainThreadQueries() // 仅用于恢复期一次性迁移
             .build()
     }

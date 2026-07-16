@@ -584,22 +584,21 @@ class ChatVM(
             context.getString(R.string.chat_page_new_chat)
         }
         // 分支计数: 同一棵树共享递增编号。第一条分支(=1)沿用旧前缀「分支 · 」, 第二条起带号「分支N · 」。
-        val branchNumber = conversationRepo.allocateBranchNumber(sourceConversation.rootId)
-        val forkTitle = if (branchNumber <= 1) {
-            context.getString(R.string.chat_page_fork_title, sourceTitle)
-        } else {
-            context.getString(R.string.chat_page_fork_title_numbered, branchNumber, sourceTitle)
+        return chatService.createForkConversation(sourceConversation.rootId) { branchNumber ->
+            val forkTitle = if (branchNumber <= 1) {
+                context.getString(R.string.chat_page_fork_title, sourceTitle)
+            } else {
+                context.getString(R.string.chat_page_fork_title_numbered, branchNumber, sourceTitle)
+            }
+            Conversation(
+                id = Uuid.random(),
+                assistantId = sourceConversation.assistantId,
+                title = forkTitle,
+                messageNodes = nodes,
+                rootId = sourceConversation.rootId,
+                branchNumber = branchNumber,
+            )
         }
-        val newConversation = Conversation(
-            id = Uuid.random(),
-            assistantId = sourceConversation.assistantId,
-            title = forkTitle,
-            messageNodes = nodes,
-            rootId = sourceConversation.rootId,
-            branchNumber = branchNumber,
-        )
-        chatService.saveConversation(newConversation.id, newConversation)
-        return newConversation
     }
 
     fun deleteMessage(message: UIMessage) {
