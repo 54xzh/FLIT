@@ -2,10 +2,7 @@
 
 ## 0. Codex CLI Safety Rules (Workspace Only)
 
-- Only read/write files inside the current workspace (this repo). Do not access or modify any paths outside the workspace, except:
-    - **Read-only** access to `~/.codex` (e.g. `C:\Users\54xzh\.codex`).
-    - **Read-only** access to directories explicitly approved by the user for this session.
-- Writing outside the workspace remains prohibited.
+- Unless necessary, only read and write files within the current workspace.Git-related operations are permitted as an exception.
 - Forbidden commands: `rm`, `rmdir` (do not use them even if requested).
 
 ## 1. Core Principles & Design Philosophy
