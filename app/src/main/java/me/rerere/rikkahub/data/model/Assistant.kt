@@ -126,6 +126,7 @@ data class Assistant(
     val spontaneousPrompt: String = "", // 自发消息的Prompt
     val enabledLorebookIds: Set<Uuid> = emptySet(), // Lorebooks enabled for this assistant
     val workspaceId: String? = null, // 绑定的工作区 id；null = 不绑定
+    val allowConversationWorkspaceOverride: Boolean = false, // 允许单个会话指定其他工作区（覆写助手绑定）；关闭时会话无法覆写
 
     // Context Management Settings
     val maxHistoryMessages: Int? = null, // null = unlimited (use token budgeting only)

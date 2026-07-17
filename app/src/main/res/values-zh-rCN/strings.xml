@@ -387,6 +387,10 @@
     <string name="assistant_page_welcome_phrases_desc">使用聊天建议模型，在新聊天界面添加欢迎词。</string>
     <string name="assistant_page_welcome_phrases_title">欢迎词</string>
     <string name="assistant_page_workspace_binding_desc">选择助手的工作区</string>
+    <string name="assistant_page_allow_conversation_workspace_override_title">允许为会话指定工作区</string>
+    <string name="assistant_page_allow_conversation_workspace_override_desc">允许为单个会话指定工作区。仅对指定的会话生效，不会改变助手的工作区设置</string>
+    <string name="chat_input_workspace_override_title">工作区</string>
+    <string name="chat_input_workspace_override_follow_assistant">跟随助手</string>
   <string name="assistant_picker_expand">展开</string>
   <string name="assistant_picker_selected">已选择</string>
     <string name="assistant_ui_preview_sample_assistant_message">我很好！今天有什么可以帮你？</string>

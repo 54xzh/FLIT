@@ -72,7 +72,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         SafWorkspaceEntity::class,
         SandboxWorkspaceEntity::class,
     ],
-    version = 43,
+    version = 44,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -113,6 +113,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 40->41 is manual migration (MIGRATION_40_41) - splits workspace backends
         // 41->42 is manual migration (MIGRATION_41_42) - adds branch counter (root_id, branch_number)
         // 42->43 is manual migration (MIGRATION_42_43) - persists monotonic branch counters
+        // 43->44 is manual migration (MIGRATION_43_44) - adds conversation workspace override
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -456,6 +457,16 @@ abstract class AppDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
                 Log.i(TAG, "migrate: migrate from 42 to 43 success")
+            }
+        }
+
+        val MIGRATION_43_44 = object : Migration(43, 44) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 43 to 44")
+                // 与 entity 的 @ColumnInfo(defaultValue = "NULL") 及 schema 44.json 保持一致，
+                // 否则 Room 在 v43->v44 升级后会因 schema 校验不一致而崩溃。
+                db.execSQL("ALTER TABLE conversationentity ADD COLUMN workspace_override_id TEXT DEFAULT NULL")
+                Log.i(TAG, "migrate: migrate from 43 to 44 success")
             }
         }
     }

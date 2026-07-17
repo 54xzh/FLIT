@@ -246,6 +246,7 @@ class ConversationRepository(
                 lastRefreshTime = entity.lastRefreshTime,
                 contextSummaryBoundaries = entity.contextSummaryBoundaries,
                 sessionMemories = entity.sessionMemories,
+                workspaceOverrideId = entity.workspaceOverrideId,
             )
         )
         JsonInstantPretty.encodeToString(payload)
@@ -416,6 +417,7 @@ class ConversationRepository(
             lastRefreshTime = conversation.lastRefreshTime,
             contextSummaryBoundaries = JsonInstant.encodeToString(normalizedSummaryBoundaries),
             sessionMemories = JsonInstant.encodeToString(conversation.sessionMemories),
+            workspaceOverrideId = conversation.workspaceOverrideId,
         )
     }
 
@@ -463,6 +465,7 @@ class ConversationRepository(
             lastRefreshTime = conversationEntity.lastRefreshTime,
             contextSummaryBoundaries = summaryBoundaries,
             sessionMemories = sessionMemories,
+            workspaceOverrideId = conversationEntity.workspaceOverrideId,
             loadedNodeStartIndex = decodedWindow.startIndex,
             totalMessageNodeCount = decodedWindow.totalCount,
         )
@@ -1276,6 +1279,8 @@ private data class RawConversationEntity(
     val contextSummaryBoundaries: String,
     @SerialName("session_memories")
     val sessionMemories: String = "[]",
+    @SerialName("workspace_override_id")
+    val workspaceOverrideId: String? = null,
 )
 
 /**

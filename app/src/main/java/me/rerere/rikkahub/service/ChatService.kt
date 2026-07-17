@@ -971,6 +971,27 @@ class ChatService(
         }
     }
 
+    /**
+     * 工作区被删除时同步清空内存中所有会话指向该工作区的覆写。
+     *
+     * 仅清内存状态：[WorkspaceRepository] 负责落库清 DB，这里负责把已加载到内存的
+     * [Conversation] 里残留的 [Conversation.workspaceOverrideId] 置空，避免旧覆写
+     * 在下次工具装配时仍被读到（虽然失效会回退助手绑定，但清掉更干净，UI 也立刻反映）。
+     */
+    fun clearWorkspaceOverrideFromMemory(workspaceId: String) {
+        var changed = 0
+        conversations.forEach { (conversationId, flow) ->
+            val current = flow.value
+            if (current.workspaceOverrideId == workspaceId) {
+                updateConversation(conversationId, current.copy(workspaceOverrideId = null))
+                changed++
+            }
+        }
+        if (changed > 0) {
+            Log.i(TAG, "clearWorkspaceOverrideFromMemory: cleared $changed in-memory override(s) for workspace $workspaceId")
+        }
+    }
+
     // 获取对话的StateFlow
     fun getConversationFlow(conversationId: Uuid): StateFlow<Conversation> {
         val settings = settingsStore.settingsFlow.value
@@ -1392,6 +1413,9 @@ class ChatService(
                 messageNodes = nodesToCopy,
                 rootId = currentConversation.rootId,
                 branchNumber = branchNumber,
+                // 分支继承源会话的工作区覆写：分支与源会话通常共享同一助手，
+                // 覆写语义（「这个对话换用别的工作区」）在分叉后也应继续生效。
+                workspaceOverrideId = currentConversation.workspaceOverrideId,
             )
         }
     }
@@ -1493,6 +1517,8 @@ class ChatService(
                 messageNodes = emptyList(),
                 truncateIndex = -1,
                 chatSuggestions = emptyList(),
+                // 换助手后清空会话级工作区覆写，会话重新跟随新助手绑定。
+                workspaceOverrideId = null,
             )
             .updateCurrentMessages(assistant.presetMessages)
 
@@ -2215,11 +2241,31 @@ class ChatService(
                             )
                         )
                     }
-                    val boundWorkspace = assistant.workspaceId?.let { workspaceRepository.getById(it) }
+                    // 会话级工作区覆写：仅当助手允许时生效。覆写仅用于工具装配的内存副本，
+                    // 不写回设置；群聊不走此分支（群聊座位各自用各自助手的工作区）。
+                    // 覆写指向的工作区若已删除/丢失，回退到助手绑定，避免工具被静默丢弃。
+                    val overrideWorkspaceId = if (assistant.allowConversationWorkspaceOverride) {
+                        conversation.workspaceOverrideId
+                    } else {
+                        null
+                    }
+                    var effectiveWorkspaceId = overrideWorkspaceId ?: assistant.workspaceId
+                    var boundWorkspace = effectiveWorkspaceId?.let { workspaceRepository.getById(it) }
+                    if (boundWorkspace == null && effectiveWorkspaceId != assistant.workspaceId) {
+                        // 覆写目标失效：回退到助手绑定的工作区。
+                        effectiveWorkspaceId = assistant.workspaceId
+                        boundWorkspace = effectiveWorkspaceId?.let { workspaceRepository.getById(it) }
+                    }
                     val hasWorkspaceFiles = assistant.localTools.contains(LocalToolOption.WorkspaceFiles)
                     if (hasWorkspaceFiles) {
+                        // 用覆写后的工作区 id 构造内存副本，使工作区工具与审批都走覆写目标。
+                        val workspaceAssistant = if (effectiveWorkspaceId != assistant.workspaceId) {
+                            assistant.copy(workspaceId = effectiveWorkspaceId)
+                        } else {
+                            assistant
+                        }
                         when (boundWorkspace?.type) {
-                            WorkspaceType.LIGHTWEIGHT -> addAll(createWorkspaceFileTools(assistant = assistant, settingsSnapshot = settings))
+                            WorkspaceType.LIGHTWEIGHT -> addAll(createWorkspaceFileTools(assistant = workspaceAssistant, settingsSnapshot = settings))
                             WorkspaceType.SANDBOX -> if (boundWorkspace.sandboxStatus == SandboxRootfsStatus.READY) {
                                 addAll(createSandboxWorkspaceTools(boundWorkspace.id, workspaceRepository))
                             }

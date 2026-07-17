@@ -2212,6 +2212,10 @@
     <string name="extensions_page_workspace">Workspaces</string>
     <string name="extensions_page_workspace_desc">Manage workspaces</string>
     <string name="assistant_page_workspace_binding_desc">Choose the assistant\'s workspace</string>
+    <string name="assistant_page_allow_conversation_workspace_override_title">Allow per-conversation workspace</string>
+    <string name="assistant_page_allow_conversation_workspace_override_desc">Let individual conversations use a different workspace. Only affects selected conversations; the assistant\'s workspace setting stays unchanged.</string>
+    <string name="chat_input_workspace_override_title">Workspace</string>
+    <string name="chat_input_workspace_override_follow_assistant">Follow assistant</string>
     <string name="extensions_page_scripts">Scripts</string>
     <string name="extensions_page_scripts_desc">Python script execution and dependencies</string>
 

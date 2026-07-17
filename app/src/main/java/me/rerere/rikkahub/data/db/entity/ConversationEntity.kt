@@ -59,4 +59,6 @@ data class ConversationEntity(
     val contextSummaryBoundaries: String = "[]",
     @ColumnInfo(name = "session_memories", defaultValue = "[]")
     val sessionMemories: String = "[]",
+    @ColumnInfo(name = "workspace_override_id", defaultValue = "NULL")
+    val workspaceOverrideId: String? = null,
 )

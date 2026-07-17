@@ -66,6 +66,7 @@ import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.FlashOn
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Group
@@ -787,6 +788,7 @@ private fun MinimalPickerContent(
     var showSearchPicker by remember { mutableStateOf(false) }
     var showMcpPicker by remember { mutableStateOf(false) }
     var showAttachmentMenu by remember { mutableStateOf(false) }
+    var showWorkspacePicker by remember { mutableStateOf(false) }
     val currentChatModel = settings.getCurrentChatModel()
     val showGeminiAttachmentMenu = remember(currentChatModel?.modelId) {
         isGeminiAttachmentMenuEnabled(currentChatModel)
@@ -801,6 +803,22 @@ private fun MinimalPickerContent(
     val enabledSkills = remember(settings.skills, assistant.enabledSkills) {
         settings.skills.filter { skill -> skill.name in assistant.enabledSkills }
     }
+
+    // 会话级工作区覆写：仅当助手允许且开启了工作区文件工具时，展开菜单才显示工作区条目。
+    val workspaceRepository: me.rerere.rikkahub.data.repository.WorkspaceRepository =
+        org.koin.compose.koinInject()
+    val workspaces by remember(workspaceRepository) { workspaceRepository.listFlow() }
+        .collectAsStateWithLifecycle(emptyList())
+    // 会话级工作区覆写入口门闩：
+    // - uiMode == Normal：排除群聊模板（群聊座位各自用各自助手的工作区，覆写会被忽略，不显示入口避免误导）；
+    // - 助手需显式开启 allowConversationWorkspaceOverride；
+    // - 助手需启用工作区文件工具，否则覆写无意义。
+    val showWorkspaceOverrideEntry = uiMode == ChatInputUiMode.Normal &&
+        assistant.allowConversationWorkspaceOverride &&
+        assistant.localTools.contains(me.rerere.rikkahub.data.ai.tools.LocalToolOption.WorkspaceFiles)
+    val effectiveWorkspace = workspaces.firstOrNull { it.id == conversation.workspaceOverrideId }
+    val workspaceOverrideSubtitle = effectiveWorkspace?.name
+        ?: stringResource(R.string.chat_input_workspace_override_follow_assistant)
     val activeExplicitSkillNames = remember(
         conversation.explicitSkillContexts,
         assistant.enabledSkills,
@@ -1222,11 +1240,31 @@ private fun MinimalPickerContent(
             },
             title = stringResource(R.string.injection_picker_title),
             subtitle = injectionSummary,
-            onClick = { 
+            onClick = {
                 showInjectionPicker = true
             }
         )
-        
+
+        if (showWorkspaceOverrideEntry) {
+            MinimalPickerItem(
+                icon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Folder,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        // 按「有效工作区」高亮：覆写指向已删除工作区时不高亮，
+                        // 与「跟随助手」语义一致（此时实际会回退到助手绑定）。
+                        tint = if (effectiveWorkspace != null)
+                            MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                title = stringResource(R.string.chat_input_workspace_override_title),
+                subtitle = workspaceOverrideSubtitle,
+                onClick = { showWorkspacePicker = true }
+            )
+        }
+
         if (uiMode == ChatInputUiMode.Normal) {
             // Summarize button - only show when context refresh is enabled and there are enough messages
             if (assistant.enableContextRefresh && conversation.currentMessages.size > 2) {
@@ -1331,6 +1369,21 @@ private fun MinimalPickerContent(
                 onUpdateConversation(conversation.copy(explicitSkillContexts = nextNames))
             },
             onDismiss = { showInjectionPicker = false },
+        )
+    }
+
+    if (showWorkspacePicker) {
+        val navController = me.rerere.rikkahub.ui.context.LocalNavController.current
+        WorkspaceSelectSheet(
+            selectedWorkspaceId = conversation.workspaceOverrideId,
+            workspaces = workspaces,
+            onSelect = { id ->
+                onUpdateConversation(conversation.copy(workspaceOverrideId = id))
+                showWorkspacePicker = false
+            },
+            onManage = { navController.navigate(me.rerere.rikkahub.Screen.Workspaces) },
+            onDismiss = { showWorkspacePicker = false },
+            noneOptionTitle = stringResource(R.string.chat_input_workspace_override_follow_assistant),
         )
     }
     

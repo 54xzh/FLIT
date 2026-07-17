@@ -2202,6 +2202,10 @@
     <string name="extensions_page_workspace">工作區</string>
     <string name="extensions_page_workspace_desc">管理工作區</string>
     <string name="assistant_page_workspace_binding_desc">選擇助手的工作區</string>
+    <string name="assistant_page_allow_conversation_workspace_override_title">允許為會話指定工作區</string>
+    <string name="assistant_page_allow_conversation_workspace_override_desc">允許為單一會話指定工作區。僅對指定的會話生效，不會改變助手的工作區設定</string>
+    <string name="chat_input_workspace_override_title">工作區</string>
+    <string name="chat_input_workspace_override_follow_assistant">跟隨助手</string>
     <string name="extensions_page_scripts">腳本</string>
     <string name="extensions_page_scripts_desc">Python 腳本執行與相依套件</string>
 

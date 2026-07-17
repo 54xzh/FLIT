@@ -183,6 +183,12 @@ interface ConversationDAO {
     suspend fun getAllExplicitSkillContexts(): List<ExplicitSkillContextRow>
 
     /**
+     * 删除工作区时调用：把所有覆写指向该工作区的会话覆写清空，使其回退到助手绑定。
+     */
+    @Query("UPDATE conversationentity SET workspace_override_id = NULL WHERE workspace_override_id = :workspaceId")
+    suspend fun clearWorkspaceOverrideByWorkspaceId(workspaceId: String)
+
+    /**
      * 重写单条会话的 explicit_skill_context_ids 列（技能 UUID→名 迁移用）。
      */
     @Query("UPDATE conversationentity SET explicit_skill_context_ids = :json WHERE id = :id")

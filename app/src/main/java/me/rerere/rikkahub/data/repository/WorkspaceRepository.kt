@@ -24,6 +24,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.AppDatabase
+import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.WorkspaceDao
 import me.rerere.rikkahub.data.db.entity.SafWorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
@@ -45,11 +46,14 @@ import me.rerere.rikkahub.workspace.WorkspaceTransferManifest
 import me.rerere.rikkahub.workspace.WorkspaceTransferProgress
 import me.rerere.rikkahub.workspace.WorkspaceTransferStage
 import me.rerere.rikkahub.workspace.estimateWorkspaceImportBytes
+import me.rerere.rikkahub.service.ChatService
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.get
 
 private const val TAG = "WorkspaceRepository"
 
@@ -104,7 +108,8 @@ class WorkspaceRepository(
     private val sandboxManager: SandboxWorkspaceManager,
     private val rootfsInstaller: SandboxRootfsInstaller,
     private val workspaceTransferArchive: WorkspaceTransferArchive,
-) {
+    private val conversationDAO: ConversationDAO,
+) : KoinComponent {
     private val sandboxLocks = ConcurrentHashMap<String, Mutex>()
     private val workspaceImportMutex = Mutex()
 
@@ -722,6 +727,19 @@ class WorkspaceRepository(
                 if (assistant.workspaceId == workspaceId) assistant.copy(workspaceId = null) else assistant
             })
         }
+        // 同步清空会话侧的工作区覆写，避免指向已删除工作区的悬空引用。
+        // 不静默吞异常：DB 写失败要留痕，否则旧覆写会持续被读到。
+        try {
+            conversationDAO.clearWorkspaceOverrideByWorkspaceId(workspaceId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "cleanupAssistantReferences: clearWorkspaceOverrideByWorkspaceId failed for $workspaceId (${e.message})", e)
+        }
+        // 同步清内存：已加载到 ChatService 的会话里残留的覆写也一并置空，
+        // UI 和下次工具装配都立刻看到「跟随助手」。
+        runCatching { get<ChatService>().clearWorkspaceOverrideFromMemory(workspaceId) }
+            .onFailure { Log.w(TAG, "cleanupAssistantReferences: clearWorkspaceOverrideFromMemory failed (${it.message})", it) }
     }
 
     private fun sandboxLock(id: String): Mutex = sandboxLocks.getOrPut(id) { Mutex() }

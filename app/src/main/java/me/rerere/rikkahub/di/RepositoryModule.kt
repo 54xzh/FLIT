@@ -86,6 +86,7 @@ val repositoryModule = module {
             sandboxManager = get(),
             rootfsInstaller = get(),
             workspaceTransferArchive = get(),
+            conversationDAO = get(),
         )
     }
 

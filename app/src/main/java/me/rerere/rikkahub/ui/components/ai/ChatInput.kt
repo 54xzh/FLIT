@@ -135,6 +135,7 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material.icons.rounded.CameraAlt
@@ -1572,6 +1573,23 @@ private fun FilesPicker(
     val mcpLoading = mcpSyncStatus.values.any { it == McpStatus.Connecting }
     var showMcpPicker by remember { mutableStateOf(false) }
     var showInjectionPicker by remember { mutableStateOf(false) }
+    var showWorkspacePicker by remember { mutableStateOf(false) }
+
+    // 会话级工作区覆写：仅当助手允许且开启了工作区文件工具时，展开菜单才显示工作区条目。
+    val workspaceRepository: me.rerere.rikkahub.data.repository.WorkspaceRepository =
+        org.koin.compose.koinInject()
+    val workspaces by remember(workspaceRepository) { workspaceRepository.listFlow() }
+        .collectAsStateWithLifecycle(emptyList())
+    // 会话级工作区覆写入口门闩：
+    // - uiMode == Normal：排除群聊模板（群聊座位各自用各自助手的工作区，覆写会被忽略，不显示入口避免误导）；
+    // - 助手需显式开启 allowConversationWorkspaceOverride；
+    // - 助手需启用工作区文件工具，否则覆写无意义。
+    val showWorkspaceOverrideEntry = uiMode == ChatInputUiMode.Normal &&
+        assistant.allowConversationWorkspaceOverride &&
+        assistant.localTools.contains(me.rerere.rikkahub.data.ai.tools.LocalToolOption.WorkspaceFiles)
+    val effectiveWorkspace = workspaces.firstOrNull { it.id == conversation.workspaceOverrideId }
+    val workspaceOverrideSubtitle = effectiveWorkspace?.name
+        ?: stringResource(R.string.chat_input_workspace_override_follow_assistant)
 
     val isDarkMode = LocalDarkMode.current
     val isKeyboardVisible = WindowInsets.isImeVisible
@@ -1906,6 +1924,51 @@ private fun FilesPicker(
                     },
                 )
             }
+
+            if (showWorkspaceOverrideEntry) {
+                val workspaceInteractionSource = remember { MutableInteractionSource() }
+                val isWorkspacePressed by workspaceInteractionSource.collectIsPressedAsState()
+                val workspaceScale by animateFloatAsState(
+                    targetValue = if (isWorkspacePressed) 0.98f else 1f,
+                    animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                    label = "workspace_item_scale"
+                )
+                ListItem(
+                    modifier = Modifier
+                        .graphicsLayer {
+                            scaleX = workspaceScale
+                            scaleY = workspaceScale
+                        }
+                        .clip(RoundedCornerShape(24.dp))
+                        .clickable(
+                            interactionSource = workspaceInteractionSource,
+                            indication = LocalIndication.current,
+                        ) {
+                            haptics.perform(HapticPattern.Pop)
+                            showWorkspacePicker = true
+                        },
+                    colors = ListItemDefaults.colors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    ),
+                    leadingContent = {
+                        Icon(
+                            imageVector = Icons.Rounded.Folder,
+                            contentDescription = stringResource(R.string.chat_input_workspace_override_title),
+                            // 按「有效工作区」高亮：覆写指向已删除工作区时不高亮，
+                            // 与「跟随助手」语义一致（此时实际会回退到助手绑定）。
+                            tint = if (effectiveWorkspace != null)
+                                MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    headlineContent = {
+                        Text(stringResource(R.string.chat_input_workspace_override_title))
+                    },
+                    supportingContent = {
+                        Text(workspaceOverrideSubtitle)
+                    },
+                )
+            }
         }
     }
 
@@ -2004,6 +2067,21 @@ private fun FilesPicker(
                 )
             }
         }
+    }
+
+    if (showWorkspacePicker) {
+        val navController = me.rerere.rikkahub.ui.context.LocalNavController.current
+        WorkspaceSelectSheet(
+            selectedWorkspaceId = conversation.workspaceOverrideId,
+            workspaces = workspaces,
+            onSelect = { id ->
+                onUpdateConversation(conversation.copy(workspaceOverrideId = id))
+                showWorkspacePicker = false
+            },
+            onManage = { navController.navigate(me.rerere.rikkahub.Screen.Workspaces) },
+            onDismiss = { showWorkspacePicker = false },
+            noneOptionTitle = stringResource(R.string.chat_input_workspace_override_follow_assistant),
+        )
     }
 }
 
