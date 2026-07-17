@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -980,11 +981,14 @@ class ChatService(
      */
     fun clearWorkspaceOverrideFromMemory(workspaceId: String) {
         var changed = 0
-        conversations.forEach { (conversationId, flow) ->
-            val current = flow.value
-            if (current.workspaceOverrideId == workspaceId) {
-                updateConversation(conversationId, current.copy(workspaceOverrideId = null))
-                changed++
+        conversations.forEach { (_, flow) ->
+            if (flow.value.workspaceOverrideId == workspaceId) changed++
+            flow.update { current ->
+                if (current.workspaceOverrideId == workspaceId) {
+                    current.copy(workspaceOverrideId = null)
+                } else {
+                    current
+                }
             }
         }
         if (changed > 0) {
@@ -5279,10 +5283,14 @@ class ChatService(
 
     // 更新对话
     private fun updateConversation(conversationId: Uuid, conversation: Conversation) {
-        if (conversation.id != conversationId) return
-        checkFilesDelete(conversation, getConversationFlow(conversationId).value)
-        conversations.getOrPut(conversationId) { MutableStateFlow(conversation) }.value =
-            conversation
+        val sanitizedConversation = conversationRepo.sanitizeWorkspaceOverride(conversation)
+        if (sanitizedConversation.id != conversationId) return
+        checkFilesDelete(sanitizedConversation, getConversationFlow(conversationId).value)
+        val flow = conversations.getOrPut(conversationId) { MutableStateFlow(sanitizedConversation) }
+        flow.value = sanitizedConversation
+        // 若工作区恰好在上面的失效检查与状态写入之间被删除，再过滤一次即可收敛；
+        // 反过来若删除发生在这一步之后，删除流程本身会负责清理内存状态。
+        flow.update(conversationRepo::sanitizeWorkspaceOverride)
     }
 
     // 检查文件删除

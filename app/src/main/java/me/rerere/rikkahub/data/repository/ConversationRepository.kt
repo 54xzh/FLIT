@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
@@ -50,6 +52,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
 
 private const val HISTORY_STATS_SCAN_BATCH_SIZE = 32
@@ -65,6 +68,9 @@ class ConversationRepository(
     private val dailyActivityDAO: DailyActivityDAO,
     private val usageStatsDAO: UsageStatsDAO,
 ) {
+    private val conversationWriteMutex = Mutex()
+    private val unavailableWorkspaceOverrideIds = ConcurrentHashMap.newKeySet<String>()
+
     companion object {
         private const val TAG = "ConversationRepository"
         private const val PAGE_SIZE = 20
@@ -253,44 +259,75 @@ class ConversationRepository(
     }
 
     suspend fun insertConversation(conversation: Conversation) {
-        val conversationToStore = prepareConversationForStorage(conversation)
-        conversationDAO.insert(
-            conversationToConversationEntity(conversationToStore)
-        )
+        val preparedConversation = prepareConversationForStorage(conversation)
+        conversationWriteMutex.withLock {
+            val conversationToStore = sanitizeWorkspaceOverride(preparedConversation)
+            conversationDAO.insert(
+                conversationToConversationEntity(conversationToStore)
+            )
+        }
     }
 
     suspend fun updateConversation(conversation: Conversation) {
-        val conversationToStore = prepareConversationForStorage(conversation)
-        val existingConversation = conversationDAO.getConversationById(conversation.id.toString())
-            ?.let { entity -> conversationEntityToConversation(entity) }
-        val shouldInvalidateConsolidation = conversationToStore.isConsolidated &&
-            existingConversation != null &&
-            hasConversationContentChanged(existingConversation, conversationToStore)
+        val preparedConversation = prepareConversationForStorage(conversation)
+        conversationWriteMutex.withLock {
+            val conversationToStore = sanitizeWorkspaceOverride(preparedConversation)
+            val existingConversation = conversationDAO.getConversationById(conversation.id.toString())
+                ?.let { entity -> conversationEntityToConversation(entity) }
+            val shouldInvalidateConsolidation = conversationToStore.isConsolidated &&
+                existingConversation != null &&
+                hasConversationContentChanged(existingConversation, conversationToStore)
 
-        // Invalidation Logic: If a consolidated conversation is updated (e.g. new message),
-        // we must invalidate the old memory episode to allow re-consolidation.
-        if (shouldInvalidateConsolidation) {
-            val updatedConversation = conversationToStore.copy(isConsolidated = false)
+            // Invalidation Logic: If a consolidated conversation is updated (e.g. new message),
+            // we must invalidate the old memory episode to allow re-consolidation.
+            if (shouldInvalidateConsolidation) {
+                val updatedConversation = conversationToStore.copy(isConsolidated = false)
 
-            conversationDAO.update(
-                conversationToConversationEntity(updatedConversation)
-            )
+                conversationDAO.update(
+                    conversationToConversationEntity(updatedConversation)
+                )
 
-            // Delete the old episode based on conversation ID if possible.
-            // If deletion by ID returns 0 (e.g. legacy episode without conversationId),
-            // fallback to best-effort deletion based on time range.
-            val deletedCount = chatEpisodeDAO.deleteEpisodeByConversationId(conversationToStore.id.toString())
-            if (deletedCount == 0) {
-                chatEpisodeDAO.deleteEpisodeByTimeRange(
-                    assistantId = conversationToStore.assistantId.toString(),
-                    startTime = conversationToStore.createAt.toEpochMilli(),
-                    endTime = Long.MAX_VALUE
+                // Delete the old episode based on conversation ID if possible.
+                // If deletion by ID returns 0 (e.g. legacy episode without conversationId),
+                // fallback to best-effort deletion based on time range.
+                val deletedCount = chatEpisodeDAO.deleteEpisodeByConversationId(conversationToStore.id.toString())
+                if (deletedCount == 0) {
+                    chatEpisodeDAO.deleteEpisodeByTimeRange(
+                        assistantId = conversationToStore.assistantId.toString(),
+                        startTime = conversationToStore.createAt.toEpochMilli(),
+                        endTime = Long.MAX_VALUE
+                    )
+                }
+            } else {
+                conversationDAO.update(
+                    conversationToConversationEntity(conversationToStore)
                 )
             }
+        }
+    }
+
+    /**
+     * 工作区删除后，阻止任何已取得的旧会话快照把该覆写重新写回。
+     *
+     * 标记与列清理和完整会话写入共用同一把锁：清理前完成的写入会被随后清掉，
+     * 清理后到达的旧写入则会先经 [sanitizeWorkspaceOverride] 移除失效值。
+     */
+    suspend fun clearWorkspaceOverrideByWorkspaceId(workspaceId: String) {
+        conversationWriteMutex.withLock {
+            unavailableWorkspaceOverrideIds.add(workspaceId)
+            conversationDAO.clearWorkspaceOverrideByWorkspaceId(workspaceId)
+        }
+    }
+
+    /** 供内存会话更新复用同一份失效工作区判定，避免旧快照在内存中恢复已删除的覆写。 */
+    fun sanitizeWorkspaceOverride(conversation: Conversation): Conversation {
+        val workspaceOverrideUnavailable = conversation.workspaceOverrideId
+            ?.let(unavailableWorkspaceOverrideIds::contains)
+            ?: false
+        return if (workspaceOverrideUnavailable) {
+            conversation.copy(workspaceOverrideId = null)
         } else {
-            conversationDAO.update(
-                conversationToConversationEntity(conversationToStore)
-            )
+            conversation
         }
     }
 
@@ -311,9 +348,12 @@ class ConversationRepository(
         buildConversation: (branchNumber: Int) -> Conversation,
     ): Conversation = withContext(Dispatchers.IO) {
         val branchNumber = conversationDAO.reserveNextBranchNumber(rootId.toString())
-        val conversationToStore = prepareConversationForStorage(buildConversation(branchNumber))
-        conversationDAO.insert(conversationToConversationEntity(conversationToStore))
-        conversationToStore
+        val preparedConversation = prepareConversationForStorage(buildConversation(branchNumber))
+        conversationWriteMutex.withLock {
+            val conversationToStore = sanitizeWorkspaceOverride(preparedConversation)
+            conversationDAO.insert(conversationToConversationEntity(conversationToStore))
+            conversationToStore
+        }
     }
 
     /**

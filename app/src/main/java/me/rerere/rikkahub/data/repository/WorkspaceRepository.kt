@@ -24,7 +24,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.AppDatabase
-import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.WorkspaceDao
 import me.rerere.rikkahub.data.db.entity.SafWorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
@@ -108,7 +107,7 @@ class WorkspaceRepository(
     private val sandboxManager: SandboxWorkspaceManager,
     private val rootfsInstaller: SandboxRootfsInstaller,
     private val workspaceTransferArchive: WorkspaceTransferArchive,
-    private val conversationDAO: ConversationDAO,
+    private val conversationRepository: ConversationRepository,
 ) : KoinComponent {
     private val sandboxLocks = ConcurrentHashMap<String, Mutex>()
     private val workspaceImportMutex = Mutex()
@@ -730,7 +729,7 @@ class WorkspaceRepository(
         // 同步清空会话侧的工作区覆写，避免指向已删除工作区的悬空引用。
         // 不静默吞异常：DB 写失败要留痕，否则旧覆写会持续被读到。
         try {
-            conversationDAO.clearWorkspaceOverrideByWorkspaceId(workspaceId)
+            conversationRepository.clearWorkspaceOverrideByWorkspaceId(workspaceId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
