@@ -802,11 +802,18 @@ internal fun ToolCallPreviewSheet(
                                 }
                             }
                         } else {
-                            HighlightText(
-                                code = JsonInstantPretty.encodeToString(content),
-                                language = "json",
-                                fontSize = 12.sp
-                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                HighlightText(
+                                    code = JsonInstantPretty.encodeToString(content),
+                                    language = "json",
+                                    fontSize = 12.sp
+                                )
+                            }
                         }
                     }
 
@@ -850,7 +857,13 @@ internal fun ToolCallPreviewSheet(
                         }
                     }
 
-                    else -> {
+                    else -> Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
