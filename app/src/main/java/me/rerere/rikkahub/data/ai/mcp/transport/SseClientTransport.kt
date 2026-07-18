@@ -91,6 +91,10 @@ internal class SseClientTransport(
                 override fun onClosed(eventSource: EventSource) {
                     super.onClosed(eventSource)
                     Log.i(TAG, "onClosed: $urlString")
+                    // 服务器侧正常关闭(SSE EOF)也要通知上层，否则 McpSessionRegistry
+                    // 感知不到断线、不会重连、状态卡在 Connected。onFailure 已单独触发，
+                    // 这里重复触发是安全的：requestReconnect 会按 Connected 状态去重。
+                    _onClose()
                 }
 
                 override fun onFailure(

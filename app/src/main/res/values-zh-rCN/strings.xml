@@ -858,6 +858,12 @@
     <string name="mcp_status_connected">已连接</string>
     <string name="mcp_status_connecting">连接中</string>
     <string name="mcp_status_error_format">错误：%1$s</string>
+    <string name="mcp_status_reconnecting_format">重连中 (%1$d/%2$d)</string>
+    <string name="mcp_status_needs_authorization">需要授权</string>
+    <string name="mcp_status_authorizing">授权中…</string>
+    <string name="mcp_oauth_authorize">OAuth 授权</string>
+    <string name="mcp_oauth_cancel">取消授权</string>
+    <string name="mcp_error_max_reconnect">连接断开，已达最大重连次数</string>
     <string name="mcp_status_idle">空闲</string>
     <string name="mcp_tool_approval_approve">批准</string>
     <string name="mcp_tool_approval_approved_calling">已批准，正在执行 %1$s…</string>

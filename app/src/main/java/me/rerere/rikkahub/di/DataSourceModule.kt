@@ -19,6 +19,7 @@ import me.rerere.rikkahub.data.datastore.ModelCapabilityStore
 import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.Migration_6_7
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.sync.ObjectStorageSync
 import me.rerere.rikkahub.data.sync.WebdavSync
 import okhttp3.MediaType.Companion.toMediaType
@@ -138,7 +139,9 @@ val dataSourceModule = module {
         get<AppDatabase>().workspaceDao()
     }
 
-    single { McpManager(settingsStore = get(), appScope = get()) }
+    single { AppEventBus() }
+
+    single { McpManager(settingsStore = get(), appScope = get(), appEventBus = get()) }
 
     single {
         GenerationHandler(

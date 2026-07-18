@@ -309,6 +309,10 @@ class StreamableHttpClientTransport(
 
                     is SseEvent.Closed -> {
                         Log.d(TAG, "startSseSession: SSE connection closed")
+                        // 服务器侧正常关闭长连接也要通知上层，否则 McpSessionRegistry
+                        // 感知不到断线、不会重连。requestReconnect 会按 Connected 状态去重，
+                        // 与 Failure 分支互不干扰。
+                        _onClose()
                     }
 
                     is SseEvent.Failure -> {

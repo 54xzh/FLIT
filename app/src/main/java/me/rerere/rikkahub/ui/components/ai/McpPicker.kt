@@ -194,6 +194,13 @@ fun McpPicker(
                         )
 
                         McpStatus.Connected -> Icon(Icons.Rounded.Terminal, null)
+                        is McpStatus.Reconnecting -> CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp)
+                        )
+                        McpStatus.NeedsAuthorization -> Icon(Icons.Rounded.Error, null)
+                        McpStatus.Authorizing -> CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp)
+                        )
                         is McpStatus.Error -> Icon(Icons.Rounded.Error, null)
                     }
                     Column(
@@ -209,10 +216,18 @@ fun McpPicker(
                                 is McpStatus.Idle -> stringResource(R.string.mcp_status_idle)
                                 is McpStatus.Connecting -> stringResource(R.string.mcp_status_connecting)
                                 is McpStatus.Connected -> stringResource(R.string.mcp_status_connected)
-                                is McpStatus.Error -> stringResource(
-                                    R.string.mcp_status_error_format,
-                                    (status as McpStatus.Error).message
+                                is McpStatus.Reconnecting -> stringResource(
+                                    R.string.mcp_status_reconnecting_format,
+                                    (status as McpStatus.Reconnecting).attempt,
+                                    (status as McpStatus.Reconnecting).maxAttempts,
                                 )
+                                McpStatus.NeedsAuthorization -> stringResource(R.string.mcp_status_needs_authorization)
+                                McpStatus.Authorizing -> stringResource(R.string.mcp_status_authorizing)
+                                is McpStatus.Error -> {
+                                    val err = status as McpStatus.Error
+                                    val msg = err.messageResId?.let { stringResource(it) } ?: err.message
+                                    stringResource(R.string.mcp_status_error_format, msg)
+                                }
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = LocalContentColor.current.copy(alpha = 0.8f),

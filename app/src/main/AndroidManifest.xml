@@ -70,6 +70,20 @@
         </intent-filter>
     </activity>
 
+    <!-- MCP OAuth 授权回调：浏览器完成授权后跳回此 deep link -->
+    <activity
+        android:name=".ui.activity.McpOAuthCallbackActivity"
+        android:exported="true"
+        android:launchMode="singleTask"
+        android:theme="@android:style/Theme.Translucent.NoTitleBar">
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:host="mcp-oauth-callback" android:scheme="lastchat" />
+        </intent-filter>
+    </activity>
+
     <!-- Text Selection Integration - "Ask LastChat" in system text selection menu -->
     <activity
         android:name=".ui.activity.TextSelectionActivity"

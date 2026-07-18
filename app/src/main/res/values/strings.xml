@@ -1657,6 +1657,12 @@
     <string name="mcp_status_connecting">Connecting</string>
     <string name="mcp_status_connected">Connected</string>
     <string name="mcp_status_error_format">Error: %1$s</string>
+    <string name="mcp_status_reconnecting_format">Reconnecting (%1$d/%2$d)</string>
+    <string name="mcp_status_needs_authorization">Needs authorization</string>
+    <string name="mcp_status_authorizing">Authorizing…</string>
+    <string name="mcp_oauth_authorize">Authorize</string>
+    <string name="mcp_oauth_cancel">Cancel</string>
+    <string name="mcp_error_max_reconnect">Disconnected: max reconnect attempts reached</string>
     <string name="mcp_tools_count">%1$d/%2$d tools</string>
     <string name="setting_page_update_available_title">Update Available</string>
     <string name="setting_page_update_available_version_desc">Version %1$s is available</string>

@@ -64,6 +64,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -352,6 +353,13 @@ private fun McpServerItem(
                     )
 
                     McpStatus.Connected -> Icon(Icons.Rounded.Terminal, null)
+                    is McpStatus.Reconnecting -> CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp)
+                    )
+                    McpStatus.NeedsAuthorization -> Icon(Icons.Rounded.ErrorOutline, null)
+                    McpStatus.Authorizing -> CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp)
+                    )
                     is McpStatus.Error -> Icon(Icons.Rounded.ErrorOutline, null)
                 }
 
@@ -388,6 +396,41 @@ private fun McpServerItem(
                                 is McpServerConfig.SseTransportServer -> Text(stringResource(R.string.setting_mcp_page_transport_sse))
                                 is McpServerConfig.StreamableHTTPServer -> Text(stringResource(R.string.setting_mcp_page_transport_streamable_http))
                             }
+                        }
+                        when (status) {
+                            is McpStatus.Reconnecting -> Tag(type = TagType.WARNING) {
+                                val s = status as McpStatus.Reconnecting
+                                Text(stringResource(R.string.mcp_status_reconnecting_format, s.attempt, s.maxAttempts))
+                            }
+                            McpStatus.NeedsAuthorization -> Tag(type = TagType.ERROR) {
+                                Text(stringResource(R.string.mcp_status_needs_authorization))
+                            }
+                            McpStatus.Authorizing -> Tag(type = TagType.WARNING) {
+                                Text(stringResource(R.string.mcp_status_authorizing))
+                            }
+                            is McpStatus.Error -> Tag(type = TagType.ERROR) {
+                                val err = status as McpStatus.Error
+                                val msg = err.messageResId?.let { stringResource(it) } ?: err.message
+                                Text(stringResource(R.string.mcp_status_error_format, msg), maxLines = 3)
+                            }
+                            else -> Unit
+                        }
+                    }
+                    if (status == McpStatus.NeedsAuthorization) {
+                        val context = LocalContext.current
+                        Button(
+                            onClick = { mcpManager.startAuthorization(item, context) },
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                        ) {
+                            Text(stringResource(R.string.mcp_oauth_authorize))
+                        }
+                    }
+                    if (status == McpStatus.Authorizing) {
+                        TextButton(
+                            onClick = { mcpManager.cancelAuthorization(item) },
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                        ) {
+                            Text(stringResource(R.string.mcp_oauth_cancel))
                         }
                     }
                 }
