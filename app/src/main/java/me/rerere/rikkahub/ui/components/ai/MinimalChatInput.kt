@@ -1245,26 +1245,6 @@ private fun MinimalPickerContent(
             }
         )
 
-        if (showWorkspaceOverrideEntry) {
-            MinimalPickerItem(
-                icon = {
-                    Icon(
-                        imageVector = Icons.Rounded.Folder,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                        // 按「有效工作区」高亮：覆写指向已删除工作区时不高亮，
-                        // 与「跟随助手」语义一致（此时实际会回退到助手绑定）。
-                        tint = if (effectiveWorkspace != null)
-                            MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                },
-                title = stringResource(R.string.chat_input_workspace_override_title),
-                subtitle = workspaceOverrideSubtitle,
-                onClick = { showWorkspacePicker = true }
-            )
-        }
-
         if (uiMode == ChatInputUiMode.Normal) {
             // Summarize button - only show when context refresh is enabled and there are enough messages
             if (assistant.enableContextRefresh && conversation.currentMessages.size > 2) {
@@ -1284,6 +1264,27 @@ private fun MinimalPickerContent(
                     }
                 )
             }
+        }
+
+        // 会话级工作区覆写入口：放在总结按钮之后
+        if (showWorkspaceOverrideEntry) {
+            MinimalPickerItem(
+                icon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Folder,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        // 按「有效工作区」高亮：覆写指向已删除工作区时不高亮，
+                        // 与「跟随助手」语义一致（此时实际会回退到助手绑定）。
+                        tint = if (effectiveWorkspace != null)
+                            MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                title = stringResource(R.string.chat_input_workspace_override_title),
+                subtitle = workspaceOverrideSubtitle,
+                onClick = { showWorkspacePicker = true }
+            )
         }
     }
     
