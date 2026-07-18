@@ -231,7 +231,9 @@ internal class McpOAuthCoordinator(
                 appEventBus.events
                     .onSubscription { subscribed.complete(Unit) }
                     .filterIsInstance<AppEvent.McpOAuthCallback>()
-                    .first { it.state == state }
+                    // state 匹配正常回调；服务器拒绝授权时回调通常只带 error、不带 state，
+                    // 此时应立即消费并抛错，否则要等满超时才提示"授权超时"。
+                    .first { it.state == state || (!it.error.isNullOrBlank() && it.state == null) }
             }
         }
         subscribed.await() // 确保订阅已注册

@@ -353,7 +353,9 @@ class McpOAuthClient(
             Base64.UrlSafe.encode(bytes).trimEnd('=')
 
         /**
-         * 规范化 canonical resource URI (RFC 8707 + MCP 规范)：小写 scheme/host、去掉 fragment。
+         * 规范化 canonical resource URI (RFC 8707 + MCP 规范)。
+         *
+         * OkHttp 的 HttpUrl 已保证 scheme/host 小写，这里只需去掉 fragment 即可。
          */
         fun canonicalResource(serverUrl: String): String {
             val url = serverUrl.toHttpUrlOrNull() ?: return serverUrl

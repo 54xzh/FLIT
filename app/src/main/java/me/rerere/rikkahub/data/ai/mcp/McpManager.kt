@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -136,6 +137,7 @@ class McpManager(
     }
 }
 
+@OptIn(ExperimentalSerializationApi::class)
 internal val McpJson: kotlinx.serialization.json.Json by lazy {
     kotlinx.serialization.json.Json {
         ignoreUnknownKeys = true
