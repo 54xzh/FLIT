@@ -886,6 +886,14 @@
     <string name="setting_mcp_page_name_desc">Display name for MCP server</string>
     <string name="setting_mcp_page_name_placeholder">e.g. My MCP Server</string>
     <string name="setting_mcp_page_no_mcp_servers_found">No MCP servers found</string>
+    <string name="setting_mcp_page_oauth_client">OAuth Client</string>
+    <string name="setting_mcp_page_oauth_client_desc">Optional. Fill this in only when the authorization server does not support automatic client registration.</string>
+    <string name="setting_mcp_page_oauth_client_id">Client ID</string>
+    <string name="setting_mcp_page_oauth_client_secret">Client secret (optional)</string>
+    <string name="setting_mcp_page_oauth_auth_method">Token endpoint authentication</string>
+    <string name="setting_mcp_page_oauth_auth_public">Public</string>
+    <string name="setting_mcp_page_oauth_auth_basic">Basic</string>
+    <string name="setting_mcp_page_oauth_auth_post">POST</string>
     <string name="setting_mcp_page_save">Save</string>
     <string name="setting_mcp_page_server_url">Server URL</string>
     <string name="setting_mcp_page_sse_url_desc">SSE Transport URL</string>

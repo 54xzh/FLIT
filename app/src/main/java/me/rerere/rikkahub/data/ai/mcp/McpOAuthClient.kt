@@ -18,6 +18,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
 import kotlin.coroutines.resume
@@ -64,6 +65,8 @@ class McpOAuthClient(
         @SerialName("registration_endpoint") val registrationEndpoint: String? = null,
         @SerialName("scopes_supported") val scopesSupported: List<String>? = null,
         @SerialName("code_challenge_methods_supported") val codeChallengeMethodsSupported: List<String>? = null,
+        @SerialName("token_endpoint_auth_methods_supported")
+        val tokenEndpointAuthMethodsSupported: List<String>? = null,
     )
 
     @Serializable
@@ -72,7 +75,7 @@ class McpOAuthClient(
         @SerialName("redirect_uris") val redirectUris: List<String>,
         @SerialName("grant_types") val grantTypes: List<String> = listOf("authorization_code", "refresh_token"),
         @SerialName("response_types") val responseTypes: List<String> = listOf("code"),
-        @SerialName("token_endpoint_auth_method") val tokenEndpointAuthMethod: String = "none",
+        @SerialName("token_endpoint_auth_method") val tokenEndpointAuthMethod: String,
         @SerialName("scope") val scope: String? = null,
     )
 
@@ -80,6 +83,7 @@ class McpOAuthClient(
     data class ClientRegistrationResponse(
         @SerialName("client_id") val clientId: String,
         @SerialName("client_secret") val clientSecret: String? = null,
+        @SerialName("token_endpoint_auth_method") val tokenEndpointAuthMethod: String? = null,
     )
 
     @Serializable
@@ -140,12 +144,14 @@ class McpOAuthClient(
         clientName: String,
         redirectUri: String,
         scope: String?,
+        tokenEndpointAuthMethod: String,
     ): ClientRegistrationResponse = withContext(Dispatchers.IO) {
         val body = json.encodeToString(
             ClientRegistrationRequest.serializer(),
             ClientRegistrationRequest(
                 clientName = clientName.ifBlank { "LastChat" },
                 redirectUris = listOf(redirectUri),
+                tokenEndpointAuthMethod = tokenEndpointAuthMethod,
                 scope = scope,
             )
         )
@@ -204,21 +210,34 @@ class McpOAuthClient(
         tokenEndpoint: String,
         clientId: String,
         clientSecret: String?,
+        tokenEndpointAuthMethod: String,
         code: String,
         codeVerifier: String,
         redirectUri: String,
         resource: String,
     ): TokenResponse = withContext(Dispatchers.IO) {
+        val useBasicAuth = tokenEndpointAuthMethod == TOKEN_ENDPOINT_AUTH_BASIC &&
+            !clientSecret.isNullOrBlank()
         val form = FormBody.Builder()
             .add("grant_type", "authorization_code")
             .add("code", code)
             .add("redirect_uri", redirectUri)
-            .add("client_id", clientId)
             .add("code_verifier", codeVerifier)
             .add("resource", resource)
-            .apply { if (!clientSecret.isNullOrBlank()) add("client_secret", clientSecret) }
+            .apply {
+                if (!useBasicAuth) add("client_id", clientId)
+                if (tokenEndpointAuthMethod == TOKEN_ENDPOINT_AUTH_POST && !clientSecret.isNullOrBlank()) {
+                    add("client_secret", clientSecret)
+                }
+            }
             .build()
-        postToken(tokenEndpoint, form)
+        postToken(
+            tokenEndpoint = tokenEndpoint,
+            form = form,
+            basicAuthorization = clientSecret?.takeIf { useBasicAuth }?.let {
+                buildClientSecretBasicAuthorization(clientId, it)
+            },
+        )
     }
 
     /** 使用 refresh_token 刷新访问令牌。 */
@@ -226,27 +245,45 @@ class McpOAuthClient(
         tokenEndpoint: String,
         clientId: String,
         clientSecret: String?,
+        tokenEndpointAuthMethod: String,
         refreshToken: String,
         resource: String,
         scope: String?,
     ): TokenResponse = withContext(Dispatchers.IO) {
+        val useBasicAuth = tokenEndpointAuthMethod == TOKEN_ENDPOINT_AUTH_BASIC &&
+            !clientSecret.isNullOrBlank()
         val form = FormBody.Builder()
             .add("grant_type", "refresh_token")
             .add("refresh_token", refreshToken)
-            .add("client_id", clientId)
             .add("resource", resource)
             .apply {
-                if (!clientSecret.isNullOrBlank()) add("client_secret", clientSecret)
+                if (!useBasicAuth) add("client_id", clientId)
+                if (tokenEndpointAuthMethod == TOKEN_ENDPOINT_AUTH_POST && !clientSecret.isNullOrBlank()) {
+                    add("client_secret", clientSecret)
+                }
                 if (!scope.isNullOrBlank()) add("scope", scope)
             }
             .build()
-        postToken(tokenEndpoint, form)
+        postToken(
+            tokenEndpoint = tokenEndpoint,
+            form = form,
+            basicAuthorization = clientSecret?.takeIf { useBasicAuth }?.let {
+                buildClientSecretBasicAuthorization(clientId, it)
+            },
+        )
     }
 
-    private suspend fun postToken(tokenEndpoint: String, form: FormBody): TokenResponse {
+    private suspend fun postToken(
+        tokenEndpoint: String,
+        form: FormBody,
+        basicAuthorization: String?,
+    ): TokenResponse {
         val request = Request.Builder()
             .url(tokenEndpoint)
             .header("Accept", "application/json")
+            .apply {
+                if (basicAuthorization != null) header("Authorization", basicAuthorization)
+            }
             .post(form)
             .build()
         val text = execute(request)
@@ -347,7 +384,52 @@ class McpOAuthClient(
         }
 
     companion object {
+        const val TOKEN_ENDPOINT_AUTH_NONE = "none"
+        const val TOKEN_ENDPOINT_AUTH_BASIC = "client_secret_basic"
+        const val TOKEN_ENDPOINT_AUTH_POST = "client_secret_post"
+
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        fun selectTokenEndpointAuthMethod(
+            clientSecret: String?,
+            registeredMethod: String?,
+            supportedMethods: List<String>?,
+        ): String {
+            if (!registeredMethod.isNullOrBlank()) {
+                require(
+                    registeredMethod == TOKEN_ENDPOINT_AUTH_NONE ||
+                        registeredMethod == TOKEN_ENDPOINT_AUTH_BASIC ||
+                        registeredMethod == TOKEN_ENDPOINT_AUTH_POST
+                ) { "不支持的令牌端点认证方式: $registeredMethod" }
+                require(supportedMethods == null || registeredMethod in supportedMethods) {
+                    "授权服务器不支持客户端配置的认证方式: $registeredMethod"
+                }
+                require(
+                    registeredMethod == TOKEN_ENDPOINT_AUTH_NONE || !clientSecret.isNullOrBlank()
+                ) { "当前认证方式需要填写客户端密钥" }
+                return registeredMethod
+            }
+            if (clientSecret.isNullOrBlank()) return TOKEN_ENDPOINT_AUTH_NONE
+            if (supportedMethods == null || TOKEN_ENDPOINT_AUTH_BASIC in supportedMethods) {
+                return TOKEN_ENDPOINT_AUTH_BASIC
+            }
+            if (TOKEN_ENDPOINT_AUTH_POST in supportedMethods) return TOKEN_ENDPOINT_AUTH_POST
+            error("授权服务器不支持客户端当前可用的密钥认证方式")
+        }
+
+        fun selectDynamicRegistrationAuthMethod(supportedMethods: List<String>?): String = when {
+            supportedMethods == null || TOKEN_ENDPOINT_AUTH_NONE in supportedMethods -> TOKEN_ENDPOINT_AUTH_NONE
+            TOKEN_ENDPOINT_AUTH_BASIC in supportedMethods -> TOKEN_ENDPOINT_AUTH_BASIC
+            TOKEN_ENDPOINT_AUTH_POST in supportedMethods -> TOKEN_ENDPOINT_AUTH_POST
+            else -> error("授权服务器不支持客户端可用的动态注册认证方式")
+        }
+
+        fun buildClientSecretBasicAuthorization(clientId: String, clientSecret: String): String {
+            val encodedClientId = URLEncoder.encode(clientId, Charsets.UTF_8.name())
+            val encodedClientSecret = URLEncoder.encode(clientSecret, Charsets.UTF_8.name())
+            val credentials = "$encodedClientId:$encodedClientSecret".toByteArray(Charsets.UTF_8)
+            return "Basic ${Base64.Default.encode(credentials)}"
+        }
 
         private fun base64Url(bytes: ByteArray): String =
             Base64.UrlSafe.encode(bytes).trimEnd('=')

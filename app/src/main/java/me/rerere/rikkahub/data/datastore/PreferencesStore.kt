@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
@@ -287,6 +289,7 @@ class SettingsStore(
     }
 
     private val dataStore = context.settingsDataStore
+    private val updateMutex = Mutex()
 
     private fun normalizeTextSelectionTemplate(text: String): String {
         return text.replace("\r\n", "\n").trim()
@@ -691,7 +694,11 @@ class SettingsStore(
         settingsFlow.value = snapshot.settings
     }
 
-	    suspend fun update(settings: Settings) {
+	    suspend fun update(settings: Settings) = updateMutex.withLock {
+	        updateLocked(settings)
+	    }
+
+	    private suspend fun updateLocked(settings: Settings) {
 	        if(settings.init) {
 	            Log.w(TAG, "Cannot update dummy settings")
 	            return
@@ -842,7 +849,9 @@ class SettingsStore(
     }
 
     suspend fun update(fn: (Settings) -> Settings) {
-        update(fn(settingsFlow.value))
+        updateMutex.withLock {
+            updateLocked(fn(settingsFlow.value))
+        }
     }
 
     suspend fun updateAssistant(assistantId: Uuid) {

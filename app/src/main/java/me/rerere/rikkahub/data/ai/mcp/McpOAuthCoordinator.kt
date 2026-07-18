@@ -28,6 +28,10 @@ private const val TAG = "McpOAuthCoordinator"
 private const val TOKEN_REFRESH_LEEWAY_MS = 60_000L
 private val OAUTH_CALLBACK_TIMEOUT = 5.minutes
 
+private class McpOAuthConfigChangedException(
+    val expectedConnectionKey: McpConnectionKey,
+) : IllegalStateException("MCP 配置已在授权期间发生变化")
+
 /**
  * 负责 MCP OAuth 的授权、令牌刷新与持久化。
  *
@@ -49,11 +53,23 @@ internal class McpOAuthCoordinator(
             updateStatus(config.id, McpStatus.Authorizing)
             try {
                 authorize(config, context.applicationContext)
+            } catch (e: McpOAuthConfigChangedException) {
+                val current = settingsStore.settingsFlow.value.mcpServers.find { it.id == config.id }
+                if (current?.connectionKey() == e.expectedConnectionKey) {
+                    updateStatus(config.id, McpStatus.NeedsAuthorization)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "OAuth authorization failed for ${config.commonOptions.name}", e)
-                updateStatus(config.id, McpStatus.Error.from(e, fallbackMessage = "OAuth authorization failed"))
+                updateStatus(
+                    config.id,
+                    McpStatus.Error.from(
+                        throwable = e,
+                        fallbackMessage = "OAuth authorization failed",
+                        canRetryAuthorization = true,
+                    ),
+                )
             }
         }
         authorizationJobs[config.id] = job
@@ -86,6 +102,8 @@ internal class McpOAuthCoordinator(
                 ?: configInput
             val oauth = config.commonOptions.oauth ?: return@withLock config
             if (!oauth.enabled || oauth.refreshToken.isNullOrBlank()) return@withLock config
+            val resource = McpOAuthClient.canonicalResource(config.serverUrl)
+            if (oauth.resource != resource) return@withLock config
 
             val expired = oauth.expiresAt > 0 &&
                 System.currentTimeMillis() >= oauth.expiresAt - TOKEN_REFRESH_LEEWAY_MS
@@ -98,8 +116,10 @@ internal class McpOAuthCoordinator(
                     tokenEndpoint = tokenEndpoint,
                     clientId = clientId,
                     clientSecret = oauth.clientSecret,
+                    tokenEndpointAuthMethod = oauth.tokenEndpointAuthMethod
+                        ?: McpOAuthClient.TOKEN_ENDPOINT_AUTH_NONE,
                     refreshToken = oauth.refreshToken,
-                    resource = McpOAuthClient.canonicalResource(config.serverUrl),
+                    resource = resource,
                     scope = oauth.scope,
                 )
                 val updated = oauth.copy(
@@ -108,8 +128,11 @@ internal class McpOAuthCoordinator(
                     expiresAt = computeExpiry(token.expiresIn),
                     scope = token.scope ?: oauth.scope,
                 )
-                persistOAuthState(config.id, updated)
-                config.clone(commonOptions = config.commonOptions.copy(oauth = updated))
+                if (replaceOAuthStateIfCurrent(config.id, config.serverUrl, oauth, updated)) {
+                    config.clone(commonOptions = config.commonOptions.copy(oauth = updated))
+                } else {
+                    settingsStore.settingsFlow.value.mcpServers.find { it.id == config.id } ?: config
+                }
             }.getOrElse {
                 Log.w(TAG, "Token refresh failed for ${config.commonOptions.name}: ${it.message}")
                 config
@@ -142,41 +165,66 @@ internal class McpOAuthCoordinator(
             ?: error("授权服务器缺少 authorization_endpoint")
         val tokenEndpoint = metadata.tokenEndpoint
             ?: error("授权服务器缺少 token_endpoint")
-        val scope = config.commonOptions.oauth?.scope
+        val resource = McpOAuthClient.canonicalResource(serverUrl)
+        val storedOAuth = config.commonOptions.oauth
+        val reusableOAuth = storedOAuth?.takeIf { oauth ->
+            val matchesCurrentServer = oauth.resource == resource && oauth.issuer == issuer
+            val isUnboundManualConfig = oauth.resource == null &&
+                oauth.issuer == null &&
+                oauth.authorizationEndpoint == null &&
+                oauth.tokenEndpoint == null &&
+                oauth.registrationEndpoint == null &&
+                oauth.accessToken.isNullOrBlank() &&
+                oauth.refreshToken.isNullOrBlank()
+            matchesCurrentServer || isUnboundManualConfig
+        }
+        val scope = reusableOAuth?.scope
             ?: protectedResource.scopesSupported?.joinToString(" ")
             ?: metadata.scopesSupported?.joinToString(" ")
 
-        val existing = config.commonOptions.oauth
-        var clientId = existing?.clientId
-        var clientSecret = existing?.clientSecret
+        var clientId = reusableOAuth?.clientId
+        var clientSecret = reusableOAuth?.clientSecret
+        var tokenEndpointAuthMethod = reusableOAuth?.tokenEndpointAuthMethod
         if (clientId.isNullOrBlank()) {
             val registrationEndpoint = metadata.registrationEndpoint
                 ?: error("授权服务器不支持动态注册，且未预配置 client_id")
+            val requestedAuthMethod = McpOAuthClient.selectDynamicRegistrationAuthMethod(
+                metadata.tokenEndpointAuthMethodsSupported
+            )
             val registration = oauthClient.registerClient(
                 registrationEndpoint = registrationEndpoint,
                 clientName = config.commonOptions.name,
                 redirectUri = MCP_OAUTH_REDIRECT_URI,
                 scope = scope,
+                tokenEndpointAuthMethod = requestedAuthMethod,
             )
             clientId = registration.clientId
             clientSecret = registration.clientSecret
+            tokenEndpointAuthMethod = registration.tokenEndpointAuthMethod ?: requestedAuthMethod
         }
+        tokenEndpointAuthMethod = McpOAuthClient.selectTokenEndpointAuthMethod(
+            clientSecret = clientSecret,
+            registeredMethod = tokenEndpointAuthMethod,
+            supportedMethods = metadata.tokenEndpointAuthMethodsSupported,
+        )
 
         val pkce = oauthClient.generatePkce()
         val state = oauthClient.generateState()
-        val resource = McpOAuthClient.canonicalResource(serverUrl)
-        persistOAuthState(
-            config.id,
-            (existing ?: McpOAuthState()).copy(
-                enabled = true,
-                clientId = clientId,
-                clientSecret = clientSecret,
-                authorizationEndpoint = authorizationEndpoint,
-                tokenEndpoint = tokenEndpoint,
-                registrationEndpoint = metadata.registrationEndpoint,
-                scope = scope,
-            )
+        val pendingOAuth = (reusableOAuth ?: McpOAuthState()).copy(
+            enabled = true,
+            resource = resource,
+            issuer = issuer,
+            clientId = clientId,
+            clientSecret = clientSecret,
+            authorizationEndpoint = authorizationEndpoint,
+            tokenEndpoint = tokenEndpoint,
+            tokenEndpointAuthMethod = tokenEndpointAuthMethod,
+            registrationEndpoint = metadata.registrationEndpoint,
+            scope = scope,
         )
+        if (!replaceOAuthStateIfCurrent(config.id, serverUrl, storedOAuth, pendingOAuth)) {
+            throw McpOAuthConfigChangedException(config.connectionKey())
+        }
 
         val authorizationUrl = oauthClient.buildAuthorizationUrl(
             authorizationEndpoint = authorizationEndpoint,
@@ -196,26 +244,21 @@ internal class McpOAuthCoordinator(
             tokenEndpoint = tokenEndpoint,
             clientId = clientId,
             clientSecret = clientSecret,
+            tokenEndpointAuthMethod = tokenEndpointAuthMethod,
             code = code,
             codeVerifier = pkce.verifier,
             redirectUri = MCP_OAUTH_REDIRECT_URI,
             resource = resource,
         )
-        persistOAuthState(
-            config.id,
-            McpOAuthState(
-                enabled = true,
-                clientId = clientId,
-                clientSecret = clientSecret,
-                authorizationEndpoint = authorizationEndpoint,
-                tokenEndpoint = tokenEndpoint,
-                registrationEndpoint = metadata.registrationEndpoint,
-                scope = token.scope ?: scope,
-                accessToken = token.accessToken,
-                refreshToken = token.refreshToken,
-                expiresAt = computeExpiry(token.expiresIn),
-            )
+        val authorizedOAuth = pendingOAuth.copy(
+            scope = token.scope ?: scope,
+            accessToken = token.accessToken,
+            refreshToken = token.refreshToken,
+            expiresAt = computeExpiry(token.expiresIn),
         )
+        if (!replaceOAuthStateIfCurrent(config.id, serverUrl, pendingOAuth, authorizedOAuth)) {
+            throw McpOAuthConfigChangedException(config.connectionKey())
+        }
     }
 
     private suspend fun awaitCallbackAndLaunchBrowser(
@@ -231,9 +274,12 @@ internal class McpOAuthCoordinator(
                 appEventBus.events
                     .onSubscription { subscribed.complete(Unit) }
                     .filterIsInstance<AppEvent.McpOAuthCallback>()
-                    // state 匹配正常回调；服务器拒绝授权时回调通常只带 error、不带 state，
-                    // 此时应立即消费并抛错，否则要等满超时才提示"授权超时"。
-                    .first { it.state == state || (!it.error.isNullOrBlank() && it.state == null) }
+                    // 只接受 state 对得上的回调：正常授权、用户拒绝(error+state)、
+                    // 以及外部打断都会带 state(RFC 6749 §4.1.2.1 要求授权服务器在错误响应里回传 state)。
+                    // 不再单独认"无 state 的 error"分支——那是全局广播，会让并发的其它授权被误中断，
+                    // 也给恶意 app 留了个发个 error 就打断授权的口子。
+                    // 服务器真的不带 state 的拒绝极少见，会等满超时再提示，可接受。
+                    .first { it.state == state }
             }
         }
         subscribed.await() // 确保订阅已注册
@@ -252,6 +298,32 @@ internal class McpOAuthCoordinator(
                 }
             )
         }
+    }
+
+    private suspend fun replaceOAuthStateIfCurrent(
+        configId: Uuid,
+        expectedServerUrl: String,
+        expectedOAuth: McpOAuthState?,
+        oauth: McpOAuthState,
+    ): Boolean {
+        var replaced = false
+        settingsStore.update { old ->
+            val current = old.mcpServers.find { it.id == configId }
+            if (current == null ||
+                current.serverUrl != expectedServerUrl ||
+                current.commonOptions.oauth != expectedOAuth
+            ) {
+                return@update old
+            }
+            replaced = true
+            old.copy(
+                mcpServers = old.mcpServers.map { server ->
+                    if (server.id != configId) server
+                    else server.clone(commonOptions = server.commonOptions.copy(oauth = oauth))
+                }
+            )
+        }
+        return replaced
     }
 
     private fun computeExpiry(expiresIn: Long?): Long =

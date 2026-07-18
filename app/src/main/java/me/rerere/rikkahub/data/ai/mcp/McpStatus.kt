@@ -17,13 +17,22 @@ sealed class McpStatus {
         val message: String,
         val messageResId: Int? = null,
         val detail: String? = null,
+        val canRetryAuthorization: Boolean = false,
     ) : McpStatus() {
         companion object {
-            fun from(throwable: Throwable, fallbackMessage: String? = null): Error {
+            fun from(
+                throwable: Throwable,
+                fallbackMessage: String? = null,
+                canRetryAuthorization: Boolean = false,
+            ): Error {
                 val summary = throwable.message?.takeIf { it.isNotBlank() }
                     ?: fallbackMessage
                     ?: throwable.javaClass.simpleName
-                return Error(message = summary, detail = throwable.stackTraceToString())
+                return Error(
+                    message = summary,
+                    detail = throwable.stackTraceToString(),
+                    canRetryAuthorization = canRetryAuthorization,
+                )
             }
         }
     }

@@ -619,6 +619,14 @@
   <string name="setting_mcp_page_name_desc">MCP伺服器的顯示名稱</string>
   <string name="setting_mcp_page_name_placeholder">例如：My MCP Server</string>
   <string name="setting_mcp_page_no_mcp_servers_found">找不到 MCP 伺服器</string>
+  <string name="setting_mcp_page_oauth_client">OAuth 用戶端</string>
+  <string name="setting_mcp_page_oauth_client_desc">選填。僅在授權伺服器不支援自動註冊用戶端時填寫。</string>
+  <string name="setting_mcp_page_oauth_client_id">用戶端 ID</string>
+  <string name="setting_mcp_page_oauth_client_secret">用戶端密鑰（選填）</string>
+  <string name="setting_mcp_page_oauth_auth_method">權杖端點驗證方式</string>
+  <string name="setting_mcp_page_oauth_auth_public">公開用戶端</string>
+  <string name="setting_mcp_page_oauth_auth_basic">Basic</string>
+  <string name="setting_mcp_page_oauth_auth_post">POST</string>
   <string name="setting_mcp_page_save">保存</string>
   <string name="setting_mcp_page_server_url">伺服器地址</string>
   <string name="setting_mcp_page_sse_url_desc">SSE傳輸伺服器的URL地址</string>

@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -66,6 +67,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material.icons.Icons
@@ -81,6 +84,8 @@ import kotlinx.coroutines.launch
 import me.rerere.ai.core.InputSchema
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.ai.mcp.McpOAuthClient
+import me.rerere.rikkahub.data.ai.mcp.McpOAuthState
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
 import me.rerere.rikkahub.data.ai.mcp.McpStatus
 import me.rerere.rikkahub.ui.components.nav.BackButton
@@ -416,7 +421,9 @@ private fun McpServerItem(
                             else -> Unit
                         }
                     }
-                    if (status == McpStatus.NeedsAuthorization) {
+                    val canAuthorize = status == McpStatus.NeedsAuthorization ||
+                        (status as? McpStatus.Error)?.canRetryAuthorization == true
+                    if (canAuthorize) {
                         val context = LocalContext.current
                         Button(
                             onClick = { mcpManager.startAuthorization(item, context) },
@@ -711,8 +718,14 @@ private fun McpCommonOptionsConfigure(
                 onValueChange = { url ->
                     update(
                         when (config) {
-                            is McpServerConfig.SseTransportServer -> config.copy(url = url)
-                            is McpServerConfig.StreamableHTTPServer -> config.copy(url = url)
+                            is McpServerConfig.SseTransportServer -> config.copy(
+                                url = url,
+                                commonOptions = config.commonOptions.copy(oauth = null),
+                            )
+                            is McpServerConfig.StreamableHTTPServer -> config.copy(
+                                url = url,
+                                commonOptions = config.commonOptions.copy(oauth = null),
+                            )
                         }
                     )
                 },
@@ -727,6 +740,91 @@ private fun McpCommonOptionsConfigure(
                     )
                 }
             )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        FormItem(
+            label = {
+                Text(stringResource(R.string.setting_mcp_page_oauth_client))
+            },
+            description = {
+                Text(stringResource(R.string.setting_mcp_page_oauth_client_desc))
+            }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = config.commonOptions.oauth?.clientId.orEmpty(),
+                    onValueChange = { clientId ->
+                        update(
+                            config.withOAuthClientCredentials(
+                                clientId = clientId,
+                                clientSecret = config.commonOptions.oauth?.clientSecret.orEmpty(),
+                                tokenEndpointAuthMethod = config.commonOptions.oauth?.tokenEndpointAuthMethod
+                                    ?: McpOAuthClient.TOKEN_ENDPOINT_AUTH_NONE,
+                            )
+                        )
+                    },
+                    label = { Text(stringResource(R.string.setting_mcp_page_oauth_client_id)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = config.commonOptions.oauth?.clientSecret.orEmpty(),
+                    onValueChange = { clientSecret ->
+                        val currentMethod = config.commonOptions.oauth?.tokenEndpointAuthMethod
+                        val authMethod = if (clientSecret.isBlank()) {
+                            McpOAuthClient.TOKEN_ENDPOINT_AUTH_NONE
+                        } else {
+                            currentMethod?.takeUnless { it == McpOAuthClient.TOKEN_ENDPOINT_AUTH_NONE }
+                                ?: McpOAuthClient.TOKEN_ENDPOINT_AUTH_BASIC
+                        }
+                        update(
+                            config.withOAuthClientCredentials(
+                                clientId = config.commonOptions.oauth?.clientId.orEmpty(),
+                                clientSecret = clientSecret,
+                                tokenEndpointAuthMethod = authMethod,
+                            )
+                        )
+                    },
+                    label = { Text(stringResource(R.string.setting_mcp_page_oauth_client_secret)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+
+                val authMethods = listOf(
+                    McpOAuthClient.TOKEN_ENDPOINT_AUTH_NONE to
+                        stringResource(R.string.setting_mcp_page_oauth_auth_public),
+                    McpOAuthClient.TOKEN_ENDPOINT_AUTH_BASIC to
+                        stringResource(R.string.setting_mcp_page_oauth_auth_basic),
+                    McpOAuthClient.TOKEN_ENDPOINT_AUTH_POST to
+                        stringResource(R.string.setting_mcp_page_oauth_auth_post),
+                )
+                val selectedAuthMethod = config.commonOptions.oauth?.tokenEndpointAuthMethod
+                    ?: McpOAuthClient.TOKEN_ENDPOINT_AUTH_NONE
+                Text(stringResource(R.string.setting_mcp_page_oauth_auth_method))
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    authMethods.forEachIndexed { index, (method, label) ->
+                        SegmentedButton(
+                            shape = SegmentedButtonDefaults.itemShape(index, authMethods.size),
+                            onClick = {
+                                update(
+                                    config.withOAuthClientCredentials(
+                                        clientId = config.commonOptions.oauth?.clientId.orEmpty(),
+                                        clientSecret = config.commonOptions.oauth?.clientSecret.orEmpty(),
+                                        tokenEndpointAuthMethod = method,
+                                    )
+                                )
+                            },
+                            selected = method == selectedAuthMethod,
+                        ) {
+                            Text(label)
+                        }
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -852,6 +950,37 @@ private fun McpCommonOptionsConfigure(
             }
         }
     }
+}
+
+private fun McpServerConfig.withOAuthClientCredentials(
+    clientId: String,
+    clientSecret: String,
+    tokenEndpointAuthMethod: String,
+): McpServerConfig {
+    val normalizedClientId = clientId.trim().takeIf { it.isNotEmpty() }
+    val normalizedClientSecret = clientSecret.takeIf { it.isNotBlank() }
+    val oldOAuth = commonOptions.oauth
+    if (oldOAuth == null && normalizedClientId == null && normalizedClientSecret == null) return this
+
+    val credentialsChanged = oldOAuth?.clientId != normalizedClientId ||
+        oldOAuth?.clientSecret != normalizedClientSecret ||
+        oldOAuth?.tokenEndpointAuthMethod != tokenEndpointAuthMethod
+    val updatedOAuth = (oldOAuth ?: McpOAuthState()).copy(
+        enabled = true,
+        resource = if (credentialsChanged) null else oldOAuth?.resource,
+        issuer = if (credentialsChanged) null else oldOAuth?.issuer,
+        clientId = normalizedClientId,
+        clientSecret = normalizedClientSecret,
+        tokenEndpointAuthMethod = tokenEndpointAuthMethod,
+        authorizationEndpoint = if (credentialsChanged) null else oldOAuth?.authorizationEndpoint,
+        tokenEndpoint = if (credentialsChanged) null else oldOAuth?.tokenEndpoint,
+        registrationEndpoint = if (credentialsChanged) null else oldOAuth?.registrationEndpoint,
+        scope = if (credentialsChanged) null else oldOAuth?.scope,
+        accessToken = if (credentialsChanged) null else oldOAuth?.accessToken,
+        refreshToken = if (credentialsChanged) null else oldOAuth?.refreshToken,
+        expiresAt = if (credentialsChanged) 0L else oldOAuth?.expiresAt ?: 0L,
+    )
+    return clone(commonOptions = commonOptions.copy(oauth = updatedOAuth))
 }
 
 @Composable

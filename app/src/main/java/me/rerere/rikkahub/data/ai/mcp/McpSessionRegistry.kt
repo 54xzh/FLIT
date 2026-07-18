@@ -492,7 +492,10 @@ private fun hasSameConnectionParameters(
 
 internal fun McpServerConfig.resolvedHeaders(): List<Pair<String, String>> {
     val base = commonOptions.headers
-    val token = commonOptions.oauth?.takeIf { it.enabled }?.accessToken
+    val resource = McpOAuthClient.canonicalResource(serverUrl)
+    val token = commonOptions.oauth
+        ?.takeIf { it.enabled && it.resource == resource }
+        ?.accessToken
     val hasAuthorization = base.any { it.first.equals("Authorization", ignoreCase = true) }
     return if (!token.isNullOrBlank() && !hasAuthorization) {
         base + ("Authorization" to "Bearer $token")

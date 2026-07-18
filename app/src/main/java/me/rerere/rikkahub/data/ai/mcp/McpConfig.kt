@@ -23,10 +23,13 @@ data class McpCommonOptions(
 @Serializable
 data class McpOAuthState(
     val enabled: Boolean = false,
+    val resource: String? = null,
+    val issuer: String? = null,
     val clientId: String? = null,
     val clientSecret: String? = null,
     val authorizationEndpoint: String? = null,
     val tokenEndpoint: String? = null,
+    val tokenEndpointAuthMethod: String? = null,
     val registrationEndpoint: String? = null,
     val scope: String? = null,
     val accessToken: String? = null,
@@ -37,8 +40,10 @@ data class McpOAuthState(
 
     // 脱敏 toString，避免 client_secret / token 随 config 打印到日志
     override fun toString(): String =
-        "McpOAuthState(enabled=$enabled, clientId=$clientId, clientSecret=${clientSecret.masked()}, " +
+        "McpOAuthState(enabled=$enabled, resource=$resource, issuer=$issuer, " +
+            "clientId=$clientId, clientSecret=${clientSecret.masked()}, " +
             "authorizationEndpoint=$authorizationEndpoint, tokenEndpoint=$tokenEndpoint, " +
+            "tokenEndpointAuthMethod=$tokenEndpointAuthMethod, " +
             "registrationEndpoint=$registrationEndpoint, scope=$scope, " +
             "accessToken=${accessToken.masked()}, refreshToken=${refreshToken.masked()}, expiresAt=$expiresAt)"
 
