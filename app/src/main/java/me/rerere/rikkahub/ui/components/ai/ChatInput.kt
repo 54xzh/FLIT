@@ -524,6 +524,18 @@ fun ChatInput(
                 MediaFileInputRow(state = state, context = context)
             }
 
+            // 追问引用卡片：选中助手文本点"追问"后回填的引用预览，发送前可一键移除
+            val quotedFollowUp = state.quotedFollowUp
+            if (!quotedFollowUp.isNullOrBlank()) {
+                QuotedFollowUpChip(
+                    text = quotedFollowUp,
+                    onClear = {
+                        haptics.perform(HapticPattern.Pop)
+                        state.clearQuotedFollowUp()
+                    },
+                )
+            }
+
             // Suggestions row (shown above toolbar, below images)
             if (uiMode == ChatInputUiMode.Normal && chatSuggestions.isNotEmpty()) {
                 val suggestionAutoHideAlpha by animateFloatAsState(
@@ -3062,6 +3074,67 @@ private fun LorebooksPickerContent(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * 追问引用预览卡片：显示在输入框上方，提示用户"当前发送会带上这段引用"。
+ * 带左侧 ↪ 符号 + 浅色背景 + 截断预览，右侧可点击移除。
+ * 文案已截断到 [me.rerere.rikkahub.ui.hooks.QUOTED_FOLLOW_UP_MAX_CHARS] 并带省略号，
+ * 此处仅做 UI 显示，真实引用内容由 [ChatInputState.getContents] 注入。
+ */
+@Composable
+private fun QuotedFollowUpChip(
+    text: String,
+    onClear: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 2.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "↪",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            val closeInteraction = remember { MutableInteractionSource() }
+            val closePressed by closeInteraction.collectIsPressedAsState()
+            val closeScale by animateFloatAsState(
+                targetValue = if (closePressed) 0.85f else 1f,
+                animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                label = "quote_close_scale",
+            )
+            Icon(
+                imageVector = Icons.Rounded.Close,
+                contentDescription = stringResource(R.string.chat_quote_follow_up),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(20.dp)
+                    .graphicsLayer { scaleX = closeScale; scaleY = closeScale }
+                    .clip(CircleShape)
+                    .clickable(
+                        interactionSource = closeInteraction,
+                        indication = LocalIndication.current,
+                    ) { onClear() },
+            )
         }
     }
 }

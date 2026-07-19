@@ -540,6 +540,7 @@
   <string name="reasoning_max_desc">模型將使用最高強度推理，適合高難度任務。</string>
   <string name="regenerate">重新生成</string>
   <string name="chat_continue_only_last_assistant_message">僅支援對最新一條模型訊息進行續寫。</string>
+  <string name="chat_quote_follow_up">追問</string>
   <string name="chat_continue_group_chat_not_supported">群聊暫不支援續寫。</string>
   <string name="render_with_webview">網頁視圖渲染</string>
   <string name="search_ability_scrape">爬取</string>

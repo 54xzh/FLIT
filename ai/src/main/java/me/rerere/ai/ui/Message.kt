@@ -1006,6 +1006,20 @@ sealed class UIMessagePart {
     ) : UIMessagePart() {
         override val priority: Int = 0
     }
+
+    /**
+     * 追问引用：用户长按选中助手消息中的文本片段后"追问"时携带的引用内容。
+     * 仅用于 UI 展示与发送给 provider 时的提示词拼接，本身不参与模型多模态输入。
+     * [text] 为被引用的原文片段（已截断到显示上限）。
+     */
+    @Serializable
+    @SerialName("quoted_follow_up")
+    data class QuotedFollowUp(
+        val text: String,
+        override var metadata: JsonObject? = null
+    ) : UIMessagePart() {
+        override val priority: Int = -2
+    }
 }
 
 fun List<UIMessagePart>.toSortedMessageParts(): List<UIMessagePart> {

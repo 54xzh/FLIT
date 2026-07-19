@@ -315,6 +315,7 @@ internal fun ChatList(
     onEditContextSummary: () -> Unit = {},
     sendScrollRequest: ChatSendScrollRequest? = null,
     onSendScrollRequestHandled: (Long) -> Unit = {},
+    onQuoteFollowUp: (String) -> Unit = {},
 ) {
     SharedTransitionLayout(modifier = modifier) {
         AnimatedContent(
@@ -356,6 +357,7 @@ internal fun ChatList(
                     onEditContextSummary = onEditContextSummary,
                     sendScrollRequest = sendScrollRequest,
                     onSendScrollRequestHandled = onSendScrollRequestHandled,
+                    onQuoteFollowUp = onQuoteFollowUp,
                     animatedVisibilityScope = this@AnimatedContent,
                 )
             }
@@ -462,6 +464,7 @@ private fun SharedTransitionScope.ChatListNormal(
     onEditContextSummary: () -> Unit,
     sendScrollRequest: ChatSendScrollRequest?,
     onSendScrollRequestHandled: (Long) -> Unit,
+    onQuoteFollowUp: (String) -> Unit,
     animatedVisibilityScope: AnimatedVisibilityScope,
 ) {
     val scope = rememberCoroutineScope()
@@ -1207,6 +1210,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                     }
                                 },
                                 streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
+                                onQuoteFollowUp = onQuoteFollowUp,
                             )
                         }
                     }

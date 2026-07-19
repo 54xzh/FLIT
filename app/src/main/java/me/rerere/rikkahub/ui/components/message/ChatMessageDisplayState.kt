@@ -110,6 +110,7 @@ private fun buildMessageCopyBlocks(blocks: List<MessageRenderBlock>): List<Strin
             is MessageRenderBlock.VideoGroup,
             is MessageRenderBlock.AudioGroup,
             is MessageRenderBlock.DocumentGroup,
+            is MessageRenderBlock.QuotedFollowUpBlock,
                 -> emptyList()
         }
     }

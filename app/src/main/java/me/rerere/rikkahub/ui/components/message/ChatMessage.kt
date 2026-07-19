@@ -29,6 +29,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.selection.rememberSelectionState
+import androidx.compose.foundation.text.contextmenu.builder.item
+import androidx.compose.foundation.text.contextmenu.modifier.appendTextContextMenuComponents
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
@@ -268,6 +271,7 @@ fun ChatMessage(
     onUpdateSessionMemory: ((memoryId: Int, content: String) -> Unit)? = null,
     onDeleteSessionMemory: ((memoryId: Int) -> Unit)? = null,
     streamingContentUpdateIntervalMs: Long = 0L,
+    onQuoteFollowUp: (String) -> Unit = {},
 ) {
     val rawMessage = node.messages[node.selectIndex]
     val displayInput = rememberThrottledStreamingValue(
@@ -371,6 +375,7 @@ fun ChatMessage(
                 generationDurationMs = message.generationDurationMs,
                 showTokenUsage = settings.showTokenUsage && showInlineTokenUsage,
                 streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
+                onQuoteFollowUp = onQuoteFollowUp,
             )
         }
 
@@ -511,6 +516,7 @@ private fun MessagePartsBlock(
     generationDurationMs: Long? = null,
     showTokenUsage: Boolean = false,
     streamingContentUpdateIntervalMs: Long = 0L,
+    onQuoteFollowUp: (String) -> Unit = {},
 ) {
     val contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
 
@@ -562,6 +568,7 @@ private fun MessagePartsBlock(
                     textIndex = block.textIndex,
                     onCitationClick = ::handleClickCitation,
                     loading = loading,
+                    onQuoteFollowUp = onQuoteFollowUp,
                 )
             }
 
@@ -579,6 +586,10 @@ private fun MessagePartsBlock(
 
             is MessageRenderBlock.DocumentGroup -> {
                 DocumentPartsBlock(parts = block.parts)
+            }
+
+            is MessageRenderBlock.QuotedFollowUpBlock -> {
+                QuotedFollowUpLine(text = block.part.text)
             }
         }
     }
@@ -661,6 +672,38 @@ private fun MessagePartsBlock(
 
 }
 
+/**
+ * 追问引用行：在用户消息气泡上方独立显示的小号淡色文字，提示"这条消息是对选中内容的追问"。
+ * 仅 UI 展示用，引用的真实内容已由 [QuotedFollowUpTransformer] 转为发给 provider 的提示词前缀。
+ */
+@Composable
+private fun QuotedFollowUpLine(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    val display = text.trim().ifBlank { text }
+    Row(
+        modifier = modifier
+            .widthIn(max = 280.dp)
+            .padding(end = 4.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = "↪",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+        )
+        Text(
+            text = display,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 @Composable
 private fun MessageTextPart(
     assistant: Assistant?,
@@ -669,6 +712,7 @@ private fun MessageTextPart(
     textIndex: Int,
     onCitationClick: (String) -> Unit,
     loading: Boolean,
+    onQuoteFollowUp: (String) -> Unit = {},
 ) {
     if (role == MessageRole.USER) {
         val displayText = part.text.replaceRegexes(
@@ -722,8 +766,27 @@ private fun MessageTextPart(
                 lazyRenderOffscreen = loading,
             )
         } else {
+            // 追问：选中助手回复文本后弹出菜单中的"追问"项，把选中文本回填到输入框作为引用。
+            val selectionState = rememberSelectionState()
+            val quoteFollowUpUpdate = rememberUpdatedState(onQuoteFollowUp)
+            val quoteFollowUpLabel = stringResource(R.string.chat_quote_follow_up)
             SelectionContainer(
-                modifier = Modifier.limitedTextGrowthAnimation(contentLength = displayText.length)
+                state = selectionState,
+                modifier = Modifier
+                    .limitedTextGrowthAnimation(contentLength = displayText.length)
+                    .appendTextContextMenuComponents {
+                        item(
+                            key = "quoteFollowUp",
+                            label = quoteFollowUpLabel,
+                        ) {
+                            val selected = selectionState.selectedTexts
+                                .joinToString("") { it.text }
+                                .trim()
+                            if (selected.isNotEmpty()) {
+                                quoteFollowUpUpdate.value(selected)
+                            }
+                        }
+                    }
             ) {
                 MarkdownBlock(
                     content = displayText,

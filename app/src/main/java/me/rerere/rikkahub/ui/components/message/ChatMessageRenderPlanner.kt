@@ -27,6 +27,10 @@ internal sealed interface MessageRenderBlock {
     data class DocumentGroup(
         val parts: List<UIMessagePart.Document>,
     ) : MessageRenderBlock
+
+    data class QuotedFollowUpBlock(
+        val part: UIMessagePart.QuotedFollowUp,
+    ) : MessageRenderBlock
 }
 
 internal fun buildMessageRenderBlocks(
@@ -117,6 +121,12 @@ internal fun buildMessageRenderBlocks(
             is UIMessagePart.Document -> {
                 flushProcessParts()
                 appendMediaPart(kind = "document", part = part)
+            }
+
+            is UIMessagePart.QuotedFollowUp -> {
+                flushProcessParts()
+                flushMediaParts()
+                blocks += MessageRenderBlock.QuotedFollowUpBlock(part = part)
             }
 
             else -> Unit

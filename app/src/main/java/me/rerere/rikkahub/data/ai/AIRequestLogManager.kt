@@ -443,6 +443,11 @@ private fun sanitizePartForLog(part: UIMessagePart, system: Boolean): UIMessageP
             answers = part.answers?.map { it.truncateInline(REQUEST_LOG_MAX_TEXT_PART_CHARS) },
             metadata = null,
         )
+
+        is UIMessagePart.QuotedFollowUp -> part.copy(
+            text = part.text.truncateTo(REQUEST_LOG_MAX_TEXT_PART_CHARS),
+            metadata = null,
+        )
     }
 }
 

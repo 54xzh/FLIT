@@ -1304,6 +1304,10 @@ private fun ChatPageContent(
                             sendScrollRequest = null
                         }
                     },
+                    onQuoteFollowUp = { quoted ->
+                        inputState.applyQuotedFollowUp(quoted)
+                        inputState.requestFocus()
+                    },
                 )
 
                 // Top-bar glass blur, decoupled from the TopAppBar. The TopAppBar

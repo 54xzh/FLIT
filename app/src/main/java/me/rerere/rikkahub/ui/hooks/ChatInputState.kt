@@ -45,12 +45,17 @@ class ChatInputState {
     var forkEditMode by mutableStateOf(false)
     // 自增信号: 变化时驱动 ChatInput 主动请求焦点并弹出输入法
     var requestFocusSignal by mutableStateOf(0)
+    // 追问引用: 用户长按选中助手消息文本后点"追问"时带上的引用片段。
+    // 仅在此输入框会话中存活，发送后转为 UIMessagePart.QuotedFollowUp 存入消息；
+    // 编辑既有消息时由 setContents 从已有 parts 中还原。
+    var quotedFollowUp by mutableStateOf<String?>(null)
 
     fun clearInput() {
         textContent.setTextAndPlaceCursorAtEnd("")
         messageContent = emptyList()
         editingMessage = null
         forkEditMode = false
+        quotedFollowUp = null
     }
 
     fun requestFocus() {
@@ -83,14 +88,31 @@ class ChatInputState {
         }
     }
 
+    fun applyQuotedFollowUp(text: String) {
+        quotedFollowUp = truncateQuotedFollowUp(text)
+    }
+
+    fun clearQuotedFollowUp() {
+        quotedFollowUp = null
+    }
+
     fun setContents(contents: List<UIMessagePart>) {
         val text = contents.filterIsInstance<UIMessagePart.Text>().joinToString { it.text }
         textContent.setTextAndPlaceCursorAtEnd(text)
-        messageContent = contents.filter { it !is UIMessagePart.Text }
+        messageContent = contents.filter { it !is UIMessagePart.Text && it !is UIMessagePart.QuotedFollowUp }
+        // 从既有消息中还原引用状态（编辑/重新进入对话时保持一致）
+        quotedFollowUp = contents.filterIsInstance<UIMessagePart.QuotedFollowUp>()
+            .firstOrNull()?.text
     }
 
     fun getContents(): List<UIMessagePart> {
-        return listOf(UIMessagePart.Text(textContent.text.toString())) + messageContent
+        val parts = mutableListOf<UIMessagePart>()
+        quotedFollowUp?.takeIf { it.isNotBlank() }?.let {
+            parts.add(UIMessagePart.QuotedFollowUp(it))
+        }
+        parts.add(UIMessagePart.Text(textContent.text.toString()))
+        parts.addAll(messageContent)
+        return parts
     }
 
     fun isEmpty(): Boolean {
@@ -141,10 +163,12 @@ object ChatInputStateSaver : Saver<ChatInputState, String> {
         }
         val textContent = jsonObject["textContent"]?.jsonPrimitive?.contentOrNull ?: ""
         val forkEditMode = jsonObject["forkEditMode"]?.jsonPrimitive?.contentOrNull?.toBoolean() ?: false
+        val quotedFollowUp = jsonObject["quotedFollowUp"]?.jsonPrimitive?.contentOrNull
         val state = ChatInputState()
         state.messageContent = messageContent ?: emptyList()
         state.editingMessage = editingMessage
         state.forkEditMode = forkEditMode
+        state.quotedFollowUp = quotedFollowUp
         state.setMessageText(textContent)
         return state
     }
@@ -155,6 +179,18 @@ object ChatInputStateSaver : Saver<ChatInputState, String> {
             put("messageContent", JsonInstant.encodeToJsonElement(value.messageContent))
             put("editingMessage", JsonInstant.encodeToJsonElement(value.editingMessage))
             put("forkEditMode", value.forkEditMode.toString())
+            put("quotedFollowUp", value.quotedFollowUp)
         })
     }
+}
+
+/**
+ * 追问引用的显示上限：超过此长度截断并追加省略号，仅用于提示用户"正在引用"，不承载完整内容。
+ */
+const val QUOTED_FOLLOW_UP_MAX_CHARS = 20
+
+fun truncateQuotedFollowUp(text: String): String {
+    val cleaned = text.trim()
+    if (cleaned.length <= QUOTED_FOLLOW_UP_MAX_CHARS) return cleaned
+    return cleaned.take(QUOTED_FOLLOW_UP_MAX_CHARS) + "…"
 }

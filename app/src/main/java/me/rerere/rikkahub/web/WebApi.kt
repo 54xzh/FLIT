@@ -1220,6 +1220,7 @@ private fun UIMessage.toSearchableText(): String {
                 }
             }
             UIMessagePart.Search -> ""
+            is UIMessagePart.QuotedFollowUp -> part.text
         }
     }
 }
