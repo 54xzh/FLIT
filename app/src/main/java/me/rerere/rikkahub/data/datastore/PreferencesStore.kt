@@ -236,6 +236,8 @@ class SettingsStore(
 
         // MCP
         val MCP_SERVERS = stringPreferencesKey("mcp_servers")
+        val MCP_PENDING_AUTHORIZATIONS = stringPreferencesKey("mcp_pending_authorizations")
+        val MCP_PENDING_OAUTH_CALLBACKS = stringPreferencesKey("mcp_pending_oauth_callbacks")
         val MCP_TOOL_CALL_TIMEOUT_SECONDS = intPreferencesKey("mcp_tool_call_timeout_seconds")
         val HTTP_RETRY_MAX_RETRIES = intPreferencesKey("http_retry_max_retries")
         val HTTP_RETRY_DELAY_SECONDS = intPreferencesKey("http_retry_delay_seconds")
@@ -851,6 +853,87 @@ class SettingsStore(
     suspend fun update(fn: (Settings) -> Settings) {
         updateMutex.withLock {
             updateLocked(fn(settingsFlow.value))
+        }
+    }
+
+    /**
+     * 读取 MCP 进行中的 OAuth 授权记录（按 serverId 索引，用于进程重建后恢复授权等待）。
+     * 记录独立于 [Settings]，生命周期不随配置变更而重写；支持多个 server 并发授权不互相覆盖。
+     */
+    suspend fun readPendingMcpAuthorizations(): Map<kotlin.uuid.Uuid, me.rerere.rikkahub.data.ai.mcp.McpPendingAuthorization> {
+        val raw = dataStore.data.first()[MCP_PENDING_AUTHORIZATIONS] ?: return emptyMap()
+        return runCatching {
+            JsonInstant.decodeFromString<Map<kotlin.uuid.Uuid, me.rerere.rikkahub.data.ai.mcp.McpPendingAuthorization>>(raw)
+        }.getOrNull() ?: emptyMap()
+    }
+
+    suspend fun writePendingMcpAuthorization(
+        configId: kotlin.uuid.Uuid,
+        pending: me.rerere.rikkahub.data.ai.mcp.McpPendingAuthorization?,
+    ) {
+        dataStore.edit { preferences ->
+            val raw = preferences[MCP_PENDING_AUTHORIZATIONS]
+            val current: Map<kotlin.uuid.Uuid, me.rerere.rikkahub.data.ai.mcp.McpPendingAuthorization> =
+                if (raw == null) emptyMap()
+                else runCatching {
+                    JsonInstant.decodeFromString<Map<kotlin.uuid.Uuid, me.rerere.rikkahub.data.ai.mcp.McpPendingAuthorization>>(raw)
+                }.getOrNull() ?: emptyMap()
+            val updated = if (pending == null) current - configId else current + (configId to pending)
+            if (updated.isEmpty()) preferences.remove(MCP_PENDING_AUTHORIZATIONS)
+            else preferences[MCP_PENDING_AUTHORIZATIONS] = JsonInstant.encodeToString(updated)
+        }
+    }
+
+    /**
+     * 仅当当前记录仍属于 [expectedState] 时删除该 configId 的待授权记录。
+     * 用于旧授权任务清理时不误删已被新授权任务写入的同 configId 记录。
+     * 写入时仍按 configId 覆盖（同服务器只保留最新授权）。
+     */
+    suspend fun clearPendingMcpAuthorizationIfStateMatches(
+        configId: kotlin.uuid.Uuid,
+        expectedState: String,
+    ) {
+        dataStore.edit { preferences ->
+            val raw = preferences[MCP_PENDING_AUTHORIZATIONS]
+            val current: Map<kotlin.uuid.Uuid, me.rerere.rikkahub.data.ai.mcp.McpPendingAuthorization> =
+                if (raw == null) emptyMap()
+                else runCatching {
+                    JsonInstant.decodeFromString<Map<kotlin.uuid.Uuid, me.rerere.rikkahub.data.ai.mcp.McpPendingAuthorization>>(raw)
+                }.getOrNull() ?: emptyMap()
+            val existing = current[configId] ?: return@edit
+            if (existing.state != expectedState) return@edit
+            val updated = current - configId
+            if (updated.isEmpty()) preferences.remove(MCP_PENDING_AUTHORIZATIONS)
+            else preferences[MCP_PENDING_AUTHORIZATIONS] = JsonInstant.encodeToString(updated)
+        }
+    }
+
+    /**
+     * 读取 OAuth 待处理回调（按 state 索引）。回调 Activity 把 deep link 结果落盘到这里，
+     * 进程重建后即使授权等待协程尚未启动，回调也不会丢失：DataStore flow 会把当前值
+     * 重放给恢复路径的订阅者。
+     */
+    suspend fun readPendingMcpOAuthCallbacks(): Map<String, me.rerere.rikkahub.data.ai.mcp.McpOAuthCallbackRecord> {
+        val raw = dataStore.data.first()[MCP_PENDING_OAUTH_CALLBACKS] ?: return emptyMap()
+        return runCatching {
+            JsonInstant.decodeFromString<Map<String, me.rerere.rikkahub.data.ai.mcp.McpOAuthCallbackRecord>>(raw)
+        }.getOrNull() ?: emptyMap()
+    }
+
+    suspend fun writePendingMcpOAuthCallback(
+        state: String,
+        callback: me.rerere.rikkahub.data.ai.mcp.McpOAuthCallbackRecord?,
+    ) {
+        dataStore.edit { preferences ->
+            val raw = preferences[MCP_PENDING_OAUTH_CALLBACKS]
+            val current: Map<String, me.rerere.rikkahub.data.ai.mcp.McpOAuthCallbackRecord> =
+                if (raw == null) emptyMap()
+                else runCatching {
+                    JsonInstant.decodeFromString<Map<String, me.rerere.rikkahub.data.ai.mcp.McpOAuthCallbackRecord>>(raw)
+                }.getOrNull() ?: emptyMap()
+            val updated = if (callback == null) current - state else current + (state to callback)
+            if (updated.isEmpty()) preferences.remove(MCP_PENDING_OAUTH_CALLBACKS)
+            else preferences[MCP_PENDING_OAUTH_CALLBACKS] = JsonInstant.encodeToString(updated)
         }
     }
 

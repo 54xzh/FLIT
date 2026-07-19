@@ -70,6 +70,8 @@ class McpManager(
                 .distinctUntilChanged()
                 .collect(sessionRegistry::reconcile)
         }
+        // 进程启动即恢复进行中的 OAuth 授权，确保 deep link 到达前订阅已就绪。
+        oauthCoordinator.resumePendingAuthorization()
     }
 
     val syncingStatus: StateFlow<Map<Uuid, McpStatus>>

@@ -98,6 +98,16 @@ class McpOAuthClient(
     /** PKCE 参数对 (code_verifier / code_challenge)。 */
     data class Pkce(val verifier: String, val challenge: String)
 
+    /**
+     * Token 端点返回的非 2xx 响应。携带 OAuth 2.0 标准 `error` 字段（如
+     * `invalid_grant`、`invalid_client`），用于区分"凭证已失效需重新授权"
+     * 与"网络/临时性错误可保留 token 重试"。
+     */
+    class TokenRequestException(
+        val error: String?,
+        message: String,
+    ) : IOException(message)
+
     // ---------------------------------------------------------------------
     // 元数据发现
     // ---------------------------------------------------------------------
@@ -286,9 +296,27 @@ class McpOAuthClient(
             }
             .post(form)
             .build()
-        val text = execute(request)
-        return json.decodeFromString(TokenResponse.serializer(), text)
+        // Token 端点失败时解析 OAuth 2.0 标准 error 字段，便于上层按 invalid_grant /
+        // invalid_client 决定是否清空凭证，而非一概保留重试。
+        executeRaw(request).use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                val error = parseTokenError(body)
+                throw TokenRequestException(
+                    error = error,
+                    message = "HTTP ${response.code} for $tokenEndpoint: ${body.take(300)}",
+                )
+            }
+            return json.decodeFromString(TokenResponse.serializer(), body)
+        }
     }
+
+    /** 从 token 端点错误响应里提取标准 `error` 字段；非 JSON 或缺失时返回 null。 */
+    private fun parseTokenError(body: String): String? = runCatching {
+        val element = json.parseToJsonElement(body)
+        if (element !is kotlinx.serialization.json.JsonObject) return null
+        (element["error"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+    }.getOrNull()?.takeIf { it.isNotBlank() }
 
     // ---------------------------------------------------------------------
     // 内部工具
