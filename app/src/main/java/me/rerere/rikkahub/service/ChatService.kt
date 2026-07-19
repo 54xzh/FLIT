@@ -212,6 +212,40 @@ private data class GenerationDraftPersistenceSnapshot(
     val processPartKeys: List<String>,
 )
 
+/**
+ * 生成单条「过程 part」在草稿快照里的稳定 key。
+ *
+ * 设计要点：只用稳定身份字段（toolCallId / state 等），不纳入会在流式输出期间
+ * 高频增长的 `arguments` / `toolName` / `content` 的 hashCode。
+ *
+ * 为什么这样：[buildGenerationDraftPersistenceSnapshot] 用此 key 判断「是否需要立即落盘」。
+ * 工具调用（ToolCall）在流式输出时，模型每输出一段就把 `arguments` 拼接变长
+ * （`arguments = arguments + delta`），若把 `arguments.hashCode()` 放进 key，每段
+ * 都会被判为「关键节点」触发立即全量落库（[saveConversation] 是整段序列化 + upsert，
+ * 非增量），同步阻塞流式 collect。长文件（如 workspace_write_file 的大 content）会被
+ * 堵到流超时/截断，`arguments` 变成不完整 JSON，工具执行时解析失败，模型进而触发
+ * 「逐字符退避」。改为：工具调用新增即 partStructure 变化（已能立即落盘），参数增长期间
+ * 走 4 秒节流落盘，生成结束/失败/取消时由 [flushGenerationDraftSave] 强制落盘。
+ *
+ * 仍立即落盘的关键节点：ToolCall 新增、ToolResult 新增、ToolApproval.state 翻转、
+ * AskUser.state/answer 变化——这些都由 partStructure 增项或稳定状态字段体现。
+ */
+internal fun toolPartPersistenceKey(messageIndex: Int, part: UIMessagePart): String? = when (part) {
+    is UIMessagePart.ToolCall -> {
+        "$messageIndex:call:${part.toolCallId}:${part.metadata?.hashCode() ?: 0}"
+    }
+    is UIMessagePart.ToolApproval -> {
+        "$messageIndex:approval:${part.toolCallId}:${part.toolName}:${part.state}:${part.metadata?.hashCode() ?: 0}"
+    }
+    is UIMessagePart.AskUser -> {
+        "$messageIndex:ask:${part.toolCallId}:${part.state}:${part.question.hashCode()}:${part.options.hashCode()}:${part.questions?.hashCode() ?: 0}:${part.answer?.hashCode() ?: 0}:${part.answers?.hashCode() ?: 0}:${part.metadata?.hashCode() ?: 0}"
+    }
+    is UIMessagePart.ToolResult -> {
+        "$messageIndex:result:${part.toolCallId}:${part.metadata?.hashCode() ?: 0}"
+    }
+    else -> null
+}
+
 data class ConversationInitializationResult(
     val initialized: Boolean,
     val existsInStorage: Boolean,
@@ -5193,23 +5227,7 @@ class ChatService(
                 "${message.id}:${message.role}:${message.speakerAssistantId}:${message.speakerSeatId}"
             },
             processPartKeys = messages.flatMapIndexed { messageIndex, message ->
-                message.parts.mapNotNull { part ->
-                    when (part) {
-                        is UIMessagePart.ToolCall -> {
-                            "$messageIndex:call:${part.toolCallId}:${part.toolName}:${part.arguments.hashCode()}:${part.metadata.hashCode()}"
-                        }
-                        is UIMessagePart.ToolApproval -> {
-                            "$messageIndex:approval:${part.toolCallId}:${part.toolName}:${part.state}:${part.metadata.hashCode()}"
-                        }
-                        is UIMessagePart.AskUser -> {
-                            "$messageIndex:ask:${part.toolCallId}:${part.state}:${part.question.hashCode()}:${part.options.hashCode()}:${part.questions.hashCode()}:${part.answer.hashCode()}:${part.answers.hashCode()}:${part.metadata.hashCode()}"
-                        }
-                        is UIMessagePart.ToolResult -> {
-                            "$messageIndex:result:${part.toolCallId}:${part.toolName}:${part.content.hashCode()}:${part.arguments.hashCode()}:${part.metadata.hashCode()}"
-                        }
-                        else -> null
-                    }
-                }
+                message.parts.mapNotNull { part -> toolPartPersistenceKey(messageIndex, part) }
             },
         )
     }
@@ -5256,7 +5274,17 @@ class ChatService(
         conversationId: Uuid,
         nonCancellable: Boolean = false,
     ) {
-        generationDraftSaveJobs.remove(conversationId)?.cancel()
+        // 取消正在排期的草稿保存任务，并等待它真正结束后再做最终保存。
+        // 关键：必须 join。若只 cancel 不等待，旧任务可能已经越过 delay、正在写 DB，
+        // 且可能在本次最终保存之后才完成，用旧快照（虽现在只写 DB 不写内存）滞后覆盖
+        // DB 里的最终版本。join 确保最终保存是「最后一个写者」。
+        val previousJob = generationDraftSaveJobs.remove(conversationId)
+        if (previousJob != null) {
+            previousJob.cancel()
+            // nonCancellable 场景（生成被取消/失败）下，自身可能处于取消中，
+            // join 旧任务用 NonCancellable 守护，确保不会因当前协程被取消而漏等。
+            withContext(NonCancellable) { previousJob.join() }
+        }
         saveGenerationDraftSnapshot(
             conversationId = conversationId,
             nonCancellable = nonCancellable,
@@ -5270,15 +5298,9 @@ class ChatService(
         if (temporaryConversations.contains(conversationId)) return
         val conversation = getConversationFlow(conversationId).value
         if (conversation.id != conversationId) return
-
-        val context = if (nonCancellable) {
-            Dispatchers.IO + NonCancellable
-        } else {
-            Dispatchers.IO
-        }
-        withContext(context) {
-            saveConversation(conversationId, conversation)
-        }
+        // 只写 DB，不回写内存——避免与主流 collect 的 updateConversation 交错时
+        // 旧快照覆盖刚到达的新内容（尾部丢失）。
+        saveConversationDbOnly(conversationId, conversation, nonCancellable = nonCancellable)
     }
 
     // 更新对话
@@ -5634,6 +5656,50 @@ class ChatService(
                     conversationRepo.insertConversation(updatedConversation)
                 } else {
                     conversationRepo.updateConversation(updatedConversation)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * 仅把会话快照持久化到数据库，不反向覆盖内存 StateFlow。
+     *
+     * 用于生成中的「草稿增量落库」：内存态始终由主流式 collect 维护为最新，草稿保存只是把
+     * 当前内存快照写一份到 DB（防丢），绝不能用这份快照回写内存——否则后台保存与主流
+     * collect 的 updateConversation 交错时，旧快照会覆盖刚到达的新内容，造成尾部丢失。
+     *
+     * 与 [saveConversation] 的区别：不调用 [updateConversation]，因此不影响内存态；
+     * 临时对话直接跳过（草稿保存入口已过滤，此处双重保险）。
+     */
+    private suspend fun saveConversationDbOnly(
+        conversationId: Uuid,
+        conversation: Conversation,
+        nonCancellable: Boolean = false,
+    ) {
+        if (temporaryConversations.contains(conversationId)) return
+        val currentConversation = getConversationFlow(conversationId).value
+        if (currentConversation.id != conversationId) return
+        val mergedPendingBoundaryIndex = currentConversation.contextSummaryPendingBoundaryIndex
+            .takeIf { it >= 0 }
+            ?: conversation.contextSummaryPendingBoundaryIndex
+        val toPersist = conversation.copy(
+            contextSummaryPendingBoundaryIndex = mergedPendingBoundaryIndex
+        )
+        // 空对话不落库
+        if (toPersist.title.isBlank() && toPersist.messageNodes.isEmpty()) return
+        val context = if (nonCancellable) {
+            Dispatchers.IO + NonCancellable
+        } else {
+            Dispatchers.IO
+        }
+        try {
+            withContext(context) {
+                if (conversationRepo.getConversationById(toPersist.id) == null) {
+                    conversationRepo.insertConversation(toPersist)
+                } else {
+                    conversationRepo.updateConversation(toPersist)
                 }
             }
         } catch (e: Exception) {
