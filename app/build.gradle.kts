@@ -84,7 +84,9 @@ private val localBuildMetaForApkName: LocalBuildMeta? = if (!isGithubActionsBuil
 
 android {
     namespace = "me.rerere.rikkahub"
-    compileSdk = 36
+    compileSdk = 37
+    // AGP 9.2 默认要求 NDK r28c；显式钉死已安装的版本，避免 AGP 联网尝试安装
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "lastchat.rikkafork.cocolal"

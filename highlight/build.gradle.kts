@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "me.rerere.highlight"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 24
@@ -46,4 +46,5 @@ dependencies {
     api(libs.quickjs)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
+    testImplementation(libs.junit)
 }

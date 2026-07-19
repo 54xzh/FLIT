@@ -1,5 +1,5 @@
 [versions]
-agp = "8.13.0"
+agp = "9.2.0"
 barcodeScanning = "17.3.0"
 cameraCore = "1.5.1"
 dav4jvm = "8de8870464458463576a4a2dddc8403a79d2ccb2"
@@ -13,7 +13,7 @@ espressoCore = "3.7.0"
 commons-text = "1.14.0"
 lifecycleRuntimeKtx = "2.9.4"
 activityCompose = "1.11.0"
-composeBom = "2026.02.00"
+composeBom = "2026.07.00"
 media3 = "1.8.0"
 metadataExtractor = "2.19.0"
 nav2 = "2.9.7"
@@ -36,9 +36,9 @@ ksp = "2.2.21-2.0.4"
 paging = "3.3.6"
 lucide-icons = "1.1.0"
 image-viewer = "1.1.0-alpha.7"
-google-services = "4.4.4"
+google-services = "4.5.0"
 firebase-bom = "34.6.0"
-firebase-crashlytics = "3.0.6"
+firebase-crashlytics = "3.0.7"
 jsoup = "1.21.2"
 zxing = "3.5.4"
 quickie-bundled = "1.11.0"
@@ -84,14 +84,14 @@ androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-co
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycleRuntimeKtx" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
-androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom-alpha", version.ref = "composeBom" }
 androidx-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
-androidx-material3 = { group = "androidx.compose.material3", name = "material3", version = "1.5.0-alpha18" }
+androidx-material3 = { group = "androidx.compose.material3", name = "material3", version = "1.5.0-alpha24" }
 androidx-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 androidx-navigation2 = { group = "androidx.navigation", name = "navigation-compose", version.ref = "nav2" }
 androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "nav3Core" }
