@@ -114,6 +114,7 @@ import me.rerere.rikkahub.ui.components.richtext.buildMarkdownPreviewHtml
 import me.rerere.rikkahub.ui.components.ui.Favicon
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
+import me.rerere.rikkahub.ui.hooks.truncateQuotedFollowUp
 import me.rerere.rikkahub.ui.theme.extendColors
 import me.rerere.rikkahub.utils.base64Encode
 import me.rerere.rikkahub.utils.writeClipboardText
@@ -681,7 +682,8 @@ private fun QuotedFollowUpLine(
     text: String,
     modifier: Modifier = Modifier,
 ) {
-    val display = text.trim().ifBlank { text }
+    // 显示层截断为 20 字预览；完整原文保留在 QuotedFollowUp part 中供模型/数据库使用
+    val display = truncateQuotedFollowUp(text)
     Row(
         modifier = modifier
             .widthIn(max = 280.dp)

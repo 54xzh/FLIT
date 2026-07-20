@@ -38,6 +38,7 @@ import me.rerere.rikkahub.data.model.Lorebook
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.data.model.Mode
 import me.rerere.rikkahub.data.model.QuickMessage
+import me.rerere.rikkahub.ui.hooks.clipQuotedFollowUpRaw
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
@@ -561,6 +562,13 @@ sealed class WebMessagePartDto {
         val approvalState: ToolApprovalStateDto = ToolApprovalStateDto.Auto,
         override val metadata: JsonObject? = null,
     ) : WebMessagePartDto()
+
+    @Serializable
+    @SerialName("quoted_follow_up")
+    data class QuotedFollowUp(
+        val text: String,
+        override val metadata: JsonObject? = null,
+    ) : WebMessagePartDto()
 }
 
 fun Settings.toWebSettingsDto(context: Context): WebSettingsDto {
@@ -760,6 +768,15 @@ fun List<WebMessagePartDto>.toUiMessageParts(): List<UIMessagePart> {
                     )
                 }
             }
+
+            is WebMessagePartDto.QuotedFollowUp -> listOf(
+                UIMessagePart.QuotedFollowUp(
+                    // 入库前做 2000 字兜底截断 + 空白归一化，与 ChatInputState 存储不变量一致
+                    text = clipQuotedFollowUpRaw(part.text).takeIf { it.isNotBlank() }
+                        ?: return@flatMap emptyList(),
+                    metadata = part.metadata.stripFileId(),
+                )
+            )
         }
     }
 }
@@ -1043,7 +1060,7 @@ private fun List<UIMessagePart>.toWebMessageParts(context: Context): List<WebMes
 
             is UIMessagePart.AskUser -> null
 
-            is UIMessagePart.QuotedFollowUp -> WebMessagePartDto.Text(
+            is UIMessagePart.QuotedFollowUp -> WebMessagePartDto.QuotedFollowUp(
                 text = part.text,
                 metadata = part.metadata.stripFileId(),
             )

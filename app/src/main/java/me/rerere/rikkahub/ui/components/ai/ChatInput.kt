@@ -192,6 +192,7 @@ import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.ui.hooks.rememberAmoledDarkMode
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.hooks.HapticPattern
+import me.rerere.rikkahub.ui.hooks.truncateQuotedFollowUp
 import me.rerere.rikkahub.utils.createChatFilesByContents
 import me.rerere.rikkahub.utils.deleteChatFiles
 import me.rerere.rikkahub.utils.getFileMimeType
@@ -3101,6 +3102,8 @@ internal fun QuotedFollowUpChip(
     onClear: () -> Unit,
     maxTextWidthDp: Int = 120,
 ) {
+    // 显示层截断为 20 字预览；完整原文由 ChatInputState/QuotedFollowUp part 保留给数据库与模型
+    val displayText = truncateQuotedFollowUp(text)
     Surface(
         tonalElevation = 8.dp,
         shape = RoundedCornerShape(16.dp),
@@ -3116,7 +3119,7 @@ internal fun QuotedFollowUpChip(
                 modifier = Modifier.padding(end = 8.dp),
             )
             Text(
-                text = text,
+                text = displayText,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -3132,6 +3135,7 @@ internal fun QuotedFollowUpChip(
             )
             IconButton(
                 onClick = onClear,
+                interactionSource = closeInteraction,
                 modifier = Modifier
                     .size(24.dp)
                     .graphicsLayer { scaleX = closeScale; scaleY = closeScale },

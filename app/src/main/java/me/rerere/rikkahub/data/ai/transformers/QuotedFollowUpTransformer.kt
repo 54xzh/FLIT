@@ -13,6 +13,9 @@ import me.rerere.ai.ui.UIMessagePart
  *
  * 提示词文案不进入 UI / 数据库：UI 上的引用行来自持久化的 QuotedFollowUp part，
  * 而这里的提示词是 transformer 运行期临时拼接、只发给 provider 的。
+ *
+ * QuotedFollowUp.text 存的是完整原文（非 20 字截断），因此拼出的提示词包含完整引用上下文；
+ * 20 字省略号截断只发生在显示层。
  */
 object QuotedFollowUpTransformer : InputMessageTransformer {
     override suspend fun transform(
