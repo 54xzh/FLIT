@@ -989,15 +989,15 @@ private fun TextInputRow(
         // TextField
         // Removed Surface wrapper to blend with FloatingInputBar
         Column {
-            // 编辑标签与追问引用胶囊同行展示（空间不足时自动换行）
+            // 编辑标签与追问引用胶囊始终同行展示：引用文字会进一步省略以避免换行
             val showEditingChip = state.isEditing()
             val quotedFollowUp = state.quotedFollowUp
             val showQuoteChip = !quotedFollowUp.isNullOrBlank()
             if (showEditingChip || showQuoteChip) {
-                FlowRow(
+                Row(
                     modifier = Modifier.padding(bottom = 8.dp, start = 12.dp, top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (showEditingChip) {
                         Surface(
@@ -1036,6 +1036,8 @@ private fun TextInputRow(
                                 haptics.perform(HapticPattern.Pop)
                                 state.clearQuotedFollowUp()
                             },
+                            // 与编辑标签同框时收紧引用文字宽度，确保始终同一行
+                            maxTextWidthDp = if (showEditingChip) 64 else 160,
                         )
                     }
                 }
@@ -3087,15 +3089,17 @@ private fun LorebooksPickerContent(
 }
 
 /**
- * 追问引用胶囊：与编辑标签同款的小药丸样式，提示"当前发送会带上这段引用"。
- * ↪ 前缀 + 截断预览 + 关闭按钮。文案已截断到
- * [me.rerere.rikkahub.ui.hooks.QUOTED_FOLLOW_UP_MAX_CHARS] 并带省略号，
+ * 追问引用胶囊：与编辑标签完全同款的小药丸规格（圆角/内边距/字号/关闭按钮一致），
+ * 提示"当前发送会带上这段引用"。↪ 前缀 + 截断预览 + 关闭按钮。
+ * 文案已截断到 [me.rerere.rikkahub.ui.hooks.QUOTED_FOLLOW_UP_MAX_CHARS] 并带省略号；
+ * 与编辑标签同行时，引用文字会进一步收缩（[maxTextWidthDp]）以确保不换行。
  * 此处仅做 UI 显示，真实引用内容由 [ChatInputState.getContents] 注入。
  */
 @Composable
 internal fun QuotedFollowUpChip(
     text: String,
     onClear: () -> Unit,
+    maxTextWidthDp: Int = 120,
 ) {
     Surface(
         tonalElevation = 8.dp,
@@ -3104,12 +3108,12 @@ internal fun QuotedFollowUpChip(
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
                 text = "↪",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(end = 8.dp),
             )
             Text(
                 text = text,
@@ -3117,7 +3121,7 @@ internal fun QuotedFollowUpChip(
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 180.dp),
+                modifier = Modifier.widthIn(max = maxTextWidthDp.dp),
             )
             val closeInteraction = remember { MutableInteractionSource() }
             val closePressed by closeInteraction.collectIsPressedAsState()
@@ -3126,19 +3130,19 @@ internal fun QuotedFollowUpChip(
                 animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
                 label = "quote_close_scale",
             )
-            Icon(
-                imageVector = Icons.Rounded.Close,
-                contentDescription = stringResource(R.string.chat_quote_follow_up),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            IconButton(
+                onClick = onClear,
                 modifier = Modifier
-                    .size(16.dp)
-                    .graphicsLayer { scaleX = closeScale; scaleY = closeScale }
-                    .clip(CircleShape)
-                    .clickable(
-                        interactionSource = closeInteraction,
-                        indication = LocalIndication.current,
-                    ) { onClear() },
-            )
+                    .size(24.dp)
+                    .graphicsLayer { scaleX = closeScale; scaleY = closeScale },
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = stringResource(R.string.chat_quote_follow_up),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
     }
 }

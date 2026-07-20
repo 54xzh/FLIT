@@ -380,14 +380,14 @@ fun MinimalChatInput(
                         Column(
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            // 编辑标签与追问引用胶囊同行展示（空间不足时自动换行）
+                            // 编辑标签与追问引用胶囊始终同行展示：引用文字会进一步省略以避免换行
                             val quotedFollowUp = state.quotedFollowUp
                             val showQuoteChip = !quotedFollowUp.isNullOrBlank()
                             if (isEditing || showQuoteChip) {
-                                FlowRow(
+                                Row(
                                     modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     if (isEditing) {
                                         // 与标准模式一致的胶囊标签: 带圆角背景 + tonalElevation 的小药丸
@@ -427,6 +427,8 @@ fun MinimalChatInput(
                                                 haptics.perform(HapticPattern.Pop)
                                                 state.clearQuotedFollowUp()
                                             },
+                                            // 与编辑标签同框时收紧引用文字宽度，确保始终同一行
+                                            maxTextWidthDp = if (isEditing) 64 else 160,
                                         )
                                     }
                                 }
