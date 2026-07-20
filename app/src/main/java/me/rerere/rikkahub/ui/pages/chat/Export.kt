@@ -320,8 +320,9 @@ internal fun buildChatMarkdown(
             .forEach { part ->
                 when (part) {
                     is UIMessagePart.QuotedFollowUp -> {
-                        // 追问引用：导出为 markdown 引用块，仅 20 字省略号预览，保留"针对哪段追问"的上下文
-                        sb.append("> ↪ ").append(truncateQuotedFollowUp(part.text)).append("\n")
+                        // 追问引用：导出为 markdown 引用块，仅 20 字省略号预览，保留"针对哪段追问"的上下文。
+                        // 把换行压成空格，避免多行引用的第二行掉出引用块被当成正文。
+                        sb.append("> ").append(truncateQuotedFollowUp(part.text).replace("\n", " ")).append("\n")
                     }
 
                     is UIMessagePart.Text -> {
