@@ -524,18 +524,6 @@ fun ChatInput(
                 MediaFileInputRow(state = state, context = context)
             }
 
-            // 追问引用卡片：选中助手文本点"追问"后回填的引用预览，发送前可一键移除
-            val quotedFollowUp = state.quotedFollowUp
-            if (!quotedFollowUp.isNullOrBlank()) {
-                QuotedFollowUpChip(
-                    text = quotedFollowUp,
-                    onClear = {
-                        haptics.perform(HapticPattern.Pop)
-                        state.clearQuotedFollowUp()
-                    },
-                )
-            }
-
             // Suggestions row (shown above toolbar, below images)
             if (uiMode == ChatInputUiMode.Normal && chatSuggestions.isNotEmpty()) {
                 val suggestionAutoHideAlpha by animateFloatAsState(
@@ -1001,34 +989,54 @@ private fun TextInputRow(
         // TextField
         // Removed Surface wrapper to blend with FloatingInputBar
         Column {
-            if (state.isEditing()) {
-                Surface(
-                    tonalElevation = 8.dp,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.padding(bottom = 8.dp, start = 12.dp, top = 8.dp) // Added start and top padding
+            // 编辑标签与追问引用胶囊同行展示（空间不足时自动换行）
+            val showEditingChip = state.isEditing()
+            val quotedFollowUp = state.quotedFollowUp
+            val showQuoteChip = !quotedFollowUp.isNullOrBlank()
+            if (showEditingChip || showQuoteChip) {
+                FlowRow(
+                    modifier = Modifier.padding(bottom = 8.dp, start = 12.dp, top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = stringResource(R.string.editing),
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(end = 8.dp)
-                        )
-                        IconButton(
-                            onClick = {
-                                state.editingMessage = null
-                                state.clearInput()
-                            },
-                            modifier = Modifier.size(24.dp)
+                    if (showEditingChip) {
+                        Surface(
+                            tonalElevation = 8.dp,
+                            shape = RoundedCornerShape(16.dp),
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Close,
-                                contentDescription = stringResource(R.string.cancel),
-                                modifier = Modifier.size(16.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.editing),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                                IconButton(
+                                    onClick = {
+                                        state.editingMessage = null
+                                        state.clearInput()
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = stringResource(R.string.cancel),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
                         }
+                    }
+                    if (showQuoteChip) {
+                        QuotedFollowUpChip(
+                            text = quotedFollowUp!!,
+                            onClear = {
+                                haptics.perform(HapticPattern.Pop)
+                                state.clearQuotedFollowUp()
+                            },
+                        )
                     }
                 }
             }
@@ -3079,41 +3087,37 @@ private fun LorebooksPickerContent(
 }
 
 /**
- * 追问引用预览卡片：显示在输入框上方，提示用户"当前发送会带上这段引用"。
- * 带左侧 ↪ 符号 + 浅色背景 + 截断预览，右侧可点击移除。
- * 文案已截断到 [me.rerere.rikkahub.ui.hooks.QUOTED_FOLLOW_UP_MAX_CHARS] 并带省略号，
+ * 追问引用胶囊：与编辑标签同款的小药丸样式，提示"当前发送会带上这段引用"。
+ * ↪ 前缀 + 截断预览 + 关闭按钮。文案已截断到
+ * [me.rerere.rikkahub.ui.hooks.QUOTED_FOLLOW_UP_MAX_CHARS] 并带省略号，
  * 此处仅做 UI 显示，真实引用内容由 [ChatInputState.getContents] 注入。
  */
 @Composable
-private fun QuotedFollowUpChip(
+internal fun QuotedFollowUpChip(
     text: String,
     onClear: () -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 2.dp,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp),
+        tonalElevation = 8.dp,
+        shape = RoundedCornerShape(16.dp),
     ) {
         Row(
-            modifier = Modifier.padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
                 text = "↪",
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
             Text(
                 text = text,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.widthIn(max = 180.dp),
             )
             val closeInteraction = remember { MutableInteractionSource() }
             val closePressed by closeInteraction.collectIsPressedAsState()
@@ -3127,7 +3131,7 @@ private fun QuotedFollowUpChip(
                 contentDescription = stringResource(R.string.chat_quote_follow_up),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
-                    .size(20.dp)
+                    .size(16.dp)
                     .graphicsLayer { scaleX = closeScale; scaleY = closeScale }
                     .clip(CircleShape)
                     .clickable(

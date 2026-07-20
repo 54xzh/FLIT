@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
@@ -46,6 +47,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -378,35 +380,54 @@ fun MinimalChatInput(
                         Column(
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            if (isEditing) {
-                                // 与标准模式一致的胶囊标签: 带圆角背景 + tonalElevation 的小药丸
-                                Surface(
-                                    tonalElevation = 8.dp,
-                                    shape = RoundedCornerShape(16.dp),
-                                    modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp)
+                            // 编辑标签与追问引用胶囊同行展示（空间不足时自动换行）
+                            val quotedFollowUp = state.quotedFollowUp
+                            val showQuoteChip = !quotedFollowUp.isNullOrBlank()
+                            if (isEditing || showQuoteChip) {
+                                FlowRow(
+                                    modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = stringResource(R.string.editing),
-                                            style = MaterialTheme.typography.labelMedium,
-                                            modifier = Modifier.padding(end = 8.dp)
-                                        )
-                                        IconButton(
-                                            onClick = {
-                                                state.editingMessage = null
-                                                state.clearInput()
-                                            },
-                                            modifier = Modifier.size(24.dp)
+                                    if (isEditing) {
+                                        // 与标准模式一致的胶囊标签: 带圆角背景 + tonalElevation 的小药丸
+                                        Surface(
+                                            tonalElevation = 8.dp,
+                                            shape = RoundedCornerShape(16.dp),
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.Close,
-                                                contentDescription = stringResource(R.string.cancel),
-                                                modifier = Modifier.size(16.dp)
-                                            )
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = stringResource(R.string.editing),
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    modifier = Modifier.padding(end = 8.dp)
+                                                )
+                                                IconButton(
+                                                    onClick = {
+                                                        state.editingMessage = null
+                                                        state.clearInput()
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Close,
+                                                        contentDescription = stringResource(R.string.cancel),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
                                         }
+                                    }
+                                    if (showQuoteChip) {
+                                        QuotedFollowUpChip(
+                                            text = quotedFollowUp!!,
+                                            onClear = {
+                                                haptics.perform(HapticPattern.Pop)
+                                                state.clearQuotedFollowUp()
+                                            },
+                                        )
                                     }
                                 }
                             }
