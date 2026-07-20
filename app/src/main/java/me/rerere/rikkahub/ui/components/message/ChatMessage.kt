@@ -678,7 +678,7 @@ private fun MessagePartsBlock(
  * 仅 UI 展示用，引用的真实内容已由 [QuotedFollowUpTransformer] 转为发给 provider 的提示词前缀。
  */
 @Composable
-private fun QuotedFollowUpLine(
+internal fun QuotedFollowUpLine(
     text: String,
     modifier: Modifier = Modifier,
 ) {

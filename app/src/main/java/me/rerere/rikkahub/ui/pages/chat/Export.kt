@@ -76,6 +76,7 @@ import kotlinx.serialization.json.jsonObject
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.ui.components.message.QuotedFollowUpLine
 import me.rerere.ai.ui.isEmptyUIMessage
 import me.rerere.ai.ui.toSortedMessageParts
 import me.rerere.ai.util.encodeBase64
@@ -106,6 +107,7 @@ import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
+import me.rerere.rikkahub.ui.hooks.truncateQuotedFollowUp
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.exportImage
 import me.rerere.rikkahub.utils.getActivity
@@ -317,6 +319,11 @@ internal fun buildChatMarkdown(
             .filterNot { it is UIMessagePart.Reasoning || it is UIMessagePart.Thinking }
             .forEach { part ->
                 when (part) {
+                    is UIMessagePart.QuotedFollowUp -> {
+                        // 追问引用：导出为 markdown 引用块，仅 20 字省略号预览，保留"针对哪段追问"的上下文
+                        sb.append("> ↪ ").append(truncateQuotedFollowUp(part.text)).append("\n")
+                    }
+
                     is UIMessagePart.Text -> {
                         sb.append(part.text).append("\n")
                     }
@@ -641,6 +648,14 @@ private fun ExportedChatMessage(
         ) {
             message.parts.toSortedMessageParts().forEach { part ->
                 when (part) {
+                    is UIMessagePart.QuotedFollowUp -> {
+                        // 追问引用行：与聊天页一致的小号淡色预览（20 字省略号），仅作上下文提示
+                        QuotedFollowUpLine(
+                            text = part.text,
+                            modifier = Modifier.padding(end = 4.dp, bottom = 2.dp),
+                        )
+                    }
+
                     is UIMessagePart.Text -> {
                         if (part.text.isNotBlank()) {
                             Card(
