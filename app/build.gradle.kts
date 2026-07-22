@@ -94,8 +94,8 @@ android {
         targetSdk = 36
         // 固定版本号：需高于历史时间戳方案水位（约 343 万），保证可覆盖安装旧包。
         // 以后真正发版时再手动递增。
-        versionCode = 3_500_000
-        versionName = "1.5.0"
+        versionCode = 3_500_001
+        versionName = "1.5.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
