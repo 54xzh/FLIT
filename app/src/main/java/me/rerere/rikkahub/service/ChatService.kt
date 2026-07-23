@@ -1078,6 +1078,27 @@ class ChatService(
         cancelGenerationJob(conversationId, GenerationCancelReason.USER)
     }
 
+    /**
+     * 取消指定会话正在进行的生成并等待其彻底收尾 (onCompletion 跑完: finalizeGenerationState /
+     * flushGenerationDraftSave), 再返回. 用 REPLACED 原因取消 (删除消息即重建消息序列, 语义上属于
+     * "被新请求取代"), 不走 USER 取消路径, 因此不会误记一次 ai_cancel_generation 埋点.
+     *
+     * 用于删除消息等"需要改写消息结构"的操作前: 若不先停掉生成, 生成流仍持有删除前的旧消息快照,
+     * 下一段 chunk 经 updateCurrentMessages 按位置合并回来, 会让已删除消息复活、把 user/assistant
+     * 混进同一节点.
+     *
+     * 判定基准用 isCompleted 而非 isActive: cancel() 后 Job 进入 Finishing 态, rootCause 已设,
+     * 此时 isActive == false 但 onCompletion (最终落盘) 可能仍在执行, isCompleted 仍为 false.
+     * 若用 isActive 判断会在这一窗口提前返回、漏掉最终保存, 导致旧生成落盘覆盖删除结果. 只要 Job
+     * 尚未进入终态 (isCompleted == false) 都需 join() 等收尾; 已进入终态则无收尾可等, 立即返回.
+     */
+    suspend fun cancelGenerationAndAwait(conversationId: Uuid) {
+        val previousJob = getGenerationJob(conversationId) ?: return
+        if (previousJob.isCompleted) return
+        cancelGenerationJob(conversationId, GenerationCancelReason.REPLACED)
+        previousJob.join()
+    }
+
     suspend fun loadOlderHistoryNodes(
         conversationId: Uuid,
         limit: Int = OLDER_HISTORY_LOAD_BATCH_SIZE,
@@ -1476,9 +1497,20 @@ class ChatService(
         conversationId: Uuid,
         messageId: Uuid,
     ) {
-        val currentConversation = ensureConversationLoaded(conversationId) ?: return
+        // 1. 先用当前内存态确认目标消息存在: 不存在 (过期请求/重复删除/错误编号) 直接返回,
+        //    不打断正在进行的生成. 生成期间内存态是最新的 (见 initializeConversationWithResult),
+        //    不会误判.
+        val preCheck = ensureConversationLoaded(conversationId) ?: return
+        if (preCheck.messageNodes.none { node -> node.messages.any { it.id == messageId } }) return
+
+        // 2. 确认存在后再取消并等待生成收尾, 避免旧消息快照经 updateCurrentMessages 合并回来污染节点.
+        cancelGenerationAndAwait(conversationId)
+
+        // 3. 重新读取最新会话: 生成收尾后内存态已是最终态, 不沿用 preCheck 旧快照.
+        val currentConversation = getConversationFlow(conversationId).value
         val currentMessages = currentConversation.messageNodes.flatMap { it.messages }
         val index = currentMessages.indexOfFirst { it.id == messageId }
+        // 4. 二次确认: 防御目标在等待窗口内被其他流程删除.
         if (index == -1) return
 
         val allDeleteIds = mutableSetOf(messageId)
@@ -1800,12 +1832,13 @@ class ChatService(
                 }
                 val newConversation = conversation.copy(
                     messageNodes = conversation.messageNodes.map { node ->
-                        if (!node.messages.any { it.id == messageId }) {
-                            return@map node
-                        }
+                        val originalMessage = node.messages.firstOrNull { it.id == messageId }
+                            ?: return@map node
+                        // 用被编辑消息本身的角色，而不是 node.role (= messages.firstOrNull()?.role)。
+                        // node.role 取节点首条消息的角色，混合节点场景下会把新版本误写成助手。
                         node.copy(
                             messages = node.messages + UIMessage(
-                                role = node.role,
+                                role = originalMessage.role,
                                 parts = content,
                             ),
                             selectIndex = node.messages.size,

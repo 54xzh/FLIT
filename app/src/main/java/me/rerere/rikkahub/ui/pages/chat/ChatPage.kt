@@ -1227,9 +1227,9 @@ private fun ChatPageContent(
                             action = me.rerere.rikkahub.ui.components.ui.ToastAction(
                                 label = context.getString(R.string.undo),
                                 onClick = {
-                                    vm.updateConversation(backup)
-                                    // Track restored node IDs for fade animation
-                                    vm.markNodesAsRestored(removedIds)
+                                    // 走 cancelDeleteAndRestore: 先中止删除协程, 再在临界区内恢复,
+                                    // 避免删除协程在 join() 挂起期间被撤销抢先恢复后, 又用旧快照把消息删掉.
+                                    vm.cancelDeleteAndRestore(backup, removedIds)
                                 }
                             )
                         )

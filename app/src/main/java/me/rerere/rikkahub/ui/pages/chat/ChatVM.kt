@@ -29,6 +29,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessage
@@ -100,6 +102,12 @@ class ChatVM(
     // Track recently restored message nodes for fade-in animation
     private val _recentlyRestoredNodeIds = MutableStateFlow<Set<Uuid>>(emptySet())
     val recentlyRestoredNodeIds: StateFlow<Set<Uuid>> = _recentlyRestoredNodeIds
+
+    // 删除消息串行化: 删除流程内部 cancelGenerationAndAwait 的 join() 是挂起点, 挂起期间撤销协程
+    // 可能在同一 Main 线程先跑, 导致"先恢复后删除"的竞态. 用 deleteMutex 保证删除/恢复互斥,
+    // deleteJob 持有当前删除协程, 撤销时先 cancel 它, 阻止删除协程恢复后用旧快照继续删.
+    private val deleteMutex = Mutex()
+    private var deleteJob: Job? = null
 
     fun markNodesAsRestored(nodeIds: Set<Uuid>) {
         _recentlyRestoredNodeIds.value = _recentlyRestoredNodeIds.value + nodeIds
@@ -441,12 +449,14 @@ class ChatVM(
 
         val newConversation = conversation.value.copy(
             messageNodes = conversation.value.messageNodes.map { node ->
-                if (!node.messages.any { it.id == messageId }) {
-                    return@map node // 如果这个node没有这个消息，则不修改
-                }
+                val originalMessage = node.messages.firstOrNull { it.id == messageId }
+                    ?: return@map node // 如果这个node没有这个消息，则不修改
+                // 用被编辑消息本身的角色，而不是 node.role (= messages.firstOrNull()?.role)。
+                // node.role 取的是节点首条消息的角色，当节点因 updateCurrentMessages 索引错位
+                // 形成"首条 ASSISTANT + 选中 USER"的混合节点时，会误把新版本写成助手角色。
                 node.copy(
                     messages = node.messages + UIMessage(
-                        role = node.role,
+                        role = originalMessage.role,
                         parts = processedParts,
                     ), selectIndex = node.messages.size
                 )
@@ -602,13 +612,41 @@ class ChatVM(
     }
 
     fun deleteMessage(message: UIMessage) {
-        val relatedMessages = collectRelatedMessages(message)
-        deleteMessageInternal(message)
-        relatedMessages.forEach { deleteMessageInternal(it) }
-        saveConversationAsync()
+        // 取消上一次未完成的删除 (如重复点击), 避免多个删除协程交错.
+        deleteJob?.cancel()
+        // 若当前会话正有生成在跑，先取消并等其收尾再删。否则生成流仍持有删除前的旧消息快照，
+        // 下一段 chunk 经 updateCurrentMessages 按位置合并回来，会让已删除消息复活、
+        // 并把 user/assistant 混进同一节点 (node.role 取节点首条角色就会取错)。
+        // 走服务层 cancelGenerationAndAwait: 取消后会 join() 等收尾, 且不误记 ai_cancel_generation.
+        // 用 deleteMutex 串行化删除/恢复: cancelGenerationAndAwait 的 join() 是挂起点, 挂起期间
+        // 撤销协程可能先跑, 用 Mutex 保证二者互斥; 撤销时另通过 deleteJob.cancel() 主动中止删除.
+        deleteJob = viewModelScope.launch {
+            deleteMutex.withLock {
+                chatService.cancelGenerationAndAwait(_conversationId)
+                val relatedMessages = collectRelatedMessages(message)
+                deleteMessageInternal(message)
+                relatedMessages.forEach { deleteMessageInternal(it) }
+                // 顺序落库 (不另起 launch): 让保存与删除在同一 Mutex 内完成, 避免与撤销交错.
+                saveCurrentConversation(conversation.value)
+            }
+        }
     }
 
-    private fun deleteMessageInternal(message: UIMessage) {
+    /**
+     * 撤销删除: 先取消正在进行的删除协程 (阻止其恢复后用旧快照继续删), 再在同一个 deleteMutex
+     * 临界区内恢复会话, 保证与任何残留删除串行.
+     */
+    fun cancelDeleteAndRestore(backup: Conversation, restoredNodeIds: Set<Uuid>) {
+        deleteJob?.cancel()
+        viewModelScope.launch {
+            deleteMutex.withLock {
+                updateConversation(backup)
+                markNodesAsRestored(restoredNodeIds)
+            }
+        }
+    }
+
+    private suspend fun deleteMessageInternal(message: UIMessage) {
         val conversation = conversation.value
         // Use ID-based lookup instead of object equality to avoid issues after recomposition
         val node = conversation.getMessageNodeByMessageId(message.id) ?: return
@@ -636,9 +674,8 @@ class ChatVM(
             }
             conversation.copy(messageNodes = updatedNodes)
         }
-        viewModelScope.launch {
-            saveCurrentConversation(newConversation)
-        }
+        // 顺序落库 (不另起 launch): 让保存与删除在同一 Mutex 内完成, 避免与撤销的 updateConversation 交错.
+        saveCurrentConversation(newConversation)
     }
 
     private fun collectRelatedMessages(message: UIMessage): List<UIMessage> {
