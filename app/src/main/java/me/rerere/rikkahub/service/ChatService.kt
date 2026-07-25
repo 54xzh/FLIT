@@ -1512,6 +1512,11 @@ class ChatService(
                 // 分支继承源会话的工作区覆写：分支与源会话通常共享同一助手，
                 // 覆写语义（「这个对话换用别的工作区」）在分叉后也应继续生效。
                 workspaceOverrideId = currentConversation.workspaceOverrideId,
+                // 分支继承源会话的注入开关与会话记忆：模式注入、技能注入、会话级记忆
+                // 都是「每会话独立存储」的状态，不会随 assistantId 继承，需显式带过来。
+                enabledModeIds = currentConversation.enabledModeIds,
+                explicitSkillContexts = currentConversation.explicitSkillContexts,
+                sessionMemories = currentConversation.sessionMemories,
             )
         }
     }
