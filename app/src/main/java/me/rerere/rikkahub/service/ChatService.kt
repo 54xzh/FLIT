@@ -273,7 +273,7 @@ class ChatService(
     val searchAgentProgressStore: SearchAgentProgressStore,
     private val workspaceRepository: WorkspaceRepository,
     private val safRepository: SafRepository,
-) {
+) : me.rerere.rikkahub.data.repository.ConversationDeletionCoordinator {
     // 存储每个对话的状态
     private val conversations = ConcurrentHashMap<Uuid, MutableStateFlow<Conversation>>()
 
@@ -378,6 +378,28 @@ class ChatService(
         .asStateFlow()
     private val generationCancelReasons = ConcurrentHashMap<Uuid, GenerationCancelReason>()
     private val generationDraftSaveJobs = ConcurrentHashMap<Uuid, Job>()
+
+    // 同一会话的 DB 写入串行化锁。用固定数量分片 (16 桶, 按会话 id hashCode 取桶), 让
+    // 「草稿保存 / 退出兜底 / 最终落盘 / 删除 / 撤销删除」不会交错执行——无版本号保护下,
+    // 串行化是防止旧快照滞后覆盖新版本的根本手段。
+    // 用分片而非「按会话 getOrPut Mutex」: 后者会为每个历史会话永久保留一个锁对象, 长期使用
+    // 持续增长; 分片锁固定 16 个, 长期内存占用恒定。不同会话 hash 到同一桶会串行化, 但同一会话
+    // 一定落在同一桶, 串行化语义对「同一会话」成立即可——跨会话本就无需并发, 串行代价可接受。
+    // 注: 只串行化 DB 写入段, 不包住内存 updateConversation (内存写无并发覆盖语义, 且锁内不宜
+    // 持有跨长 IO 之外的内存更新, 避免 delete/undo 等待过久)。
+    private val conversationWriteMutexesShards: Array<Mutex> = Array(16) { Mutex() }
+
+    private fun writeMutexFor(conversationId: Uuid): Mutex {
+        // 取绝对 hash (Kotlin Uuid.hashCode 可能负), 按位与 15 得 [0,15] 桶下标
+        val index = (conversationId.hashCode() and 0x7FFFFFFF) and 0x0F
+        return conversationWriteMutexesShards[index]
+    }
+
+    // 已删除会话的立即生效标记。删除一调起就置位, 让其后并发到达的「退出兜底 / 草稿保存」
+    // 在写 DB 前命中此标记直接跳过, 不会把已删除会话重新 insert 回库。撤销删除时清除此标记。
+    // 仅靠「删除 DB 记录」无法阻止并发保存: 删除与保存都在 appScope 并发, 保存若在删除之后到达,
+    // 会因 getConversationById == null 走 insert 分支复活会话——此标记即用来堵住这条复活路径。
+    private val deletedConversationIds = ConcurrentHashMap.newKeySet<Uuid>()
 
     // 错误流
     private val _errorFlow = MutableSharedFlow<Throwable>()
@@ -1056,6 +1078,19 @@ class ChatService(
         return generationJobs.map { jobs -> jobs[conversationId] }
     }
 
+    /**
+     * 同步更新内存 StateFlow，不落库。供 ChatVM 在编辑等「先改内存、再异步落库」场景使用。
+     *
+     * 为什么需要它: handleMessageEdit 等路径算出新会话后, 若只 viewModelScope.launch 落库,
+     * 编辑后立即切会话会取消该 launch, 内存从未更新 → 退出兜底 [flushConversationToDb] 读到的
+     * 仍是旧内存, 改动丢失。先调本方法同步写内存, 再异步落库, 即便落库被取消, 内存已是新的,
+     * 兜底能正确落盘。与 [updateConversation] (private) 行为一致: sanitize 工作区覆写 + 清理
+     * 已删文件, 只是不触发 DB 写入。
+     */
+    fun applyConversationState(conversationId: Uuid, conversation: Conversation) {
+        updateConversation(conversationId, conversation)
+    }
+
     fun getConversationJobs(): Flow<Map<Uuid, Job?>> {
         return generationJobs
     }
@@ -1615,7 +1650,14 @@ class ChatService(
             if (!existsInDb) return@launch
 
             try {
-                conversationRepo.updateConversation(updatedConversation)
+                // 与其它同会话写入共用 conversationWriteMutexes, 避免换助手后删除会话时
+                // 这条 update 与删除/撤销交错; 进入临界区后再校验删除标记, 已删除则跳过
+                // (不 insert, 仅 update, 不会复活, 但跳过避免无谓写入与日志噪音)。
+                val writeMutex = writeMutexFor(conversationId)
+                writeMutex.withLock {
+                    if (deletedConversationIds.contains(conversationId)) return@launch
+                    conversationRepo.updateConversation(updatedConversation)
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "setConversationAssistant: updateConversation failed (${e.message})", e)
             }
@@ -5165,26 +5207,69 @@ class ChatService(
     private val _recentlyRestoredIds = kotlinx.coroutines.flow.MutableStateFlow<Set<Uuid>>(emptySet())
     val recentlyRestoredIds: kotlinx.coroutines.flow.StateFlow<Set<Uuid>> = _recentlyRestoredIds
 
+    /**
+     * 删除会话的立即协调: 同步置删除标记 + 同步清内存 + 取消生成/直播。
+     *
+     * 在所有删除入口 (抽屉删除 [deleteConversation]、Web 删除 [deleteConversationById]、
+     * 删助手级联 [deleteConversationsOfAssistant]) 共用, 确保删除一调起就生效:
+     * - 删除标记让并发到达的「退出兜底 / 草稿保存 / 常规保存」在写 DB 前命中跳过, 堵住复活;
+     * - 清内存 StateFlow 防止退出兜底读到旧内存态继续尝试落库;
+     * - 取消生成/直播, 防止删除后生成 onCompletion 仍往 DB 写回旧内容。
+     *
+     * 同步段在 launch 之外执行, 保证调用返回时标记已置位、内存已清, 之后的兜底保存必命中。
+     */
+    /**
+     * @return 删除那一刻捕获的生成 job (已被 cancel, 但引用保留供调用方 join 等其彻底结束)。
+     *         可能为 null (该会话本就没有进行中的生成)。调用方据此决定清删除标记的时机。
+     */
+    private fun markConversationDeleted(conversationId: Uuid): Job? {
+        deletedConversationIds.add(conversationId)
+        conversations.remove(conversationId)
+        // 取消遗留的抽屉删除 job (4 秒撤销窗口) 并清撤销快照: 若同一会话先被抽屉删、4 秒内
+        // 又被其它入口删, 抽屉遗留 job 到期后会清工作区/文件并 remove 标记, 干扰本次删除的
+        // 标记保护。这里主动 cancel + 清除, 让本次删除独占该会话的删除协调。
+        conversationDeletionJobs[conversationId]?.cancel()
+        conversationDeletionJobs.remove(conversationId)
+        recentlyDeletedConversations.remove(conversationId)
+        // 先捕获生成 job 引用再 cancel + 从 map 移除: 调用方需 join 这个 job 等其 onCompletion
+        // (含 NonCancellable 草稿保存) 跑完, 才能安全清删除标记。removeGenerationJob 只清 map,
+        // 已捕获的 Job 引用仍可 join。
+        val generationJob = getGenerationJob(conversationId)
+        generationJob?.cancel()
+        removeGenerationJob(conversationId)
+        // 取消已排期但未到点的草稿保存 job: 它独立于生成 job 生命周期 (4 秒节流延迟), 不在
+        // generationJob 的 onCompletion 内。若不取消, 删除/撤销后它到期会读锁外旧快照进锁内,
+        // 虽有删除标记兜底不会复活, 但在 undo 已清标记后会用旧草稿快照覆盖 undo 写回的新内容。
+        generationDraftSaveJobs.remove(conversationId)?.cancel()
+        liveUpdateNotifier.cancel(conversationId)
+        clearLiveUpdateSession(conversationId)
+        return generationJob
+    }
+
     fun deleteConversation(conversation: Conversation) {
+        val generationJob = markConversationDeleted(conversation.id)
         appScope.launch {
-            getGenerationJob(conversation.id)?.cancel()
-            removeGenerationJob(conversation.id)
-            liveUpdateNotifier.cancel(conversation.id)
-            clearLiveUpdateSession(conversation.id)
+            // 取 DB 全量快照用于「撤销删除」恢复 (内存态已被 markConversationDeleted 清掉,
+            // 不能用入参 conversation, 它可能是内存里被生成推进过的旧版本, 也可能缺 DB 里已落盘
+            // 的最新内容)。
+            val conversationFull = conversationRepo.getConversationById(conversation.id)
 
-            val conversationFull = conversationRepo.getConversationById(conversation.id) ?: return@launch
-
-            // Cancel any pending deletion for this conversation
-            conversationDeletionJobs[conversation.id]?.cancel()
-
-            // Soft delete (DB only, preserve files)
-            conversationRepo.deleteConversation(conversationFull, deleteFiles = false)
-            recentlyDeletedConversations[conversation.id] = conversationFull
+            // 串行化 DB 删除: 与草稿保存/退出兜底/常规保存共用分片锁, 保证删除与并发的保存按顺序
+            // 执行。删除已在 [markConversationDeleted] 标记层堵住保存的 insert, 此处串行化是第二道
+            // 防线, 也保证撤销删除的 insert 不会与延迟到达的旧保存交错。
+            val writeMutex = writeMutexFor(conversation.id)
+            writeMutex.withLock {
+                if (conversationFull != null) {
+                    // Soft delete (DB only, preserve files)
+                    conversationRepo.deleteConversation(conversationFull, deleteFiles = false)
+                    recentlyDeletedConversations[conversation.id] = conversationFull
+                }
+            }
 
             // Schedule file deletion
             val job = appScope.launch {
                 kotlinx.coroutines.delay(4000)
-                context.deleteChatFiles(conversationFull.files)
+                context.deleteChatFiles(conversationFull?.files ?: emptyList())
                 settingsStore.update { current ->
                     current.clearConversationWorkspace(conversation.id).copy(
                         conversationReadPositions = current.conversationReadPositions - conversation.id.toString()
@@ -5194,17 +5279,150 @@ class ChatService(
                 recentlyDeletedConversations.remove(conversation.id)
             }
             conversationDeletionJobs[conversation.id] = job
+            // 抽屉删除与 [deleteConversationById]/[deleteConversationsOfAssistant] 对齐: 不再用
+            // 上面的固定 4 秒清标记, 改为等被取消的生成任务真正结束 (含 NonCancellable 草稿保存
+            // onCompletion) 后再清。撤销窗口仍由上面的 job (4 秒后删文件 + 清撤销快照) 独立管理,
+            // 与清标记解耦。慢取消下若仍卡在 onCompletion 草稿保存, 标记未清, 草稿保存锁内重读
+            // 会拿到已清空的内存态 (id 不匹配) 走 update 而非 insert, 不会复活会话。
+            scheduleDeletedFlagClearAfterGeneration(conversation.id, generationJob)
+        }
+    }
+
+    /**
+     * 按 id 删除会话 (无撤销窗口): 供 WebApi / 存储管理等非 UI 入口使用。
+     *
+     * 与 [deleteConversation] 的区别: 不安排 4 秒撤销窗口, 直接锁内删 DB + 删文件 + 清工作区。
+     * 共用 [markConversationDeleted] 的同步协调, 确保并发保存不会复活会话。
+     *
+     * 删除标记不在删除完成时立即清除: NonCancellable 路径的草稿保存 (生成被 cancel 后 onCompletion
+     * 仍会跑 [flushGenerationDraftSave]) 与锁外 [updateConversation] 交错时, 若标记已清且内存 flow
+     * 被写回非空内容, 草稿保存锁内重读会拿到非空会话走 insert 复活。改为用 appScope 短延迟 job
+     * 清标记 (覆盖草稿保存窗口), 与抽屉删除的延迟清标记策略一致, 保护层不弱于抽屉路径。
+     */
+    override suspend fun deleteConversationById(conversationId: Uuid, deleteFiles: Boolean) {
+        val generationJob = markConversationDeleted(conversationId)
+        withContext(Dispatchers.IO) {
+            val writeMutex = writeMutexFor(conversationId)
+            writeMutex.withLock {
+                val conversationFull = conversationRepo.getConversationById(conversationId)
+                if (conversationFull != null) {
+                    conversationRepo.deleteConversation(conversationFull, deleteFiles = deleteFiles)
+                }
+            }
+            if (deleteFiles) {
+                settingsStore.update { current ->
+                    current.clearConversationWorkspace(conversationId).copy(
+                        conversationReadPositions = current.conversationReadPositions - conversationId.toString()
+                    )
+                }
+            } else {
+                // 只清记录: 保留工作区与读位置, 仅清 DB 里该会话对应的读位置记录
+                settingsStore.update { current ->
+                    current.copy(
+                        conversationReadPositions = current.conversationReadPositions - conversationId.toString()
+                    )
+                }
+            }
+        }
+        // 删除标记等到「被取消的生成任务真正结束」后再清: 固定延迟在慢网络下会过早清标记,
+        // 让仍卡在 onCompletion NonCancellable 草稿保存里的旧任务在标记清除后回写非空 flow
+        // 并 insert 复活。改以生成 job 实际结束作为清理条件, 不依赖固定时长。
+        scheduleDeletedFlagClearAfterGeneration(conversationId, generationJob)
+    }
+
+    /**
+     * 删除某助手下的所有会话: 供 AssistantVM 删助手、存储管理清助手聊天等入口使用。
+     *
+     * 必须走本方法而非直接调仓库: 否则被删会话若仍在内存中, 之后切页面触发退出兜底保存
+     * 会把它们重新 insert 回库 (复活)。本方法对每个会话都 [markConversationDeleted] 标记
+     * + 清内存, 并在分片锁内逐个删除, 与保存路径共用同一套协调, 堵住复活。
+     */
+    override suspend fun deleteConversationsOfAssistant(assistantId: Uuid, deleteFiles: Boolean) {
+        val conversationsToDelete = conversationRepo.getConversationsOfAssistant(assistantId).first()
+        // 同步预标记 + 清内存, 让并发的退出兜底/草稿保存立即跳过这些会话。同时捕获各会话被
+        // cancel 前的生成 job, 供后续等其彻底结束后再清标记。
+        val generationJobs = conversationsToDelete.associate { it.id to markConversationDeleted(it.id) }
+        withContext(Dispatchers.IO) {
+            for (conversation in conversationsToDelete) {
+                val writeMutex = writeMutexFor(conversation.id)
+                writeMutex.withLock {
+                    conversationRepo.deleteConversation(conversation, deleteFiles = deleteFiles)
+                }
+                // 与 deleteConversationById 对齐: 仅当删文件时才清工作区; 只清记录模式保留工作区覆写,
+                // 仅清该会话对应的读位置记录。
+                settingsStore.update { current ->
+                    if (deleteFiles) {
+                        current.clearConversationWorkspace(conversation.id).copy(
+                            conversationReadPositions = current.conversationReadPositions - conversation.id.toString()
+                        )
+                    } else {
+                        current.copy(
+                            conversationReadPositions = current.conversationReadPositions - conversation.id.toString()
+                        )
+                    }
+                }
+            }
+        }
+        // 等各会话被取消的生成任务真正结束后再清标记, 理由同 [deleteConversationById]。
+        conversationsToDelete.forEach { scheduleDeletedFlagClearAfterGeneration(it.id, generationJobs[it.id]) }
+    }
+
+    /**
+     * 等被取消的生成任务真正结束后再清删除标记。
+     *
+     * 为什么不用固定延迟: [markConversationDeleted] 只 cancel 了生成 job, 没等它跑完 onCompletion
+     * (其中 [flushGenerationDraftSave] 用 NonCancellable 落盘草稿)。慢网络或卡住的任务下, 固定
+     * 2 秒可能早于 onCompletion 结束, 标记一清, 那个仍卡在 NonCancellable 里的草稿保存就会在
+     * 锁内重读到被别处回写的非空内存 flow, 走 insert 把会话复活。改以生成 job 实际完成作为清理
+     * 条件: job 一旦 cancel, onCompletion 最多再跑一次草稿保存就结束, 此后再清标记即安全。
+     *
+     * @param generationJob 由 [markConversationDeleted] 在 cancel 之前捕获并返回的生成 job 引用;
+     *   即便之后 [removeGenerationJob] 把它从 map 移除, Job 对象仍可 join。null 表示该会话删除时
+     *   没有进行中的生成, 直接清标记即可。appScope 守护 join, 不受调用方 viewModelScope 取消影响。
+     *   若期间会话又被 [undoDeleteConversation] 或新一轮删除, 那些路径自行管理标记, 此处 remove 幂等。
+     */
+    private fun scheduleDeletedFlagClearAfterGeneration(conversationId: Uuid, generationJob: Job?) {
+        appScope.launch {
+            if (generationJob != null) {
+                try {
+                    // 用超时兜底等生成 job 真正结束 (含 NonCancellable 草稿保存 onCompletion)。
+                    // 不设超时的话, 一旦生成 job 因慢 IO 或底层流卡死迟迟不进入终态, 清标记协程会
+                    // 永久挂起, 删除标记长期不清。30 秒远大于一次草稿保存的合理时长, 超时后仍清
+                    // 标记是安全的: 内存已被 markConversationDeleted 清成占位, 占位 id 不匹配的守卫
+                    // 仍会兜住任何滞后到达的草稿保存 (latest.id != conversationId 直接跳过)。
+                    withContext(NonCancellable) {
+                        kotlinx.coroutines.withTimeoutOrNull(30_000L) { generationJob.join() }
+                    }
+                } catch (_: Exception) {
+                    // join/超时抛异常也不影响清标记, 标记是幂等的
+                }
+            }
+            deletedConversationIds.remove(conversationId)
         }
     }
 
     fun undoDeleteConversation(conversationId: Uuid) {
         conversationDeletionJobs[conversationId]?.cancel()
         conversationDeletionJobs.remove(conversationId)
+        // 取消残留的草稿保存 job: 抽屉删除时 markConversationDeleted 已 cancel 过一次, 但若删除后
+        // 又有生成排了新的草稿保存 job, 它到期会用锁外旧快照进锁内 update, 覆盖 undo 刚写回的新内容。
+        generationDraftSaveJobs.remove(conversationId)?.cancel()
 
         val conversation = recentlyDeletedConversations[conversationId]
         if (conversation != null) {
+            // 撤销删除: 在会话锁临界区内「清删除标记 + insert」一起完成, 不要在锁外提前清标记。
+            // 若在锁外清, 4 秒窗口内已排队等锁的 saveConversation 会先拿到锁、看到标记已清、
+            // 因 getConversationById == null 走 insert 分支先把会话写回库; 随后 undo 的 insert 再
+            // 执行, DAO 的 @Insert 默认 ABORT 会抛异常 (或 REPLACE 时用旧快照覆盖 save 的新内容)。
+            // 把清标记放进锁内 insert 之前: 排队中的 save 要么仍在 insert 之前看到标记命中而 bail
+            // (让 undo 独自 insert), 要么在 insert 之后看到标记已清、getConversationById != null
+            // 走 update 分支, 两种顺序都正确。
             appScope.launch {
-                conversationRepo.insertConversation(conversation)
+                val writeMutex = writeMutexFor(conversationId)
+                writeMutex.withLock {
+                    deletedConversationIds.remove(conversationId)
+                    conversationRepo.insertConversation(conversation)
+                }
                 recentlyDeletedConversations.remove(conversationId)
 
                 // Track for fade-in animation
@@ -5342,8 +5560,19 @@ class ChatService(
     private fun updateConversation(conversationId: Uuid, conversation: Conversation) {
         val sanitizedConversation = conversationRepo.sanitizeWorkspaceOverride(conversation)
         if (sanitizedConversation.id != conversationId) return
+        // 已删除会话不再回写内存: deleteConversation 已 conversations.remove 并置删除标记,
+        // 若此处仍 getOrPut 会在内存里重建该会话 StateFlow, 让后续 flushConversationToDb 读到
+        // 残留内存态 (id 匹配) 绕过空对话守卫。命中删除标记直接跳过, 与 DB 写入侧的拦截一致。
+        if (deletedConversationIds.contains(conversationId)) return
         checkFilesDelete(sanitizedConversation, getConversationFlow(conversationId).value)
         val flow = conversations.getOrPut(conversationId) { MutableStateFlow(sanitizedConversation) }
+        // 二次校验: 上面的标记检查通过后, 若另一线程的 deleteConversation 恰好在此处之前
+        // 执行了 conversations.remove + 置标记, getOrPut 会把刚被清掉的 StateFlow 重建回来,
+        // 形成 4 秒后标记清掉仍能被读到/落盘的内存泄漏。命中则回滚刚建的 flow, 与删除侧对齐。
+        if (deletedConversationIds.contains(conversationId)) {
+            conversations.remove(conversationId)
+            return
+        }
         flow.value = sanitizedConversation
         // 若工作区恰好在上面的失效检查与状态写入之间被删除，再过滤一次即可收敛；
         // 反过来若删除发生在这一步之后，删除流程本身会负责清理内存状态。
@@ -5599,7 +5828,7 @@ class ChatService(
                 minimumValue = -1,
                 maximumValue = latestConversation.currentMessages.lastIndex
             )
-            val updatedConversation = latestConversation.copy(
+            var updatedConversation = latestConversation.copy(
                 contextSummary = summary,
                 contextSummaryUpToIndex = safeSummaryUpToIndex, // Index of last message included in summary
                 lastRefreshTime = now,
@@ -5612,8 +5841,42 @@ class ChatService(
             )
 
             // Persist changes
-            conversationRepo.updateConversation(updatedConversation)
-            updateConversation(conversationId, updatedConversation)
+            // 纳入分片锁串行化: summarizeAndRefresh 读 DB 旧会话 → 算 summary → 写回, 期间别的路径
+            // (生成最终落盘等) 可能写入更新版本; 若不加锁或用锁外快照写回, summary 写回会用较旧
+            // 快照覆盖新版本 (旧盖新)。锁内重读内存当前态, 只把 summary 相关字段叠加上去再写,
+            // messageNodes 等其余字段以「拿锁那一刻」的最新内存态为准, 不回退。
+            val writeMutex = writeMutexFor(conversationId)
+            val skipPersist = writeMutex.withLock {
+                if (deletedConversationIds.contains(conversationId)) {
+                    true
+                } else {
+                    val lockedLatest = getConversationFlow(conversationId).value
+                    if (lockedLatest.id != conversationId) {
+                        true
+                    } else {
+                        val merged = lockedLatest.copy(
+                            contextSummary = summary,
+                            contextSummaryUpToIndex = safeSummaryUpToIndex,
+                            lastRefreshTime = now,
+                            contextSummaryBoundaries = updatedSummaryBoundaries,
+                            contextSummaryPendingBoundaryIndex = if (lockedLatest.contextSummaryPendingBoundaryIndex == markerIndex) {
+                                -1
+                            } else {
+                                lockedLatest.contextSummaryPendingBoundaryIndex
+                            },
+                        )
+                        conversationRepo.updateConversation(merged)
+                        // 把锁内合并的最新态回填给外层, 供后续 updateConversation 写内存, 保持内存与 DB 一致。
+                        updatedConversation = merged
+                        false
+                    }
+                }
+            }
+            // 内存态仍需更新 (即便跳过落库), 让 UI 立刻反映 summary; 若会话已删除, updateConversation
+            // 内的删除标记守卫会自行跳过, 无需在此二次判断。
+            if (!skipPersist) {
+                updateConversation(conversationId, updatedConversation)
+            }
 
             Log.i(TAG, "summarizeAndRefresh: Summarized ${messagesToSummarize.size} new messages, saved ~${originalTokens - summaryTokens} tokens")
 
@@ -5686,16 +5949,60 @@ class ChatService(
         if (updatedConversation.title.isBlank() && updatedConversation.messageNodes.isEmpty()) return
 
         try {
+            // 注意: 这里不加 NonCancellable. saveConversation 是「顺路落库」, 常在 viewModelScope
+            // 内调用, 切会话取消它没问题——退出兜底由 [flushConversationToDb] (NonCancellable +
+            // 读内存当前态) 负责. 若此处也 NonCancellable, 旧页面被取消的保存会越过新页面的保存
+            // 滞后完成, 在无版本号保护下把 DB 覆盖回旧版本 (旧盖新).
+            //
+            // 用分片锁按会话串行化 DB 写入: 与草稿保存/退出兜底/删除/撤销删除共用同一把锁,
+            // 保证同一会话的写入不并发交错。锁内重读内存当前态作为 toPersist: saveConversation
+            // 在锁外已 updateConversation 把本次改动写入内存, 但等锁期间生成任务的最终落盘可能
+            // 又更新了内存与 DB; 若仍用锁外算的 updatedConversation 落库, 会用旧快照覆盖 DB 里
+            // 已写入的新版本 (旧盖新)。改读「拿锁那一刻」的内存最新态, 谁后写内存谁为准, 不丢。
+            // 进入临界区后再校验删除标记: 锁等待期间会话被删则跳过, 不会把已删除会话 insert 回库。
             withContext(Dispatchers.IO) {
-                if (conversationRepo.getConversationById(conversation.id) == null) {
-                    conversationRepo.insertConversation(updatedConversation)
-                } else {
-                    conversationRepo.updateConversation(updatedConversation)
+                val writeMutex = writeMutexFor(conversationId)
+                writeMutex.withLock {
+                    if (deletedConversationIds.contains(conversationId)) return@withContext
+                    val latest = getConversationFlow(conversationId).value
+                    if (latest.id != conversationId) return@withContext
+                    val toPersist = latest.copy(
+                        contextSummaryPendingBoundaryIndex = latest.contextSummaryPendingBoundaryIndex
+                            .takeIf { it >= 0 }
+                            ?: updatedConversation.contextSummaryPendingBoundaryIndex
+                    )
+                    if (toPersist.title.isBlank() && toPersist.messageNodes.isEmpty()) return@withContext
+                    if (conversationRepo.getConversationById(toPersist.id) == null) {
+                        conversationRepo.insertConversation(toPersist)
+                    } else {
+                        conversationRepo.updateConversation(toPersist)
+                    }
                 }
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    /**
+     * 退出兜底落库：读取内存当前态写一份到 DB，不反向覆盖内存 StateFlow。
+     *
+     * 专供 ChatVM.onCleared 使用。与 [saveConversation] 的关键区别：
+     * - 不回写内存（不调用 [updateConversation]）：切会话时生成任务或新页面可能正在推进内存态,
+     *   若用退出前捕获的旧快照回写内存, 会把更新的内容覆盖掉。这里只读当前内存态镜像到 DB,
+     *   不干扰主流。
+     * - 读的是「内存当前态」而非调用方传入的快照：避免旧快照落库后盖掉已被新页面写入的
+     *   更新版本（无版本号保护下, 用当前态而非捕获态是防止旧盖新的根本手段）。
+     * - [saveConversationDbOnly] 内已有 `id != conversationId` 守卫: 若 500ms cleanup 已删内存,
+     *   读到的占位会话 id 不匹配则直接跳过, 不会把空会话落库。
+     *
+     * NonCancellable 守护 DB 写入, 保证 viewModelScope 取消后落库仍能跑完。
+     */
+    suspend fun flushConversationToDb(conversationId: Uuid) {
+        if (temporaryConversations.contains(conversationId)) return
+        val conversation = getConversationFlow(conversationId).value
+        if (conversation.id != conversationId) return
+        saveConversationDbOnly(conversationId, conversation, nonCancellable = true)
     }
 
     /**
@@ -5707,6 +6014,13 @@ class ChatService(
      *
      * 与 [saveConversation] 的区别：不调用 [updateConversation]，因此不影响内存态；
      * 临时对话直接跳过（草稿保存入口已过滤，此处双重保险）。
+     *
+     * 快照必须在锁内重读: 调用方传入的 [conversation] 是锁外取得的旧快照, 从拿快照到拿锁之间,
+     * 生成任务的最终落盘 [flushGenerationDraftSave] 可能已持锁写入更新的内容。若直接用旧快照
+     * 落库, 释放锁后本调用再写入, 就会用旧快照覆盖 DB 里已写入的新版本 (旧盖新)。进入临界区后
+     * 重新读 [getConversationFlow] 的当前内存态作为 toPersist 来源, 确保写的是「拿锁那一刻」
+     * 的最新内容。NonCancellable 场景下 withLock 仍正常等待并执行 (NonCancellable 只防取消,
+     * 不影响挂起恢复)。删除标记在锁内再校验一次, 锁等待期间会话被删则跳过避免复活。
      */
     private suspend fun saveConversationDbOnly(
         conversationId: Uuid,
@@ -5714,16 +6028,9 @@ class ChatService(
         nonCancellable: Boolean = false,
     ) {
         if (temporaryConversations.contains(conversationId)) return
-        val currentConversation = getConversationFlow(conversationId).value
-        if (currentConversation.id != conversationId) return
-        val mergedPendingBoundaryIndex = currentConversation.contextSummaryPendingBoundaryIndex
-            .takeIf { it >= 0 }
-            ?: conversation.contextSummaryPendingBoundaryIndex
-        val toPersist = conversation.copy(
-            contextSummaryPendingBoundaryIndex = mergedPendingBoundaryIndex
-        )
-        // 空对话不落库
-        if (toPersist.title.isBlank() && toPersist.messageNodes.isEmpty()) return
+        // 锁外的快速预检: 内存已被清成占位会话 (id 不匹配) 时直接跳过, 避免无谓排队等锁。
+        val precheckConversation = getConversationFlow(conversationId).value
+        if (precheckConversation.id != conversationId) return
         val context = if (nonCancellable) {
             Dispatchers.IO + NonCancellable
         } else {
@@ -5731,10 +6038,26 @@ class ChatService(
         }
         try {
             withContext(context) {
-                if (conversationRepo.getConversationById(toPersist.id) == null) {
-                    conversationRepo.insertConversation(toPersist)
-                } else {
-                    conversationRepo.updateConversation(toPersist)
+                val writeMutex = writeMutexFor(conversationId)
+                writeMutex.withLock {
+                    if (deletedConversationIds.contains(conversationId)) return@withContext
+                    // 锁内重读内存当前态: 防止锁外取得的旧快照覆盖拿锁前已被其它路径写入 DB
+                    // 的新版本。内存被清成占位会话 (id 不匹配) 时跳过。
+                    val latest = getConversationFlow(conversationId).value
+                    if (latest.id != conversationId) return@withContext
+                    val mergedPendingBoundaryIndex = latest.contextSummaryPendingBoundaryIndex
+                        .takeIf { it >= 0 }
+                        ?: conversation.contextSummaryPendingBoundaryIndex
+                    val toPersist = latest.copy(
+                        contextSummaryPendingBoundaryIndex = mergedPendingBoundaryIndex
+                    )
+                    // 空对话不落库
+                    if (toPersist.title.isBlank() && toPersist.messageNodes.isEmpty()) return@withContext
+                    if (conversationRepo.getConversationById(toPersist.id) == null) {
+                        conversationRepo.insertConversation(toPersist)
+                    } else {
+                        conversationRepo.updateConversation(toPersist)
+                    }
                 }
             }
         } catch (e: Exception) {

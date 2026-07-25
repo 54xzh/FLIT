@@ -52,6 +52,7 @@ val repositoryModule = module {
             settingsStore = get(),
             conversationDAO = get(),
             conversationRepository = get(),
+            conversationDeletionCoordinator = get(),
             genMediaDAO = get(),
             aiRequestLogDao = get(),
             workspaceRepository = get(),

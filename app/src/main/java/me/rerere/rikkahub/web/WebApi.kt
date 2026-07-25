@@ -399,12 +399,13 @@ private fun Route.webRoutes(
 
         delete("/{id}") {
             val conversationId = call.parameters["id"].toUuid("conversation id")
-            val conversation = withContext(Dispatchers.IO) {
-                conversationRepo.getConversationById(conversationId)
-            } ?: throw NotFoundException("Conversation not found")
-
+            // 走 ChatService 协调删除: 同步置删除标记 + 清内存 + 锁内删 DB, 与退出兜底/草稿保存
+            // 共用同一套协调, 避免被删会话仍在内存时切页面触发兜底保存把它重新 insert 回库。
             withContext(Dispatchers.IO) {
-                conversationRepo.deleteConversation(conversation)
+                // 先确认存在 (404 语义); deleteConversationById 内会再读一次并锁内删。
+                conversationRepo.getConversationById(conversationId)
+                    ?: throw NotFoundException("Conversation not found")
+                chatService.deleteConversationById(conversationId)
             }
             call.respond(HttpStatusCode.NoContent)
         }

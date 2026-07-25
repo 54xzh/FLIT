@@ -144,8 +144,26 @@ class ChatVM(
 
     override fun onCleared() {
         super.onCleared()
-        // 移除对话引用
-        chatService.removeConversationReference(_conversationId)
+        // 切会话会销毁 ChatVM, 取消 viewModelScope 内尚未完成的 saveCurrentConversation.
+        // 若编辑发送后立即切会话, 还排在 viewModelScope 里没开始跑的保存协程会被直接丢弃,
+        // 而 removeConversationReference 后 500ms cleanupConversation 又会删内存 StateFlow,
+        // 内存改动就此丢失——表现为"编辑后切会话即丢会话".
+        //
+        // 用 appScope (不随 viewModelScope 取消) 兜底落盘, 落盘完成后再移除引用.
+        // 关键: 用 flushConversationToDb 而非 saveConversation——
+        //   1) 它读「内存当前态」而非退出前捕获的旧快照, 避免旧快照盖掉新页面/生成已写入的
+        //      更新版本 (无版本号保护下, 用当前态是防旧盖新的根本手段);
+        //   2) 它只写 DB 不回写内存, 避免覆盖正在被生成/新页面推进的内存态;
+        //   3) NonCancellable 守护 DB 写入, 保证 viewModelScope 取消后落库仍跑完;
+        //   4) 内置 id 校验, 若 500ms cleanup 已删内存 (读到占位会话 id 不匹配) 则跳过,
+        //      不会把空会话落库.
+        appScope.launch {
+            try {
+                chatService.flushConversationToDb(_conversationId)
+            } finally {
+                chatService.removeConversationReference(_conversationId)
+            }
+        }
     }
 
     // 用户设置
@@ -462,6 +480,10 @@ class ChatVM(
                 )
             },
         )
+        // 先同步更新内存态, 再异步落库。若只异步落库, 编辑后立即切会话会取消 viewModelScope,
+        // launch 还没开始就被丢弃, 内存从未更新 → 退出兜底 flushConversationToDb 读到旧内存,
+        // 改动丢失。先 applyConversationState 写内存, 即便落库被取消, 兜底也能正确落盘新内容。
+        chatService.applyConversationState(_conversationId, newConversation)
         viewModelScope.launch {
             saveCurrentConversation(newConversation)
         }

@@ -175,6 +175,10 @@ val appModule = module {
         )
     }
 
+    // 把 ChatService 绑定为 ConversationDeletionCoordinator, 供 data 层 (StorageManagerRepository)
+    // 依赖接口而非具体类, 避免data层反向依赖 app 层的 ChatService (循环依赖)。
+    single<me.rerere.rikkahub.data.repository.ConversationDeletionCoordinator> { get<ChatService>() }
+
     single {
         ScheduledTaskScheduler(
             context = get(),

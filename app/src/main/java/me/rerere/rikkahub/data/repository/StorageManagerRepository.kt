@@ -144,6 +144,7 @@ class StorageManagerRepository(
     private val settingsStore: SettingsStore,
     private val conversationDAO: ConversationDAO,
     private val conversationRepository: ConversationRepository,
+    private val conversationDeletionCoordinator: ConversationDeletionCoordinator,
     private val genMediaDAO: GenMediaDAO,
     private val aiRequestLogDao: AIRequestLogDao,
     private val workspaceRepository: WorkspaceRepository,
@@ -478,8 +479,11 @@ class StorageManagerRepository(
         var deletedCount = 0
         var failedCount = 0
         ids.forEach { conversationId ->
-            val ok = runCatching { conversationRepository.deleteConversationById(conversationId, deleteFiles = false) }
-                .isSuccess
+            // 走协调接口: 同步置删除标记 + 清内存 + 锁内删 DB, 避免被删会话仍在内存时
+            // 切页面触发退出兜底保存把它重新 insert 回库 (复活)。
+            val ok = runCatching {
+                conversationDeletionCoordinator.deleteConversationById(Uuid.parse(conversationId), deleteFiles = false)
+            }.isSuccess
             if (ok) deletedCount += 1 else failedCount += 1
         }
 
@@ -501,8 +505,9 @@ class StorageManagerRepository(
         var deletedCount = 0
         var failedCount = 0
         conversationIds.forEach { conversationId ->
-            val ok = runCatching { conversationRepository.deleteConversationById(conversationId, deleteFiles = false) }
-                .isSuccess
+            val ok = runCatching {
+                conversationDeletionCoordinator.deleteConversationById(Uuid.parse(conversationId), deleteFiles = false)
+            }.isSuccess
             if (ok) deletedCount += 1 else failedCount += 1
         }
 
@@ -623,7 +628,10 @@ class StorageManagerRepository(
     ): DeleteResult = withContext(Dispatchers.IO) {
         val result = when (mode) {
             AssistantChatCleanupMode.RECORDS_ONLY -> {
-                conversationRepository.deleteConversationOfAssistant(assistantId, deleteFiles = false)
+                // 走协调接口: 同步置删除标记 + 清内存 + 锁内删 DB, 避免被删会话仍在内存时
+                // 切页面触发退出兜底保存把它们重新 insert 回库 (复活)。本路径只清记录不删文件。
+                // 不吞异常: DB 删除失败时让错误上抛, 由上层 VM 进 UiState.Error, 避免界面误判成功。
+                conversationDeletionCoordinator.deleteConversationsOfAssistant(assistantId, deleteFiles = false)
                 DeleteResult(deletedCount = 0, failedCount = 0, deletedBytes = 0L)
             }
 
@@ -636,7 +644,7 @@ class StorageManagerRepository(
             }
 
             AssistantChatCleanupMode.RECORDS_AND_FILES -> {
-                conversationRepository.deleteConversationOfAssistant(assistantId, deleteFiles = true)
+                conversationDeletionCoordinator.deleteConversationsOfAssistant(assistantId, deleteFiles = true)
                 DeleteResult(deletedCount = 0, failedCount = 0, deletedBytes = 0L)
             }
         }
