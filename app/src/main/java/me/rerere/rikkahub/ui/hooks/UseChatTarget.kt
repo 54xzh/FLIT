@@ -10,16 +10,19 @@ import me.rerere.rikkahub.data.model.GroupChatTemplate
 @Composable
 fun rememberChatTargetState(
     settings: Settings,
-    onUpdateSettings: (Settings) -> Unit,
+    onSelectTarget: (ChatTarget) -> Unit,
 ): ChatTargetState {
-    return remember(settings, onUpdateSettings) {
-        ChatTargetState(settings, onUpdateSettings)
+    return remember(settings, onSelectTarget) {
+        ChatTargetState(settings, onSelectTarget)
     }
 }
 
 class ChatTargetState(
     private val settings: Settings,
-    private val onUpdateSettings: (Settings) -> Unit,
+    // 切换目标的专用写入通道（走 SettingsStore.updateChatTarget 的锁内读改写路径）。
+    // 不提供「整份 settings 快照覆盖写」的回退：组合期捕获的快照可能落后于最新设置，
+    // 用快照覆盖写正是「切换助手后归属错乱」竞态的来源之一。
+    private val onSelectTarget: (ChatTarget) -> Unit,
 ) {
     val currentTarget: ChatTarget = settings.chatTarget
 
@@ -36,20 +39,10 @@ class ChatTargetState(
         }
 
     fun selectAssistant(assistant: Assistant) {
-        onUpdateSettings(
-            settings.copy(
-                assistantId = assistant.id,
-                chatTarget = ChatTarget.Assistant(assistant.id),
-            )
-        )
+        onSelectTarget(ChatTarget.Assistant(assistant.id))
     }
 
     fun selectGroupChat(template: GroupChatTemplate) {
-        onUpdateSettings(
-            settings.copy(
-                chatTarget = ChatTarget.GroupChat(template.id),
-            )
-        )
+        onSelectTarget(ChatTarget.GroupChat(template.id))
     }
 }
-

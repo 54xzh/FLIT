@@ -10,10 +10,14 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import io.pebbletemplates.pebble.PebbleEngine
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -65,7 +69,6 @@ import me.rerere.rikkahub.ui.theme.PresetThemes
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.SkillScriptPathUtils
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
-import me.rerere.rikkahub.utils.toMutableStateFlow
 import me.rerere.search.SearchCommonOptions
 import me.rerere.search.SearchServiceOptions
 import me.rerere.tts.provider.TTSProviderSetting
@@ -185,6 +188,10 @@ class SettingsStore(
     companion object {
         // 版本号
         val VERSION = intPreferencesKey("data_version")
+
+        // 设置写入世代号：每次经 updateLocked 的写入递增并随写落盘，
+        // 用于让磁盘回流时能识别并丢弃「比内存里最新写入更旧」的数据（防旧值回流覆盖新值）
+        val SETTINGS_WRITE_GENERATION = longPreferencesKey("settings_write_generation")
 
         // UI设置
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
@@ -466,6 +473,7 @@ class SettingsStore(
                 ocrPrompt = preferences[OCR_PROMPT] ?: DEFAULT_OCR_PROMPT,
                 embeddingModelId = preferences[EMBEDDING_MODEL]?.let { Uuid.parse(it) } ?: Uuid.random(),
                 assistantId = assistantId,
+                writeGeneration = preferences[SETTINGS_WRITE_GENERATION] ?: 0L,
                 chatTarget = preferences[CHAT_TARGET]?.let { raw ->
                     runCatching { JsonInstant.decodeFromString<ChatTarget>(raw) }.getOrNull()
                 } ?: ChatTarget.Assistant(assistantId),
@@ -672,9 +680,44 @@ class SettingsStore(
         }
         .flowOn(Dispatchers.Default)
 
-    val settingsFlow = settingsFlowRaw
-        .distinctUntilChanged()
-        .toMutableStateFlow(scope, Settings.dummy())
+    // 保护「世代号检查/递增 + settingsFlow 赋值」的原子性：收集器（Default 线程）与
+    // updateLocked（调用方线程）都会写 settingsFlow，若各自的检查与赋值交错，
+    // 旧回流仍可能盖掉新写入。锁内均为非挂起的纯内存操作，不会阻塞。
+    private val generationLock = Any()
+
+    // 最近一次写入的世代号；由已应用的磁盘回流播种（冷启动时取上次会话的值）。
+    // 所有读写都必须持 generationLock（故意用普通 var 而非原子类，避免误以为可在锁外访问）
+    private var latestWriteGeneration = 0L
+
+    // settingsFlow 由两路写入：updateLocked 先行写内存（快），磁盘回流（慢，含全量解析）随后到达。
+    // 回流必须按世代号过滤：旧写入的回流若晚于新写入到达，无条件覆盖会把内存瞬时打回旧值
+    // （曾导致「切换助手后新会话/消息归到旧助手名下」的竞态）。
+    // 绕过 updateLocked 的直写（init 迁移、MCP 授权记录等）不递增世代号，其回流携带的
+    // 世代号等于磁盘上最近一次 updateLocked 写入的值，正常时序下不会被误丢弃
+    // （仅当直写与某次 updateLocked 落盘同时在途时，其回流才可能被过滤，
+    // 磁盘最终内容不受影响，后续任一写入的回流会重新对齐内存）。
+    val settingsFlow: MutableStateFlow<Settings> = MutableStateFlow(Settings.dummy()).also { flow ->
+        scope.launch {
+            runCatching {
+                settingsFlowRaw.distinctUntilChanged().collect { parsed ->
+                    synchronized(generationLock) {
+                        if (parsed.writeGeneration >= latestWriteGeneration) {
+                            latestWriteGeneration = parsed.writeGeneration
+                            flow.value = parsed
+                        }
+                    }
+                }
+            }.onFailure {
+                if (it is kotlinx.coroutines.CancellationException) {
+                    // 正常的作用域取消（如进程收尾），不是设置流故障，不触发兜底退出
+                    return@launch
+                }
+                Log.e(TAG, "Error while collecting settingsFlowRaw: ${it.message}", it)
+                // 与原 toMutableStateFlow 兜底一致：设置流断了应用无法继续工作，直接退出
+                Runtime.getRuntime().halt(1)
+            }
+        }
+    }
 
     internal data class RestoreSnapshot(
         val preferences: androidx.datastore.preferences.core.Preferences,
@@ -682,19 +725,49 @@ class SettingsStore(
     )
 
     internal suspend fun createRestoreSnapshot(): RestoreSnapshot {
+        // 等设置就绪：否则快照里存的是 dummy，回滚时会把 dummy 写回内存
+        val settings = settingsFlow.first { !it.init }
         return RestoreSnapshot(
             preferences = dataStore.data.first(),
-            settings = settingsFlow.value,
+            settings = settings,
         )
     }
 
     internal suspend fun restoreSnapshot(snapshot: RestoreSnapshot) {
-        dataStore.updateData { snapshot.preferences }
-        settingsFlow.value = snapshot.settings
+        updateMutex.withLock {
+            // 持 updateMutex 与其它写入串行：否则与进行中的 updateLocked 交错时，
+            // 磁盘可能被后完成的旧世代写入覆盖，出现「磁盘世代 < 内存世代」的长期分叉。
+            // 恢复快照时世代号必须继续向前而不是回退：若回退，恢复前那次失败写入的在途回流
+            // （世代号更大）会反超并覆盖刚恢复的内存态，而快照自身的回流反被当成过期数据丢弃。
+            // 因此给快照内容盖上一个新世代号，再写内存与磁盘。
+            val generation: Long
+            synchronized(generationLock) {
+                generation = ++latestWriteGeneration
+                settingsFlow.value = snapshot.settings.copy(writeGeneration = generation)
+            }
+            try {
+                withContext(NonCancellable) {
+                    dataStore.updateData {
+                        snapshot.preferences.toMutablePreferences().apply {
+                            this[SETTINGS_WRITE_GENERATION] = generation
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // 与 updateLocked 的落盘失败处理一致：回退世代号并读盘纠正内存
+                recoverFromPersistFailure(generation)
+                throw e
+            }
+        }
     }
 
-	    suspend fun update(settings: Settings) = updateMutex.withLock {
-	        updateLocked(settings)
+	    suspend fun update(settings: Settings) {
+	        // 等设置就绪再写：世代号靠首个已应用的磁盘回流播种，未播种就发号会拿到过小的
+	        // 世代号，被在途的历史回流反超覆盖（加载完成后此等待无开销）
+	        settingsFlow.first { !it.init }
+	        updateMutex.withLock {
+	            updateLocked(settings)
+	        }
 	    }
 
     /**
@@ -712,16 +785,17 @@ class SettingsStore(
         }
     }
 
-	    private suspend fun updateLocked(settings: Settings) {
+	    private suspend fun updateLocked(settings: Settings, autoUpdateRecentlyUsed: Boolean = true) {
 	        if(settings.init) {
 	            Log.w(TAG, "Cannot update dummy settings")
 	            return
 	        }
 
 	        val oldSettingsSnapshot = settingsFlow.value
-	        
+
 	        // Auto-update recently used assistants when assistant changes
-	        val settingsToSave = if (settings.assistantId != oldSettingsSnapshot.assistantId && 
+	        val settingsToSave = if (autoUpdateRecentlyUsed &&
+	            settings.assistantId != oldSettingsSnapshot.assistantId &&
 	            !oldSettingsSnapshot.init &&
 	            settings.assistants.any { it.id == settings.assistantId }) {
 	            val updatedList = buildList {
@@ -767,100 +841,144 @@ class SettingsStore(
                     settingsToSaveWithReboundSearchIndices.webServerAccessPassword.isNotBlank(),
 	        )
 
-        settingsFlow.value = finalSettingsToSave
-        dataStore.edit { preferences ->
-            preferences[VERSION] = 4
-            preferences[DYNAMIC_COLOR] = finalSettingsToSave.dynamicColor
-            preferences[THEME_ID] = finalSettingsToSave.themeId
-            preferences[DEVELOPER_MODE] = finalSettingsToSave.developerMode
-            preferences[SHOW_MARKDOWN_FONT_DEBUG_INFO] = finalSettingsToSave.showMarkdownFontDebugInfo
-            preferences[AUTO_CONTINUE_ON_TRUNCATION] = finalSettingsToSave.autoContinueOnTruncation
-            preferences[ENABLE_RAG_LOGGING] = finalSettingsToSave.enableRagLogging
-            preferences[DISPLAY_SETTING] = JsonInstant.encodeToString(finalSettingsToSave.displaySetting)
-            preferences[TEXT_SELECTION_CONFIG] = JsonInstant.encodeToString(finalSettingsToSave.textSelectionConfig)
+        // 世代号严格递增：内存先行更新后，晚到的旧回流（世代号更小）会被 settingsFlow
+        // 的收集器丢弃，不会把内存打回旧值
+        val generation: Long
+        synchronized(generationLock) {
+            generation = ++latestWriteGeneration
+            settingsFlow.value = finalSettingsToSave.copy(writeGeneration = generation)
+        }
+        try {
+            persistSettings(finalSettingsToSave, generation)
+        } catch (e: Exception) {
+            recoverFromPersistFailure(generation)
+            throw e
+        }
+    }
 
-            preferences[ENABLE_WEB_SEARCH] = finalSettingsToSave.enableWebSearch
-            preferences[FAVORITE_MODELS] = JsonInstant.encodeToString(finalSettingsToSave.favoriteModels)
-            preferences[SELECT_MODEL] = finalSettingsToSave.chatModelId.toString()
-            preferences[TITLE_MODEL] = finalSettingsToSave.titleModelId.toString()
-            preferences[MODEL_NAME_GENERATION_MODEL] = finalSettingsToSave.modelNameGenerationModelId.toString()
-            preferences[TRANSLATE_MODEL] = finalSettingsToSave.translateModeId.toString()
-            preferences[SUGGESTION_MODEL] = finalSettingsToSave.suggestionModelId.toString()
-            preferences[IMAGE_GENERATION_MODEL] = finalSettingsToSave.imageGenerationModelId.toString()
-            finalSettingsToSave.searchAgentModelId?.let {
-                preferences[SEARCH_AGENT_MODEL] = it.toString()
-            } ?: preferences.remove(SEARCH_AGENT_MODEL)
-            preferences[TITLE_PROMPT] = finalSettingsToSave.titlePrompt
-            preferences[MODEL_NAME_GENERATION_PROMPT] = finalSettingsToSave.modelNameGenerationPrompt
-            preferences[TRANSLATION_PROMPT] = finalSettingsToSave.translatePrompt
-            preferences[SUGGESTION_PROMPT] = finalSettingsToSave.suggestionPrompt
-            preferences[LEARNING_MODE_PROMPT] = finalSettingsToSave.learningModePrompt
-            preferences[OCR_MODEL] = finalSettingsToSave.ocrModelId.toString()
-            preferences[OCR_PROMPT] = finalSettingsToSave.ocrPrompt
-            preferences[EMBEDDING_MODEL] = finalSettingsToSave.embeddingModelId.toString()
+    /**
+     * 落盘失败后的补偿：磁盘文件没有变化、不会产生新回流来纠正内存，
+     * 必须回退世代号并主动读一次磁盘真相，把内存从「从未落盘的幻值」纠正回来。
+     * 读盘包在 NonCancellable 里，调用方协程已被取消时补偿仍能完成。
+     */
+    private suspend fun recoverFromPersistFailure(failedGeneration: Long) {
+        synchronized(generationLock) {
+            latestWriteGeneration = failedGeneration - 1
+        }
+        runCatching {
+            val diskTruth = withContext(NonCancellable) { settingsFlowRaw.first() }
+            synchronized(generationLock) {
+                if (diskTruth.writeGeneration >= latestWriteGeneration) {
+                    latestWriteGeneration = diskTruth.writeGeneration
+                    settingsFlow.value = diskTruth
+                }
+            }
+        }.onFailure { readError ->
+            Log.w(TAG, "recoverFromPersistFailure: failed to re-read disk truth", readError)
+        }
+    }
 
-            preferences[PROVIDERS] = JsonInstant.encodeToString(finalSettingsToSave.providers)
+    private suspend fun persistSettings(finalSettingsToSave: Settings, generation: Long) {
+        // NonCancellable：内存已先行更新，落盘不能中途被取消（如调用方 ViewModel 销毁），
+        // 否则世代号领先磁盘，后续磁盘回流会被当作过期数据永久丢弃
+        withContext(NonCancellable) {
+            dataStore.edit { preferences ->
+                preferences[SETTINGS_WRITE_GENERATION] = generation
+                preferences[VERSION] = 4
+                preferences[DYNAMIC_COLOR] = finalSettingsToSave.dynamicColor
+                preferences[THEME_ID] = finalSettingsToSave.themeId
+                preferences[DEVELOPER_MODE] = finalSettingsToSave.developerMode
+                preferences[SHOW_MARKDOWN_FONT_DEBUG_INFO] = finalSettingsToSave.showMarkdownFontDebugInfo
+                preferences[AUTO_CONTINUE_ON_TRUNCATION] = finalSettingsToSave.autoContinueOnTruncation
+                preferences[ENABLE_RAG_LOGGING] = finalSettingsToSave.enableRagLogging
+                preferences[DISPLAY_SETTING] = JsonInstant.encodeToString(finalSettingsToSave.displaySetting)
+                preferences[TEXT_SELECTION_CONFIG] = JsonInstant.encodeToString(finalSettingsToSave.textSelectionConfig)
 
-            preferences[ASSISTANTS] = JsonInstant.encodeToString(finalSettingsToSave.assistants)
-            preferences[SELECT_ASSISTANT] = finalSettingsToSave.assistantId.toString()
-            preferences[CHAT_TARGET] = JsonInstant.encodeToString(finalSettingsToSave.chatTarget)
-            preferences[ASSISTANT_TAGS] = JsonInstant.encodeToString(finalSettingsToSave.assistantTags)
-            preferences[PROVIDER_TAGS] = JsonInstant.encodeToString(finalSettingsToSave.providerTags)
-            preferences[RECENTLY_USED_ASSISTANTS] = JsonInstant.encodeToString(finalSettingsToSave.recentlyUsedAssistants)
-            preferences[GROUP_CHAT_TEMPLATES] = JsonInstant.encodeToString(finalSettingsToSave.groupChatTemplates)
+                preferences[ENABLE_WEB_SEARCH] = finalSettingsToSave.enableWebSearch
+                preferences[FAVORITE_MODELS] = JsonInstant.encodeToString(finalSettingsToSave.favoriteModels)
+                preferences[SELECT_MODEL] = finalSettingsToSave.chatModelId.toString()
+                preferences[TITLE_MODEL] = finalSettingsToSave.titleModelId.toString()
+                preferences[MODEL_NAME_GENERATION_MODEL] = finalSettingsToSave.modelNameGenerationModelId.toString()
+                preferences[TRANSLATE_MODEL] = finalSettingsToSave.translateModeId.toString()
+                preferences[SUGGESTION_MODEL] = finalSettingsToSave.suggestionModelId.toString()
+                preferences[IMAGE_GENERATION_MODEL] = finalSettingsToSave.imageGenerationModelId.toString()
+                finalSettingsToSave.searchAgentModelId?.let {
+                    preferences[SEARCH_AGENT_MODEL] = it.toString()
+                } ?: preferences.remove(SEARCH_AGENT_MODEL)
+                preferences[TITLE_PROMPT] = finalSettingsToSave.titlePrompt
+                preferences[MODEL_NAME_GENERATION_PROMPT] = finalSettingsToSave.modelNameGenerationPrompt
+                preferences[TRANSLATION_PROMPT] = finalSettingsToSave.translatePrompt
+                preferences[SUGGESTION_PROMPT] = finalSettingsToSave.suggestionPrompt
+                preferences[LEARNING_MODE_PROMPT] = finalSettingsToSave.learningModePrompt
+                preferences[OCR_MODEL] = finalSettingsToSave.ocrModelId.toString()
+                preferences[OCR_PROMPT] = finalSettingsToSave.ocrPrompt
+                preferences[EMBEDDING_MODEL] = finalSettingsToSave.embeddingModelId.toString()
 
-            preferences[SEARCH_SERVICES] = JsonInstant.encodeToString(finalSettingsToSave.searchServices)
-            preferences[SEARCH_COMMON] = JsonInstant.encodeToString(finalSettingsToSave.searchCommonOptions)
-            preferences[SEARCH_SELECTED] = finalSettingsToSave.searchServiceSelected.coerceIn(0, finalSettingsToSave.searchServices.size - 1)
-            preferences[SEARCH_AGENT_OVERRIDE_ORIGINAL_TOOLS] = finalSettingsToSave.searchAgentOverrideOriginalTools
-            preferences[SEARCH_AGENT_COMPACT_MODE] = finalSettingsToSave.searchAgentCompactMode
+                preferences[PROVIDERS] = JsonInstant.encodeToString(finalSettingsToSave.providers)
 
-            preferences[MCP_SERVERS] = JsonInstant.encodeToString(finalSettingsToSave.mcpServers)
-            preferences[MCP_TOOL_CALL_TIMEOUT_SECONDS] = finalSettingsToSave.mcpToolCallTimeoutSeconds.coerceAtLeast(1)
-            preferences[HTTP_RETRY_MAX_RETRIES] = finalSettingsToSave.httpRetryMaxRetries.coerceIn(0, 10)
-            preferences[HTTP_RETRY_DELAY_SECONDS] = finalSettingsToSave.httpRetryDelaySeconds.coerceIn(1, 30)
-            preferences[WEBDAV_CONFIG] = JsonInstant.encodeToString(finalSettingsToSave.webDavConfig)
-            preferences[OBJECT_STORAGE_CONFIG] = JsonInstant.encodeToString(finalSettingsToSave.objectStorageConfig)
-            preferences[TTS_PROVIDERS] = JsonInstant.encodeToString(finalSettingsToSave.ttsProviders)
-            finalSettingsToSave.selectedTTSProviderId?.let {
-                preferences[SELECTED_TTS_PROVIDER] = it.toString()
-            } ?: preferences.remove(SELECTED_TTS_PROVIDER)
+                preferences[ASSISTANTS] = JsonInstant.encodeToString(finalSettingsToSave.assistants)
+                preferences[SELECT_ASSISTANT] = finalSettingsToSave.assistantId.toString()
+                preferences[CHAT_TARGET] = JsonInstant.encodeToString(finalSettingsToSave.chatTarget)
+                preferences[ASSISTANT_TAGS] = JsonInstant.encodeToString(finalSettingsToSave.assistantTags)
+                preferences[PROVIDER_TAGS] = JsonInstant.encodeToString(finalSettingsToSave.providerTags)
+                preferences[RECENTLY_USED_ASSISTANTS] = JsonInstant.encodeToString(finalSettingsToSave.recentlyUsedAssistants)
+                preferences[GROUP_CHAT_TEMPLATES] = JsonInstant.encodeToString(finalSettingsToSave.groupChatTemplates)
 
-            preferences[CONSOLIDATION_WORKER_INTERVAL] = finalSettingsToSave.consolidationWorkerIntervalMinutes
-            preferences[CONSOLIDATION_REQUIRES_DEVICE_IDLE] = finalSettingsToSave.consolidationRequiresDeviceIdle
+                preferences[SEARCH_SERVICES] = JsonInstant.encodeToString(finalSettingsToSave.searchServices)
+                preferences[SEARCH_COMMON] = JsonInstant.encodeToString(finalSettingsToSave.searchCommonOptions)
+                preferences[SEARCH_SELECTED] = finalSettingsToSave.searchServiceSelected.coerceIn(0, finalSettingsToSave.searchServices.size - 1)
+                preferences[SEARCH_AGENT_OVERRIDE_ORIGINAL_TOOLS] = finalSettingsToSave.searchAgentOverrideOriginalTools
+                preferences[SEARCH_AGENT_COMPACT_MODE] = finalSettingsToSave.searchAgentCompactMode
 
-            preferences[WEB_SERVER_ENABLED] = finalSettingsToSave.webServerEnabled
-            preferences[WEB_SERVER_PORT] = finalSettingsToSave.webServerPort
-            preferences[WEB_SERVER_JWT_ENABLED] = finalSettingsToSave.webServerJwtEnabled
-            preferences[WEB_SERVER_ACCESS_PASSWORD] = finalSettingsToSave.webServerAccessPassword
-            preferences[WEB_SERVER_BACKGROUND_SETUP_SHOWN] = finalSettingsToSave.webServerBackgroundSetupShown
+                preferences[MCP_SERVERS] = JsonInstant.encodeToString(finalSettingsToSave.mcpServers)
+                preferences[MCP_TOOL_CALL_TIMEOUT_SECONDS] = finalSettingsToSave.mcpToolCallTimeoutSeconds.coerceAtLeast(1)
+                preferences[HTTP_RETRY_MAX_RETRIES] = finalSettingsToSave.httpRetryMaxRetries.coerceIn(0, 10)
+                preferences[HTTP_RETRY_DELAY_SECONDS] = finalSettingsToSave.httpRetryDelaySeconds.coerceIn(1, 30)
+                preferences[WEBDAV_CONFIG] = JsonInstant.encodeToString(finalSettingsToSave.webDavConfig)
+                preferences[OBJECT_STORAGE_CONFIG] = JsonInstant.encodeToString(finalSettingsToSave.objectStorageConfig)
+                preferences[TTS_PROVIDERS] = JsonInstant.encodeToString(finalSettingsToSave.ttsProviders)
+                finalSettingsToSave.selectedTTSProviderId?.let {
+                    preferences[SELECTED_TTS_PROVIDER] = it.toString()
+                } ?: preferences.remove(SELECTED_TTS_PROVIDER)
 
-            preferences[MODES] = JsonInstant.encodeToString(finalSettingsToSave.modes)
-            preferences[LOREBOOKS] = JsonInstant.encodeToString(finalSettingsToSave.lorebooks)
-            preferences[CUSTOM_TOOL_SYSTEM_PROMPTS] =
-                JsonInstant.encodeToString(finalSettingsToSave.customToolSystemPrompts)
-            preferences[SKILL_FOLDERS] = JsonInstant.encodeToString(finalSettingsToSave.skillFolders)
-            preferences[SKILLS] = JsonInstant.encodeToString(finalSettingsToSave.skills)
-            preferences[WORKSPACE_FILE_TOOLS_ALLOW_ALL] = finalSettingsToSave.workspaceFileToolsAllowAll
-            finalSettingsToSave.workspaceRootTreeUri?.let {
-                preferences[WORKSPACE_ROOT_TREE_URI] = it
-            } ?: preferences.remove(WORKSPACE_ROOT_TREE_URI)
-            preferences[CONVERSATION_WORKSPACE_ROOTS] =
-                JsonInstant.encodeToString(finalSettingsToSave.conversationWorkspaceRoots)
-            preferences[CONVERSATION_WORK_DIRS] = JsonInstant.encodeToString(finalSettingsToSave.conversationWorkDirs)
-            preferences[REMEMBER_LAST_WORKSPACE_FOR_NEW_CHATS] =
-                finalSettingsToSave.rememberLastWorkspaceForNewChats
-            finalSettingsToSave.rememberedWorkspaceForNewChats
-                ?.takeIf { finalSettingsToSave.rememberLastWorkspaceForNewChats }
-                ?.let {
-                preferences[REMEMBERED_WORKSPACE_FOR_NEW_CHATS] = JsonInstant.encodeToString(it)
-            } ?: preferences.remove(REMEMBERED_WORKSPACE_FOR_NEW_CHATS)
-            preferences[CONVERSATION_LARGE_CONTEXT_WARNING_SHOWN_AT] =
-                JsonInstant.encodeToString(finalSettingsToSave.conversationLargeContextWarningShownAt)
+                preferences[CONSOLIDATION_WORKER_INTERVAL] = finalSettingsToSave.consolidationWorkerIntervalMinutes
+                preferences[CONSOLIDATION_REQUIRES_DEVICE_IDLE] = finalSettingsToSave.consolidationRequiresDeviceIdle
+
+                preferences[WEB_SERVER_ENABLED] = finalSettingsToSave.webServerEnabled
+                preferences[WEB_SERVER_PORT] = finalSettingsToSave.webServerPort
+                preferences[WEB_SERVER_JWT_ENABLED] = finalSettingsToSave.webServerJwtEnabled
+                preferences[WEB_SERVER_ACCESS_PASSWORD] = finalSettingsToSave.webServerAccessPassword
+                preferences[WEB_SERVER_BACKGROUND_SETUP_SHOWN] = finalSettingsToSave.webServerBackgroundSetupShown
+
+                preferences[MODES] = JsonInstant.encodeToString(finalSettingsToSave.modes)
+                preferences[LOREBOOKS] = JsonInstant.encodeToString(finalSettingsToSave.lorebooks)
+                preferences[CUSTOM_TOOL_SYSTEM_PROMPTS] =
+                    JsonInstant.encodeToString(finalSettingsToSave.customToolSystemPrompts)
+                preferences[SKILL_FOLDERS] = JsonInstant.encodeToString(finalSettingsToSave.skillFolders)
+                preferences[SKILLS] = JsonInstant.encodeToString(finalSettingsToSave.skills)
+                preferences[WORKSPACE_FILE_TOOLS_ALLOW_ALL] = finalSettingsToSave.workspaceFileToolsAllowAll
+                finalSettingsToSave.workspaceRootTreeUri?.let {
+                    preferences[WORKSPACE_ROOT_TREE_URI] = it
+                } ?: preferences.remove(WORKSPACE_ROOT_TREE_URI)
+                preferences[CONVERSATION_WORKSPACE_ROOTS] =
+                    JsonInstant.encodeToString(finalSettingsToSave.conversationWorkspaceRoots)
+                preferences[CONVERSATION_WORK_DIRS] = JsonInstant.encodeToString(finalSettingsToSave.conversationWorkDirs)
+                preferences[REMEMBER_LAST_WORKSPACE_FOR_NEW_CHATS] =
+                    finalSettingsToSave.rememberLastWorkspaceForNewChats
+                finalSettingsToSave.rememberedWorkspaceForNewChats
+                    ?.takeIf { finalSettingsToSave.rememberLastWorkspaceForNewChats }
+                    ?.let {
+                    preferences[REMEMBERED_WORKSPACE_FOR_NEW_CHATS] = JsonInstant.encodeToString(it)
+                } ?: preferences.remove(REMEMBERED_WORKSPACE_FOR_NEW_CHATS)
+                preferences[CONVERSATION_LARGE_CONTEXT_WARNING_SHOWN_AT] =
+                    JsonInstant.encodeToString(finalSettingsToSave.conversationLargeContextWarningShownAt)
+            }
         }
     }
 
     suspend fun update(fn: (Settings) -> Settings) {
+        // 同 update(settings)：等世代号播种完成再写
+        settingsFlow.first { !it.init }
         updateMutex.withLock {
             updateLocked(fn(settingsFlow.value))
         }
@@ -965,13 +1083,52 @@ class SettingsStore(
         }
     }
 
-    suspend fun updateChatTarget(target: ChatTarget) {
-        dataStore.edit { preferences ->
-            preferences[CHAT_TARGET] = JsonInstant.encodeToString(target)
-            if (target is ChatTarget.Assistant) {
-                preferences[SELECT_ASSISTANT] = target.assistantId.toString()
-            }
+    /**
+     * 切换当前聊天目标。必须走 updateLocked 的「先改内存 settingsFlow、随后同调用内落盘」路径
+     * （调用方会等待写盘完成）。旧实现只写 DataStore 不改内存：磁盘回流（含解析延迟）会晚于
+     * 并覆盖任何并发的内存更新，造成「切换助手后被拽回旧助手/新会话归属错助手」的竞态。
+     *
+     * @param updateRecentlyUsed 是否把新助手计入「最近使用」（影响桌面快捷方式排序）。
+     * 用户主动切换传 true；打开历史会话触发的被动反向同步传 false，保持旧行为不打扰快捷方式。
+     */
+    suspend fun updateChatTarget(target: ChatTarget, updateRecentlyUsed: Boolean = true) {
+        // 冷启动入口（如桌面快捷方式）可能在设置加载完成前调用，
+        // 而 updateLocked 会拒绝写 dummy 设置，因此先等真实设置就绪。
+        settingsFlow.first { !it.init }
+        updateMutex.withLock {
+            updateChatTargetLocked(target, updateRecentlyUsed)
         }
+    }
+
+    /**
+     * CAS 语义的切换：仅当锁内重读时当前 chatTarget 仍等于 [expected] 才写入。
+     * 供被动的反向同步使用——判定与写入之间用户可能已主动切换目标，此时放弃本次同步，
+     * 让用户的新选择胜出，而不是被打开旧会话的动作覆盖回去。
+     *
+     * @return 是否实际执行了写入
+     */
+    suspend fun updateChatTargetIfCurrent(
+        expected: ChatTarget,
+        target: ChatTarget,
+        updateRecentlyUsed: Boolean = true,
+    ): Boolean {
+        settingsFlow.first { !it.init }
+        updateMutex.withLock {
+            if (settingsFlow.value.chatTarget != expected) return false
+            updateChatTargetLocked(target, updateRecentlyUsed)
+        }
+        return true
+    }
+
+    private suspend fun updateChatTargetLocked(target: ChatTarget, updateRecentlyUsed: Boolean) {
+        val current = settingsFlow.value
+        updateLocked(
+            settings = current.copy(
+                chatTarget = target,
+                assistantId = (target as? ChatTarget.Assistant)?.assistantId ?: current.assistantId,
+            ),
+            autoUpdateRecentlyUsed = updateRecentlyUsed,
+        )
     }
 
     /**
@@ -1001,6 +1158,11 @@ class SettingsStore(
 data class Settings(
     @Transient
     val init: Boolean = false,
+    // 写入世代号（见 SETTINGS_WRITE_GENERATION），仅内部用于识别过期的磁盘回流，不参与导出。
+    // 注意必须全限定 kotlinx 的 Transient：文件里裸写 @Transient 解析到的是 kotlin.jvm.Transient，
+    // 序列化并不认它（init 字段即因此一直被导出，为兼容旧备份保持原样不动）。
+    @kotlinx.serialization.Transient
+    val writeGeneration: Long = 0,
     val dynamicColor: Boolean = true,
     val themeId: String = PresetThemes[0].id,
     val developerMode: Boolean = false,

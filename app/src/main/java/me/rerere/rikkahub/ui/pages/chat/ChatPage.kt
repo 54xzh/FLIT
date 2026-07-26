@@ -123,6 +123,7 @@ import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
 import me.rerere.rikkahub.data.datastore.hasLargeContextWarningShown
+import me.rerere.rikkahub.data.model.ChatTarget
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.GroupChatTemplate
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
@@ -995,8 +996,8 @@ private fun ChatPageContent(
                     onUpdateTitle = {
                         vm.updateTitle(it)
                     },
-                    onUpdateSettings = { newSettings ->
-                        vm.updateSettings(newSettings)
+                    onSelectChatTarget = { target ->
+                        vm.selectChatTarget(target)
                     },
                     onToggleTemporaryChat = {
                         isTemporaryChat = !isTemporaryChat
@@ -2320,7 +2321,7 @@ private fun TopBar(
     onClickMenu: () -> Unit,
     onNewChat: () -> Unit,
     onUpdateTitle: (String) -> Unit,
-    onUpdateSettings: (Settings) -> Unit,
+    onSelectChatTarget: (ChatTarget) -> Unit,
     onToggleTemporaryChat: () -> Unit,
     onSetConversationAssistant: (Uuid) -> Unit,
     quotaUsage: QuotaUsageResult? = null,
@@ -2537,7 +2538,7 @@ private fun TopBar(
     
     // Assistant picker sheet - outside TopAppBar for proper state handling
     if (showAssistantPicker) {
-        val chatTargetState = me.rerere.rikkahub.ui.hooks.rememberChatTargetState(settings, onUpdateSettings)
+        val chatTargetState = me.rerere.rikkahub.ui.hooks.rememberChatTargetState(settings, onSelectChatTarget)
         me.rerere.rikkahub.ui.components.ai.AssistantPickerSheet(
             settings = settings,
             currentTarget = chatTargetState.currentTarget,

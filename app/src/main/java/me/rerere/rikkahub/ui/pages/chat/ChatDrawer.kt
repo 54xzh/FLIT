@@ -321,9 +321,9 @@ fun ChatDrawerContent(
             if (settings.assistants.size > 1 || settings.groupChatTemplates.isNotEmpty()) {
                 AssistantPicker(
                     settings = settings,
-                    onUpdateSettings = { newSettings ->
+                    onSelectTarget = { target ->
                         // Just update settings - don't navigate yet
-                        vm.updateSettings(newSettings)
+                        vm.selectChatTarget(target)
                     },
                     onNavigate = { target ->
                         // Called after sheet closes - just close drawer and navigate

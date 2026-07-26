@@ -79,12 +79,12 @@ import kotlin.uuid.Uuid
 @Composable
 fun AssistantPicker(
     settings: Settings,
-    onUpdateSettings: (Settings) -> Unit,
+    onSelectTarget: (ChatTarget) -> Unit,
     onNavigate: (ChatTarget) -> Unit = {},  // Called after panels close
     modifier: Modifier = Modifier,
     onClickSetting: () -> Unit,
 ) {
-    val state = rememberChatTargetState(settings, onUpdateSettings)
+    val state = rememberChatTargetState(settings, onSelectTarget)
     val defaultAssistantName = stringResource(R.string.assistant_page_default_assistant)
     val defaultGroupChatName = stringResource(R.string.group_chat_default_name)
     var showPicker by remember { mutableStateOf(false) }

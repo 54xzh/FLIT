@@ -1355,20 +1355,72 @@ class ChatService(
         return initializeConversationWithResult(conversationId).initialized
     }
 
+    /**
+     * 打开已有会话时，把全局 chatTarget 反向同步为该会话所属的助手/群聊。
+     * 仅在确实不一致时才写入：无条件写会产生多余的 DataStore 落盘与回流，
+     * 放大「磁盘旧值回流覆盖内存新值」的竞态窗口（切换助手后消息存错助手的根因之一）。
+     *
+     * @param expectedChatTarget 会话加载动作【开始前】的 chatTarget，作为 CAS 期望值。
+     * 大会话的 DB 加载可能耗时几十到几百毫秒，期间用户可能已主动切换助手；
+     * 若在写入前才取「最新值」当期望值，CAS 会照常通过并把用户的新选择拽回旧助手。
+     */
+    private suspend fun syncChatTargetToConversation(
+        assistantId: Uuid,
+        expectedChatTarget: ChatTarget,
+    ) {
+        // 冷启动恢复上次会话时设置可能还是 dummy（群聊列表为空、chatTarget 为默认值），
+        // 直接取 value 快照会漏同步或把群聊误判成普通助手，必须等真实设置加载完成。
+        val settingsSnapshot = settingsStore.settingsFlow.first { !it.init }
+        if (settingsSnapshot.chatTarget != expectedChatTarget) {
+            // 会话加载期间用户已主动切换目标，放弃反向同步，让用户的新选择胜出
+            Log.i(TAG, "syncChatTargetToConversation: skipped, chatTarget changed during conversation load")
+            return
+        }
+        val isGroupChat = settingsSnapshot.groupChatTemplates.any { it.id == assistantId }
+        if (!isGroupChat && settingsSnapshot.getAssistantById(assistantId) == null) {
+            // 会话所属助手已被删除（孤儿会话）：不把无效 id 写进全局设置，保持当前目标不变
+            return
+        }
+        val desiredTarget: ChatTarget = if (isGroupChat) {
+            ChatTarget.GroupChat(assistantId)
+        } else {
+            ChatTarget.Assistant(assistantId)
+        }
+        // assistantId 可能因群聊降级等历史路径与 chatTarget 脱节，任一不符都要修正
+        val needsSync = settingsSnapshot.chatTarget != desiredTarget ||
+            (desiredTarget is ChatTarget.Assistant && settingsSnapshot.assistantId != assistantId)
+        if (!needsSync) return
+        try {
+            // 被动反向同步不计入「最近使用」，避免仅浏览历史会话就重排桌面快捷方式。
+            // CAS：从判定到锁内写入之间用户仍可能切换目标，期望值失配则放弃，用户选择胜出。
+            val applied = settingsStore.updateChatTargetIfCurrent(
+                expected = expectedChatTarget,
+                target = desiredTarget,
+                updateRecentlyUsed = false,
+            )
+            if (!applied) {
+                Log.i(TAG, "syncChatTargetToConversation: skipped, chatTarget changed before write")
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "syncChatTargetToConversation: updateChatTarget failed (${e.message})", e)
+        }
+    }
+
     suspend fun initializeConversationWithResult(conversationId: Uuid): ConversationInitializationResult {
+        // 在加载动作开始前捕获 chatTarget 作为反向同步的 CAS 期望值：
+        // 加载期间用户主动切换助手时期望值失配，同步会放弃，避免慢加载的旧会话
+        // 把用户的新选择覆盖回去（切换助手后归属错乱的另一条竞态路径）。
+        val chatTargetBeforeLoad = settingsStore.settingsFlow.first { !it.init }.chatTarget
+
         // If there is an active generation job, the in-memory StateFlow has the latest
         // streaming data. Loading from DB would overwrite it with stale pre-generation state.
         val activeJob = getGenerationJob(conversationId)
         if (activeJob != null && activeJob.isActive) {
             val inMemoryConversation = conversations[conversationId]?.value
             if (inMemoryConversation != null && inMemoryConversation.messageNodes.isNotEmpty()) {
-                val settingsSnapshot = settingsStore.settingsFlow.value
-                val isGroupChat = settingsSnapshot.groupChatTemplates.any { it.id == inMemoryConversation.assistantId }
-                if (isGroupChat) {
-                    settingsStore.updateChatTarget(ChatTarget.GroupChat(inMemoryConversation.assistantId))
-                } else {
-                    settingsStore.updateAssistant(inMemoryConversation.assistantId)
-                }
+                syncChatTargetToConversation(inMemoryConversation.assistantId, chatTargetBeforeLoad)
                 return ConversationInitializationResult(
                     initialized = true,
                     existsInStorage = true,
@@ -1401,13 +1453,7 @@ class ChatService(
         val conversation = loadResult.getOrNull()
         if (conversation != null) {
             updateConversation(conversationId, conversation)
-            val settingsSnapshot = settingsStore.settingsFlow.value
-            val isGroupChat = settingsSnapshot.groupChatTemplates.any { it.id == conversation.assistantId }
-            if (isGroupChat) {
-                settingsStore.updateChatTarget(ChatTarget.GroupChat(conversation.assistantId))
-            } else {
-                settingsStore.updateAssistant(conversation.assistantId)
-            }
+            syncChatTargetToConversation(conversation.assistantId, chatTargetBeforeLoad)
             return ConversationInitializationResult(
                 initialized = true,
                 existsInStorage = true,
@@ -1423,23 +1469,44 @@ class ChatService(
             }
 
             // 新建对话, 并添加预设消息
-            val currentSettings = settingsStore.settingsFlowRaw.first()
+            // 必须读内存 settingsFlow 而非 settingsFlowRaw（磁盘直读）：
+            // 切换助手先改内存、落盘及回流滞后于内存；读磁盘会在落盘完成前
+            // 拿到旧 chatTarget，把新会话建到切换前的助手名下（消息存错助手的根因之一）。
+            // 冷启动时 settingsFlow 可能还是 dummy，等真实设置加载完成再取。
+            val currentSettings = settingsStore.settingsFlow.first { !it.init }
             val target = currentSettings.chatTarget
-            val baseConversation = Conversation.ofId(
-                id = conversationId,
-                assistantId = target.id,
-            )
 
+            // 内存态设置未经磁盘回流链路的 sanitize，chatTarget 可能短暂指向刚被删除的
+            // 助手/群聊。按同样的降级规则解析出真实存在的归属再建会话，避免会话绑定到
+            // 不存在的 id 上，与实际使用的预设内容错配。
             val initialConversation = when (target) {
                 is ChatTarget.Assistant -> {
                     val assistant = currentSettings.getAssistantById(target.assistantId)
                         ?: currentSettings.getCurrentAssistant()
-                    baseConversation.updateCurrentMessages(assistant.presetMessages).copy(
+                    Conversation.ofId(
+                        id = conversationId,
+                        assistantId = assistant.id,
+                    ).updateCurrentMessages(assistant.presetMessages).copy(
                         enabledModeIds = assistant.enabledModeIds,
                     )
                 }
 
-                is ChatTarget.GroupChat -> baseConversation
+                is ChatTarget.GroupChat -> {
+                    if (currentSettings.groupChatTemplates.any { it.id == target.templateId }) {
+                        Conversation.ofId(
+                            id = conversationId,
+                            assistantId = target.templateId,
+                        )
+                    } else {
+                        val assistant = currentSettings.getCurrentAssistant()
+                        Conversation.ofId(
+                            id = conversationId,
+                            assistantId = assistant.id,
+                        ).updateCurrentMessages(assistant.presetMessages).copy(
+                            enabledModeIds = assistant.enabledModeIds,
+                        )
+                    }
+                }
             }
 
             updateConversation(conversationId, initialConversation)
@@ -1669,7 +1736,14 @@ class ChatService(
 
         appScope.launch(Dispatchers.IO) {
             try {
-                settingsStore.updateAssistant(assistantId)
+                // ChatPage 顶栏选助手会同时走 selectChatTarget 与本方法，两边写的是同一目标；
+                // 若前者已落地则跳过，避免重复的全量设置落盘（并发在途时最多重复一次，幂等无害）
+                val current = settingsStore.settingsFlow.value
+                if (current.chatTarget != ChatTarget.Assistant(assistantId) || current.assistantId != assistantId) {
+                    settingsStore.updateAssistant(assistantId)
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "setConversationAssistant: updateAssistant failed (${e.message})", e)
             }
