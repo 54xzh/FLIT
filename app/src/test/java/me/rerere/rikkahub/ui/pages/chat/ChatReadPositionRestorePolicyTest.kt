@@ -4,6 +4,7 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.datastore.ConversationReadPosition
+import me.rerere.rikkahub.data.datastore.shouldPersistConversationReadPosition
 import me.rerere.rikkahub.data.model.MessageNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -47,10 +48,10 @@ class ChatReadPositionRestorePolicyTest {
     }
 
     @Test
-    fun shouldStartInitialReadPositionRestore_waitsUntilSettingsReady() {
+    fun shouldStartInitialReadPositionRestore_waitsUntilReadPositionsReady() {
         assertFalse(
             shouldStartInitialReadPositionRestore(
-                settingsReady = false,
+                readPositionsReady = false,
                 conversationInitialized = true,
                 initialEntryHandled = false,
                 initialSearchQuery = null,
@@ -60,7 +61,7 @@ class ChatReadPositionRestorePolicyTest {
         )
         assertFalse(
             shouldStartInitialReadPositionRestore(
-                settingsReady = true,
+                readPositionsReady = true,
                 conversationInitialized = false,
                 initialEntryHandled = false,
                 initialSearchQuery = null,
@@ -70,7 +71,7 @@ class ChatReadPositionRestorePolicyTest {
         )
         assertFalse(
             shouldStartInitialReadPositionRestore(
-                settingsReady = true,
+                readPositionsReady = true,
                 conversationInitialized = true,
                 initialEntryHandled = true,
                 initialSearchQuery = null,
@@ -80,7 +81,7 @@ class ChatReadPositionRestorePolicyTest {
         )
         assertTrue(
             shouldStartInitialReadPositionRestore(
-                settingsReady = true,
+                readPositionsReady = true,
                 conversationInitialized = true,
                 initialEntryHandled = false,
                 initialSearchQuery = null,
@@ -91,31 +92,31 @@ class ChatReadPositionRestorePolicyTest {
     }
 
     @Test
-    fun shouldPersistCurrentReadPosition_requiresSettingsAndHandledEntry() {
+    fun shouldPersistCurrentReadPosition_requiresStoreReadyAndHandledEntry() {
         assertFalse(
             shouldPersistCurrentReadPosition(
-                settingsReady = false,
+                readPositionsReady = false,
                 previewMode = false,
                 initialEntryHandled = true,
             )
         )
         assertFalse(
             shouldPersistCurrentReadPosition(
-                settingsReady = true,
+                readPositionsReady = true,
                 previewMode = true,
                 initialEntryHandled = true,
             )
         )
         assertFalse(
             shouldPersistCurrentReadPosition(
-                settingsReady = true,
+                readPositionsReady = true,
                 previewMode = false,
                 initialEntryHandled = false,
             )
         )
         assertTrue(
             shouldPersistCurrentReadPosition(
-                settingsReady = true,
+                readPositionsReady = true,
                 previewMode = false,
                 initialEntryHandled = true,
             )

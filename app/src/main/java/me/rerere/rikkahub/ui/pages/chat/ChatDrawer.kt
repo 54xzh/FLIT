@@ -98,7 +98,9 @@ fun ChatDrawerContent(
     navController: NavHostController,
     vm: ChatVM,
     settings: Settings,
-    current: Conversation,
+    // 只传会话 id 而非整个 Conversation：流式输出时会话对象每个 token 都在变，
+    // 传对象会让关闭状态的抽屉整棵子树跟着每 token 重组；id 在页面生命周期内恒定。
+    currentId: Uuid,
     currentExistsInStorage: Boolean,
     drawerState: androidx.compose.material3.DrawerState? = null,  // Optional for animated close
 ) {
@@ -266,7 +268,7 @@ fun ChatDrawerContent(
             }
 
             ConversationList(
-                current = current,
+                currentId = currentId,
                 currentExistsInStorage = currentExistsInStorage,
                 conversations = conversations,
                 conversationJobs = conversationJobs.keys,
@@ -300,7 +302,7 @@ fun ChatDrawerContent(
                             }
                         )
                     )
-                    if (it.id == current.id) {
+                    if (it.id == currentId) {
                         navigateToChatPage(navController)
                     }
                 },

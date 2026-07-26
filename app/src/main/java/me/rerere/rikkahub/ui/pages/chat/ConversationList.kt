@@ -105,7 +105,7 @@ sealed class ConversationListItem {
 
 @Composable
 fun ColumnScope.ConversationList(
-    current: Conversation,
+    currentId: Uuid,
     currentExistsInStorage: Boolean,
     conversations: LazyPagingItems<ConversationListItem>,
     conversationJobs: Collection<Uuid>,
@@ -239,7 +239,7 @@ fun ColumnScope.ConversationList(
         return centered
     }
 
-    LaunchedEffect(current.id, currentExistsInStorage, searchQuery) {
+    LaunchedEffect(currentId, currentExistsInStorage, searchQuery) {
         if (drawerState == null) return@LaunchedEffect
         if (!currentExistsInStorage) return@LaunchedEffect
         if (searchQuery.isNotBlank()) return@LaunchedEffect
@@ -260,7 +260,7 @@ fun ColumnScope.ConversationList(
         if (searchQuery.isNotBlank()) return@LaunchedEffect
         if (drawerState.targetValue != DrawerValue.Open) return@LaunchedEffect
         if (autoCentering) return@LaunchedEffect
-        if (lastCenteredConversationId == current.id) return@LaunchedEffect
+        if (lastCenteredConversationId == currentId) return@LaunchedEffect
         requestAutoCenter()
     }
 
@@ -270,9 +270,9 @@ fun ColumnScope.ConversationList(
         if (searchQuery.isNotBlank()) return@LaunchedEffect
         autoCentering = true
         try {
-            val centered = centerOnConversation(current.id)
+            val centered = centerOnConversation(currentId)
             if (centered) {
-                lastCenteredConversationId = current.id
+                lastCenteredConversationId = currentId
             }
         } finally {
             autoCentering = false
@@ -292,12 +292,12 @@ fun ColumnScope.ConversationList(
         }
 
         val currentConversationIsInSnapshot = conversations.itemSnapshotList.items.any { item ->
-            item is ConversationListItem.Item && item.conversation.id == current.id
+            item is ConversationListItem.Item && item.conversation.id == currentId
         }
         val shouldMaskListWhileAutoCentering = drawerState?.targetValue == DrawerValue.Open &&
             currentExistsInStorage &&
             searchQuery.isBlank() &&
-            lastCenteredConversationId != current.id &&
+            lastCenteredConversationId != currentId &&
             (
                 autoCentering || (autoCenterRequest == 0 && !currentConversationIsInSnapshot)
             )
@@ -389,7 +389,7 @@ fun ColumnScope.ConversationList(
                     is ConversationListItem.Item -> {
                         ConversationItem(
                             conversation = item.conversation,
-                            selected = item.conversation.id == current.id,
+                            selected = item.conversation.id == currentId,
                             loading = item.conversation.id in conversationJobs,
                             isRecentlyRestored = item.conversation.id in recentlyRestoredIds,
                             onClick = onClick,

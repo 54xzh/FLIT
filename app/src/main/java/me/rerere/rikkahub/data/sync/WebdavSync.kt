@@ -12,7 +12,11 @@ import at.bitfire.dav4jvm.property.webdav.GetLastModified
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
 import me.rerere.rikkahub.data.backup.BackupRemoteResult
+import me.rerere.rikkahub.data.datastore.ChatReadPositionStore
+import me.rerere.rikkahub.data.datastore.ConversationReadPosition
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.WebDavConfig
@@ -161,6 +165,7 @@ private val FILES_DIR_BACKUP_PATHS = listOf(
 
 class WebdavSync(
     private val settingsStore: SettingsStore,
+    private val readPositionStore: ChatReadPositionStore,
     private val json: Json,
     private val context: Context,
     private val database: AppDatabase,
@@ -363,6 +368,14 @@ class WebdavSync(
                 content = json.encodeToString(settingsStore.settingsFlow.value)
             )
 
+            // 阅读位置已从 Settings 挪到独立存储，单独入包，恢复时才能继续带回各会话的阅读进度
+            readPositionStore.awaitReady()
+            addVirtualFileToZip(
+                zipOut = zipOut,
+                name = "read_positions.json",
+                content = json.encodeToString(readPositionStore.positionsFlow.value)
+            )
+
             // 备份数据库
             if (webDavConfig.items.contains(WebDavConfig.BackupItem.DATABASE)) {
                 val snapshotFile = File(context.cacheDir, "rikka_hub_snapshot_$timestamp")
@@ -484,6 +497,8 @@ class WebdavSync(
             val tempSkillsRoot = File(tempFilesRoot, "skills")
             // settings.json 暂存到 holder，先迁移、最后才 sanitize 落盘，确保旧 UUID 备份被改写。
             val settingsJsonHolder = SettingsJsonHolder(json = null)
+            // 新版备份的阅读位置独立条目；老备份没有该条目，恢复时从 settings.json 的旧字段提取
+            var readPositionsJson: String? = null
             val restoredFilePaths = linkedSetOf<String>()
             val rollbackFilePaths = linkedSetOf<String>()
 
@@ -511,6 +526,11 @@ class WebdavSync(
                                     val settingsJson = zipIn.readBytes().toString(Charsets.UTF_8)
                                     Log.i(TAG, "restoreFromBackupFile: Captured settings (deferred)")
                                     settingsJsonHolder.json = settingsJson
+                                }
+
+                                "read_positions.json" -> {
+                                    readPositionsJson = zipIn.readBytes().toString(Charsets.UTF_8)
+                                    Log.i(TAG, "restoreFromBackupFile: Captured read positions (deferred)")
                                 }
 
                                 "rikka_hub.db", "rikka_hub-wal", "rikka_hub-shm" -> {
@@ -766,6 +786,29 @@ class WebdavSync(
                             TAG,
                             "restoreFromBackupFile: Settings restored and sanitized (issues fixed: ${settingsCleanupResult.totalIssuesFixed})"
                         )
+
+                        // 阅读位置属锦上添花的数据：失败只记日志，不让整个恢复失败、也不参与回滚
+                        runCatching {
+                            val capturedReadPositionsJson = readPositionsJson
+                            val positions: Map<String, ConversationReadPosition> = when {
+                                capturedReadPositionsJson != null ->
+                                    json.decodeFromString(capturedReadPositionsJson)
+
+                                else -> {
+                                    // 老备份没有独立条目：从 settings.json 的旧字段里提取
+                                    val legacyElement = settingsJsonHolder.json
+                                        ?.let { json.parseToJsonElement(it) }
+                                        ?.jsonObject
+                                        ?.get("conversationReadPositions")
+                                    legacyElement?.let { json.decodeFromJsonElement(it) } ?: emptyMap()
+                                }
+                            }
+                            // 与旧行为一致：只要 settings 恢复成功就整体替换（备份为空则清空本地）
+                            readPositionStore.replaceAll(positions)
+                            Log.i(TAG, "restoreFromBackupFile: Restored ${positions.size} read positions")
+                        }.onFailure {
+                            Log.w(TAG, "restoreFromBackupFile: Failed to restore read positions", it)
+                        }
                     }
                 } catch (restoreError: Exception) {
                     val rollbackErrors = mutableListOf<Throwable>()

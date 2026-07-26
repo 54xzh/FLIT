@@ -122,7 +122,6 @@ import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
-import me.rerere.rikkahub.data.datastore.getConversationReadPosition
 import me.rerere.rikkahub.data.datastore.hasLargeContextWarningShown
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.GroupChatTemplate
@@ -512,7 +511,7 @@ fun ChatPage(
 
     val hasMessages = conversation.messageNodes.isNotEmpty()
     val cachedPosition = scrollPositionCache[id.toString()]
-    val persistedReadPosition = setting.getConversationReadPosition(id)
+    val persistedReadPosition = vm.peekReadPosition()
     val hasUsableCachedPosition = isCachedScrollPositionUsable(
         cachedPosition = cachedPosition,
         itemCount = conversation.messageNodes.size,
@@ -536,7 +535,7 @@ fun ChatPage(
                 drawerContent = {
                     ChatDrawerContent(
                         navController = navController,
-                        current = conversation,
+                        currentId = id,
                         vm = vm,
                         settings = setting,
                         currentExistsInStorage = conversationExistsInStorage,
@@ -570,7 +569,7 @@ fun ChatPage(
                 drawerContent = {
                     ChatDrawerContent(
                         navController = navController,
-                        current = conversation,
+                        currentId = id,
                         vm = vm,
                         settings = setting,
                         currentExistsInStorage = conversationExistsInStorage,
@@ -636,7 +635,7 @@ private fun ChatPageContent(
     var savingContextSummary by remember { mutableStateOf(false) }
     val currentConversationState = rememberUpdatedState(conversation)
     val conversationInitialized by vm.conversationInitialized.collectAsStateWithLifecycle()
-    val settingsReady by vm.settingsReady.collectAsStateWithLifecycle()
+    val readPositionsReady by vm.readPositionsReady.collectAsStateWithLifecycle()
     val conversationReadPosition by vm.conversationReadPosition.collectAsStateWithLifecycle()
     val loadingOlderHistory by vm.loadingOlderHistory.collectAsStateWithLifecycle()
     val quotaUsage by vm.quotaUsageFlow.collectAsStateWithLifecycle()
@@ -661,7 +660,7 @@ private fun ChatPageContent(
         cachedPosition = inMemoryCachedPosition,
         itemCount = conversation.messageNodes.size,
     )
-    val hasPersistedReadPosition = settingsReady && conversationReadPosition != null
+    val hasPersistedReadPosition = readPositionsReady && conversationReadPosition != null
     val hasCachedPosition = hasInMemoryCache || hasPersistedReadPosition
     val chatListAlpha = if (
         !conversationInitialized ||
@@ -685,12 +684,12 @@ private fun ChatPageContent(
         chatListState,
         vm,
         currentConversationState,
-        settingsReady,
+        readPositionsReady,
         previewMode,
         initialEntryHandled,
     ) {
         {
-            if (shouldPersistCurrentReadPosition(settingsReady, previewMode, initialEntryHandled)) {
+            if (shouldPersistCurrentReadPosition(readPositionsReady, previewMode, initialEntryHandled)) {
                 val sample = resolveCurrentReadPositionSample(
                     messageNodes = currentConversationState.value.messageNodes,
                     itemIndex = chatListState.firstVisibleItemIndex,
@@ -756,9 +755,9 @@ private fun ChatPageContent(
         initialSearchQuery,
         hasCachedPosition,
         conversation.messageNodes.size,
-        settingsReady,
+        readPositionsReady,
     ) {
-        if (!settingsReady) return@LaunchedEffect
+        if (!readPositionsReady) return@LaunchedEffect
         delay(2000L)
         if (!initialEntryHandled) {
             if (conversation.messageNodes.isNotEmpty() && !hasCachedPosition) {
@@ -829,7 +828,7 @@ private fun ChatPageContent(
     LaunchedEffect(
         conversation.id,
         conversationInitialized,
-        settingsReady,
+        readPositionsReady,
         initialEntryHandled,
         conversationReadPosition,
         initialSearchQuery,
@@ -838,7 +837,7 @@ private fun ChatPageContent(
         hasInMemoryCache,
     ) {
         if (!shouldStartInitialReadPositionRestore(
-                settingsReady = settingsReady,
+                readPositionsReady = readPositionsReady,
                 conversationInitialized = conversationInitialized,
                 initialEntryHandled = initialEntryHandled,
                 initialSearchQuery = initialSearchQuery,

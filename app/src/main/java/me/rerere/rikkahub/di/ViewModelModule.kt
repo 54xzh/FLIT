@@ -30,6 +30,7 @@ val viewModelModule = module {
             id = params.get(),
             context = get(),
             settingsStore = get(),
+            readPositionStore = get(),
             conversationRepo = get(),
             chatService = get(),
             updateChecker = get(),

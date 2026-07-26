@@ -14,6 +14,7 @@ import me.rerere.rikkahub.data.ai.GenerationHandler
 import me.rerere.rikkahub.data.ai.transformers.TemplateTransformer
 import me.rerere.rikkahub.data.api.LastChatAPI
 import me.rerere.rikkahub.data.api.SponsorAPI
+import me.rerere.rikkahub.data.datastore.ChatReadPositionStore
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.ModelCapabilityStore
 import me.rerere.rikkahub.data.db.AppDatabase
@@ -34,6 +35,11 @@ import java.util.concurrent.TimeUnit
 val dataSourceModule = module {
     single {
         SettingsStore(context = get(), scope = get())
+    }
+
+    // createdAtStart: 启动时就加载阅读位置到内存，保证进聊天页时可同步读取
+    single(createdAtStart = true) {
+        ChatReadPositionStore(context = get(), settingsStore = get(), scope = get())
     }
 
     single {
@@ -200,7 +206,14 @@ val dataSourceModule = module {
     }
 
     single {
-        WebdavSync(settingsStore = get(), json = get(), context = get(), database = get(), skillUuidMigration = get())
+        WebdavSync(
+            settingsStore = get(),
+            readPositionStore = get(),
+            json = get(),
+            context = get(),
+            database = get(),
+            skillUuidMigration = get(),
+        )
     }
 
     single {

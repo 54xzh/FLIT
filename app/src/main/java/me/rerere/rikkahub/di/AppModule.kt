@@ -156,6 +156,7 @@ val appModule = module {
             context = get(),
             appScope = get(),
             settingsStore = get(),
+            readPositionStore = get(),
             conversationRepo = get(),
             toolResultArchiveRepository = get(),
             memoryRepository = get(),

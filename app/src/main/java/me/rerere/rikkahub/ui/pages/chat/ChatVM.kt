@@ -39,11 +39,11 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.isEmptyInputMessage
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.ChatReadPositionStore
 import me.rerere.rikkahub.data.datastore.ConversationReadPosition
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
-import me.rerere.rikkahub.data.datastore.getConversationReadPosition
 import me.rerere.rikkahub.data.datastore.sanitizeConversationLargeContextWarningShownAt
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantAffectScope
@@ -71,6 +71,7 @@ class ChatVM(
     id: String,
     private val context: Application,
     private val settingsStore: SettingsStore,
+    private val readPositionStore: ChatReadPositionStore,
     private val conversationRepo: ConversationRepository,
     private val chatService: ChatService,
     val updateChecker: UpdateChecker,
@@ -170,12 +171,15 @@ class ChatVM(
 
     // 用户设置
     val settings: StateFlow<Settings> = settingsStore.settingsFlow
-    val settingsReady: StateFlow<Boolean> = settingsStore.settingsFlowRaw
-        .map { true }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-    val conversationReadPosition: StateFlow<ConversationReadPosition?> = settings
-        .map { current -> current.getConversationReadPosition(_conversationId) }
-        .stateIn(viewModelScope, SharingStarted.Lazily, null)
+
+    // 阅读位置来自独立存储，不再挂在全局 Settings 上
+    val readPositionsReady: StateFlow<Boolean> = readPositionStore.readyFlow
+    val conversationReadPosition: StateFlow<ConversationReadPosition?> = readPositionStore.positionsFlow
+        .map { positions -> positions[_conversationId.toString()] }
+        .stateIn(viewModelScope, SharingStarted.Lazily, readPositionStore.get(_conversationId))
+
+    /** 组合首帧同步读当前会话的阅读位置（存储未加载完时返回 null） */
+    fun peekReadPosition(): ConversationReadPosition? = readPositionStore.get(_conversationId)
     private val _loadingOlderHistory = MutableStateFlow(false)
     val loadingOlderHistory: StateFlow<Boolean> = _loadingOlderHistory.asStateFlow()
 
@@ -775,29 +779,15 @@ class ChatVM(
     }
 
     fun updateConversationReadPosition(nodeId: Uuid, offset: Int, itemIndex: Int = 0) {
-        val conversationKey = _conversationId.toString()
-        val normalizedOffset = offset.coerceAtLeast(0)
-        val normalizedItemIndex = itemIndex.coerceAtLeast(0)
         val newPosition = ConversationReadPosition(
             nodeId = nodeId.toString(),
-            offset = normalizedOffset,
+            offset = offset.coerceAtLeast(0),
             updatedAt = System.currentTimeMillis(),
-            itemIndex = normalizedItemIndex,
+            itemIndex = itemIndex.coerceAtLeast(0),
         )
 
         viewModelScope.launch {
-            settingsStore.update { current ->
-                val existing = current.conversationReadPositions[conversationKey]
-                if (!shouldPersistConversationReadPosition(existing, newPosition)) {
-                    current
-                } else {
-                    current.copy(
-                        conversationReadPositions = current.conversationReadPositions + (
-                            conversationKey to newPosition
-                        )
-                    )
-                }
-            }
+            readPositionStore.update(_conversationId, newPosition)
         }
     }
 

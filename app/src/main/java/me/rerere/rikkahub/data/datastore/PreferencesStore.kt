@@ -557,9 +557,6 @@ class SettingsStore(
                 rememberedWorkspaceForNewChats = preferences[REMEMBERED_WORKSPACE_FOR_NEW_CHATS]?.let {
                     runCatching { JsonInstant.decodeFromString<RememberedWorkspaceForNewChats>(it) }.getOrNull()
                 },
-                conversationReadPositions = preferences[CONVERSATION_READ_POSITIONS]?.let {
-                    runCatching { JsonInstant.decodeFromString<Map<String, ConversationReadPosition>>(it) }.getOrNull()
-                } ?: emptyMap(),
                 conversationLargeContextWarningShownAt = preferences[CONVERSATION_LARGE_CONTEXT_WARNING_SHOWN_AT]?.let {
                     runCatching { JsonInstant.decodeFromString<Map<String, Long>>(it) }.getOrNull()
                 } ?: emptyMap(),
@@ -699,6 +696,21 @@ class SettingsStore(
 	    suspend fun update(settings: Settings) = updateMutex.withLock {
 	        updateLocked(settings)
 	    }
+
+    /**
+     * 一次性迁移用：读取旧版存在本 DataStore 里的会话阅读位置原始 JSON（只读不删）。
+     * 阅读位置已挪到独立的 ChatReadPositionStore，Settings 不再读写它。
+     */
+    suspend fun peekLegacyConversationReadPositions(): String? {
+        return dataStore.data.first()[CONVERSATION_READ_POSITIONS]
+    }
+
+    /** 迁移落盘成功后调用：删除旧 key（key 不存在时为空操作） */
+    suspend fun removeLegacyConversationReadPositions() {
+        dataStore.edit { preferences ->
+            preferences.remove(CONVERSATION_READ_POSITIONS)
+        }
+    }
 
 	    private suspend fun updateLocked(settings: Settings) {
 	        if(settings.init) {
@@ -843,8 +855,6 @@ class SettingsStore(
                 ?.let {
                 preferences[REMEMBERED_WORKSPACE_FOR_NEW_CHATS] = JsonInstant.encodeToString(it)
             } ?: preferences.remove(REMEMBERED_WORKSPACE_FOR_NEW_CHATS)
-            preferences[CONVERSATION_READ_POSITIONS] =
-                JsonInstant.encodeToString(finalSettingsToSave.conversationReadPositions)
             preferences[CONVERSATION_LARGE_CONTEXT_WARNING_SHOWN_AT] =
                 JsonInstant.encodeToString(finalSettingsToSave.conversationLargeContextWarningShownAt)
         }
@@ -1065,7 +1075,6 @@ data class Settings(
     val conversationWorkDirs: Map<String, ConversationWorkDirBinding> = emptyMap(),
     val rememberLastWorkspaceForNewChats: Boolean = false,
     val rememberedWorkspaceForNewChats: RememberedWorkspaceForNewChats? = null,
-    val conversationReadPositions: Map<String, ConversationReadPosition> = emptyMap(),
     val conversationLargeContextWarningShownAt: Map<String, Long> = emptyMap(),
 ) {
     companion object {
@@ -1598,11 +1607,6 @@ fun Settings.hasConversationWorkspaceRoot(conversationId: Uuid): Boolean {
     return getConversationWorkspaceRootTreeUri(conversationId) != null
 }
 
-fun Settings.getConversationReadPosition(conversationId: Uuid): ConversationReadPosition? {
-    val key = conversationId.toString()
-    return conversationReadPositions[key]
-}
-
 fun Settings.hasLargeContextWarningShown(conversationId: Uuid): Boolean {
     val key = conversationId.toString()
     return conversationLargeContextWarningShownAt.containsKey(key)
@@ -1912,7 +1916,6 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
         }
         .toMap()
     val cleanedRememberedWorkspaceForNewChats = sanitizeRememberedWorkspaceForNewChats(rememberedWorkspaceForNewChats)
-    val cleanedConversationReadPositions = sanitizeConversationReadPositions(conversationReadPositions)
     val cleanedConversationLargeContextWarningShownAt =
         sanitizeConversationLargeContextWarningShownAt(conversationLargeContextWarningShownAt)
 
@@ -2016,7 +2019,6 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
         conversationWorkDirs = cleanedConversationWorkDirs,
         rememberedWorkspaceForNewChats = cleanedRememberedWorkspaceForNewChats
             ?.takeIf { rememberLastWorkspaceForNewChats },
-        conversationReadPositions = cleanedConversationReadPositions,
         conversationLargeContextWarningShownAt = cleanedConversationLargeContextWarningShownAt,
         groupChatTemplates = cleanedGroupChats,
         favoriteModels = cleanedFavorites,

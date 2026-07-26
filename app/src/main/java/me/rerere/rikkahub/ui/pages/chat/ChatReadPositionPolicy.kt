@@ -24,14 +24,14 @@ internal fun shouldRunReadPositionRestore(
 }
 
 internal fun shouldStartInitialReadPositionRestore(
-    settingsReady: Boolean,
+    readPositionsReady: Boolean,
     conversationInitialized: Boolean,
     initialEntryHandled: Boolean,
     initialSearchQuery: String?,
     pendingJumpNodeId: Uuid?,
     previewMode: Boolean,
 ): Boolean {
-    return settingsReady &&
+    return readPositionsReady &&
         conversationInitialized &&
         !initialEntryHandled &&
         shouldRunReadPositionRestore(
@@ -42,11 +42,11 @@ internal fun shouldStartInitialReadPositionRestore(
 }
 
 internal fun shouldPersistCurrentReadPosition(
-    settingsReady: Boolean,
+    readPositionsReady: Boolean,
     previewMode: Boolean,
     initialEntryHandled: Boolean,
 ): Boolean {
-    return settingsReady && !previewMode && initialEntryHandled
+    return readPositionsReady && !previewMode && initialEntryHandled
 }
 
 internal fun resolveReadPositionNodeIndex(
@@ -130,12 +130,3 @@ internal fun resolveCurrentReadPositionSample(
     )
 }
 
-internal fun shouldPersistConversationReadPosition(
-    existing: ConversationReadPosition?,
-    incoming: ConversationReadPosition,
-): Boolean {
-    if (existing == null) return true
-    return existing.nodeId != incoming.nodeId ||
-        existing.offset != incoming.offset ||
-        existing.itemIndex != incoming.itemIndex
-}

@@ -114,6 +114,7 @@ import me.rerere.rikkahub.data.ai.transformers.QuotedFollowUpTransformer
 import me.rerere.rikkahub.data.ai.transformers.RegexOutputTransformer
 import me.rerere.rikkahub.data.ai.transformers.TemplateTransformer
 import me.rerere.rikkahub.data.ai.transformers.ThinkTagTransformer
+import me.rerere.rikkahub.data.datastore.ChatReadPositionStore
 import me.rerere.rikkahub.data.datastore.KeepAliveMode
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
@@ -257,6 +258,7 @@ class ChatService(
     private val context: Application,
     private val appScope: AppScope,
     private val settingsStore: SettingsStore,
+    private val readPositionStore: ChatReadPositionStore,
     private val conversationRepo: ConversationRepository,
     private val toolResultArchiveRepository: ToolResultArchiveRepository,
     private val memoryRepository: MemoryRepository,
@@ -5276,10 +5278,9 @@ class ChatService(
                 kotlinx.coroutines.delay(4000)
                 context.deleteChatFiles(conversationFull?.files ?: emptyList())
                 settingsStore.update { current ->
-                    current.clearConversationWorkspace(conversation.id).copy(
-                        conversationReadPositions = current.conversationReadPositions - conversation.id.toString()
-                    )
+                    current.clearConversationWorkspace(conversation.id)
                 }
+                readPositionStore.remove(conversation.id)
                 conversationDeletionJobs.remove(conversation.id)
                 recentlyDeletedConversations.remove(conversation.id)
             }
@@ -5316,18 +5317,11 @@ class ChatService(
             }
             if (deleteFiles) {
                 settingsStore.update { current ->
-                    current.clearConversationWorkspace(conversationId).copy(
-                        conversationReadPositions = current.conversationReadPositions - conversationId.toString()
-                    )
-                }
-            } else {
-                // 只清记录: 保留工作区与读位置, 仅清 DB 里该会话对应的读位置记录
-                settingsStore.update { current ->
-                    current.copy(
-                        conversationReadPositions = current.conversationReadPositions - conversationId.toString()
-                    )
+                    current.clearConversationWorkspace(conversationId)
                 }
             }
+            // 无论是否删文件, 该会话对应的阅读位置记录都一并清掉
+            readPositionStore.remove(conversationId)
         }
         // 删除标记等到「被取消的生成任务真正结束」后再清: 固定延迟在慢网络下会过早清标记,
         // 让仍卡在 onCompletion NonCancellable 草稿保存里的旧任务在标记清除后回写非空 flow
@@ -5353,19 +5347,13 @@ class ChatService(
                 writeMutex.withLock {
                     conversationRepo.deleteConversation(conversation, deleteFiles = deleteFiles)
                 }
-                // 与 deleteConversationById 对齐: 仅当删文件时才清工作区; 只清记录模式保留工作区覆写,
-                // 仅清该会话对应的读位置记录。
-                settingsStore.update { current ->
-                    if (deleteFiles) {
-                        current.clearConversationWorkspace(conversation.id).copy(
-                            conversationReadPositions = current.conversationReadPositions - conversation.id.toString()
-                        )
-                    } else {
-                        current.copy(
-                            conversationReadPositions = current.conversationReadPositions - conversation.id.toString()
-                        )
+                // 与 deleteConversationById 对齐: 仅当删文件时才清工作区; 阅读位置记录总是清掉。
+                if (deleteFiles) {
+                    settingsStore.update { current ->
+                        current.clearConversationWorkspace(conversation.id)
                     }
                 }
+                readPositionStore.remove(conversation.id)
             }
         }
         // 等各会话被取消的生成任务真正结束后再清标记, 理由同 [deleteConversationById]。

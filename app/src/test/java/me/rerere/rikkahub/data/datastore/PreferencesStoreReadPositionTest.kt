@@ -7,28 +7,6 @@ import kotlin.uuid.Uuid
 
 class PreferencesStoreReadPositionTest {
     @Test
-    fun getConversationReadPosition_returnsMatchedPosition() {
-        val conversationId = Uuid.parse("00000000-0000-0000-0000-000000000101")
-        val nodeId = Uuid.parse("00000000-0000-0000-0000-000000000201")
-        val settings = Settings(
-            conversationReadPositions = mapOf(
-                conversationId.toString() to ConversationReadPosition(
-                    nodeId = nodeId.toString(),
-                    offset = 42,
-                    updatedAt = 1000L,
-                    itemIndex = 7,
-                )
-            )
-        )
-
-        val position = settings.getConversationReadPosition(conversationId)
-
-        assertEquals(nodeId.toString(), position?.nodeId)
-        assertEquals(42, position?.offset)
-        assertEquals(7, position?.itemIndex)
-    }
-
-    @Test
     fun sanitize_dropsInvalidEntries_andNormalizesOffset() {
         val validConversationId = Uuid.parse("00000000-0000-0000-0000-000000000102")
         val validNodeId = Uuid.parse("00000000-0000-0000-0000-000000000202")
