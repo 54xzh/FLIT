@@ -2,8 +2,10 @@ package me.rerere.ai.provider.providers
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -20,6 +22,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import me.rerere.ai.BuildConfig
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.TokenUsage
@@ -136,7 +139,7 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
 
-        Log.i(TAG, "generateText: $requestBodyJson")
+        if (BuildConfig.DEBUG) Log.i(TAG, "generateText: $requestBodyJson")
 
         val response = client.configureClientWithProxy(providerSetting.proxy).newCall(request).await()
         if (!response.isSuccessful) {
@@ -212,10 +215,12 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
 
-        Log.i(TAG, "streamText: $requestBodyJson")
-
-        requestBody["messages"]!!.jsonArray.forEach {
-            Log.i(TAG, "streamText: $it")
+        // 请求体可能含 base64 附件（数 MB），发布版不写入日志
+        if (BuildConfig.DEBUG) {
+            Log.i(TAG, "streamText: $requestBodyJson")
+            requestBody["messages"]?.jsonArray?.forEach {
+                Log.i(TAG, "streamText: $it")
+            }
         }
         val rawEventBuffer = StringBuilder()
 
@@ -226,7 +231,7 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 type: String?,
                 data: String
             ) {
-                Log.d(TAG, "onEvent: type=$type, data=$data")
+                if (BuildConfig.DEBUG) Log.d(TAG, "onEvent: type=$type, data=$data")
                 if (rawEventBuffer.isNotEmpty()) rawEventBuffer.append("\n")
                 rawEventBuffer.append(data)
 
@@ -306,9 +311,12 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                     return
                 }
 
+                // message_stop 事件不携带内容（usage/stop_reason 在 message_delta 里），
+                // 直接关流即可，不投递空分块
                 if (type == "message_stop") {
                     Log.d(TAG, "Stream ended")
                     close()
+                    return
                 }
 
                 trySend(messageChunk)
@@ -319,18 +327,18 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 var rawFailureResponse = ""
 
                 t?.printStackTrace()
-                Log.e(TAG, "onFailure: ${t?.javaClass?.name} ${t?.message} / $response")
+                if (BuildConfig.DEBUG) Log.e(TAG, "onFailure: ${t?.javaClass?.name} ${t?.message} / $response")
 
                 val bodyRaw = response?.body?.stringSafe()
                 rawFailureResponse = bodyRaw.orEmpty()
                 try {
                     if (!bodyRaw.isNullOrBlank()) {
                         val bodyElement = Json.parseToJsonElement(bodyRaw)
-                        Log.i(TAG, "Error response: $bodyElement")
+                        if (BuildConfig.DEBUG) Log.i(TAG, "Error response: $bodyElement")
                         exception = bodyElement.parseErrorDetail()
                     }
                 } catch (e: Throwable) {
-                    Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
+                    if (BuildConfig.DEBUG) Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
                     e.printStackTrace()
                 } finally {
                     val exceptionWithStatus = response?.let { resp ->
@@ -363,7 +371,8 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             Log.d(TAG, "Closing eventSource")
             eventSource.cancel()
         }
-    }
+        // SSE 回调线程用 trySend 推送且不检查结果，默认 64 容量在下游繁忙时会静默丢块，放开为无限缓冲
+    }.buffer(Channel.UNLIMITED)
 
     private fun buildMessageRequest(
         providerSetting: ProviderSetting.Claude,
@@ -536,7 +545,7 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                                             })
                                         }.onFailure {
                                             it.printStackTrace()
-                                            Log.w(TAG, "encode image failed: ${part.url}")
+                                            if (BuildConfig.DEBUG) Log.w(TAG, "encode image failed: ${part.url}")
                                             // 如果图片编码失败，添加一个空文本块
                                             put("type", "text")
                                             put("text", "")
@@ -587,7 +596,8 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                                             }
                                         })
                                     } else {
-                                        Log.w(TAG, "buildMessages: assistant tool_result not supported: $part")
+                                        // part 可能携带 base64 附件，发布版不打印内容
+                                        if (BuildConfig.DEBUG) Log.w(TAG, "buildMessages: assistant tool_result not supported: $part")
                                     }
                                 }
 
@@ -602,7 +612,8 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                                 }
 
                                 else -> {
-                                    Log.w(TAG, "buildMessages: message part not supported: $part")
+                                    // part 可能携带 base64 附件，发布版不打印内容
+                                    if (BuildConfig.DEBUG) Log.w(TAG, "buildMessages: message part not supported: $part")
                                     // DO NOTHING
                                 }
                             }

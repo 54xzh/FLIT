@@ -26,6 +26,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.common.http.jsonObjectOrNull
 import me.rerere.ai.core.InputSchema
+import me.rerere.rikkahub.BuildConfig
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
 import me.rerere.ai.core.ToolCallContext
@@ -641,7 +642,8 @@ class GenerationHandler(
                                 state = if (approved) ToolApprovalState.Approved else ToolApprovalState.Rejected,
                             )
                             if (approved) {
-                                Log.i(TAG, "generateText: executing tool ${tool.name} with args: $args")
+                                // 工具参数常内嵌用户内容，发布版不写入日志
+                                if (BuildConfig.DEBUG) Log.i(TAG, "generateText: executing tool ${tool.name} with args: $args")
                                 withContext(ToolCallContext(resolvedToolCallId)) {
                                     tool.execute(args)
                                 }
@@ -753,7 +755,8 @@ class GenerationHandler(
                             }
                         }
                     } else {
-                        Log.i(TAG, "generateText: executing tool ${tool.name} with args: $args")
+                        // 工具参数常内嵌用户内容，发布版不写入日志
+                        if (BuildConfig.DEBUG) Log.i(TAG, "generateText: executing tool ${tool.name} with args: $args")
                         withContext(ToolCallContext(resolvedToolCallId)) {
                             tool.execute(args)
                         }

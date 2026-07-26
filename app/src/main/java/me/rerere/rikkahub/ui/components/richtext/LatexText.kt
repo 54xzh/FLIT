@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.ui.components.richtext
 
 import android.graphics.Rect
+import android.util.LruCache
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.LocalTextStyle
@@ -16,14 +17,24 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.TextUnit
 import ru.noties.jlatexmath.JLatexMathDrawable
 
+// 尺寸完全由「公式文本 + 字号」决定；缓存测量结果，避免流式输出时每个 token 都在主线程完整排版一次公式。
+// 只缓存成功的测量——瞬时失败（如内存紧张）不能被永久记住，否则该公式会一直塌缩成 0×0。
+// Rect 可变，读写都用副本，防止调用方或后续写入污染缓存。
+private val latexSizeCache = LruCache<String, Rect>(256)
+
 fun assumeLatexSize(latex: String, fontSize: Float): Rect {
+    // 先归一化再作为缓存 key：$x$、\(x\) 等等价写法归一后相同，共用一条缓存
     val processedLatex = processLatex(latex)
+    val cacheKey = "$fontSize:$processedLatex"
+    latexSizeCache.get(cacheKey)?.let { return Rect(it) }
     return runCatching {
-        JLatexMathDrawable.builder(processedLatex)
+        val size = JLatexMathDrawable.builder(processedLatex)
             .textSize(fontSize)
             .padding(0)
             .build()
             .bounds
+        latexSizeCache.put(cacheKey, Rect(size))
+        Rect(size)
     }.getOrElse { Rect(0, 0, 0, 0) }
 }
 

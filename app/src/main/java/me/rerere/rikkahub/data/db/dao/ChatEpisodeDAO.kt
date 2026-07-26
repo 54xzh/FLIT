@@ -76,6 +76,12 @@ interface ChatEpisodeDAO {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEpisode(episode: ChatEpisodeEntity): Long
 
+    /**
+     * 批量写回访问时间，避免为改一个字段逐行重写整行（含 embedding 大列）。
+     */
+    @Query("UPDATE ChatEpisodeEntity SET last_accessed_at = :timestamp WHERE id IN (:ids)")
+    suspend fun updateLastAccessedAt(ids: List<Int>, timestamp: Long)
+
     @Query("DELETE FROM ChatEpisodeEntity WHERE id = :id")
     suspend fun deleteEpisode(id: Int)
 

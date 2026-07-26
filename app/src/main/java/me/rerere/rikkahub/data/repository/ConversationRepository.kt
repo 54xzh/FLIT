@@ -227,6 +227,15 @@ class ConversationRepository(
         return getConversationByIdCatching(uuid).getOrNull()
     }
 
+    /**
+     * 轻量存在性检查：只判断行是否存在，不读取整行、不解码消息 JSON。
+     * 保存路径判断 insert/update 用它替代 [getConversationById]，
+     * 长对话每次保存可省去一遍全量解码。
+     */
+    suspend fun conversationExists(uuid: Uuid): Boolean {
+        return conversationDAO.exists(uuid.toString())
+    }
+
     suspend fun exportConversationRawJson(conversationId: Uuid): String? = withContext(Dispatchers.IO) {
         val entity = conversationDAO.getConversationById(conversationId.toString()) ?: return@withContext null
         val payload = ConversationRawJsonExport(
@@ -272,11 +281,16 @@ class ConversationRepository(
         val preparedConversation = prepareConversationForStorage(conversation)
         conversationWriteMutex.withLock {
             val conversationToStore = sanitizeWorkspaceOverride(preparedConversation)
-            val existingConversation = conversationDAO.getConversationById(conversation.id.toString())
-                ?.let { entity -> conversationEntityToConversation(entity) }
+            // 仅「已固化」会话需要读出旧内容判断是否作废整合结果；普通保存
+            // （含生成中的草稿节流保存）跳过这次整行读取 + 全量 JSON 解码
             val shouldInvalidateConsolidation = conversationToStore.isConsolidated &&
-                existingConversation != null &&
-                hasConversationContentChanged(existingConversation, conversationToStore)
+                conversationDAO.getConversationById(conversation.id.toString())
+                    ?.let { entity ->
+                        hasConversationContentChanged(
+                            conversationEntityToConversation(entity),
+                            conversationToStore,
+                        )
+                    } == true
 
             // Invalidation Logic: If a consolidated conversation is updated (e.g. new message),
             // we must invalidate the old memory episode to allow re-consolidation.

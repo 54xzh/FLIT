@@ -16,6 +16,13 @@ interface EmbeddingCacheDAO {
     suspend fun getEmbedding(memoryId: Int, memoryType: Int, modelId: String): EmbeddingCacheEntity?
     
     /**
+     * Batch load cached embeddings for a set of memories of one type and model.
+     * 检索路径批量预取用，替代每条记忆一次的单点查询。
+     */
+    @Query("SELECT * FROM embedding_cache WHERE memory_type = :memoryType AND model_id = :modelId AND memory_id IN (:memoryIds)")
+    suspend fun getEmbeddings(memoryIds: List<Int>, memoryType: Int, modelId: String): List<EmbeddingCacheEntity>
+
+    /**
      * Insert or replace an embedding in the cache.
      */
     @Insert(onConflict = OnConflictStrategy.REPLACE)

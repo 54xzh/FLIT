@@ -1,6 +1,7 @@
 package me.rerere.ai.util
 
 import android.util.Log
+import me.rerere.ai.BuildConfig
 import me.rerere.ai.provider.ProviderProxy
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
@@ -24,7 +25,8 @@ fun OkHttpClient.configureClientWithProxy(proxyConfig: ProviderProxy): OkHttpCli
             if (!proxyConfig.username.isNullOrEmpty() && !proxyConfig.password.isNullOrEmpty()) {
                 clientBuilder.proxyAuthenticator { _: Route?, response: Response ->
                     val credential = Credentials.basic(proxyConfig.username, proxyConfig.password)
-                    Log.d(TAG, "configureClientWithProxy: $credential for ${response.request.url}")
+                    // credential 等价明文账号密码、URL 可能带 API Key，发布版不写入日志
+                    if (BuildConfig.DEBUG) Log.d(TAG, "configureClientWithProxy: $credential for ${response.request.url}")
                     response.request.newBuilder()
                         .header("Proxy-Authorization", credential)
                         .build()

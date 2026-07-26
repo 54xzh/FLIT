@@ -2,8 +2,10 @@ package me.rerere.ai.provider.providers.openai
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -21,6 +23,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import me.rerere.ai.BuildConfig
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.TokenUsage
@@ -92,7 +95,7 @@ class ChatCompletionsAPI(
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
 
-        Log.i(TAG, "generateText: $requestBodyJson")
+        if (BuildConfig.DEBUG) Log.i(TAG, "generateText: $requestBodyJson")
 
         val response = proxyClient.newCall(request).await()
         if (!response.isSuccessful) {
@@ -181,7 +184,8 @@ class ChatCompletionsAPI(
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
 
-        Log.i(TAG, "streamText: $requestBodyJson")
+        // 请求体可能含 base64 附件（数 MB），发布版不写入日志
+        if (BuildConfig.DEBUG) Log.i(TAG, "streamText: $requestBodyJson")
 
         // just for debugging response body
         // println(client.newCall(request).await().body?.string())
@@ -200,7 +204,7 @@ class ChatCompletionsAPI(
                     .map { it.trim().removePrefix("data:").trim() }
                     .filter { it.isNotBlank() }
                 val hasDoneEvent = eventLines.any { it == "[DONE]" }
-                Log.d(TAG, "onEvent: $data")
+                if (BuildConfig.DEBUG) Log.d(TAG, "onEvent: $data")
                 if (rawEventBuffer.isNotEmpty()) rawEventBuffer.append("\n")
                 rawEventBuffer.append(data)
                 val payloads = runCatching {
@@ -218,7 +222,7 @@ class ChatCompletionsAPI(
                     return
                 }
                 if (payloads.isEmpty() && hasDoneEvent) {
-                    println("[onEvent] (done) 结束流: $data")
+                    if (BuildConfig.DEBUG) println("[onEvent] (done) 结束流: $data")
                     close()
                     return
                 }
@@ -276,7 +280,7 @@ class ChatCompletionsAPI(
                     trySend(messageChunk)
                 }
                 if (hasDoneEvent) {
-                    println("[onEvent] (done) 结束流: $data")
+                    if (BuildConfig.DEBUG) println("[onEvent] (done) 结束流: $data")
                     close()
                 }
             }
@@ -286,7 +290,7 @@ class ChatCompletionsAPI(
                 var rawFailureResponse = ""
 
                 t?.printStackTrace()
-                println("[onFailure] 发生错误: ${t?.javaClass?.name} ${t?.message} / $response")
+                if (BuildConfig.DEBUG) println("[onFailure] 发生错误: ${t?.javaClass?.name} ${t?.message} / $response")
 
                 val bodyRaw = response?.body?.stringSafe()
                 rawFailureResponse = bodyRaw.orEmpty()
@@ -296,13 +300,13 @@ class ChatCompletionsAPI(
                             Log.w(TAG, "onFailure: skipped JSON error parse for SSE response")
                         } else {
                             val bodyElement = Json.parseToJsonElement(bodyRaw)
-                            println(bodyElement)
+                            if (BuildConfig.DEBUG) println(bodyElement)
                             exception = bodyElement.parseErrorDetail()
-                            Log.i(TAG, "onFailure: $exception")
+                            if (BuildConfig.DEBUG) Log.i(TAG, "onFailure: $exception")
                         }
                     }
                 } catch (e: Throwable) {
-                    Log.w(TAG, "onFailure: failed to parse from $bodyRaw", e)
+                    if (BuildConfig.DEBUG) Log.w(TAG, "onFailure: failed to parse from $bodyRaw", e)
                     e.printStackTrace()
                 } finally {
                     val exceptionWithStatus = response?.let { resp ->
@@ -333,7 +337,9 @@ class ChatCompletionsAPI(
             println("[awaitClose] 关闭eventSource ")
             eventSource.cancel()
         }
-    }
+        // SSE 回调线程用 trySend 推送且不检查结果，默认 64 容量在下游繁忙时会静默丢块
+        // （表现为丢字、工具调用参数截断），放开为无限缓冲；缓冲上限受单次生成长度约束
+    }.buffer(Channel.UNLIMITED)
 
     private fun buildChatCompletionRequest(
         messages: List<UIMessage>,
@@ -485,7 +491,7 @@ class ChatCompletionsAPI(
                                                 })
                                             }.onFailure {
                                                 it.printStackTrace()
-                                                println("encode image failed: ${part.url}")
+                                                if (BuildConfig.DEBUG) println("encode image failed: ${part.url}")
 
                                                 put("type", "text")
                                                 put("text", "")
@@ -503,7 +509,7 @@ class ChatCompletionsAPI(
                                                 })
                                             }.onFailure {
                                                 it.printStackTrace()
-                                                println("encode audio failed: ${part.url}")
+                                                if (BuildConfig.DEBUG) println("encode audio failed: ${part.url}")
 
                                                 put("type", "text")
                                                 put("text", "")
@@ -512,7 +518,8 @@ class ChatCompletionsAPI(
                                     }
 
                                     else -> {
-                                        Log.w(
+                                        // part 可能携带 base64 附件，发布版不打印内容
+                                        if (BuildConfig.DEBUG) Log.w(
                                             TAG,
                                             "buildMessages: message part not supported: $part"
                                         )

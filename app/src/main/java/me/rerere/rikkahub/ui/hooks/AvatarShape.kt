@@ -14,6 +14,8 @@ import kotlin.math.roundToInt
 
 @Composable
 fun rememberAvatarShape(loading: Boolean): Shape {
+    // 非加载态直接返回，避免常驻的无限动画让空闲页面持续重绘（参考 Modifier.shimmer 的做法）
+    if (!loading) return CircleShape
     val infiniteTransition = rememberInfiniteTransition()
     val rotateAngle = infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -25,5 +27,5 @@ fun rememberAvatarShape(loading: Boolean): Shape {
             ),
         )
     )
-    return if (loading) MaterialShapes.Cookie6Sided.toShape(rotateAngle.value.roundToInt()) else CircleShape
+    return MaterialShapes.Cookie6Sided.toShape(rotateAngle.value.roundToInt())
 }

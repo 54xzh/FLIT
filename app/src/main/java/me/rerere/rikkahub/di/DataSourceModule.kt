@@ -176,7 +176,12 @@ val dataSourceModule = module {
             }
             .addInterceptor(AIRequestInterceptor(remoteConfig = get()))
             .addInterceptor(HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.HEADERS
+                // 发布版关闭网络日志；调试版也要脱敏鉴权信息，避免 API Key 被写进系统日志
+                // （Gemini 的 key 挂在 URL query 上，所以还需要 redactQueryParams）
+                level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.HEADERS else HttpLoggingInterceptor.Level.NONE
+                redactHeader("Authorization")
+                redactHeader("x-api-key")
+                redactQueryParams("key")
             })
             .build()
     }

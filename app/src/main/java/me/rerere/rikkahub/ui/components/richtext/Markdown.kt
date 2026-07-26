@@ -1482,7 +1482,9 @@ private fun Paragraph(
             else Modifier
         )
     ) {
-        val annotatedString = remember(content, rpStyleRules) {
+        // 以段落自身文本为 key：流式追加时只有正在变化的段落重建，其余段落直接复用缓存结果
+        val paragraphText = node.getTextInNode(content)
+        val annotatedString = remember(paragraphText, rpStyleRules) {
             buildAnnotatedString {
                 appendInlineChildrenWithFallback(
                     nodes = node.children,

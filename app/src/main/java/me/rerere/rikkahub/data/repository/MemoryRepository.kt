@@ -28,6 +28,9 @@ data class AssistantMemoryStats(
     val totalCount: Int = 0,
 )
 
+// 打分按块进行：每块先批量预取嵌入缓存再计算相似度，块间释放，检索峰值内存有上限
+private const val EMBEDDING_SCORING_CHUNK_SIZE = 256
+
 class MemoryRepository(
     private val memoryDAO: MemoryDAO,
     private val chatEpisodeDAO: ChatEpisodeDAO,
@@ -306,15 +309,24 @@ class MemoryRepository(
         existingEmbedding: String? = null,
         existingModelId: String? = null,
         source: AIRequestSource = AIRequestSource.MEMORY_EMBEDDING,
+        // 非空表示调用方已批量查过嵌入缓存表；未命中时不再发单点查询
+        preloadedCache: Map<Int, EmbeddingCacheEntity>? = null,
+        // 与 preloadedCache 配套传入：保证缓存查取与后续回填/生成用同一份模型 ID 快照，
+        // 避免检索过程中切换嵌入模型时两端各自读取产生不一致
+        modelIdOverride: String? = null,
     ): List<Float>? {
         val normalizedContent = content.trim()
         if (normalizedContent.isEmpty()) {
             return null
         }
-        val modelId = embeddingService.getEmbeddingModelId(assistantId)
+        val modelId = modelIdOverride ?: embeddingService.getEmbeddingModelId(assistantId)
         
         // Check cache first
-        val cached = embeddingCacheDAO.getEmbedding(memoryId, memoryType, modelId)
+        val cached = if (preloadedCache != null) {
+            preloadedCache[memoryId]
+        } else {
+            embeddingCacheDAO.getEmbedding(memoryId, memoryType, modelId)
+        }
         if (cached != null) {
             return try {
                 JsonInstant.decodeFromString<List<Float>>(cached.embedding)
@@ -364,6 +376,21 @@ class MemoryRepository(
             e.printStackTrace()
             null
         }
+    }
+
+    /**
+     * 批量读取嵌入缓存。调用方通常已按 [EMBEDDING_SCORING_CHUNK_SIZE] 分块，
+     * 此处仍防御性地按 500 切块，独立保证不超过 SQLite 单条语句绑定变量上限（约 999）。
+     */
+    private suspend fun batchLoadEmbeddingCache(
+        memoryIds: List<Int>,
+        memoryType: Int,
+        modelId: String,
+    ): Map<Int, EmbeddingCacheEntity> {
+        if (memoryIds.isEmpty()) return emptyMap()
+        return memoryIds.chunked(500)
+            .flatMap { chunk -> embeddingCacheDAO.getEmbeddings(chunk, memoryType, modelId) }
+            .associateBy { it.memoryId }
     }
 
     /**
@@ -576,9 +603,37 @@ class MemoryRepository(
         val memories = if (includeCore) memoryDAO.getMemoriesOfAssistant(assistantId) else emptyList()
         val episodes = if (includeEpisodes) chatEpisodeDAO.getEpisodesOfAssistant(assistantId) else emptyList()
 
-        val scoredCore = memories.mapNotNull { memory ->
-            if (memory.pinned) {
-                val score = runCatching {
+        // 批量预取嵌入缓存：此前每条记忆各发一次单点查询（N+1），记忆多时发消息前会明显停顿。
+        // 按块「预取 + 打分」以约束缓存副本的额外驻留（每行携带十几 KB 向量 JSON）；
+        // 注意上方实体列表本身仍是整表加载（既有行为），检索峰值内存的主导项不在此处
+        val embeddingModelId = embeddingService.getEmbeddingModelId(assistantId)
+
+        val scoredCore = memories.chunked(EMBEDDING_SCORING_CHUNK_SIZE).flatMap { memoryChunk ->
+            val cachedMemoryEmbeddings =
+                batchLoadEmbeddingCache(memoryChunk.map { it.id }, MemoryType.CORE, embeddingModelId)
+            memoryChunk.mapNotNull { memory ->
+                if (memory.pinned) {
+                    val score = runCatching {
+                        val embedding = getOrCreateEmbedding(
+                            memoryId = memory.id,
+                            memoryType = MemoryType.CORE,
+                            content = memory.content,
+                            assistantId = assistantId,
+                            existingEmbedding = memory.embedding,
+                            existingModelId = memory.embeddingModelId,
+                            source = AIRequestSource.MEMORY_RETRIEVAL,
+                            preloadedCache = cachedMemoryEmbeddings,
+                            modelIdOverride = embeddingModelId,
+                        )
+                        if (embedding != null) {
+                            val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
+                            similarity * 1.05f
+                        } else {
+                            1f
+                        }
+                    }.getOrDefault(1f)
+                    ScoredCandidate(item = memory, score = score, isMemory = true, isPinned = true)
+                } else {
                     val embedding = getOrCreateEmbedding(
                         memoryId = memory.id,
                         memoryType = MemoryType.CORE,
@@ -587,60 +642,51 @@ class MemoryRepository(
                         existingEmbedding = memory.embedding,
                         existingModelId = memory.embeddingModelId,
                         source = AIRequestSource.MEMORY_RETRIEVAL,
-                    )
-                    if (embedding != null) {
-                        val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
-                        similarity * 1.05f
-                    } else {
-                        1f
-                    }
-                }.getOrDefault(1f)
-                ScoredCandidate(item = memory, score = score, isMemory = true, isPinned = true)
-            } else {
-                val embedding = getOrCreateEmbedding(
-                    memoryId = memory.id,
-                    memoryType = MemoryType.CORE,
-                    content = memory.content,
-                    assistantId = assistantId,
-                    existingEmbedding = memory.embedding,
-                    existingModelId = memory.embeddingModelId,
-                    source = AIRequestSource.MEMORY_RETRIEVAL,
-                ) ?: return@mapNotNull null
+                        preloadedCache = cachedMemoryEmbeddings,
+                        modelIdOverride = embeddingModelId,
+                    ) ?: return@mapNotNull null
 
-                val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
-                val score = similarity * 1.05f
-                if (score >= similarityThreshold) {
-                    ScoredCandidate(item = memory, score = score, isMemory = true, isPinned = false)
-                } else {
-                    null
+                    val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
+                    val score = similarity * 1.05f
+                    if (score >= similarityThreshold) {
+                        ScoredCandidate(item = memory, score = score, isMemory = true, isPinned = false)
+                    } else {
+                        null
+                    }
                 }
             }
         }
 
-        val scoredEpisodes = episodes.mapNotNull { episode ->
-            val embedding = getOrCreateEmbedding(
-                memoryId = episode.id,
-                memoryType = MemoryType.EPISODIC,
-                content = episode.content,
-                assistantId = assistantId,
-                existingEmbedding = episode.embedding,
-                existingModelId = episode.embeddingModelId,
-                source = AIRequestSource.MEMORY_RETRIEVAL,
-            ) ?: return@mapNotNull null
+        val scoredEpisodes = episodes.chunked(EMBEDDING_SCORING_CHUNK_SIZE).flatMap { episodeChunk ->
+            val cachedEpisodeEmbeddings =
+                batchLoadEmbeddingCache(episodeChunk.map { it.id }, MemoryType.EPISODIC, embeddingModelId)
+            episodeChunk.mapNotNull { episode ->
+                val embedding = getOrCreateEmbedding(
+                    memoryId = episode.id,
+                    memoryType = MemoryType.EPISODIC,
+                    content = episode.content,
+                    assistantId = assistantId,
+                    existingEmbedding = episode.embedding,
+                    existingModelId = episode.embeddingModelId,
+                    source = AIRequestSource.MEMORY_RETRIEVAL,
+                    preloadedCache = cachedEpisodeEmbeddings,
+                    modelIdOverride = embeddingModelId,
+                ) ?: return@mapNotNull null
 
-            val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
+                val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
 
-            // Calculate Recency Score (7 days half-life)
-            val ageInMillis = System.currentTimeMillis() - episode.startTime
-            val ageInDays = ageInMillis / (1000.0 * 60 * 60 * 24)
-            val recency = (1.0 / (1.0 + (ageInDays / 7.0))).toFloat()
+                // Calculate Recency Score (7 days half-life)
+                val ageInMillis = System.currentTimeMillis() - episode.startTime
+                val ageInDays = ageInMillis / (1000.0 * 60 * 60 * 24)
+                val recency = (1.0 / (1.0 + (ageInDays / 7.0))).toFloat()
 
-            val score = (similarity * 0.7f) + (recency * 0.3f)
+                val score = (similarity * 0.7f) + (recency * 0.3f)
 
-            if (score >= similarityThreshold) {
-                ScoredCandidate(item = episode, score = score, isMemory = false, isPinned = false)
-            } else {
-                null
+                if (score >= similarityThreshold) {
+                    ScoredCandidate(item = episode, score = score, isMemory = false, isPinned = false)
+                } else {
+                    null
+                }
             }
         }
 
@@ -676,15 +722,17 @@ class MemoryRepository(
             }
 
         // Update lastAccessedAt for included items (pinned + top-k)
-        finalCandidates.forEach { candidate ->
-            if (candidate.isMemory) {
-                val memory = candidate.item as MemoryEntity
-                memoryDAO.updateMemory(memory.copy(lastAccessedAt = System.currentTimeMillis()))
-            } else {
-                val episode = candidate.item as ChatEpisodeEntity
-                chatEpisodeDAO.insertEpisode(episode.copy(lastAccessedAt = System.currentTimeMillis()))
-            }
-        }
+        // 批量写回：单条 UPDATE 替代逐行整行重写（旧写法每行重写含 embedding 的整行、各自提交
+        // 一次事务，且每次写入都会让记忆列表的 Flow 订阅方全量重查一遍）
+        val accessedAt = System.currentTimeMillis()
+        finalCandidates.filter { it.isMemory }
+            .map { (it.item as MemoryEntity).id }
+            .chunked(500)
+            .forEach { memoryDAO.updateLastAccessedAt(it, accessedAt) }
+        finalCandidates.filterNot { it.isMemory }
+            .map { (it.item as ChatEpisodeEntity).id }
+            .chunked(500)
+            .forEach { chatEpisodeDAO.updateLastAccessedAt(it, accessedAt) }
 
         return finalCandidates.mapNotNull { candidate ->
             if (candidate.isMemory) {
@@ -754,9 +802,10 @@ class MemoryRepository(
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             e.printStackTrace()
-            pinnedCoreMemories.forEach { memory ->
-                memoryDAO.updateMemory(memory.copy(lastAccessedAt = System.currentTimeMillis()))
-            }
+            val accessedAt = System.currentTimeMillis()
+            pinnedCoreMemories.map { it.id }
+                .chunked(500)
+                .forEach { memoryDAO.updateLastAccessedAt(it, accessedAt) }
             return pinnedCoreMemories.map { memory ->
                 Pair(
                     AssistantMemory(
@@ -779,9 +828,37 @@ class MemoryRepository(
         val memories = if (includeCore) memoryDAO.getMemoriesOfAssistant(assistantId) else emptyList()
         val episodes = if (includeEpisodes) chatEpisodeDAO.getEpisodesOfAssistant(assistantId) else emptyList()
 
-        val scoredCore = memories.mapNotNull { memory ->
-            if (memory.pinned) {
-                val score = runCatching {
+        // 批量预取嵌入缓存：此前每条记忆各发一次单点查询（N+1），记忆多时发消息前会明显停顿。
+        // 按块「预取 + 打分」以约束缓存副本的额外驻留（每行携带十几 KB 向量 JSON）；
+        // 注意上方实体列表本身仍是整表加载（既有行为），检索峰值内存的主导项不在此处
+        val embeddingModelId = embeddingService.getEmbeddingModelId(assistantId)
+
+        val scoredCore = memories.chunked(EMBEDDING_SCORING_CHUNK_SIZE).flatMap { memoryChunk ->
+            val cachedMemoryEmbeddings =
+                batchLoadEmbeddingCache(memoryChunk.map { it.id }, MemoryType.CORE, embeddingModelId)
+            memoryChunk.mapNotNull { memory ->
+                if (memory.pinned) {
+                    val score = runCatching {
+                        val embedding = getOrCreateEmbedding(
+                            memoryId = memory.id,
+                            memoryType = MemoryType.CORE,
+                            content = memory.content,
+                            assistantId = assistantId,
+                            existingEmbedding = memory.embedding,
+                            existingModelId = memory.embeddingModelId,
+                            source = AIRequestSource.MEMORY_RETRIEVAL,
+                            preloadedCache = cachedMemoryEmbeddings,
+                            modelIdOverride = embeddingModelId,
+                        )
+                        if (embedding != null) {
+                            val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
+                            similarity * 1.05f
+                        } else {
+                            1f
+                        }
+                    }.getOrDefault(1f)
+                    ScoredCandidate(item = memory, score = score, isMemory = true, isPinned = true)
+                } else {
                     val embedding = getOrCreateEmbedding(
                         memoryId = memory.id,
                         memoryType = MemoryType.CORE,
@@ -790,60 +867,51 @@ class MemoryRepository(
                         existingEmbedding = memory.embedding,
                         existingModelId = memory.embeddingModelId,
                         source = AIRequestSource.MEMORY_RETRIEVAL,
-                    )
-                    if (embedding != null) {
-                        val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
-                        similarity * 1.05f
-                    } else {
-                        1f
-                    }
-                }.getOrDefault(1f)
-                ScoredCandidate(item = memory, score = score, isMemory = true, isPinned = true)
-            } else {
-                val embedding = getOrCreateEmbedding(
-                    memoryId = memory.id,
-                    memoryType = MemoryType.CORE,
-                    content = memory.content,
-                    assistantId = assistantId,
-                    existingEmbedding = memory.embedding,
-                    existingModelId = memory.embeddingModelId,
-                    source = AIRequestSource.MEMORY_RETRIEVAL,
-                ) ?: return@mapNotNull null
+                        preloadedCache = cachedMemoryEmbeddings,
+                        modelIdOverride = embeddingModelId,
+                    ) ?: return@mapNotNull null
 
-                val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
-                val score = similarity * 1.05f
-                if (score >= similarityThreshold) {
-                    ScoredCandidate(item = memory, score = score, isMemory = true, isPinned = false)
-                } else {
-                    null
+                    val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
+                    val score = similarity * 1.05f
+                    if (score >= similarityThreshold) {
+                        ScoredCandidate(item = memory, score = score, isMemory = true, isPinned = false)
+                    } else {
+                        null
+                    }
                 }
             }
         }
 
-        val scoredEpisodes = episodes.mapNotNull { episode ->
-            val embedding = getOrCreateEmbedding(
-                memoryId = episode.id,
-                memoryType = MemoryType.EPISODIC,
-                content = episode.content,
-                assistantId = assistantId,
-                existingEmbedding = episode.embedding,
-                existingModelId = episode.embeddingModelId,
-                source = AIRequestSource.MEMORY_RETRIEVAL,
-            ) ?: return@mapNotNull null
+        val scoredEpisodes = episodes.chunked(EMBEDDING_SCORING_CHUNK_SIZE).flatMap { episodeChunk ->
+            val cachedEpisodeEmbeddings =
+                batchLoadEmbeddingCache(episodeChunk.map { it.id }, MemoryType.EPISODIC, embeddingModelId)
+            episodeChunk.mapNotNull { episode ->
+                val embedding = getOrCreateEmbedding(
+                    memoryId = episode.id,
+                    memoryType = MemoryType.EPISODIC,
+                    content = episode.content,
+                    assistantId = assistantId,
+                    existingEmbedding = episode.embedding,
+                    existingModelId = episode.embeddingModelId,
+                    source = AIRequestSource.MEMORY_RETRIEVAL,
+                    preloadedCache = cachedEpisodeEmbeddings,
+                    modelIdOverride = embeddingModelId,
+                ) ?: return@mapNotNull null
 
-            val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
+                val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
 
-            // Calculate Recency Score (7 days half-life)
-            val ageInMillis = System.currentTimeMillis() - episode.startTime
-            val ageInDays = ageInMillis / (1000.0 * 60 * 60 * 24)
-            val recency = (1.0 / (1.0 + (ageInDays / 7.0))).toFloat()
+                // Calculate Recency Score (7 days half-life)
+                val ageInMillis = System.currentTimeMillis() - episode.startTime
+                val ageInDays = ageInMillis / (1000.0 * 60 * 60 * 24)
+                val recency = (1.0 / (1.0 + (ageInDays / 7.0))).toFloat()
 
-            val score = (similarity * 0.7f) + (recency * 0.3f)
+                val score = (similarity * 0.7f) + (recency * 0.3f)
 
-            if (score >= similarityThreshold) {
-                ScoredCandidate(item = episode, score = score, isMemory = false, isPinned = false)
-            } else {
-                null
+                if (score >= similarityThreshold) {
+                    ScoredCandidate(item = episode, score = score, isMemory = false, isPinned = false)
+                } else {
+                    null
+                }
             }
         }
 
@@ -879,15 +947,17 @@ class MemoryRepository(
             }
 
         // Update lastAccessedAt for included items (pinned + top-k)
-        finalCandidates.forEach { candidate ->
-            if (candidate.isMemory) {
-                val memory = candidate.item as MemoryEntity
-                memoryDAO.updateMemory(memory.copy(lastAccessedAt = System.currentTimeMillis()))
-            } else {
-                val episode = candidate.item as ChatEpisodeEntity
-                chatEpisodeDAO.insertEpisode(episode.copy(lastAccessedAt = System.currentTimeMillis()))
-            }
-        }
+        // 批量写回：单条 UPDATE 替代逐行整行重写（旧写法每行重写含 embedding 的整行、各自提交
+        // 一次事务，且每次写入都会让记忆列表的 Flow 订阅方全量重查一遍）
+        val accessedAt = System.currentTimeMillis()
+        finalCandidates.filter { it.isMemory }
+            .map { (it.item as MemoryEntity).id }
+            .chunked(500)
+            .forEach { memoryDAO.updateLastAccessedAt(it, accessedAt) }
+        finalCandidates.filterNot { it.isMemory }
+            .map { (it.item as ChatEpisodeEntity).id }
+            .chunked(500)
+            .forEach { chatEpisodeDAO.updateLastAccessedAt(it, accessedAt) }
 
         return finalCandidates.mapNotNull { candidate ->
             if (candidate.isMemory) {

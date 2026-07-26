@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.ai.transformers
 
 import android.content.Context
 import android.util.Log
+import me.rerere.rikkahub.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.serializer
@@ -127,7 +128,8 @@ object OcrTransformer : InputMessageTransformer, KoinComponent {
                 error = failure,
             )
         }
-        Log.i(TAG, "performOcr: $content")
+        // OCR 结果是用户图片的全文内容，发布版不写入日志
+        if (BuildConfig.DEBUG) Log.i(TAG, "performOcr: $content")
         val ocrResult = """
             <image_file_ocr>
                $content

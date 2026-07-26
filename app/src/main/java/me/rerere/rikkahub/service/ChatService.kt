@@ -398,7 +398,7 @@ class ChatService(
     // 已删除会话的立即生效标记。删除一调起就置位, 让其后并发到达的「退出兜底 / 草稿保存」
     // 在写 DB 前命中此标记直接跳过, 不会把已删除会话重新 insert 回库。撤销删除时清除此标记。
     // 仅靠「删除 DB 记录」无法阻止并发保存: 删除与保存都在 appScope 并发, 保存若在删除之后到达,
-    // 会因 getConversationById == null 走 insert 分支复活会话——此标记即用来堵住这条复活路径。
+    // 会因存在性检查未命中 (conversationExists == false) 走 insert 分支复活会话——此标记即用来堵住这条复活路径。
     private val deletedConversationIds = ConcurrentHashMap.newKeySet<Uuid>()
 
     // 错误流
@@ -5417,10 +5417,10 @@ class ChatService(
         if (conversation != null) {
             // 撤销删除: 在会话锁临界区内「清删除标记 + insert」一起完成, 不要在锁外提前清标记。
             // 若在锁外清, 4 秒窗口内已排队等锁的 saveConversation 会先拿到锁、看到标记已清、
-            // 因 getConversationById == null 走 insert 分支先把会话写回库; 随后 undo 的 insert 再
+            // 因存在性检查未命中走 insert 分支先把会话写回库; 随后 undo 的 insert 再
             // 执行, DAO 的 @Insert 默认 ABORT 会抛异常 (或 REPLACE 时用旧快照覆盖 save 的新内容)。
             // 把清标记放进锁内 insert 之前: 排队中的 save 要么仍在 insert 之前看到标记命中而 bail
-            // (让 undo 独自 insert), 要么在 insert 之后看到标记已清、getConversationById != null
+            // (让 undo 独自 insert), 要么在 insert 之后看到标记已清、conversationExists == true
             // 走 update 分支, 两种顺序都正确。
             appScope.launch {
                 val writeMutex = writeMutexFor(conversationId)
@@ -5977,7 +5977,8 @@ class ChatService(
                             ?: updatedConversation.contextSummaryPendingBoundaryIndex
                     )
                     if (toPersist.title.isBlank() && toPersist.messageNodes.isEmpty()) return@withContext
-                    if (conversationRepo.getConversationById(toPersist.id) == null) {
+                    // 轻量存在性检查代替整行读取：此前仅为判断 insert/update 就要解码一遍全部消息 JSON
+                    if (!conversationRepo.conversationExists(toPersist.id)) {
                         conversationRepo.insertConversation(toPersist)
                     } else {
                         conversationRepo.updateConversation(toPersist)
@@ -6058,7 +6059,8 @@ class ChatService(
                     )
                     // 空对话不落库
                     if (toPersist.title.isBlank() && toPersist.messageNodes.isEmpty()) return@withContext
-                    if (conversationRepo.getConversationById(toPersist.id) == null) {
+                    // 轻量存在性检查代替整行读取：此前仅为判断 insert/update 就要解码一遍全部消息 JSON
+                    if (!conversationRepo.conversationExists(toPersist.id)) {
                         conversationRepo.insertConversation(toPersist)
                     } else {
                         conversationRepo.updateConversation(toPersist)

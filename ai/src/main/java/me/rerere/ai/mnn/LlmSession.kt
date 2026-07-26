@@ -1,6 +1,7 @@
 package me.rerere.ai.mnn
 
 import android.util.Log
+import me.rerere.ai.BuildConfig
 import java.io.File
 import java.util.stream.Collectors
 import kotlin.concurrent.Volatile
@@ -96,9 +97,10 @@ class LlmSession(
         params: Map<String, Any>,
         progressListener: GenerateProgressListener
     ): HashMap<String, Any> {
-        Log.d(TAG, "start generate prompt: $prompt")
+        // 提示词是用户完整输入，发布版不写入日志
+        if (BuildConfig.DEBUG) Log.d(TAG, "start generate prompt: $prompt")
         synchronized(this) {
-            Log.d(TAG, "MNN_DEBUG submit$prompt")
+            if (BuildConfig.DEBUG) Log.d(TAG, "MNN_DEBUG submit$prompt")
             generating = true
             val result = submitNative(nativePtr, prompt, keepHistory, progressListener)
             generating = false

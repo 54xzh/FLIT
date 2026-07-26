@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.core.net.toUri
+import me.rerere.ai.BuildConfig
 import me.rerere.ai.ui.UIMessagePart
 import java.io.File
 import java.io.FileOutputStream
@@ -28,11 +29,11 @@ fun UIMessagePart.Image.encodeBase64(withPrefix: Boolean = true): Result<String>
             }
             if (!file.isSupportedType()) {
                 convertToJpeg(file) // 转换为 JPEG 格式
-                println("File converted to WebP format: ${file.absolutePath}")
+                if (BuildConfig.DEBUG) println("File converted to WebP format: ${file.absolutePath}")
             }
             if (file.guessMimeType().getOrNull() != "image/webp") {
                 convertToJpeg(file) // 尝试转换为 WebP 格式
-                println("File converted to WebP format: ${file.absolutePath}")
+                if (BuildConfig.DEBUG) println("File converted to WebP format: ${file.absolutePath}")
             }
             val bytes = file.readBytes()
             val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
@@ -100,7 +101,7 @@ private fun File.guessMimeType(): Result<String> = runCatching {
         if (read < 12) error("File too short to determine MIME type")
 
         // 打印前16个字节（可选）
-        println("guessMimeType bytes = ${bytes.joinToString(",")}")
+        if (BuildConfig.DEBUG) println("guessMimeType bytes = ${bytes.joinToString(",")}")
 
         // 判断 HEIC 格式：包含 "ftypheic"
         if (bytes.copyOfRange(4, 12).toString(Charsets.US_ASCII) == "ftypheic") {

@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import me.rerere.ai.BuildConfig
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.provider.Model
@@ -104,7 +105,7 @@ data class UIMessage(
                             ).also {
                                 if (deltaPart.metadata != null) {
                                     it.metadata = deltaPart.metadata // 更新metadata
-                                    println("更新metadata: ${json.encodeToString(deltaPart)}")
+                                    if (BuildConfig.DEBUG) println("更新metadata: ${json.encodeToString(deltaPart)}")
                                 }
                             }
                             acc.mapIndexed { index, part ->
@@ -171,7 +172,7 @@ data class UIMessage(
                     }
 
                     else -> {
-                        println("delta part append not supported: $deltaPart")
+                        if (BuildConfig.DEBUG) println("delta part append not supported: $deltaPart")
                         acc
                     }
                 }

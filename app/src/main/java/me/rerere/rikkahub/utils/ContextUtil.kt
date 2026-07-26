@@ -20,6 +20,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.R
 
 import java.io.File
@@ -66,9 +67,10 @@ fun Context.writeClipboardText(text: String) {
         getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
     runCatching {
         clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText("text", text))
-        Log.i(TAG, "writeClipboardText: $text")
+        // 剪贴板内容多为用户消息/AI 回复全文，发布版不写入日志
+        if (BuildConfig.DEBUG) Log.i(TAG, "writeClipboardText: $text")
     }.onFailure {
-        Log.e(TAG, "writeClipboardText: $text", it)
+        Log.e(TAG, "writeClipboardText failed", it)
         Toast.makeText(this, getString(R.string.toast_failed_to_write_clipboard), Toast.LENGTH_SHORT).show()
     }
 }

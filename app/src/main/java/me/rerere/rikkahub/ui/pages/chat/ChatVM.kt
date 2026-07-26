@@ -14,6 +14,7 @@ import androidx.paging.insertSeparators
 import androidx.paging.map
 import com.google.firebase.analytics.FirebaseAnalytics
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -218,10 +220,13 @@ class ChatVM(
     val searchQuery: StateFlow<String> = _searchQuery
 
     // 聊天列表 (使用 Paging 分页加载)
+    @OptIn(FlowPreview::class)
     val conversations: Flow<PagingData<ConversationListItem>> =
         combine(
             settings.map { it.chatTarget.id }.distinctUntilChanged(),
-            _searchQuery
+            // 防抖：每次按键都会触发一次全表 LIKE 扫描，只查停止输入 300ms 后的关键词；
+            // 空串（初始加载/清空搜索）不延迟，立即显示完整列表
+            _searchQuery.debounce { query -> if (query.isBlank()) 0L else 300L }
         ) { targetId, query -> targetId to query }
             .flatMapLatest { (targetId, query) ->
                 // 根据搜索关键词决定使用哪个数据源

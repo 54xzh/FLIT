@@ -137,6 +137,12 @@ interface MemoryDAO {
     @Update
     suspend fun updateMemory(memory: MemoryEntity)
 
+    /**
+     * 批量写回访问时间，避免为改一个字段逐行重写整行（含 embedding 大列）。
+     */
+    @Query("UPDATE memoryentity SET last_accessed_at = :timestamp WHERE id IN (:ids)")
+    suspend fun updateLastAccessedAt(ids: List<Int>, timestamp: Long)
+
     @Query("DELETE FROM memoryentity WHERE id = :id")
     suspend fun deleteMemory(id: Int)
 

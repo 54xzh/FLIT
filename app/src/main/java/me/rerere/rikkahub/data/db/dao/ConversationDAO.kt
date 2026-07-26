@@ -137,6 +137,9 @@ interface ConversationDAO {
     @Query("SELECT * FROM conversationentity WHERE id = :id")
     suspend fun getConversationById(id: String): ConversationEntity?
 
+    @Query("SELECT EXISTS(SELECT 1 FROM conversationentity WHERE id = :id)")
+    suspend fun exists(id: String): Boolean
+
     @Query("SELECT strftime('%Y-%m', update_at / 1000, 'unixepoch', 'localtime') as yearMonth, COUNT(*) as count FROM conversationentity GROUP BY yearMonth ORDER BY yearMonth DESC")
     suspend fun getConversationMonthCounts(): List<ConversationMonthCount>
 

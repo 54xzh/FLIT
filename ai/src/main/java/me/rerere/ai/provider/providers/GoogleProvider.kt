@@ -2,8 +2,10 @@ package me.rerere.ai.provider.providers
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
@@ -21,6 +23,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import me.rerere.ai.BuildConfig
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.TokenUsage
@@ -125,7 +128,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             val response = client.configureClientWithProxy(providerSetting.proxy).newCall(request).await()
             if (response.isSuccessful) {
                 val body = response.body?.string() ?: error("empty body")
-                Log.d(TAG, "listModels: $body")
+                if (BuildConfig.DEBUG) Log.d(TAG, "listModels: $body")
                 val bodyObject = json.parseToJsonElement(body).jsonObject
                 val models = bodyObject["models"]?.jsonArray ?: return@withContext emptyList()
 
@@ -266,7 +269,8 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 .build()
         )
 
-        Log.i(TAG, "streamText: $requestBodyJson")
+        // 请求体可能含 base64 附件（数 MB），发布版不写入日志
+        if (BuildConfig.DEBUG) Log.i(TAG, "streamText: $requestBodyJson")
         val rawEventBuffer = StringBuilder()
 
         val listener = object : EventSourceListener() {
@@ -276,7 +280,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 type: String?,
                 data: String
             ) {
-                Log.i(TAG, "onEvent: $data")
+                if (BuildConfig.DEBUG) Log.i(TAG, "onEvent: $data")
                 if (rawEventBuffer.isNotEmpty()) rawEventBuffer.append("\n")
                 rawEventBuffer.append(data)
 
@@ -354,7 +358,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 var rawFailureResponse = ""
 
                 t?.printStackTrace()
-                println("[onFailure] 发生错误: ${t?.message}")
+                if (BuildConfig.DEBUG) println("[onFailure] 发生错误: ${t?.message}")
 
                 try {
                     if (t == null && response != null) {
@@ -362,7 +366,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                         rawFailureResponse = bodyStr.orEmpty()
                         if (!bodyStr.isNullOrEmpty()) {
                             val bodyElement = json.parseToJsonElement(bodyStr)
-                            println(bodyElement)
+                            if (BuildConfig.DEBUG) println(bodyElement)
                             if (bodyElement is JsonObject) {
                                 exception = Exception(
                                     bodyElement["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
@@ -411,7 +415,8 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             println("[awaitClose] 关闭eventSource")
             eventSource.cancel()
         }
-    }
+        // SSE 回调线程用 trySend 推送且不检查结果，默认 64 容量在下游繁忙时会静默丢块，放开为无限缓冲
+    }.buffer(Channel.UNLIMITED)
 
     private fun buildCompletionRequestBody(
         messages: List<UIMessage>,
@@ -593,7 +598,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         } ?: emptyList()
 
         val groundingMetadata = message["groundingMetadata"]?.jsonObject
-        Log.i(TAG, "parseMessage: $groundingMetadata")
+        if (BuildConfig.DEBUG) Log.i(TAG, "parseMessage: $groundingMetadata")
         val annotations = parseSearchGroundingMetadata(groundingMetadata)
 
         return UIMessage(
@@ -615,7 +620,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 url = uri
             )
         }
-        Log.i(TAG, "parseSearchGroundingMetadata: $chunks")
+        if (BuildConfig.DEBUG) Log.i(TAG, "parseSearchGroundingMetadata: $chunks")
         return chunks
     }
 
@@ -960,7 +965,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             return@withContext emptyList()
         }
 
-        Log.d(TAG, "createEmbedding: model=${model.modelId}, inputSize=${input.size}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "createEmbedding: model=${model.modelId}, inputSize=${input.size}")
 
         // For single input, use embedContent endpoint
         // For multiple inputs, use batchEmbedContents endpoint
@@ -976,8 +981,9 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 }
             )
 
-            Log.d(TAG, "createEmbedding: url=$url")
-            Log.d(TAG, "createEmbedding: requestBody=${json.encodeToString(requestBody)}")
+            // URL 上挂着 ?key=<API Key>，发布版绝不能写进日志
+            if (BuildConfig.DEBUG) Log.d(TAG, "createEmbedding: url=$url")
+            if (BuildConfig.DEBUG) Log.d(TAG, "createEmbedding: requestBody=${json.encodeToString(requestBody)}")
 
             val request = transformRequest(
                 providerSetting = providerSetting,
@@ -996,7 +1002,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             val bodyStr = response.body?.string() ?: ""
             
             Log.d(TAG, "createEmbedding: responseCode=${response.code}")
-            Log.d(TAG, "createEmbedding: responseBody=$bodyStr")
+            if (BuildConfig.DEBUG) Log.d(TAG, "createEmbedding: responseBody=$bodyStr")
             
             if (!response.isSuccessful) {
                 error("Failed to create embedding: ${response.code} $bodyStr")
@@ -1022,7 +1028,8 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 }
             )
 
-            Log.d(TAG, "createEmbedding batch: url=$url")
+            // URL 上挂着 ?key=<API Key>，发布版绝不能写进日志
+            if (BuildConfig.DEBUG) Log.d(TAG, "createEmbedding batch: url=$url")
 
             val request = transformRequest(
                 providerSetting = providerSetting,

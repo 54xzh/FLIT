@@ -1,8 +1,10 @@
 package me.rerere.ai.provider.providers.openai
 
 import android.util.Log
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -17,6 +19,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import me.rerere.ai.BuildConfig
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.TokenUsage
@@ -82,7 +85,7 @@ class ResponseAPI(
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
 
-        Log.i(TAG, "generateText: $requestBodyJson")
+        if (BuildConfig.DEBUG) Log.i(TAG, "generateText: $requestBodyJson")
 
         val response = client.configureClientWithProxy(providerSetting.proxy).newCall(request).await()
         if (!response.isSuccessful) {
@@ -95,7 +98,7 @@ class ResponseAPI(
         }
 
         val bodyStr = response.body?.string() ?: ""
-        Log.i(TAG, "generateText: $bodyStr")
+        if (BuildConfig.DEBUG) Log.i(TAG, "generateText: $bodyStr")
         val bodyJson = runCatching {
             json.parseToJsonElement(bodyStr).jsonObject
         }.getOrElse { throwable ->
@@ -137,7 +140,8 @@ class ResponseAPI(
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
 
-        Log.i(TAG, "streamText: $requestBodyJson")
+        // 请求体可能含 base64 附件（数 MB），发布版不写入日志
+        if (BuildConfig.DEBUG) Log.i(TAG, "streamText: $requestBodyJson")
         val rawEventBuffer = StringBuilder()
 
         val listener = object : EventSourceListener() {
@@ -147,7 +151,7 @@ class ResponseAPI(
                 type: String?,
                 data: String
             ) {
-                Log.d(TAG, "onEvent: $id/$type $data")
+                if (BuildConfig.DEBUG) Log.d(TAG, "onEvent: $id/$type $data")
                 if (rawEventBuffer.isNotEmpty()) rawEventBuffer.append("\n")
                 rawEventBuffer.append(data)
                 val eventData = data.trim().removePrefix("data:").trim()
@@ -201,7 +205,7 @@ class ResponseAPI(
                 var rawFailureResponse = ""
 
                 t?.printStackTrace()
-                println("[onFailure] 发生错误: ${t?.javaClass?.name} ${t?.message} / $response")
+                if (BuildConfig.DEBUG) println("[onFailure] 发生错误: ${t?.javaClass?.name} ${t?.message} / $response")
 
                 val bodyRaw = response?.body?.stringSafe()
                 rawFailureResponse = bodyRaw.orEmpty()
@@ -211,13 +215,13 @@ class ResponseAPI(
                             Log.w(TAG, "onFailure: skipped JSON error parse for SSE response")
                         } else {
                             val bodyElement = Json.parseToJsonElement(bodyRaw)
-                            println(bodyElement)
+                            if (BuildConfig.DEBUG) println(bodyElement)
                             exception = bodyElement.parseErrorDetail()
-                            Log.i(TAG, "onFailure: $exception")
+                            if (BuildConfig.DEBUG) Log.i(TAG, "onFailure: $exception")
                         }
                     }
                 } catch (e: Throwable) {
-                    Log.w(TAG, "onFailure: failed to parse from $bodyRaw", e)
+                    if (BuildConfig.DEBUG) Log.w(TAG, "onFailure: failed to parse from $bodyRaw", e)
                     e.printStackTrace()
                 } finally {
                     val exceptionWithStatus = response?.let { resp ->
@@ -250,7 +254,8 @@ class ResponseAPI(
             println("[awaitClose] 关闭eventSource ")
             eventSource.cancel()
         }
-    }
+        // SSE 回调线程用 trySend 推送且不检查结果，默认 64 容量在下游繁忙时会静默丢块，放开为无限缓冲
+    }.buffer(Channel.UNLIMITED)
 
     private fun buildRequestBody(
         messages: List<UIMessage>,
@@ -374,7 +379,7 @@ class ResponseAPI(
                                                 put("image_url", it)
                                             }.onFailure {
                                                 it.printStackTrace()
-                                                println("encode image failed: ${part.url}")
+                                                if (BuildConfig.DEBUG) println("encode image failed: ${part.url}")
 
                                                 put("type", "input_text")
                                                 put(
@@ -395,7 +400,7 @@ class ResponseAPI(
                                                 })
                                             }.onFailure {
                                                 it.printStackTrace()
-                                                println("encode audio failed: ${part.url}")
+                                                if (BuildConfig.DEBUG) println("encode audio failed: ${part.url}")
 
                                                 put("type", "input_text")
                                                 put(
@@ -407,7 +412,8 @@ class ResponseAPI(
                                     }
 
                                     else -> {
-                                        Log.w(
+                                        // part 可能携带 base64 附件，发布版不打印内容
+                                        if (BuildConfig.DEBUG) Log.w(
                                             TAG,
                                             "buildMessages: message part not supported: $part"
                                         )
@@ -614,7 +620,7 @@ class ResponseAPI(
     }
 
     private fun parseResponseOutput(jsonObject: JsonObject): MessageChunk {
-        println(jsonObject)
+        if (BuildConfig.DEBUG) println(jsonObject)
         val outputs = jsonObject["output"]?.jsonArray ?: error("output not found")
         val parts = arrayListOf<UIMessagePart>()
 
