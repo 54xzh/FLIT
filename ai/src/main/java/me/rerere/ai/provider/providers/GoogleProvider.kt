@@ -37,6 +37,7 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.providers.vertex.ServiceAccountTokenProvider
 import me.rerere.ai.registry.ModelRegistry
+import me.rerere.ai.ui.GoogleThoughtMetadata
 import me.rerere.ai.ui.ImageGenerationItem
 import me.rerere.ai.ui.ImageGenerationResult
 import me.rerere.ai.ui.MessageChunk
@@ -44,6 +45,8 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.metadataAs
+import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureClientWithProxy
 import me.rerere.ai.util.configureReferHeaders
@@ -663,9 +666,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         val thoughtSignature = jsonObject["thoughtSignature"]?.jsonPrimitive?.contentOrNull
             ?: jsonObject["thought_signature"]?.jsonPrimitive?.contentOrNull
         return thoughtSignature?.let { signature ->
-            buildJsonObject {
-                put("thoughtSignature", signature)
-            }
+            GoogleThoughtMetadata(thoughtSignature = signature).toMetadata()
         }
     }
 
@@ -681,7 +682,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                                     if (part.text.isBlank()) continue
                                     add(buildJsonObject {
                                         put("text", part.text)
-                                        part.metadata?.get("thoughtSignature")?.let {
+                                        part.metadataAs<GoogleThoughtMetadata>()?.thoughtSignature?.let {
                                             put("thoughtSignature", it)
                                         }
                                     })
@@ -694,7 +695,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                                                 put("mimeType", "image/png")
                                                 put("data", base64Data.toGoogleInlineDataPayload())
                                             })
-                                            part.metadata?.get("thoughtSignature")?.let {
+                                            part.metadataAs<GoogleThoughtMetadata>()?.thoughtSignature?.let {
                                                 put("thoughtSignature", it)
                                             }
                                         })
@@ -708,7 +709,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                                                 put("mimeType", "video/mp4")
                                                 put("data", base64Data.toGoogleInlineDataPayload())
                                             })
-                                            part.metadata?.get("thoughtSignature")?.let {
+                                            part.metadataAs<GoogleThoughtMetadata>()?.thoughtSignature?.let {
                                                 put("thoughtSignature", it)
                                             }
                                         })
@@ -722,7 +723,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                                                 put("mimeType", "audio/mp3")
                                                 put("data", base64Data.toGoogleInlineDataPayload())
                                             })
-                                            part.metadata?.get("thoughtSignature")?.let {
+                                            part.metadataAs<GoogleThoughtMetadata>()?.thoughtSignature?.let {
                                                 put("thoughtSignature", it)
                                             }
                                         })
@@ -735,7 +736,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                                             put("name", part.toolName)
                                             put("args", json.parseToJsonElement(part.arguments))
                                         })
-                                        part.metadata?.get("thoughtSignature")?.let {
+                                        part.metadataAs<GoogleThoughtMetadata>()?.thoughtSignature?.let {
                                             put("thoughtSignature", it)
                                         }
                                     })

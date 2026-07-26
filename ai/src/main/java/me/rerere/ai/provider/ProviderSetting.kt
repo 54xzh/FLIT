@@ -22,6 +22,19 @@ sealed class ProviderProxy {
     ) : ProviderProxy()
 }
 
+/**
+ * Claude 提示词缓存(cache_control)的有效期
+ * FIVE_MINUTES 是 API 默认值, 不需要显式传 ttl 字段
+ */
+@Serializable
+enum class ClaudePromptCacheTtl(val apiValue: String?) {
+    @SerialName("5m")
+    FIVE_MINUTES(null),
+
+    @SerialName("1h")
+    ONE_HOUR("1h")
+}
+
 @Serializable
 data class BalanceOption(
     val enabled: Boolean = false, // 是否开启余额获取功能
@@ -260,6 +273,8 @@ sealed class ProviderSetting {
         var keyStrategy: ProviderKeyStrategy = ProviderKeyStrategy.RANDOM,
         var legacyApiKeyBackup: String = "",
         var baseUrl: String = "https://api.anthropic.com/v1",
+        var promptCaching: Boolean = false,
+        var promptCacheTtl: ClaudePromptCacheTtl = ClaudePromptCacheTtl.FIVE_MINUTES,
     ) : ProviderSetting() {
         override fun addModel(model: Model): ProviderSetting {
             return copy(models = models + model)

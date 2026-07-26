@@ -940,6 +940,10 @@
   <string name="setting_provider_page_add_provider_override">新增提供商覆寫</string>
   <string name="setting_provider_page_advanced_settings">進階設定</string>
   <string name="setting_provider_page_api_base_url">API Base Url</string>
+  <string name="setting_provider_page_claude_prompt_caching">提示快取 (cache_control)</string>
+  <string name="setting_provider_page_claude_prompt_cache_ttl">提示快取時長</string>
+  <string name="setting_provider_page_claude_prompt_cache_ttl_5m">5 分鐘</string>
+  <string name="setting_provider_page_claude_prompt_cache_ttl_1h">1 小時</string>
   <string name="setting_provider_page_api_key">API Key</string>
   <string name="setting_provider_page_api_path">API 路徑</string>
   <string name="setting_provider_page_manage_multi_keys_with_count">管理 Key（已啟用 %1$d/%2$d）</string>
