@@ -119,16 +119,77 @@ data class UIMessage(
                     }
 
                     is UIMessagePart.ToolCall -> {
-                        if (deltaPart.toolCallId.isBlank()) {
-                            val lastToolCall =
-                                acc.lastOrNull { it is UIMessagePart.ToolCall } as? UIMessagePart.ToolCall
+                        val deltaIndex = deltaPart.index
+                        if (deltaIndex != null) {
+                            // OpenAI 兼容渠道的流式增量携带 index：按 index 对号入座，
+                            // 避免不发 id 的渠道把参数片段误判成一次全新调用（导致参数丢失、
+                            // 界面刷出大量无名 "Calling tool" 条目）
+                            var pos = acc.indexOfLast { part ->
+                                part is UIMessagePart.ToolCall && part.index == deltaIndex &&
+                                    (deltaPart.toolCallId.isBlank() || part.toolCallId.isBlank() ||
+                                        part.toolCallId == deltaPart.toolCallId)
+                            }
+                            if (pos < 0 && deltaPart.toolCallId.isNotBlank()) {
+                                // 首块不带 index、后续片段带 index 且带 id 的混发网关：
+                                // 回退到按 id 匹配，保持修复前"按 id 合并"的保证
+                                pos = acc.indexOfLast {
+                                    it is UIMessagePart.ToolCall && it.toolCallId == deltaPart.toolCallId
+                                }
+                            }
+                            if (pos < 0 && deltaPart.toolCallId.isBlank() && deltaPart.toolName.isBlank()) {
+                                // 无 id 无名的增量只可能是参数片段，单独存在毫无意义；
+                                // 首块不带 index、后续片段带 index 的混发网关会走到这里。
+                                // index 在 OpenAI 协议里是调用在本条消息中的序号，优先按
+                                // "第 N 条调用"对号，找不到再拼进最近一次调用
+                                val toolCallPositions = acc.withIndex()
+                                    .filter { it.value is UIMessagePart.ToolCall }
+                                    .map { it.index }
+                                pos = toolCallPositions.getOrNull(deltaIndex)
+                                    ?: toolCallPositions.lastOrNull()
+                                    ?: -1
+                            }
+                            val existing = acc.getOrNull(pos) as? UIMessagePart.ToolCall
+                            // 个别网关不发 id 且每次调用都把 index 重置为 0：若已有调用的参数
+                            // 已是完整 JSON（合法 JSON 对象不存在同为合法 JSON 的真前缀），
+                            // 再来一个带工具名的增量只能是同一调用的整体重发（丢弃，防止重复
+                            // 执行）或下一次新调用的首块（追加，无论其参数是否为空）。仅当增量
+                            // 带非空工具名时才做该检查，规范的参数片段（名字为空）不受影响；
+                            // endsWith("}") 前置短路避免每个片段都对累积参数做完整 JSON 解析。
+                            // 已知取舍：这类网关下"故意连续两次完全相同参数的调用"与整体重发
+                            // 无法区分，会被当作重发丢弃
+                            val existingComplete = existing != null &&
+                                deltaPart.toolName.isNotBlank() &&
+                                existing.toolName.isNotBlank() &&
+                                existing.arguments.isNotBlank() &&
+                                existing.arguments.trimEnd().endsWith("}") &&
+                                runCatching { json.parseToJsonElement(existing.arguments) }.isSuccess
+                            when {
+                                existing == null -> acc + deltaPart.copy()
+                                !existingComplete -> acc.toMutableList().apply {
+                                    this[pos] = existing.merge(deltaPart)
+                                }
+                                // 同一条调用被整体重发（SSE 重放/累积式网关），或参数发完后
+                                // 收尾 chunk 回显了工具名（空参数）：都忽略增量。
+                                // 已知取舍：这类网关上"紧接着再调一次同名工具且首块无参数"
+                                // 会被误判为回显，但收尾回显远比该场景常见
+                                (deltaPart.toolCallId.isNotBlank() && deltaPart.toolCallId == existing.toolCallId) ||
+                                    (deltaPart.toolName == existing.toolName &&
+                                        (deltaPart.arguments.isBlank() ||
+                                            deltaPart.arguments == existing.arguments)) -> acc
+
+                                else -> acc + deltaPart.copy()
+                            }
+                        } else if (deltaPart.toolCallId.isBlank()) {
+                            val pos = acc.indexOfLast { it is UIMessagePart.ToolCall }
+                            val lastToolCall = acc.getOrNull(pos) as? UIMessagePart.ToolCall
                             if (lastToolCall == null || lastToolCall.toolCallId.isBlank()) {
+                                // Google 等渠道：id 恒为空且每次发完整调用，视为新调用追加
                                 acc + deltaPart.copy()
                             } else {
-                                acc.map { part ->
-                                    if (part == lastToolCall && part is UIMessagePart.ToolCall) {
-                                        part.merge(deltaPart)
-                                    } else part
+                                // Claude 等渠道：空 id 片段拼接到最近一次调用（按位置替换，
+                                // 避免值相等的多个调用被同时改写）
+                                acc.toMutableList().apply {
+                                    this[pos] = lastToolCall.merge(deltaPart)
                                 }
                             }
                         } else {
@@ -801,14 +862,17 @@ fun List<UIMessage>.repairToolCallMessageSequence(
                 .toSet()
             val matchedRequiredIds = message.getToolCalls()
                 .filter(requiresToolResult)
+                .filter { it.toolName.isNotBlank() }
                 .mapNotNull { call -> call.toolCallId.takeIf { it.isNotBlank() && it in resultIds } }
                 .toSet()
 
             val repairedParts = message.parts.mapNotNull { part ->
                 if (
                     part is UIMessagePart.ToolCall &&
-                    requiresToolResult(part) &&
-                    part.toolCallId !in matchedRequiredIds
+                    // 无名调用是流式合并救不回来的残片，序列化回服务端会因
+                    // 空 function.name 被严格网关拒绝（400），必须连同其结果一起剔除
+                    (part.toolName.isBlank() ||
+                        (requiresToolResult(part) && part.toolCallId !in matchedRequiredIds))
                 ) {
                     changed = true
                     null
@@ -960,18 +1024,31 @@ sealed class UIMessagePart {
         val toolCallId: String,
         val toolName: String,
         val arguments: String,
+        val index: Int? = null,
         override var metadata: JsonObject? = null
     ) : UIMessagePart() {
         fun merge(other: ToolCall): ToolCall {
             return ToolCall(
-                toolCallId = toolCallId,
-                toolName = toolName + other.toolName,
+                toolCallId = toolCallId.ifBlank { other.toolCallId },
+                toolName = mergeStreamedToolName(toolName, other.toolName),
                 arguments = arguments + other.arguments,
+                index = index ?: other.index,
                 metadata = if(other.metadata != null) other.metadata else metadata,
             )
         }
 
         override val priority: Int = 0
+
+        companion object {
+            // 部分 OpenAI 兼容网关在每个增量里重复携带完整工具名，直接拼接会得到
+            // "namename..."，因此相同或空白的增量不再拼接
+            private fun mergeStreamedToolName(current: String, delta: String): String = when {
+                delta.isBlank() -> current
+                current.isBlank() -> delta
+                current == delta -> current
+                else -> current + delta
+            }
+        }
     }
 
     @Serializable

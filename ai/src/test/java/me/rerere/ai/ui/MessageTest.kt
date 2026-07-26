@@ -776,4 +776,291 @@ class MessageTest {
     private fun thoughtSignatureMetadata(signature: String) = buildJsonObject {
         put("thoughtSignature", signature)
     }
+
+    private fun toolCallDeltaChunk(vararg toolCalls: UIMessagePart.ToolCall): MessageChunk {
+        return MessageChunk(
+            id = "tool-delta",
+            model = "test-model",
+            choices = listOf(
+                UIMessageChoice(
+                    index = 0,
+                    delta = UIMessage(
+                        role = MessageRole.ASSISTANT,
+                        parts = toolCalls.toList(),
+                    ),
+                    message = null,
+                    finishReason = null,
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `handleMessageChunk merges indexed tool call fragments without id into one call`() {
+        // OpenAI 兼容渠道不发 id 时，参数片段靠 index 归位，不应被当成新调用
+        var messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("写文件"))),
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "workspace_write_file", "", index = 0))
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "", """{"path":"a.txt",""", index = 0))
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "", """"content":"hi"}""", index = 0))
+        )
+
+        val toolCalls = messages.last().parts.filterIsInstance<UIMessagePart.ToolCall>()
+        assertEquals(1, toolCalls.size)
+        assertEquals("workspace_write_file", toolCalls.single().toolName)
+        assertEquals("""{"path":"a.txt","content":"hi"}""", toolCalls.single().arguments)
+    }
+
+    @Test
+    fun `handleMessageChunk keeps parallel indexed tool calls separate`() {
+        var messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("并行调用"))),
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(
+                UIMessagePart.ToolCall("call_a", "tool_a", "", index = 0),
+                UIMessagePart.ToolCall("call_b", "tool_b", "", index = 1),
+            )
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(
+                UIMessagePart.ToolCall("", "", """{"a":1}""", index = 0),
+                UIMessagePart.ToolCall("", "", """{"b":2}""", index = 1),
+            )
+        )
+
+        val toolCalls = messages.last().parts.filterIsInstance<UIMessagePart.ToolCall>()
+        assertEquals(2, toolCalls.size)
+        assertEquals("""{"a":1}""", toolCalls.first { it.toolName == "tool_a" }.arguments)
+        assertEquals("""{"b":2}""", toolCalls.first { it.toolName == "tool_b" }.arguments)
+    }
+
+    @Test
+    fun `handleMessageChunk appends complete blank-id tool calls without index as new calls`() {
+        // Google 渠道：id 恒为空且每个 chunk 都是一次完整调用，行为保持追加
+        var messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("两次调用"))),
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "tool_a", """{"a":1}"""))
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "tool_b", """{"b":2}"""))
+        )
+
+        val toolCalls = messages.last().parts.filterIsInstance<UIMessagePart.ToolCall>()
+        assertEquals(2, toolCalls.size)
+        assertEquals(listOf("tool_a", "tool_b"), toolCalls.map { it.toolName })
+    }
+
+    @Test
+    fun `handleMessageChunk merges blank-id fragment into last tool call with id`() {
+        // Claude 渠道：首个块带 id，后续 input_json_delta 片段 id 为空，应拼进最近一次调用
+        var messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("调用"))),
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("toolu_1", "search_web", ""))
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "", """{"query":"hi"}"""))
+        )
+
+        val toolCalls = messages.last().parts.filterIsInstance<UIMessagePart.ToolCall>()
+        assertEquals(1, toolCalls.size)
+        assertEquals("toolu_1", toolCalls.single().toolCallId)
+        assertEquals("""{"query":"hi"}""", toolCalls.single().arguments)
+    }
+
+    @Test
+    fun `handleMessageChunk treats complete call with repeated index as new call`() {
+        // 个别网关每个 chunk 重发完整调用且 index 恒为 0：已有参数是完整 JSON 时应追加为新调用
+        var messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("两次完整调用"))),
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "tool_a", """{"a":1}""", index = 0))
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "tool_a", """{"b":2}""", index = 0))
+        )
+
+        val toolCalls = messages.last().parts.filterIsInstance<UIMessagePart.ToolCall>()
+        assertEquals(2, toolCalls.size)
+        assertEquals(listOf("""{"a":1}""", """{"b":2}"""), toolCalls.map { it.arguments })
+    }
+
+    @Test
+    fun `handleMessageChunk drops full resend of the same tool call`() {
+        // SSE 重放/累积式网关把同一条完整调用重发一遍，不应追加成第二次执行
+        var messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("重发"))),
+        )
+        val call = UIMessagePart.ToolCall("call_1", "tool_a", """{"a":1}""", index = 0)
+        messages = messages.handleMessageChunk(toolCallDeltaChunk(call))
+        messages = messages.handleMessageChunk(toolCallDeltaChunk(call.copy()))
+
+        val toolCalls = messages.last().parts.filterIsInstance<UIMessagePart.ToolCall>()
+        assertEquals(1, toolCalls.size)
+        assertEquals("""{"a":1}""", toolCalls.single().arguments)
+
+        // 空 id 的同内容重发同样只保留一条
+        var blankIdMessages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("重发"))),
+        )
+        val blankIdCall = UIMessagePart.ToolCall("", "tool_a", """{"a":1}""", index = 0)
+        blankIdMessages = blankIdMessages.handleMessageChunk(toolCallDeltaChunk(blankIdCall))
+        blankIdMessages = blankIdMessages.handleMessageChunk(toolCallDeltaChunk(blankIdCall.copy()))
+        assertEquals(1, blankIdMessages.last().parts.filterIsInstance<UIMessagePart.ToolCall>().size)
+    }
+
+    @Test
+    fun `handleMessageChunk routes indexed nameless fragment to last call when index misses`() {
+        // 混发网关：首块不带 index，后续参数片段带 index——无名片段应兜底拼进最近一次调用
+        var messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("混发"))),
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("call_1", "tool_a", ""))
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "", """{"a":1}""", index = 0))
+        )
+
+        val toolCalls = messages.last().parts.filterIsInstance<UIMessagePart.ToolCall>()
+        assertEquals(1, toolCalls.size)
+        assertEquals("""{"a":1}""", toolCalls.single().arguments)
+        assertEquals("call_1", toolCalls.single().toolCallId)
+    }
+
+    @Test
+    fun `handleMessageChunk falls back to id match when index misses`() {
+        // 混发网关：首块不带 index 但带 id，后续片段带 index 且带同一 id——按 id 兜底合并
+        var messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("混发带id"))),
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("call_1", "tool_a", ""))
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("call_1", "", """{"a":1}""", index = 0))
+        )
+
+        val toolCalls = messages.last().parts.filterIsInstance<UIMessagePart.ToolCall>()
+        assertEquals(1, toolCalls.size)
+        assertEquals("""{"a":1}""", toolCalls.single().arguments)
+    }
+
+    @Test
+    fun `handleMessageChunk starts new call when fragmented call reuses completed index`() {
+        // 恒定 index=0 且不发 id 的网关：第二次调用以碎片形式到来，不应拼进已完成的第一次调用
+        var messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("连续两次"))),
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "tool_a", """{"a":1}""", index = 0))
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "tool_b", "", index = 0))
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "", """{"b":2}""", index = 0))
+        )
+
+        val toolCalls = messages.last().parts.filterIsInstance<UIMessagePart.ToolCall>()
+        assertEquals(2, toolCalls.size)
+        assertEquals("""{"a":1}""", toolCalls.first { it.toolName == "tool_a" }.arguments)
+        assertEquals("""{"b":2}""", toolCalls.first { it.toolName == "tool_b" }.arguments)
+    }
+
+    @Test
+    fun `handleMessageChunk routes indexed fragments by ordinal when first blocks lack index`() {
+        // 混发网关并行两次调用：首块都不带 index，参数片段按"第 N 条调用"序号对号入座
+        var messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("并行混发"))),
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(
+                UIMessagePart.ToolCall("call_a", "tool_a", ""),
+                UIMessagePart.ToolCall("call_b", "tool_b", ""),
+            )
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(
+                UIMessagePart.ToolCall("", "", """{"a":1}""", index = 0),
+                UIMessagePart.ToolCall("", "", """{"b":2}""", index = 1),
+            )
+        )
+
+        val toolCalls = messages.last().parts.filterIsInstance<UIMessagePart.ToolCall>()
+        assertEquals(2, toolCalls.size)
+        assertEquals("""{"a":1}""", toolCalls.first { it.toolName == "tool_a" }.arguments)
+        assertEquals("""{"b":2}""", toolCalls.first { it.toolName == "tool_b" }.arguments)
+    }
+
+    @Test
+    fun `handleMessageChunk drops trailing name echo after call completes`() {
+        // 逐片段重复携带工具名的网关：参数发完后的收尾 chunk（同名+空参数）不应变成幻影新调用
+        var messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("收尾回显"))),
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "tool_a", """{"a":1}""", index = 0))
+        )
+        messages = messages.handleMessageChunk(
+            toolCallDeltaChunk(UIMessagePart.ToolCall("", "tool_a", "", index = 0))
+        )
+
+        val toolCalls = messages.last().parts.filterIsInstance<UIMessagePart.ToolCall>()
+        assertEquals(1, toolCalls.size)
+        assertEquals("""{"a":1}""", toolCalls.single().arguments)
+    }
+
+    @Test
+    fun `repairToolCallMessageSequence drops nameless tool call and its result`() {
+        // 无名调用是流式合并救不回来的残片，回传服务端会因空 function.name 被拒，必须剔除
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("q"))),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.ToolCall("call_ok", "search_web", "{}"),
+                    UIMessagePart.ToolCall("call_broken", "", "{}"),
+                ),
+            ),
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(
+                    UIMessagePart.ToolResult(toolCallId = "call_ok", toolName = "search_web", content = JsonPrimitive("ok"), arguments = buildJsonObject { }),
+                    UIMessagePart.ToolResult(toolCallId = "call_broken", toolName = "", content = JsonPrimitive("err"), arguments = buildJsonObject { }),
+                ),
+            ),
+        )
+
+        val repaired = messages.repairToolCallMessageSequence()
+        val assistant = repaired.first { it.role == MessageRole.ASSISTANT }
+        assertEquals(listOf("call_ok"), assistant.getToolCalls().map { it.toolCallId })
+        val toolResults = repaired.first { it.role == MessageRole.TOOL }.getToolResults()
+        assertEquals(listOf("call_ok"), toolResults.map { it.toolCallId })
+    }
+
+    @Test
+    fun `ToolCall merge dedupes repeated tool name and adopts id from delta`() {
+        val base = UIMessagePart.ToolCall("", "tool_a", "{\"a\"", index = 0)
+        val merged = base.merge(UIMessagePart.ToolCall("call_1", "tool_a", ":1}", index = 0))
+
+        assertEquals("call_1", merged.toolCallId)
+        assertEquals("tool_a", merged.toolName)
+        assertEquals("""{"a":1}""", merged.arguments)
+
+        val namedLater = UIMessagePart.ToolCall("", "", "", index = 1)
+            .merge(UIMessagePart.ToolCall("", "tool_b", "{}", index = 1))
+        assertEquals("tool_b", namedLater.toolName)
+    }
 }

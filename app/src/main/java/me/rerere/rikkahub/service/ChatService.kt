@@ -249,6 +249,35 @@ internal fun toolPartPersistenceKey(messageIndex: Int, part: UIMessagePart): Str
     else -> null
 }
 
+/**
+ * 轻量工作区工具的路径规整。除 workspace_list 外的工具共用：
+ * 模型偶尔会把工作区根目录理解成 "/" 而发出 "/folder/file.txt" 这类路径，
+ * 这里宽容地剥掉前导 "/" 按相对路径处理（与 workspace_list 行为一致）；
+ * 但单独的 "/" 仍然拒绝，避免 workspace_delete 通过 "/" 命中根目录
+ * （根目录只能用空字符串 "" 显式指定）。
+ */
+internal fun normalizeWorkspaceToolPath(rawPath: String?, allowBlank: Boolean): String? {
+    var trimmed = rawPath?.trim().orEmpty()
+    if (trimmed.isBlank()) return if (allowBlank) "" else null
+    // 先统一分隔符，让 Windows 风格的 "\folder\file.txt" 也能享受同样的宽容
+    trimmed = trimmed.replace('\\', '/')
+    if (trimmed.startsWith("/")) {
+        val stripped = trimmed.trimStart('/').trim()
+        if (stripped.isBlank()) return null
+        trimmed = stripped
+    }
+    return SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath(trimmed)
+}
+
+internal fun normalizeWorkspaceListToolPath(rawPath: String?): String? {
+    val trimmed = rawPath?.trim().orEmpty().replace('\\', '/')
+    if (trimmed.isBlank() || trimmed == "." || trimmed == "/") return ""
+    var normalized = trimmed
+    while (normalized.startsWith("/")) normalized = normalized.removePrefix("/")
+    if (normalized.isBlank()) return ""
+    return normalizeWorkspaceToolPath(normalized, allowBlank = true)
+}
+
 data class ConversationInitializationResult(
     val initialized: Boolean,
     val existsInStorage: Boolean,
@@ -4068,21 +4097,6 @@ class ChatService(
         return null
     }
 
-    private fun normalizeWorkspaceToolPath(rawPath: String?, allowBlank: Boolean): String? {
-        val trimmed = rawPath?.trim().orEmpty()
-        if (trimmed.isBlank()) return if (allowBlank) "" else null
-        return SkillScriptPathUtils.normalizeAndValidateWorkspaceFileRelPath(trimmed)
-    }
-
-    private fun normalizeWorkspaceListToolPath(rawPath: String?): String? {
-        val trimmed = rawPath?.trim().orEmpty()
-        if (trimmed.isBlank() || trimmed == "." || trimmed == "/") return ""
-        var normalized = trimmed
-        while (normalized.startsWith("/")) normalized = normalized.removePrefix("/")
-        if (normalized.isBlank()) return ""
-        return normalizeWorkspaceToolPath(normalized, allowBlank = true)
-    }
-
     private fun workspaceToolInvalidPathError(
         toolName: String,
         rawPath: String?,
@@ -4285,7 +4299,7 @@ class ChatService(
                     properties = buildJsonObject {
                         put("path", buildJsonObject {
                             put("type", "string")
-                            put("description", "Relative file path inside the assistant workspace directory.")
+                            put("description", "Relative file path inside the assistant workspace directory, like \"folder/file.txt\". Do not start with \"/\" and do not use \"..\".")
                         })
                         put("max_chars", buildJsonObject {
                             put("type", "integer")
@@ -4375,7 +4389,7 @@ class ChatService(
                     properties = buildJsonObject {
                         put("path", buildJsonObject {
                             put("type", "string")
-                            put("description", "Relative file path inside the assistant workspace directory.")
+                            put("description", "Relative file path inside the assistant workspace directory, like \"folder/file.txt\". Do not start with \"/\" and do not use \"..\".")
                         })
                         put("content", buildJsonObject {
                             put("type", "string")
@@ -4503,7 +4517,7 @@ class ChatService(
                     properties = buildJsonObject {
                         put("path", buildJsonObject {
                             put("type", "string")
-                            put("description", "Relative directory path inside the assistant workspace directory.")
+                            put("description", "Relative directory path inside the assistant workspace directory, like \"folder/sub\". Do not start with \"/\" and do not use \"..\".")
                         })
                         put("parents", buildJsonObject {
                             put("type", "boolean")

@@ -102,6 +102,9 @@ import java.util.Locale
 import kotlin.uuid.Uuid
 
 private const val TAG = "GenerationHandler"
+
+/** 工具调用入参问题（缺名/空参/参数损坏）：提示语直接回传模型，不携带堆栈 */
+private class ToolCallInputException(message: String) : IllegalStateException(message)
 private const val SEARCH_WEB_TOOL_NAME = "search_web"
 private const val SEARCH_AGENT_TOOL_NAME = "search_agent"
 private val MEMORY_TOOL_NAMES = setOf("create_memory", "edit_memory", "delete_memory")
@@ -611,8 +614,32 @@ class GenerationHandler(
                 val resolvedToolCallId = toolCall.toolCallId
                 runCatching {
                     val tool = toolsInternal.find { tool -> tool.name == toolCall.toolName }
-                        ?: error("Tool ${toolCall.toolName} not found")
-                    val args = json.parseToJsonElement(toolCall.arguments.ifBlank { "{}" })
+                        ?: throw ToolCallInputException(
+                            if (toolCall.toolName.isBlank()) {
+                                "Tool call is missing the tool name (it may have been lost in streaming). Please call the tool again."
+                            } else {
+                                "Tool ${toolCall.toolName} not found"
+                            }
+                        )
+                    // 参数为空却调用了有必填参数的工具（常见于流式传输中参数丢失），
+                    // 明确报错让模型重试，而不是静默用 {} 执行
+                    val requiredParams = (tool.parameters() as? InputSchema.Obj)?.required.orEmpty()
+                    if (toolCall.arguments.isBlank() && requiredParams.isNotEmpty()) {
+                        throw ToolCallInputException(
+                            "Tool call arguments were empty, but tool ${tool.name} requires: " +
+                                "${requiredParams.joinToString()}. Please call the tool again and " +
+                                "provide all required arguments."
+                        )
+                    }
+                    val args = runCatching { json.parseToJsonElement(toolCall.arguments.ifBlank { "{}" }) }
+                        .getOrElse {
+                            // 非空但解析失败的参数多半是流式截断，给模型可执行的重试指引，
+                            // 而不是抛出原始反序列化异常
+                            throw ToolCallInputException(
+                                "Tool call arguments are not valid JSON (possibly truncated). " +
+                                    "Please call the tool again with complete arguments."
+                            )
+                        }
 
                     val result = if (tool.requiresUserApproval) {
                         val rejectionText = MCP_TOOL_APPROVAL_REJECTED_TEXT
@@ -779,10 +806,17 @@ class GenerationHandler(
                         content = buildJsonObject {
                             put(
                                 "error",
-                                JsonPrimitive(buildString {
-                                    append("[${it.javaClass.name}] ${it.message}")
-                                    append("\n${it.stackTraceToString()}")
-                                })
+                                JsonPrimitive(
+                                    if (it is ToolCallInputException) {
+                                        // 调用入参问题的提示语本身已可执行，堆栈只会浪费模型上下文
+                                        it.message.orEmpty()
+                                    } else {
+                                        buildString {
+                                            append("[${it.javaClass.name}] ${it.message}")
+                                            append("\n${it.stackTraceToString()}")
+                                        }
+                                    }
+                                )
                             )
                         },
                         arguments = runCatching {

@@ -21,7 +21,7 @@ Requires `JAVA_HOME`, `GRADLE_USER_HOME`, and `ANDROID_USER_HOME` set to project
 
 **Run a single test class:**
 ```bash
-./gradlew :app:testExpReleaseUnitTest --tests "me.rerere.rikkahub.SomeTest" --no-daemon
+./gradlew :app:testExpDebugUnitTest --tests "me.rerere.rikkahub.SomeTest" --no-daemon
 ```
 
 **Run AI module tests:**

@@ -330,6 +330,21 @@ private class SearchAgentRunner(
         )
         val result = runCatching {
             requireNotNull(tool) { "Tool ${toolCall.toolName} not found" }
+            // 参数为空/损坏却调用了有必填参数的工具（常见于流式传输中参数丢失或截断），
+            // 明确报错让模型重试，而不是静默用 {} 执行（与 GenerationHandler 一致）
+            val requiredParams = (tool.parameters() as? InputSchema.Obj)?.required.orEmpty()
+            require(
+                toolCall.arguments.isBlank() ||
+                    runCatching { json.parseToJsonElement(toolCall.arguments) }.isSuccess
+            ) {
+                "Tool call arguments are not valid JSON (possibly truncated). " +
+                    "Please call the tool again with complete arguments."
+            }
+            require(!(toolCall.arguments.isBlank() && requiredParams.isNotEmpty())) {
+                "Tool call arguments were empty, but tool ${tool.name} requires: " +
+                    "${requiredParams.joinToString()}. Please call the tool again and provide " +
+                    "all required arguments."
+            }
             withTimeout(SEARCH_AGENT_IDLE_TIMEOUT_MS) {
                 tool.execute(args)
             }

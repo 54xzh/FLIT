@@ -599,11 +599,14 @@ class ChatCompletionsAPI(
                         toolCalls.jsonObject["function"]?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull
                     val arguments =
                         toolCalls.jsonObject["function"]?.jsonObject?.get("arguments")?.jsonPrimitive?.contentOrNull
+                    // 流式增量用 index 标记片段属于哪一次调用，必须保留用于拼接
+                    val index = (toolCalls.jsonObject["index"] as? JsonPrimitive)?.intOrNull
                     add(
                         UIMessagePart.ToolCall(
                             toolCallId = toolCallId ?: "",
                             toolName = toolName ?: "",
-                            arguments = arguments ?: ""
+                            arguments = arguments ?: "",
+                            index = index,
                         )
                     )
                 }
