@@ -97,10 +97,10 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.foundation.Image as ComposeImage
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.RpStyleRule
 import me.rerere.rikkahub.ui.components.table.DataTable
@@ -402,6 +402,30 @@ internal fun buildAnnotatedStringWithMarkdownParserForTest(
     }
 }
 
+// 短内容同步解析几乎无感；超过该长度的首次解析放到后台，避免长消息滚回屏幕时主线程掉帧
+private const val MARKDOWN_SYNC_PARSE_MAX_CHARS = 4_000
+
+// 纯文本兜底帧的渲染长度上限
+private const val MARKDOWN_FALLBACK_MAX_CHARS = 6_000
+
+// 解析结果缓存：LazyColumn 中消息滚出屏幕会销毁组合，滚回来直接复用，免去整篇重新解析。
+// 按源文本长度计权，总量封顶防止无界增长。
+private val markdownAstCache = object : android.util.LruCache<String, Pair<String, ASTNode>>(256 * 1024) {
+    override fun sizeOf(key: String, value: Pair<String, ASTNode>): Int = key.length.coerceAtLeast(1)
+}
+
+private fun parseMarkdown(content: String): Pair<String, ASTNode> {
+    val preprocessed = preProcess(content)
+    return preprocessed to parser.buildMarkdownTreeFromString(preprocessed)
+}
+
+// 流式输出时每次全文重解析的开销随长度增长，限频间隔相应放宽；短消息保持逐帧即时感
+private fun markdownParseThrottleIntervalMs(contentLength: Int): Long = when {
+    contentLength < 2_000 -> 0L
+    contentLength < 8_000 -> 50L
+    else -> 120L
+}
+
 // 预处理markdown内容
 private fun preProcess(content: String): String {
     // 先找出所有代码块的位置
@@ -507,11 +531,18 @@ fun MarkdownBlock(
     val settings = LocalSettings.current
     val rpStyleRules = settings.displaySetting.rpStyleRules
     
-    var (data, setData) = remember {
-        val preprocessed = preProcess(content)
-        val astTree = parser.buildMarkdownTreeFromString(preprocessed)
+    val (data, setData) = remember {
         mutableStateOf(
-            value = preprocessed to astTree,
+            value = markdownAstCache.get(content) ?: run {
+                // 导出走离屏组合 + 定时截图，兜底帧会被截进图片，必须同步解析
+                if (exportAssets != null || content.length <= MARKDOWN_SYNC_PARSE_MAX_CHARS) {
+                    parseMarkdown(content).also { markdownAstCache.put(content, it) }
+                } else {
+                    // 长内容首次解析放后台（下方 LaunchedEffect 的首次发射会立即解析），
+                    // 此处先返回 null，渲染一帧纯文本兜底
+                    null
+                }
+            },
             policy = referentialEqualityPolicy(),
         )
     }
@@ -520,16 +551,45 @@ fun MarkdownBlock(
     // 这里在后台线程解析AST树, 防止频繁更新的时候掉帧
     val updatedContent by rememberUpdatedState(content)
     LaunchedEffect(Unit) {
-        snapshotFlow { updatedContent }.distinctUntilChanged().mapLatest {
-            val preprocessed = preProcess(it)
-            val astTree = parser.buildMarkdownTreeFromString(preprocessed)
-            preprocessed to astTree
-        }.catch { exception -> exception.printStackTrace() }.flowOn(Dispatchers.Default) // 在后台线程解析AST树
-            .collect {
-                setData(it)
+        var lastParsedText: String? = null
+        // conflate + 处理后延时 = 限频：流式输出时跳过中间态，最新内容总会被解析，不丢字
+        snapshotFlow { updatedContent }.distinctUntilChanged().conflate().collect { text ->
+            // 缓存命中时若与当前值为同一实例，referentialEqualityPolicy 保证不触发重组，
+            // 也因此消除了旧实现中"首帧同步解析后、初始发射又重复解析一次"的双重开销
+            val cached = markdownAstCache.get(text)
+            if (cached != null) {
+                setData(cached)
+                lastParsedText = text
+                return@collect
             }
+            val parsed = withContext(Dispatchers.Default) {
+                runCatching { parseMarkdown(text) }
+                    .onFailure { it.printStackTrace() }
+                    .getOrNull()
+            } ?: return@collect
+            // 流式增长（新文本以旧文本为前缀）时，旧内容只是中间态，从缓存移除避免挤占
+            // 其他消息的条目；分支切换/编辑等非前缀变化不移除，保留双方的完整解析结果
+            lastParsedText
+                ?.takeIf { it != text && text.startsWith(it) }
+                ?.let { markdownAstCache.remove(it) }
+            markdownAstCache.put(text, parsed)
+            lastParsedText = text
+            setData(parsed)
+            val intervalMs = markdownParseThrottleIntervalMs(text.length)
+            if (intervalMs > 0) delay(intervalMs)
+        }
     }
 
+    if (data == null) {
+        // 后台解析完成前的兜底：以纯文本渲染，通常只出现一帧。
+        // 截断超长文本，避免为一帧占位付出全文布局开销
+        ProvideTextStyle(style) {
+            Column(modifier = modifier.padding(start = 4.dp)) {
+                Text(text = content.take(MARKDOWN_FALLBACK_MAX_CHARS))
+            }
+        }
+        return
+    }
     val (preprocessed, astTree) = data
     val shouldLazyRenderOffscreen = lazyRenderOffscreen &&
         exportAssets == null &&

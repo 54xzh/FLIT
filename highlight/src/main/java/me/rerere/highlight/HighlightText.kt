@@ -23,10 +23,20 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEach
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.conflate
 
 val LocalHighlighter = compositionLocalOf<Highlighter> { error("No Highlighter provided") }
 
 private const val MAX_CODE_LENGTH = 4096
+
+// 代码越长，单次高亮越贵，限频间隔相应放宽；短代码保持接近逐帧的即时感。
+private fun highlightThrottleIntervalMs(codeLength: Int): Long = when {
+    codeLength < 1_000 -> 0L
+    codeLength < 3_000 -> 80L
+    else -> 160L
+}
 
 @Composable
 fun HighlightText(
@@ -45,25 +55,43 @@ fun HighlightText(
     minLines: Int = 1,
 ) {
     val highlighter = LocalHighlighter.current
-    var tokens: List<HighlightToken> by remember { mutableStateOf(emptyList()) }
     var annotatedString by remember { mutableStateOf(AnnotatedString(code)) }
 
     val updatedCode by rememberUpdatedState(code)
     val updatedLanguage by rememberUpdatedState(language)
+    val updatedColors by rememberUpdatedState(colors)
     LaunchedEffect(Unit) {
-        snapshotFlow { updatedCode to updatedLanguage }.collect {
-            tokens = if (updatedCode.length <= MAX_CODE_LENGTH) {
-                highlighter.highlight(updatedCode, updatedLanguage)
+        // conflate + 处理后延时 = 限频：流式输出时代码每长一点就全量重新高亮，开销 O(n²)。
+        // conflate 只跳过中间态，最新值总会被处理，最终内容不丢，只是最多晚一个间隔显示。
+        var lastHighlighted: Pair<String, String>? = null
+        snapshotFlow { updatedCode to updatedLanguage }.conflate().collect { (code, language) ->
+            val tokens = if (code.length <= MAX_CODE_LENGTH) {
+                try {
+                    highlighter.highlight(code, language)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    listOf(HighlightToken.Plain(content = code))
+                }
             } else {
                 listOf(
-                    HighlightToken.Plain(content = updatedCode)
+                    HighlightToken.Plain(content = code)
                 )
             }
-            annotatedString = buildAnnotatedString {
-                tokens.fastForEach { token ->
-                    buildHighlightText(token, colors)
+            // 流式增长（新代码以旧代码为前缀）时，上一个快照只是中间态，从缓存移除避免挤占
+            lastHighlighted?.let { (lastCode, lastLanguage) ->
+                if (lastLanguage == language && lastCode != code && code.startsWith(lastCode)) {
+                    highlighter.evictCached(lastCode, lastLanguage)
                 }
             }
+            lastHighlighted = code to language
+            annotatedString = buildAnnotatedString {
+                tokens.fastForEach { token ->
+                    buildHighlightText(token, updatedColors)
+                }
+            }
+            val intervalMs = highlightThrottleIntervalMs(code.length)
+            if (intervalMs > 0) delay(intervalMs)
         }
     }
 

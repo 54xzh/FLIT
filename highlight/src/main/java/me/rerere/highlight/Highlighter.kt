@@ -28,6 +28,12 @@ import kotlin.coroutines.resumeWithException
 class Highlighter(ctx: Context) {
     private val executor = Executors.newSingleThreadExecutor()
 
+    // 高亮结果缓存：消息滚出屏幕再滚回来时（组合被销毁重建）直接复用，
+    // 避免重新走 JS 引擎 + JSON 解析。按代码长度计权，总量封顶防止无界增长。
+    private val resultCache = object : android.util.LruCache<String, List<HighlightToken>>(256 * 1024) {
+        override fun sizeOf(key: String, value: List<HighlightToken>): Int = key.length.coerceAtLeast(1)
+    }
+
     init {
         executor.submit {
             QuickJSLoader.init()
@@ -52,8 +58,24 @@ class Highlighter(ctx: Context) {
         context.globalObject.getJSFunction("highlight")
     }
 
-    suspend fun highlight(code: String, language: String) =
-        suspendCancellableCoroutine { continuation ->
+    // 移除已知为流式中间态的缓存条目（键不存在时为空操作）
+    fun evictCached(code: String, language: String) {
+        resultCache.remove(cacheKey(code, language))
+    }
+
+    // 语言名用长度前缀编码，保证 (language, code) 到键的映射无歧义
+    private fun cacheKey(code: String, language: String): String =
+        "${language.length}:$language$code"
+
+    /**
+     * @param cacheable 编辑器逐键高亮等一次性场景传 false，避免把大量瞬时文本挤进缓存
+     */
+    suspend fun highlight(code: String, language: String, cacheable: Boolean = true): List<HighlightToken> {
+        val cacheKey = cacheKey(code, language)
+        if (cacheable) {
+            resultCache.get(cacheKey)?.let { return it }
+        }
+        return suspendCancellableCoroutine { continuation ->
             executor.submit {
                 runCatching {
                     val result = highlightFn.call(code, language)
@@ -81,6 +103,9 @@ class Highlighter(ctx: Context) {
                         }
                     }
                     result.release()
+                    if (cacheable) {
+                        resultCache.put(cacheKey, tokens)
+                    }
                     continuation.resume(tokens)
                 }.onFailure {
                     it.printStackTrace()
@@ -90,6 +115,7 @@ class Highlighter(ctx: Context) {
                 }
             }
         }
+    }
 
     fun destroy() {
         context.destroy()

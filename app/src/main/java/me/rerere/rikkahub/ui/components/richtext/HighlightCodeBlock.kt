@@ -465,7 +465,8 @@ fun rememberHighlightCodeVisualTransformation(
     
     val highlighted by produceState<AnnotatedString?>(initialValue = null, code, language, darkMode) {
         try {
-            val tokens = highlighter.highlight(code, language)
+            // 编辑器逐键触发的一次性高亮，不进缓存，避免把大量瞬时全文挤占缓存空间
+            val tokens = highlighter.highlight(code, language, cacheable = false)
             value = buildAnnotatedString {
                 tokens.forEach { token ->
                     buildHighlightText(token, colorPalette)
