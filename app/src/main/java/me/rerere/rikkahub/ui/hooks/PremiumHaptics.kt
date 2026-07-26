@@ -257,12 +257,15 @@ fun rememberPremiumHaptics(enabled: Boolean? = null): PremiumHaptics {
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     
-    // Read enableUIHaptics from settings if not explicitly provided
-    val settingsStore = org.koin.compose.koinInject<me.rerere.rikkahub.data.datastore.SettingsStore>()
-    val settings by settingsStore.settingsFlow.collectAsState(
-        initial = me.rerere.rikkahub.data.datastore.Settings(init = true, providers = emptyList())
-    )
-    val isEnabled = enabled ?: settings.displaySetting.enableUIHaptics
+    // Read enableUIHaptics from settings if not explicitly provided.
+    // settingsFlow 是 StateFlow，collectAsState 无需 initial；显式传入 enabled 时完全跳过订阅。
+    val isEnabled = if (enabled != null) {
+        enabled
+    } else {
+        val settingsStore = org.koin.compose.koinInject<me.rerere.rikkahub.data.datastore.SettingsStore>()
+        val settings by settingsStore.settingsFlow.collectAsState()
+        settings.displaySetting.enableUIHaptics
+    }
     
     val vibrator = remember {
         try {

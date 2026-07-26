@@ -10,7 +10,6 @@ import org.koin.compose.koinInject
 @Composable
 fun rememberUserSettingsState(): State<Settings> {
     val store = koinInject<SettingsStore>()
-    return store.settingsFlow.collectAsStateWithLifecycle(
-        initialValue = Settings.dummy(),
-    )
+    // settingsFlow 是 StateFlow，无参订阅避免每次重组重新构造 initialValue 的 Settings.dummy()
+    return store.settingsFlow.collectAsStateWithLifecycle()
 }

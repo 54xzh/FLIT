@@ -97,7 +97,7 @@ fun ChatMessageReasoning(
     var expandState by remember { mutableStateOf(ReasoningCardState.Collapsed) }
     val scrollState = rememberScrollState()
     val settings = LocalSettings.current
-    val effectiveDisplay = settings.getEffectiveDisplaySetting()
+    val effectiveDisplay = remember(settings) { settings.getEffectiveDisplaySetting() }
     val loading = reasoning.finishedAt == null
     val isGemini = model != null && ModelRegistry.GEMINI_SERIES.match(model.modelId)
 
@@ -255,13 +255,15 @@ fun ChatMessageReasoning(
                                     (slideOutVertically { -it } + fadeOut())
                         },
                     ) {
+                        val geminiSectionText = remember(reasoning.reasoning, assistant?.regexes) {
+                            reasoning.reasoning.extractGeminiLastSection().replaceRegexes(
+                                assistant = assistant,
+                                scope = AssistantAffectScope.ASSISTANT,
+                                visual = true,
+                            )
+                        }
                         MarkdownBlock(
-                            content = reasoning.reasoning.extractGeminiLastSection()
-                                .replaceRegexes(
-                                    assistant = assistant,
-                                    scope = AssistantAffectScope.ASSISTANT,
-                                    visual = true,
-                                ),
+                            content = geminiSectionText,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -301,12 +303,15 @@ fun ChatMessageReasoning(
                                 }
                             }
                     ) {
-                        MarkdownBlock(
-                            content = reasoning.reasoning.replaceRegexes(
+                        val reasoningDisplayText = remember(reasoning.reasoning, assistant?.regexes) {
+                            reasoning.reasoning.replaceRegexes(
                                 assistant = assistant,
                                 scope = AssistantAffectScope.ASSISTANT,
                                 visual = true,
-                            ),
+                            )
+                        }
+                        MarkdownBlock(
+                            content = reasoningDisplayText,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.fillMaxSize(),
                         )
@@ -316,15 +321,15 @@ fun ChatMessageReasoning(
 
             // 如果是gemini且完全折叠, 显示当前的思考标题
             if (loading && isGemini && !expandState.expanded) {
-                GeminiReasoningTitle(reasoning = reasoning)
+                GeminiReasoningTitle(reasoning = reasoning, loading = loading)
             }
         }
     }
 }
 
 @Composable
-private fun GeminiReasoningTitle(reasoning: UIMessagePart.Reasoning) {
-    val title = reasoning.reasoning.extractGeminiThinkingTitle()
+private fun GeminiReasoningTitle(reasoning: UIMessagePart.Reasoning, loading: Boolean) {
+    val title = remember(reasoning.reasoning) { reasoning.reasoning.extractGeminiThinkingTitle() }
     if (title != null) {
         AnimatedContent(
             targetState = title,
@@ -337,7 +342,7 @@ private fun GeminiReasoningTitle(reasoning: UIMessagePart.Reasoning) {
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier
                     .padding(horizontal = 4.dp)
-                    .shimmer(true),
+                    .shimmer(loading),
             )
         }
     }

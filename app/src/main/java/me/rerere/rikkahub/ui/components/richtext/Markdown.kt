@@ -213,7 +213,21 @@ private fun buildWrappingRegex(pattern: String): Regex {
     }
 }
 
+// 规则列表几乎不变，而本函数在流式渲染中每个文本节点都会调用；
+// 缓存最近一份编译结果，避免每次重新 Pattern.compile。
+private val patternRegexCache =
+    java.util.concurrent.atomic.AtomicReference<Pair<List<RpStyleRule>, List<PatternRegexStyle>>?>(null)
+
 private fun buildPatternRegexes(rpStyleRules: List<RpStyleRule>): List<PatternRegexStyle> {
+    patternRegexCache.get()?.let { (cachedRules, cachedRegexes) ->
+        if (cachedRules == rpStyleRules) return cachedRegexes
+    }
+    val result = computePatternRegexes(rpStyleRules)
+    patternRegexCache.set(rpStyleRules to result)
+    return result
+}
+
+private fun computePatternRegexes(rpStyleRules: List<RpStyleRule>): List<PatternRegexStyle> {
     val enabledRulesByPattern = linkedMapOf<String, RpStyleRule>()
     rpStyleRules.forEach { rule ->
         if (rule.enabled && rule.pattern.isNotBlank() && !enabledRulesByPattern.containsKey(rule.pattern)) {

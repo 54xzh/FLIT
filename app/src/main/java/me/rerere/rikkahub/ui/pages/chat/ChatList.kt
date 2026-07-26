@@ -495,7 +495,7 @@ private fun SharedTransitionScope.ChatListNormal(
             defaultName = defaultAssistantName,
         ).orEmpty()
     }
-    val effectiveDisplay = settings.getEffectiveDisplaySetting()
+    val effectiveDisplay = remember(settings) { settings.getEffectiveDisplaySetting() }
     val compressionMarkerIndexes = remember(
         conversation.contextSummaryBoundaries,
         conversation.messageNodes,
@@ -709,38 +709,65 @@ private fun SharedTransitionScope.ChatListNormal(
         }
     }
 
-    val sendScrollLayoutInfo = state.layoutInfo
-    val sendScrollTotalItemsCount = sendScrollLayoutInfo.totalItemsCount
-    val sendScrollViewportHeightPx = sendScrollLayoutInfo.viewportSize.height
-    val sendScrollMessageHeightsPx = conversation.messageNodes.map { node ->
-        messageItemHeightsPx[node.id] ?: 0
+    // 布局信息与条目高度表每帧都在变化，只有送场滚动锚点激活时才需要读取；
+    // 用 derivedStateOf 让无锚点的常态下不订阅这些每帧状态，避免整表重组。
+    val sendScrollMetrics by remember(state, conversation.id, bottomMarkerHeightPx, listItemSpacingPx) {
+        derivedStateOf {
+            val anchor = activeSendScrollAnchor ?: return@derivedStateOf null
+            val nodes = conversationUpdated.messageNodes
+            val anchorIndex = nodes.indexOfFirst { it.id == anchor.nodeId }
+            if (anchorIndex < 0) return@derivedStateOf null
+            val layoutInfo = state.layoutInfo
+            val heights = nodes.map { node -> messageItemHeightsPx[node.id] ?: 0 }
+            ChatSendScrollMetrics(
+                totalItemsCount = layoutInfo.totalItemsCount,
+                viewportHeightPx = layoutInfo.viewportSize.height,
+                afterContentPaddingPx = layoutInfo.afterContentPadding,
+                userMessageHeightPx = heights.getOrElse(anchorIndex) { 0 },
+                trailingContentHeightPx = resolveSendScrollTrailingContentHeightPx(
+                    anchorIndex = anchorIndex,
+                    messageItemHeightsPx = heights,
+                    loading = loadingState,
+                    loadingIndicatorHeightPx = loadingIndicatorHeightPx,
+                    bottomMarkerHeightPx = bottomMarkerHeightPx,
+                    itemSpacingPx = listItemSpacingPx,
+                ),
+            )
+        }
     }
-    val sendScrollUserMessageHeightPx = sendScrollMessageHeightsPx.getOrElse(sendScrollAnchorIndex) { 0 }
-    val sendScrollTrailingContentHeightPx = resolveSendScrollTrailingContentHeightPx(
-        anchorIndex = sendScrollAnchorIndex,
-        messageItemHeightsPx = sendScrollMessageHeightsPx,
-        loading = loading,
-        loadingIndicatorHeightPx = loadingIndicatorHeightPx,
-        bottomMarkerHeightPx = bottomMarkerHeightPx,
-        itemSpacingPx = listItemSpacingPx,
-    )
-    val sendScrollLayout = if (
-        sendScrollAnchor != null &&
-        sendScrollAnchorIndex >= 0 &&
-        sendScrollUserMessageHeightPx > 0 &&
-        sendScrollViewportHeightPx > 0
-    ) {
-        resolveSendScrollLayout(
-            viewportHeightPx = sendScrollViewportHeightPx,
-            userMessageHeightPx = sendScrollUserMessageHeightPx,
-            trailingContentHeightPx = sendScrollTrailingContentHeightPx,
-            afterContentPaddingPx = sendScrollLayoutInfo.afterContentPadding,
-        )
-    } else {
-        null
+    val sendScrollTotalItemsCount = sendScrollMetrics?.totalItemsCount ?: 0
+    val sendScrollViewportHeightPx = sendScrollMetrics?.viewportHeightPx ?: 0
+    val sendScrollLayout = sendScrollMetrics?.let { metrics ->
+        if (metrics.userMessageHeightPx > 0 && metrics.viewportHeightPx > 0) {
+            resolveSendScrollLayout(
+                viewportHeightPx = metrics.viewportHeightPx,
+                userMessageHeightPx = metrics.userMessageHeightPx,
+                trailingContentHeightPx = metrics.trailingContentHeightPx,
+                afterContentPaddingPx = metrics.afterContentPaddingPx,
+            )
+        } else {
+            null
+        }
     }
     val sendScrollDynamicSpacerHeight = with(density) {
         (sendScrollLayout?.dynamicSpacerHeightPx ?: 0).toDp()
+    }
+    // 流式更新间隔只取决于最后一条消息是否在屏内，整表共用一份派生状态，
+    // 避免每个可见条目各自订阅每帧变化的布局信息。
+    val streamingTailContentUpdateIntervalMs by remember(state) {
+        derivedStateOf {
+            if (!loadingState) {
+                0L
+            } else {
+                val nodes = conversationUpdated.messageNodes
+                resolveStreamingContentUpdateIntervalMs(
+                    index = nodes.lastIndex,
+                    messageCount = nodes.size,
+                    loading = true,
+                    layoutInfo = state.layoutInfo,
+                )
+            }
+        }
     }
     val sendScrollInitialAnimationDone = sendScrollAnchor != null &&
         animatedSendScrollRequestId == sendScrollAnchor.requestId
@@ -751,10 +778,12 @@ private fun SharedTransitionScope.ChatListNormal(
         replyAreaOverflowing = sendScrollLayout?.replyAreaOverflowing,
     )
 
+    // key 保持与旧版等价的子集：metrics 里的 trailingContentHeightPx 会随流式回复长高而变化，
+    // 若整个 metrics 作 key，初始滚动动画会被反复打断。
     LaunchedEffect(
         sendScrollAnchor?.requestId,
         sendScrollAnchorIndex,
-        sendScrollUserMessageHeightPx,
+        sendScrollMetrics?.userMessageHeightPx,
         sendScrollLayout?.userMessageScrollOffsetPx,
         sendScrollTotalItemsCount,
         sendScrollViewportHeightPx,
@@ -1011,16 +1040,7 @@ private fun SharedTransitionScope.ChatListNormal(
                         ?.let { conversation.messageNodes[it].currentMessage }
                     val previousMessage = previousVisibleMessage
                     val isLast = index == conversation.messageNodes.lastIndex
-                    val streamingContentUpdateIntervalMs by remember(index, loading, conversation.messageNodes.size, state) {
-                        derivedStateOf {
-                            resolveStreamingContentUpdateIntervalMs(
-                                index = index,
-                                messageCount = conversation.messageNodes.size,
-                                loading = loading,
-                                layoutInfo = state.layoutInfo,
-                            )
-                        }
-                    }
+                    val streamingContentUpdateIntervalMs = if (isLast) streamingTailContentUpdateIntervalMs else 0L
                     val canContinue = isLast &&
                         message.role == MessageRole.ASSISTANT &&
                         groupChatTemplateForConversation == null

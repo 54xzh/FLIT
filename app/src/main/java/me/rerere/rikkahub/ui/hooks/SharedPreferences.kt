@@ -158,7 +158,8 @@ fun rememberExpressiveFont(): MutableState<Boolean> {
 @Composable
 fun rememberFontSettings(): me.rerere.rikkahub.data.datastore.FontSettings {
     val settingsStore: me.rerere.rikkahub.data.datastore.SettingsStore = org.koin.compose.koinInject()
-    val settings by settingsStore.settingsFlow.collectAsState(initial = me.rerere.rikkahub.data.datastore.Settings.dummy())
+    // settingsFlow 是 StateFlow，无参订阅避免每次重组重新构造 initial 的 Settings.dummy()
+    val settings by settingsStore.settingsFlow.collectAsState()
     return settings.displaySetting.fontSettings
 }
 

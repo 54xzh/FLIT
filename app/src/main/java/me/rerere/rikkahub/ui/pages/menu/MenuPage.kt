@@ -73,6 +73,7 @@ import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
+import me.rerere.rikkahub.ui.modifier.rememberShimmerProgress
 import me.rerere.rikkahub.ui.modifier.shimmer
 import me.rerere.rikkahub.ui.motion.LocalMotionPolicy
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
@@ -399,6 +400,8 @@ private fun ChatHeatmapSkeletonCard(modifier: Modifier = Modifier) {
         MaterialTheme.colorScheme.surfaceContainerHigh
     }
     val contentColor = MaterialTheme.colorScheme.onSurface
+    // 整张骨架卡共享一个闪光动画时钟，热力图逐格骨架不再各开一个无限动画
+    val shimmerProgress = rememberShimmerProgress()
     val today = LocalDate.now()
     val windowStart = remember(today) { today.withDayOfMonth(1).minusMonths(11) }
     val layout = remember(today, windowStart) {
@@ -432,7 +435,8 @@ private fun ChatHeatmapSkeletonCard(modifier: Modifier = Modifier) {
                 modifier = Modifier
                     .width(92.dp)
                     .height(20.dp),
-                color = contentColor
+                color = contentColor,
+                progress = shimmerProgress
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -443,13 +447,15 @@ private fun ChatHeatmapSkeletonCard(modifier: Modifier = Modifier) {
                     modifier = Modifier
                         .width(134.dp)
                         .height(12.dp),
-                    color = contentColor.copy(alpha = 0.85f)
+                    color = contentColor.copy(alpha = 0.85f),
+                    progress = shimmerProgress
                 )
                 SkeletonBlock(
                     modifier = Modifier
                         .width(78.dp)
                         .height(10.dp),
-                    color = contentColor.copy(alpha = 0.7f)
+                    color = contentColor.copy(alpha = 0.7f),
+                    progress = shimmerProgress
                 )
             }
             Row(
@@ -470,14 +476,16 @@ private fun ChatHeatmapSkeletonCard(modifier: Modifier = Modifier) {
                                     modifier = Modifier
                                         .width(12.dp)
                                         .height(8.dp),
-                                    color = contentColor.copy(alpha = 0.5f + (index * 0.04f))
+                                    color = contentColor.copy(alpha = 0.5f + (index * 0.04f)),
+                                    progress = shimmerProgress
                                 )
                             } else {
                                 SkeletonBlock(
                                     modifier = Modifier
                                         .width(22.dp)
                                         .height(10.dp),
-                                    color = contentColor.copy(alpha = 0.7f)
+                                    color = contentColor.copy(alpha = 0.7f),
+                                    progress = shimmerProgress
                                 )
                             }
                         }
@@ -512,7 +520,8 @@ private fun ChatHeatmapSkeletonCard(modifier: Modifier = Modifier) {
                                             }
                                         )
                                         .height(12.dp),
-                                    color = contentColor.copy(alpha = 0.7f)
+                                    color = contentColor.copy(alpha = 0.7f),
+                                    progress = shimmerProgress
                                 )
                             }
                         }
@@ -551,7 +560,8 @@ private fun ChatHeatmapSkeletonCard(modifier: Modifier = Modifier) {
                                                     modifier = Modifier
                                                         .size(cellSize)
                                                         .clip(RoundedCornerShape(3.dp)),
-                                                    color = contentColor.copy(alpha = placeholderAlpha)
+                                                    color = contentColor.copy(alpha = placeholderAlpha),
+                                                    progress = shimmerProgress
                                                 )
                                             }
                                         }
@@ -571,7 +581,8 @@ private fun ChatHeatmapSkeletonCard(modifier: Modifier = Modifier) {
                     modifier = Modifier
                         .width(22.dp)
                         .height(10.dp),
-                    color = contentColor.copy(alpha = 0.65f)
+                    color = contentColor.copy(alpha = 0.65f),
+                    progress = shimmerProgress
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 repeat(5) { index ->
@@ -579,7 +590,8 @@ private fun ChatHeatmapSkeletonCard(modifier: Modifier = Modifier) {
                         modifier = Modifier
                             .size(10.dp)
                             .clip(RoundedCornerShape(2.dp)),
-                        color = contentColor.copy(alpha = 0.45f + (index * 0.09f))
+                        color = contentColor.copy(alpha = 0.45f + (index * 0.09f)),
+                        progress = shimmerProgress
                     )
                     Spacer(modifier = Modifier.width(2.dp))
                 }
@@ -587,7 +599,8 @@ private fun ChatHeatmapSkeletonCard(modifier: Modifier = Modifier) {
                     modifier = Modifier
                         .width(24.dp)
                         .height(10.dp),
-                    color = contentColor.copy(alpha = 0.65f)
+                    color = contentColor.copy(alpha = 0.65f),
+                    progress = shimmerProgress
                 )
             }
         }
@@ -602,6 +615,8 @@ private fun StatCardSkeleton(modifier: Modifier = Modifier) {
         MaterialTheme.colorScheme.surfaceContainerHighest
     }
     val contentColor = MaterialTheme.colorScheme.onSurface
+    // 卡内骨架块共享一个闪光动画时钟
+    val shimmerProgress = rememberShimmerProgress()
 
     Card(
         modifier = modifier.heightIn(min = StatCardMinHeight),
@@ -621,7 +636,8 @@ private fun StatCardSkeleton(modifier: Modifier = Modifier) {
                 modifier = Modifier
                     .size(36.dp)
                     .clip(me.rerere.rikkahub.ui.theme.AppShapes.Chip),
-                color = contentColor
+                color = contentColor,
+                progress = shimmerProgress
             )
             Spacer(modifier = Modifier.height(12.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -629,13 +645,15 @@ private fun StatCardSkeleton(modifier: Modifier = Modifier) {
                     modifier = Modifier
                         .width(72.dp)
                         .height(26.dp),
-                    color = contentColor
+                    color = contentColor,
+                    progress = shimmerProgress
                 )
                 SkeletonBlock(
                     modifier = Modifier
                         .width(84.dp)
                         .height(12.dp),
-                    color = contentColor.copy(alpha = 0.8f)
+                    color = contentColor.copy(alpha = 0.8f),
+                    progress = shimmerProgress
                 )
             }
         }
@@ -645,7 +663,8 @@ private fun StatCardSkeleton(modifier: Modifier = Modifier) {
 @Composable
 private fun SkeletonBlock(
     modifier: Modifier,
-    color: Color
+    color: Color,
+    progress: androidx.compose.runtime.State<Float>?
 ) {
     Box(
         modifier = modifier
@@ -654,7 +673,8 @@ private fun SkeletonBlock(
             .shimmer(
                 isLoading = true,
                 shimmerColor = color.copy(alpha = 0.28f),
-                backgroundColor = color.copy(alpha = 0.82f)
+                backgroundColor = color.copy(alpha = 0.82f),
+                sharedProgress = progress
             )
     )
 }

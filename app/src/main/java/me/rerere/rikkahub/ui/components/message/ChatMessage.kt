@@ -597,8 +597,10 @@ private fun MessagePartsBlock(
 
     // Token Statistics (shown after all text parts, for assistant messages only)
     // Just shows immediately when conditions are met - no special delay or animation
-    val textParts = parts.filterIsInstance<UIMessagePart.Text>()
-    val hasTextContent = textParts.any { it.text.stripInterruptedAppContextForDisplay().isNotBlank() }
+    val hasTextContent = remember(parts) {
+        parts.filterIsInstance<UIMessagePart.Text>()
+            .any { it.text.stripInterruptedAppContextForDisplay().isNotBlank() }
+    }
     val shouldShowTokenStats = role == MessageRole.ASSISTANT && showTokenUsage && !loading && hasTextContent && usage != null
     
     if (shouldShowTokenStats) {
@@ -717,11 +719,13 @@ private fun MessageTextPart(
     onQuoteFollowUp: (String) -> Unit = {},
 ) {
     if (role == MessageRole.USER) {
-        val displayText = part.text.replaceRegexes(
-            assistant = assistant,
-            scope = AssistantAffectScope.USER,
-            visual = true,
-        )
+        val displayText = remember(part.text, assistant?.regexes) {
+            part.text.replaceRegexes(
+                assistant = assistant,
+                scope = AssistantAffectScope.USER,
+                visual = true,
+            )
+        }
         Card(
             modifier = Modifier.limitedTextGrowthAnimation(contentLength = displayText.length),
             shape = me.rerere.rikkahub.ui.theme.AppShapes.CardLarge,
@@ -754,11 +758,13 @@ private fun MessageTextPart(
         return
     }
 
-    val displayText = part.text.stripInterruptedAppContextForDisplay().replaceRegexes(
-        assistant = assistant,
-        scope = AssistantAffectScope.ASSISTANT,
-        visual = true,
-    )
+    val displayText = remember(part.text, assistant?.regexes) {
+        part.text.stripInterruptedAppContextForDisplay().replaceRegexes(
+            assistant = assistant,
+            scope = AssistantAffectScope.ASSISTANT,
+            visual = true,
+        )
+    }
     Column {
         if (loading) {
             MarkdownBlock(

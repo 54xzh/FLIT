@@ -439,7 +439,7 @@ private fun CompactReasoningTimelineItem(
     streamingContentUpdateIntervalMs: Long,
 ) {
     val settings = LocalSettings.current
-    val effectiveDisplay = settings.getEffectiveDisplaySetting(assistant)
+    val effectiveDisplay = remember(settings, assistant) { settings.getEffectiveDisplaySetting(assistant) }
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     val loading = reasoning.finishedAt == null
     val scrollState = rememberScrollState()
@@ -545,6 +545,13 @@ private fun CompactReasoningTimelineItem(
                         )
                 ) {
                     if (isGemini && loading && bodyState == ReasoningBodyState.Preview) {
+                        val geminiSectionText = remember(reasoning.reasoning, assistant?.regexes) {
+                            reasoning.reasoning.extractGeminiLastSection().replaceRegexes(
+                                assistant = assistant,
+                                scope = AssistantAffectScope.ASSISTANT,
+                                visual = true,
+                            )
+                        }
                         AnimatedContent(
                             targetState = geminiTitle ?: "",
                             transitionSpec = {
@@ -553,12 +560,7 @@ private fun CompactReasoningTimelineItem(
                             },
                         ) {
                             MarkdownBlock(
-                                content = reasoning.reasoning.extractGeminiLastSection()
-                                    .replaceRegexes(
-                                        assistant = assistant,
-                                        scope = AssistantAffectScope.ASSISTANT,
-                                        visual = true,
-                                    ),
+                                content = geminiSectionText,
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -567,12 +569,15 @@ private fun CompactReasoningTimelineItem(
                             )
                         }
                     } else {
-                        MarkdownBlock(
-                            content = reasoning.reasoning.replaceRegexes(
+                        val reasoningDisplayText = remember(reasoning.reasoning, assistant?.regexes) {
+                            reasoning.reasoning.replaceRegexes(
                                 assistant = assistant,
                                 scope = AssistantAffectScope.ASSISTANT,
                                 visual = true,
-                            ),
+                            )
+                        }
+                        MarkdownBlock(
+                            content = reasoningDisplayText,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier
                                 .fillMaxWidth()

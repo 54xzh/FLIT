@@ -223,6 +223,19 @@ data class AssistantRegex(
     val visualOnly: Boolean = false, // 是否仅在视觉上影响
 )
 
+// 流式渲染时每个分块都会重跑替换规则，正则按原样字符串缓存编译结果；
+// 规则来自用户配置，数量有限，超过上限时整体清空防止无界增长。
+private val assistantRegexCache = java.util.concurrent.ConcurrentHashMap<String, Regex>()
+private const val ASSISTANT_REGEX_CACHE_LIMIT = 64
+
+private fun compiledAssistantRegex(pattern: String): Regex {
+    assistantRegexCache[pattern]?.let { return it }
+    if (assistantRegexCache.size >= ASSISTANT_REGEX_CACHE_LIMIT) {
+        assistantRegexCache.clear()
+    }
+    return assistantRegexCache.getOrPut(pattern) { Regex(pattern) }
+}
+
 fun String.replaceRegexes(
     assistant: Assistant?,
     scope: AssistantAffectScope,
@@ -234,7 +247,7 @@ fun String.replaceRegexes(
         if (regex.enabled && regex.visualOnly == visual && regex.affectingScope.contains(scope)) {
             try {
                 val result = acc.replace(
-                    regex = Regex(regex.findRegex),
+                    regex = compiledAssistantRegex(regex.findRegex),
                     replacement = regex.replaceString,
                 )
                 // println("Regex: ${regex.findRegex} -> ${result}")

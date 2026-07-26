@@ -760,12 +760,19 @@ private fun buildInterruptedAppContextSuffix(appContext: String): String {
     return "$INTERRUPTED_APP_CONTEXT_START_TAG$appContext$INTERRUPTED_APP_CONTEXT_END_TAG"
 }
 
+// 标记集合固定，正则只编译一次；流式渲染路径上本函数调用极其频繁。
+// 兼容新旧两种写法: 旧版标记可能贴在 assistant 正文后(带前导换行), 新版为裸标记.
+// \\n* 同时吃掉可能的 0 个或多个前导换行, 避免剥离后残留空行.
+private val interruptedAppContextStripRegexes: List<Regex> by lazy {
+    INTERRUPTED_APP_CONTEXT_TEXTS.map { appContext ->
+        Regex("\\n*" + Regex.escape(buildInterruptedAppContextSuffix(appContext)))
+    }
+}
+
 fun String.stripInterruptedAppContextForDisplay(): String {
-    return INTERRUPTED_APP_CONTEXT_TEXTS.fold(this) { text, appContext ->
-        // 兼容新旧两种写法: 旧版标记可能贴在 assistant 正文后(带前导换行), 新版为裸标记.
-        // \\n* 同时吃掉可能的 0 个或多个前导换行, 避免剥离后残留空行.
-        val bare = buildInterruptedAppContextSuffix(appContext)
-        text.replace(Regex("\\n*" + Regex.escape(bare)), "")
+    if (!contains(INTERRUPTED_APP_CONTEXT_START_TAG)) return this
+    return interruptedAppContextStripRegexes.fold(this) { text, regex ->
+        text.replace(regex, "")
     }
 }
 

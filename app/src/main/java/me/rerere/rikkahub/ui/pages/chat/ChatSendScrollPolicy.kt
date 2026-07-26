@@ -12,6 +12,14 @@ internal data class ChatSendScrollAnchor(
     val nodeId: Uuid,
 )
 
+internal data class ChatSendScrollMetrics(
+    val totalItemsCount: Int,
+    val viewportHeightPx: Int,
+    val afterContentPaddingPx: Int,
+    val userMessageHeightPx: Int,
+    val trailingContentHeightPx: Int,
+)
+
 internal data class ChatSendScrollLayout(
     val visibleUserMessageHeightPx: Int,
     val userMessageScrollOffsetPx: Int,

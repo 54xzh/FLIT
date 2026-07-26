@@ -51,13 +51,18 @@ fun RikkahubTheme(
     }
 
 
-    val colorScheme = when {
-        settings.dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    // dynamicDarkColorScheme/dynamicLightColorScheme 每次调用都会分配全新 ColorScheme，
+    // 若不缓存会导致下方 remember 的 key 永远失效，任何设置变化都触发全 App 重画。
+    // 壁纸取色变化会重建 Activity（context 变化），缓存不会滞留旧配色。
+    val context = LocalContext.current
+    val colorScheme = remember(settings.dynamicColor, settings.themeId, darkTheme, context) {
+        when {
+            settings.dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            }
+            darkTheme -> findPresetTheme(settings.themeId).getColorScheme(dark = true)
+            else -> findPresetTheme(settings.themeId).getColorScheme(dark = false)
         }
-        darkTheme -> findPresetTheme(settings.themeId).getColorScheme(dark = true)
-        else -> findPresetTheme(settings.themeId).getColorScheme(dark = false)
     }
     val colorSchemeConverted = remember(darkTheme, colorScheme) {
         if (darkTheme) {

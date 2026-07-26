@@ -32,6 +32,9 @@ fun String.stripMarkdown(): String {
         .trim()
 }
 
+private val GeminiThinkingBoldLineRegex = Regex("^\\*\\*(.+?)\\*\\*$")
+private val GeminiSectionBoldLineRegex = Regex("^\\*\\*.+?\\*\\*$", RegexOption.MULTILINE)
+
 fun String.extractGeminiThinkingTitle(): String? {
     // 按行分割文本
     val lines = this.lines()
@@ -41,8 +44,7 @@ fun String.extractGeminiThinkingTitle(): String? {
         val line = lines[i].trim()
 
         // 检查是否为加粗格式且独占一整行
-        val boldPattern = Regex("^\\*\\*(.+?)\\*\\*$")
-        val match = boldPattern.find(line)
+        val match = GeminiThinkingBoldLineRegex.find(line)
 
         if (match != null) {
             // 返回加粗标记内的文本内容
@@ -57,8 +59,7 @@ fun String.extractGeminiThinkingTitle(): String? {
  * 提取最后一个以 **粗体标题** 开头的段落（标题行+后续内容）
  */
 fun String.extractGeminiLastSection(): String {
-    val boldPattern = Regex("^\\*\\*.+?\\*\\*$", RegexOption.MULTILINE)
-    val matches = boldPattern.findAll(this).toList()
+    val matches = GeminiSectionBoldLineRegex.findAll(this).toList()
     if (matches.isEmpty()) return this
     return this.substring(matches.last().range.first).trimEnd()
 }
