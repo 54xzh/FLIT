@@ -1,5 +1,11 @@
 package me.rerere.rikkahub.ui.pages.setting.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -440,26 +446,38 @@ private fun ColumnScope.ProviderConfigureClaude(
         )
     }
 
-    if (provider.promptCaching) {
-        Text(stringResource(id = R.string.setting_provider_page_claude_prompt_cache_ttl))
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            ClaudePromptCacheTtl.entries.forEachIndexed { index, ttl ->
-                SegmentedButton(
-                    shape = SegmentedButtonDefaults.itemShape(
-                        index = index,
-                        count = ClaudePromptCacheTtl.entries.size
-                    ),
-                    label = {
-                        Text(
-                            when (ttl) {
-                                ClaudePromptCacheTtl.FIVE_MINUTES -> stringResource(id = R.string.setting_provider_page_claude_prompt_cache_ttl_5m)
-                                ClaudePromptCacheTtl.ONE_HOUR -> stringResource(id = R.string.setting_provider_page_claude_prompt_cache_ttl_1h)
-                            }
-                        )
-                    },
-                    selected = provider.promptCacheTtl == ttl,
-                    onClick = { onEdit(provider.copy(promptCacheTtl = ttl)) }
-                )
+    AnimatedVisibility(
+        visible = provider.promptCaching,
+        enter = expandVertically(
+            animationSpec = spring(dampingRatio = 0.7f, stiffness = 300f)
+        ) + fadeIn(
+            animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f)
+        ),
+        exit = shrinkVertically(
+            animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f)
+        ) + fadeOut(),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(stringResource(id = R.string.setting_provider_page_claude_prompt_cache_ttl))
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                ClaudePromptCacheTtl.entries.forEachIndexed { index, ttl ->
+                    SegmentedButton(
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = ClaudePromptCacheTtl.entries.size
+                        ),
+                        label = {
+                            Text(
+                                when (ttl) {
+                                    ClaudePromptCacheTtl.FIVE_MINUTES -> stringResource(id = R.string.setting_provider_page_claude_prompt_cache_ttl_5m)
+                                    ClaudePromptCacheTtl.ONE_HOUR -> stringResource(id = R.string.setting_provider_page_claude_prompt_cache_ttl_1h)
+                                }
+                            )
+                        },
+                        selected = provider.promptCacheTtl == ttl,
+                        onClick = { onEdit(provider.copy(promptCacheTtl = ttl)) }
+                    )
+                }
             }
         }
     }
