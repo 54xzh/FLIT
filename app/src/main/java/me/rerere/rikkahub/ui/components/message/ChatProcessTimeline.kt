@@ -56,7 +56,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +69,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -429,6 +430,42 @@ private fun ProcessTimelineStep(
     }
 }
 
+// 预览尾部最少保留的字符数：88dp 窗口最多显示几行，1500 字足够撑满并留出滚动余量
+private const val ReasoningPreviewTailMinChars = 1500
+
+// 裁剪点按 1000 字一档推进：两次裁剪之间内容高度持续增长，自动跟底动画保持平滑；
+// 裁剪瞬间视口锚定在底部，画面里的文字不变，用户无感。若每 tick 都推进裁剪点，
+// 总高度不再变化，跟随动画会退化成逐行跳变
+private const val ReasoningPreviewTrimStepChars = 1000
+
+// 对齐换行符时允许向后查找的范围，避免一段超长无换行文本把尾部裁得过短
+private const val ReasoningPreviewNewlineSearchRange = 400
+
+/**
+ * 取思维链尾部一段（约 1500~2500 字）用于流式预览渲染。
+ * 裁剪点尽量对齐到换行，减少首行残句随流式输出反复跳变；
+ * 无法对齐换行时避开 emoji 代理对和代码围栏本身；
+ * 若裁掉的前文含奇数个代码围栏（```），说明裁剪点位于代码块内部，补一个围栏保持渲染一致。
+ */
+internal fun String.reasoningPreviewTail(): String {
+    if (length <= ReasoningPreviewTailMinChars + ReasoningPreviewTrimStepChars) return this
+    var cut = (length - ReasoningPreviewTailMinChars) / ReasoningPreviewTrimStepChars * ReasoningPreviewTrimStepChars
+    val newline = indexOf('\n', cut)
+    if (newline >= 0 && newline < cut + ReasoningPreviewNewlineSearchRange && newline < length - 1) {
+        cut = newline + 1
+    } else {
+        while (cut < length && (get(cut).isLowSurrogate() || get(cut) == '`')) cut++
+    }
+    val tail = substring(cut)
+    var fenceCount = 0
+    var fenceIndex = indexOf("```")
+    while (fenceIndex in 0 until cut) {
+        fenceCount++
+        fenceIndex = indexOf("```", fenceIndex + 3)
+    }
+    return if (fenceCount % 2 == 1) "```\n$tail" else tail
+}
+
 @Composable
 private fun CompactReasoningTimelineItem(
     reasoning: UIMessagePart.Reasoning,
@@ -491,10 +528,17 @@ private fun CompactReasoningTimelineItem(
 
     val isGemini = model != null && ModelRegistry.GEMINI_SERIES.match(model.modelId)
 
-    LaunchedEffect(reasoning.reasoning, loading, bodyState) {
+    // 用滚动范围变化驱动自动跟底，而不是拿思维链全文当 key：
+    // 后者每个流式分块都会重启协程，动画永不收敛
+    LaunchedEffect(loading, bodyState, isGemini) {
         if (loading && bodyState == ReasoningBodyState.Preview && !isGemini) {
-            withFrameNanos { }
-            scrollState.animateScrollTo(scrollState.maxValue)
+            snapshotFlow { scrollState.maxValue }
+                .collectLatest { max ->
+                    // 首次布局前 maxValue 是 Int.MAX_VALUE 占位值，跳过
+                    if (max != Int.MAX_VALUE && scrollState.value < max) {
+                        scrollState.animateScrollTo(max)
+                    }
+                }
         }
     }
 
@@ -569,8 +613,15 @@ private fun CompactReasoningTimelineItem(
                             )
                         }
                     } else {
-                        val reasoningDisplayText = remember(reasoning.reasoning, assistant?.regexes) {
-                            reasoning.reasoning.replaceRegexes(
+                        // 预览窗口只有 88dp 高，整篇思维链参与排版是长思维链流式卡顿的大头，
+                        // 预览态只取尾部一段；展开态仍渲染全文
+                        val reasoningDisplayText = remember(reasoning.reasoning, assistant?.regexes, bodyState) {
+                            val source = if (bodyState == ReasoningBodyState.Preview) {
+                                reasoning.reasoning.reasoningPreviewTail()
+                            } else {
+                                reasoning.reasoning
+                            }
+                            source.replaceRegexes(
                                 assistant = assistant,
                                 scope = AssistantAffectScope.ASSISTANT,
                                 visual = true,

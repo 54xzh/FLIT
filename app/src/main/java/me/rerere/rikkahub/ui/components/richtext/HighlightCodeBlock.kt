@@ -51,6 +51,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,6 +81,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -147,9 +149,16 @@ fun HighlightCodeBlock(
     val autoWrap = effectiveDisplay.codeBlockAutoWrap
 
     // Auto-scroll to bottom when generating (like reasoning card)
-    LaunchedEffect(code, completeCodeBlock, expandState) {
+    // 用滚动范围变化驱动跟底，避免把 code 全文当 key 导致每个流式分块都重启动画
+    LaunchedEffect(completeCodeBlock, expandState) {
         if (!completeCodeBlock && expandState == CodeBlockState.Preview) {
-            verticalScrollState.animateScrollTo(verticalScrollState.maxValue)
+            snapshotFlow { verticalScrollState.maxValue }
+                .collectLatest { max ->
+                    // 首次布局前 maxValue 是 Int.MAX_VALUE 占位值，跳过
+                    if (max != Int.MAX_VALUE && verticalScrollState.value < max) {
+                        verticalScrollState.animateScrollTo(max)
+                    }
+                }
         }
     }
 

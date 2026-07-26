@@ -41,12 +41,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -85,9 +84,8 @@ import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Videocam
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -133,25 +131,49 @@ private val LimitedTextGrowthAnimationSpec = spring<Float>(
 )
 
 private class LimitedTextGrowthAnimationState {
-    var targetHeightPx: Int = 0
-    var job: Job? = null
+    var lastMeasuredHeightPx: Int = 0
 }
 
 private fun Modifier.limitedTextGrowthAnimation(contentLength: Int): Modifier = composed {
     val density = LocalDensity.current
-    val scope = rememberCoroutineScope()
     val state = remember { LimitedTextGrowthAnimationState() }
     val animatedHeight = remember { Animatable(0f) }
+    // 测量块里只写不读，避免形成"写状态→布局失效→再测量"的自激循环
+    val targetHeightPx = remember { mutableIntStateOf(0) }
     val maxAnimatedDeltaPx = with(density) {
         LimitedTextGrowthMaxAnimatedDelta.toPx()
     }
     val latestContentLength by rememberUpdatedState(contentLength)
     val latestMaxAnimatedDeltaPx by rememberUpdatedState(maxAnimatedDeltaPx)
 
-    DisposableEffect(Unit) {
-        onDispose {
-            state.job?.cancel()
-        }
+    // 单一常驻协程追踪最新目标高度；流式期间目标频繁更新时，
+    // Animatable 保留当前值与速度，弹簧衔接平滑，无需每次测量都取消再新建协程
+    LaunchedEffect(Unit) {
+        snapshotFlow { targetHeightPx.intValue }
+            .collectLatest { target ->
+                if (target <= 0) {
+                    // 高度归零时动画值同步归零，避免内容清空后再增长时残留旧高度
+                    if (animatedHeight.value > 0f) {
+                        animatedHeight.snapTo(0f)
+                    }
+                    return@collectLatest
+                }
+                if (animatedHeight.value <= 0f) {
+                    animatedHeight.snapTo(target.toFloat())
+                    return@collectLatest
+                }
+                val shouldLimitGrowth = latestContentLength >= LimitedTextGrowthMinChars &&
+                    target > animatedHeight.value &&
+                    target - animatedHeight.value > latestMaxAnimatedDeltaPx
+
+                if (shouldLimitGrowth) {
+                    animatedHeight.snapTo(target - latestMaxAnimatedDeltaPx)
+                }
+                animatedHeight.animateTo(
+                    targetValue = target.toFloat(),
+                    animationSpec = LimitedTextGrowthAnimationSpec,
+                )
+            }
     }
 
     this
@@ -159,30 +181,13 @@ private fun Modifier.limitedTextGrowthAnimation(contentLength: Int): Modifier = 
         .layout { measurable, constraints ->
             val placeable = measurable.measure(constraints)
             val measuredHeight = placeable.height
-            val previousTargetHeight = state.targetHeightPx
 
-            if (measuredHeight != previousTargetHeight) {
-                state.targetHeightPx = measuredHeight
-                state.job?.cancel()
-                state.job = scope.launch {
-                    if (previousTargetHeight == 0 || animatedHeight.value <= 0f) {
-                        animatedHeight.snapTo(measuredHeight.toFloat())
-                    } else {
-                        val shouldLimitGrowth = latestContentLength >= LimitedTextGrowthMinChars &&
-                            measuredHeight > animatedHeight.value &&
-                            measuredHeight - animatedHeight.value > latestMaxAnimatedDeltaPx
-
-                        if (shouldLimitGrowth) {
-                            animatedHeight.snapTo(measuredHeight - latestMaxAnimatedDeltaPx)
-                        }
-                        animatedHeight.animateTo(
-                            targetValue = measuredHeight.toFloat(),
-                            animationSpec = LimitedTextGrowthAnimationSpec,
-                        )
-                    }
-                }
+            if (measuredHeight != state.lastMeasuredHeightPx) {
+                state.lastMeasuredHeightPx = measuredHeight
+                targetHeightPx.intValue = measuredHeight
             }
 
+            // 协程尚未首发时 animatedHeight 仍为 0，直接回退到实测高度，首帧不会闪旧值
             val displayedHeight = when {
                 measuredHeight <= 0 -> 0
                 animatedHeight.value <= 0f -> measuredHeight

@@ -3,16 +3,38 @@ package me.rerere.rikkahub.ui.components.message
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 
-internal data class ChatMessageDisplayState(
+internal class ChatMessageDisplayState(
     val message: UIMessage,
     val renderBlocks: List<MessageRenderBlock>,
-    val copyBlocks: List<String>,
-    val copyText: String,
-    val selectionCopyBlocks: List<String>,
-    val selectionCopyText: String,
-    val previewText: String,
-    val ttsText: String,
-)
+) {
+    // 复制/朗读/预览全文只在用户点击对应操作时才需要，流式期间每 tick 预先拼接会产生大量短命字符串
+    val copyBlocks: List<String> by lazy(LazyThreadSafetyMode.NONE) {
+        buildMessageCopyBlocks(renderBlocks)
+    }
+    val copyText: String by lazy(LazyThreadSafetyMode.NONE) {
+        copyBlocks
+            .filter { it.isNotBlank() }
+            .joinToString(separator = "\n\n")
+            .trim()
+    }
+    val selectionCopyBlocks: List<String> by lazy(LazyThreadSafetyMode.NONE) {
+        buildSelectionCopyBlocks(renderBlocks)
+    }
+    val selectionCopyText: String by lazy(LazyThreadSafetyMode.NONE) {
+        selectionCopyBlocks
+            .filter { it.isNotBlank() }
+            .joinToString(separator = "\n\n")
+            .trim()
+    }
+    val previewText: String by lazy(LazyThreadSafetyMode.NONE) {
+        message.parts
+            .filterIsInstance<UIMessagePart.Text>()
+            .joinToString(separator = "\n\n") { it.text }
+            .trim()
+    }
+    val ttsText: String
+        get() = previewText
+}
 
 internal fun buildChatMessageDisplayState(
     message: UIMessage,
@@ -20,36 +42,15 @@ internal fun buildChatMessageDisplayState(
 ): ChatMessageDisplayState {
     val displaySegments = leadingDisplaySegments.filter { it.isNotEmpty() } + listOf(message.parts)
     val renderBlocks = buildMessageRenderBlocksFromSegments(displaySegments)
-    val displayParts = displaySegments.flatten()
     val displayMessage = if (leadingDisplaySegments.isEmpty()) {
         message
     } else {
-        message.copy(parts = displayParts)
+        message.copy(parts = displaySegments.flatten())
     }
-    val copyBlocks = buildMessageCopyBlocks(renderBlocks)
-    val copyText = copyBlocks
-        .filter { it.isNotBlank() }
-        .joinToString(separator = "\n\n")
-        .trim()
-    val selectionCopyBlocks = buildSelectionCopyBlocks(renderBlocks)
-    val selectionCopyText = selectionCopyBlocks
-        .filter { it.isNotBlank() }
-        .joinToString(separator = "\n\n")
-        .trim()
-    val previewText = displayParts
-        .filterIsInstance<UIMessagePart.Text>()
-        .joinToString(separator = "\n\n") { it.text }
-        .trim()
 
     return ChatMessageDisplayState(
         message = displayMessage,
         renderBlocks = renderBlocks,
-        copyBlocks = copyBlocks,
-        copyText = copyText,
-        selectionCopyBlocks = selectionCopyBlocks,
-        selectionCopyText = selectionCopyText,
-        previewText = previewText,
-        ttsText = previewText,
     )
 }
 
