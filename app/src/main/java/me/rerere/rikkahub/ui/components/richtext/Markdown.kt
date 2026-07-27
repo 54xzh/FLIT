@@ -41,6 +41,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -119,6 +120,7 @@ import org.intellij.markdown.IElementType
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
+import org.intellij.markdown.ast.CompositeASTNode
 import org.intellij.markdown.ast.LeafASTNode
 import org.intellij.markdown.flavours.gfm.GFMElementTypes
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
@@ -409,15 +411,128 @@ private const val MARKDOWN_SYNC_PARSE_MAX_CHARS = 4_000
 private const val MARKDOWN_FALLBACK_MAX_CHARS = 6_000
 
 // 解析结果缓存：LazyColumn 中消息滚出屏幕会销毁组合，滚回来直接复用，免去整篇重新解析。
-// 按源文本长度计权，总量封顶防止无界增长。
-private val markdownAstCache = object : android.util.LruCache<String, Pair<String, ASTNode>>(256 * 1024) {
-    override fun sizeOf(key: String, value: Pair<String, ASTNode>): Int = key.length.coerceAtLeast(1)
+// 按源文本长度计权（全文 + 各块子串拷贝约两倍），总量封顶防止无界增长。
+private val markdownAstCache = object : android.util.LruCache<String, MarkdownRenderData>(256 * 1024) {
+    override fun sizeOf(key: String, value: MarkdownRenderData): Int = (key.length * 2).coerceAtLeast(1)
 }
 
-private fun parseMarkdown(content: String): Pair<String, ASTNode> {
-    val preprocessed = preProcess(content)
-    return preprocessed to parser.buildMarkdownTreeFromString(preprocessed)
+/**
+ * 单个顶层 Markdown 块的渲染快照。node 是经过"重定基"的独立子树：
+ * 偏移以块起点为 0、与整棵解析树断开，渲染时以 [blockText] 作为源文本，
+ * 因此快照只持有本块的文本与子树，不会钉住某一版全文字符串或整棵旧 AST。
+ *
+ * equals 只比较块源文本与"是否存在后继节点"：流式追加时，虽然每次全文重解析会产生
+ * 全新的 AST 实例，但源文本未变的块快照依然相等，让对应的组合作用域整体跳过重组，
+ * 每 tick 实际只重建正在增长的尾部块。
+ *
+ * hasNextSibling 参与比较是因为段落渲染依赖"后面是否还有节点"决定底部间距，
+ * 一个块从"最后一块"变成"非最后一块"时必须重建，否则会沿用旧的兄弟关系。
+ */
+@Immutable
+internal class MarkdownBlockSnapshot(
+    val blockText: String,
+    val hasNextSibling: Boolean,
+    val node: ASTNode,
+    // 合成父节点（为 node 提供"后面还有内容"的兄弟关系）。渲染不直接读取它，
+    // 显式持有是为了让 parent 链的存活不依赖构造副作用与 GC 时序
+    val syntheticParent: ASTNode?,
+) {
+    override fun equals(other: Any?): Boolean = this === other ||
+        (other is MarkdownBlockSnapshot &&
+            other.blockText == blockText &&
+            other.hasNextSibling == hasNextSibling)
+
+    override fun hashCode(): Int = 31 * blockText.hashCode() + hasNextSibling.hashCode()
 }
+
+internal class MarkdownRenderData(
+    val preprocessed: String,
+    val snapshots: List<MarkdownBlockSnapshot>,
+)
+
+private fun parseMarkdown(content: String, previous: MarkdownRenderData?): MarkdownRenderData {
+    val preprocessed = preProcess(content)
+    val astTree = parser.buildMarkdownTreeFromString(preprocessed)
+    return MarkdownRenderData(
+        preprocessed = preprocessed,
+        snapshots = buildBlockSnapshots(previous?.snapshots, preprocessed, astTree),
+    )
+}
+
+// 与上一版快照逐位比对：源文本与"是否有后继"都没变的块直接复用旧快照，
+// 免去重复的子树深拷贝；流式追加时通常只有尾部块需要新建
+private fun buildBlockSnapshots(
+    previous: List<MarkdownBlockSnapshot>?,
+    preprocessed: String,
+    astTree: ASTNode,
+): List<MarkdownBlockSnapshot> {
+    val children = astTree.children
+    return children.mapIndexed { index, child ->
+        val start = child.startOffset
+        val end = child.endOffset
+        val hasNextSibling = index < children.lastIndex
+        val prev = previous?.getOrNull(index)
+        if (
+            prev != null &&
+            prev.hasNextSibling == hasNextSibling &&
+            prev.node.type == child.type &&
+            prev.blockText.length == end - start &&
+            preprocessed.startsWith(prev.blockText, start)
+        ) {
+            prev
+        } else {
+            createBlockSnapshot(
+                blockText = preprocessed.substring(start, end),
+                hasNextSibling = hasNextSibling,
+                sourceNode = child,
+            )
+        }
+    }
+}
+
+private fun createBlockSnapshot(
+    blockText: String,
+    hasNextSibling: Boolean,
+    sourceNode: ASTNode,
+): MarkdownBlockSnapshot {
+    val rebased = rebaseNode(sourceNode, -sourceNode.startOffset)
+    // 段落底部间距依赖 nextSibling() 判断。给重定基后的节点补一个合成父节点和
+    // 零长度 EOL 兄弟节点（CompositeASTNode 构造时会为子节点建立 parent 链），
+    // 保留"后面还有内容"的语义；父节点本身不参与渲染
+    val syntheticParent = if (hasNextSibling) {
+        CompositeASTNode(
+            MarkdownElementTypes.MARKDOWN_FILE,
+            listOf(rebased, LeafASTNode(MarkdownTokenTypes.EOL, blockText.length, blockText.length)),
+        )
+    } else {
+        null
+    }
+    return MarkdownBlockSnapshot(
+        blockText = blockText,
+        hasNextSibling = hasNextSibling,
+        node = rebased,
+        syntheticParent = syntheticParent,
+    )
+}
+
+// 深拷贝子树并把偏移平移到以块起点为 0。CompositeASTNode 的范围由子节点推导，
+// 解析器构造复合节点的方式相同，因此平移后范围与原节点严格一致。
+// 空复合节点保持复合类型（范围恒为 0..0），叶子偏移下限钳到 0，双保险防越界
+private fun rebaseNode(node: ASTNode, shift: Int): ASTNode {
+    val children = node.children
+    return when {
+        children.isNotEmpty() -> CompositeASTNode(node.type, children.map { rebaseNode(it, shift) })
+        node is CompositeASTNode -> CompositeASTNode(node.type, emptyList())
+        else -> LeafASTNode(
+            node.type,
+            (node.startOffset + shift).coerceAtLeast(0),
+            (node.endOffset + shift).coerceAtLeast(0),
+        )
+    }
+}
+
+internal fun parseMarkdownForTest(content: String): MarkdownRenderData =
+    parseMarkdown(content, previous = null)
 
 // 流式输出时每次全文重解析的开销随长度增长，限频间隔相应放宽；短消息保持逐帧即时感
 private fun markdownParseThrottleIntervalMs(contentLength: Int): Long = when {
@@ -531,12 +646,12 @@ fun MarkdownBlock(
     val settings = LocalSettings.current
     val rpStyleRules = settings.displaySetting.rpStyleRules
     
-    val (data, setData) = remember {
+    val dataState = remember {
         mutableStateOf(
             value = markdownAstCache.get(content) ?: run {
                 // 导出走离屏组合 + 定时截图，兜底帧会被截进图片，必须同步解析
                 if (exportAssets != null || content.length <= MARKDOWN_SYNC_PARSE_MAX_CHARS) {
-                    parseMarkdown(content).also { markdownAstCache.put(content, it) }
+                    parseMarkdown(content, previous = null).also { markdownAstCache.put(content, it) }
                 } else {
                     // 长内容首次解析放后台（下方 LaunchedEffect 的首次发射会立即解析），
                     // 此处先返回 null，渲染一帧纯文本兜底
@@ -546,6 +661,10 @@ fun MarkdownBlock(
             policy = referentialEqualityPolicy(),
         )
     }
+    val data = dataState.value
+    // 引用点击回调收敛为常驻实例：上层重组产生新 lambda 时不再连带使所有块作用域失效
+    val currentOnClickCitation by rememberUpdatedState(onClickCitation)
+    val stableOnClickCitation = remember { { citationId: String -> currentOnClickCitation(citationId) } }
 
     // 监听内容变化，重新解析AST树
     // 这里在后台线程解析AST树, 防止频繁更新的时候掉帧
@@ -558,12 +677,14 @@ fun MarkdownBlock(
             // 也因此消除了旧实现中"首帧同步解析后、初始发射又重复解析一次"的双重开销
             val cached = markdownAstCache.get(text)
             if (cached != null) {
-                setData(cached)
+                dataState.value = cached
                 lastParsedText = text
                 return@collect
             }
+            // 传入上一版结果供快照逐位复用，流式追加时只有尾部块需要重建
+            val previous = dataState.value
             val parsed = withContext(Dispatchers.Default) {
-                runCatching { parseMarkdown(text) }
+                runCatching { parseMarkdown(text, previous) }
                     .onFailure { it.printStackTrace() }
                     .getOrNull()
             } ?: return@collect
@@ -574,7 +695,7 @@ fun MarkdownBlock(
                 ?.let { markdownAstCache.remove(it) }
             markdownAstCache.put(text, parsed)
             lastParsedText = text
-            setData(parsed)
+            dataState.value = parsed
             val intervalMs = markdownParseThrottleIntervalMs(text.length)
             if (intervalMs > 0) delay(intervalMs)
         }
@@ -590,31 +711,43 @@ fun MarkdownBlock(
         }
         return
     }
-    val (preprocessed, astTree) = data
     val shouldLazyRenderOffscreen = lazyRenderOffscreen &&
         exportAssets == null &&
-        preprocessed.length >= MARKDOWN_LAZY_RENDER_MIN_CHARS &&
-        astTree.children.size >= MARKDOWN_LAZY_RENDER_MIN_BLOCKS
+        data.preprocessed.length >= MARKDOWN_LAZY_RENDER_MIN_CHARS &&
+        data.snapshots.size >= MARKDOWN_LAZY_RENDER_MIN_BLOCKS
     // Provide rpStyleRules to entire tree via CompositionLocal
     CompositionLocalProvider(LocalRpStyleRules provides rpStyleRules) {
         ProvideTextStyle(style) {
             Column(
                 modifier = modifier.padding(start = 4.dp)
             ) {
-                if (shouldLazyRenderOffscreen) {
-                    LazyMarkdownChildren(
-                        children = astTree.children,
-                        content = preprocessed,
-                        onClickCitation = onClickCitation,
-                    )
-                } else {
-                    astTree.children.fastForEach { child ->
-                        MarkdownNode(
-                            node = child,
-                            content = preprocessed,
-                            onClickCitation = onClickCitation,
-                            exportAssets = exportAssets,
+                when {
+                    // 导出走离屏一次性渲染，无流式增量需求，保持直接遍历
+                    exportAssets != null -> {
+                        data.snapshots.fastForEach { snapshot ->
+                            MarkdownNode(
+                                node = snapshot.node,
+                                content = snapshot.blockText,
+                                onClickCitation = stableOnClickCitation,
+                                exportAssets = exportAssets,
+                            )
+                        }
+                    }
+
+                    shouldLazyRenderOffscreen -> {
+                        LazyMarkdownChildren(
+                            snapshots = data.snapshots,
+                            onClickCitation = stableOnClickCitation,
                         )
+                    }
+
+                    else -> {
+                        data.snapshots.fastForEach { snapshot ->
+                            MarkdownTopLevelBlock(
+                                snapshot = snapshot,
+                                onClickCitation = stableOnClickCitation,
+                            )
+                        }
                     }
                 }
             }
@@ -622,22 +755,32 @@ fun MarkdownBlock(
     }
 }
 
+// 顶层块的独立重组作用域：快照相等（按块源文本比较）时整块跳过重组，
+// 流式追加每 tick 只会真正重建正在增长的尾部块
+@Composable
+private fun MarkdownTopLevelBlock(
+    snapshot: MarkdownBlockSnapshot,
+    onClickCitation: (String) -> Unit,
+) {
+    MarkdownNode(
+        node = snapshot.node,
+        content = snapshot.blockText,
+        onClickCitation = onClickCitation,
+    )
+}
+
 @Composable
 private fun LazyMarkdownChildren(
-    children: List<ASTNode>,
-    content: String,
+    snapshots: List<MarkdownBlockSnapshot>,
     onClickCitation: (String) -> Unit,
 ) {
     val measuredHeightsPx = remember { mutableStateMapOf<String, Int>() }
 
-    children.forEachIndexed { index, child ->
-        val nodeKey = remember(index, child.type) {
-            "$index:${child.type}"
-        }
+    snapshots.forEachIndexed { index, snapshot ->
+        val nodeKey = "$index:${snapshot.node.type}"
         key(nodeKey) {
             LazyMarkdownNode(
-                node = child,
-                content = content,
+                snapshot = snapshot,
                 nodeKey = nodeKey,
                 measuredHeightsPx = measuredHeightsPx,
                 renderInitially = index < MARKDOWN_LAZY_INITIAL_RENDER_BLOCKS,
@@ -649,8 +792,7 @@ private fun LazyMarkdownChildren(
 
 @Composable
 private fun LazyMarkdownNode(
-    node: ASTNode,
-    content: String,
+    snapshot: MarkdownBlockSnapshot,
     nodeKey: String,
     measuredHeightsPx: MutableMap<String, Int>,
     renderInitially: Boolean,
@@ -666,10 +808,10 @@ private fun LazyMarkdownNode(
             else -> 18.sp.toPx()
         }
     }
-    val estimatedHeightPx = remember(node, content, lineHeightPx, density) {
+    val estimatedHeightPx = remember(snapshot, lineHeightPx, density) {
         estimateMarkdownNodeHeightPx(
-            node = node,
-            content = content,
+            node = snapshot.node,
+            content = snapshot.blockText,
             lineHeightPx = lineHeightPx,
             extraPaddingPx = with(density) { 8.dp.toPx() },
         )
@@ -713,8 +855,8 @@ private fun LazyMarkdownNode(
                 }
             ) {
                 MarkdownNode(
-                    node = node,
-                    content = content,
+                    node = snapshot.node,
+                    content = snapshot.blockText,
                     onClickCitation = onClickCitation,
                     exportAssets = null,
                 )

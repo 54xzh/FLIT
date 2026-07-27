@@ -441,6 +441,11 @@ private fun List<MessageNode>.mapUsedSessionMemoryList(
     return if (anyNodeChanged) updatedNodes else this
 }
 
+// 按内容相等复用旧实例：流式 tick 会全量重建各类派生集合/对象，经此中转后
+// 内容未变时返回上一次的实例，让下游组合函数在引用比较（strong skipping）下跳过重组
+@Composable
+private fun <T> rememberStableValue(value: T): T = remember(value) { value }
+
 @Composable
 private fun SharedTransitionScope.ChatListNormal(
     innerPadding: PaddingValues,
@@ -482,6 +487,18 @@ private fun SharedTransitionScope.ChatListNormal(
     var loadingIndicatorHeightPx by remember(conversation.id) { mutableStateOf(0) }
     val messageItemHeightsPx = remember(conversation.id) { mutableStateMapOf<Uuid, Int>() }
     val conversationUpdated by rememberUpdatedState(conversation)
+    // 上层（ChatPage）每个流式 tick 都会重组，部分回调实例随之重建。条目内改为捕获这些
+    // rememberUpdatedState 中转值：捕获的是稳定的 State 实例，未变化消息的 ChatMessage
+    // 参数保持相等，整条消息可跳过重组——每次更新只重建正在生成的那条
+    val onRegenerateUpdated by rememberUpdatedState(onRegenerate)
+    val onContinueUpdated by rememberUpdatedState(onContinue)
+    val onEditUpdated by rememberUpdatedState(onEdit)
+    val onForkMessageUpdated by rememberUpdatedState(onForkMessage)
+    val onDeleteUpdated by rememberUpdatedState(onDelete)
+    val onUpdateMessageUpdated by rememberUpdatedState(onUpdateMessage)
+    val onUpdateConversationUpdated by rememberUpdatedState(onUpdateConversation)
+    val onQuoteFollowUpUpdated by rememberUpdatedState(onQuoteFollowUp)
+    val onAssistantAvatarLongPressUpdated by rememberUpdatedState(onAssistantAvatarLongPress)
     val context = LocalContext.current
     val navController = LocalNavController.current
     val defaultAssistantName = stringResource(R.string.assistant_page_default_assistant)
@@ -536,13 +553,17 @@ private fun SharedTransitionScope.ChatListNormal(
         ?: activeToolPreviewSnapshot?.takeIf { snapshot ->
             activeToolPreviewKey == toolPreviewKey(snapshot.toolName, snapshot.toolCallId)
         }
-    fun openToolPreview(toolCallId: String, toolName: String, hasResult: Boolean) {
-        val key = toolPreviewKey(toolName, toolCallId)
-        if (toolName == "search_agent" && key !in toolPreviewTabStates) {
-            toolPreviewTabStates[key] = if (hasResult) 0 else 1
+    // 常驻回调实例：内部经 conversationUpdated 读取最新会话。若直接捕获 conversation，
+    // 每个流式 tick 都会产生新实例，连带所有可见消息的参数失效而无法跳过重组
+    val openToolPreview: (String, String, Boolean) -> Unit = remember(conversation.id) {
+        { toolCallId, toolName, hasResult ->
+            val key = toolPreviewKey(toolName, toolCallId)
+            if (toolName == "search_agent" && key !in toolPreviewTabStates) {
+                toolPreviewTabStates[key] = if (hasResult) 0 else 1
+            }
+            activeToolPreviewSnapshot = conversationUpdated.findToolPreviewContent(key)
+            activeToolPreviewKey = key
         }
-        activeToolPreviewSnapshot = conversation.findToolPreviewContent(key)
-        activeToolPreviewKey = key
     }
     LaunchedEffect(activeToolPreviewKey, activeToolPreviewContent) {
         if (activeToolPreviewContent != null) {
@@ -1019,15 +1040,21 @@ private fun SharedTransitionScope.ChatListNormal(
                     }
                 ) {
                     val message = node.currentMessage
-                    val standaloneProcessParts = processDisplayPlan
-                        .standaloneProcessPartsByIndex[index]
-                        .orEmpty()
+                    // 展示计划每 tick 全量重建，这里按内容相等复用旧实例，
+                    // 让未变化消息的集合参数在引用比较下保持稳定
+                    val standaloneProcessParts = rememberStableValue(
+                        processDisplayPlan
+                            .standaloneProcessPartsByIndex[index]
+                            .orEmpty()
+                    )
                     val standaloneAssistantOwnerMessage = processDisplayPlan
                         .standaloneAssistantOwnerIndexByIndex[index]
                         ?.let { ownerIndex -> conversation.messageNodes.getOrNull(ownerIndex)?.currentMessage }
-                    val prefixedDisplaySegments = processDisplayPlan
-                        .prefixedDisplaySegmentsByIndex[index]
-                        .orEmpty()
+                    val prefixedDisplaySegments = rememberStableValue(
+                        processDisplayPlan
+                            .prefixedDisplaySegmentsByIndex[index]
+                            .orEmpty()
+                    )
                     val hideMessageCard = index in processDisplayPlan.hiddenNodeIndexes
                     val isSelected by remember(node.id) {
                         derivedStateOf { selectedItems.contains(node.id) }
@@ -1044,46 +1071,57 @@ private fun SharedTransitionScope.ChatListNormal(
                     val canContinue = isLast &&
                         message.role == MessageRole.ASSISTANT &&
                         groupChatTemplateForConversation == null
-                    val hiddenToolCallIds = if (index in processDisplayPlan.visibleTrailingProcessOwnerIndexes) {
-                        emptySet()
-                    } else {
-                        conversation.messageNodes
-                            .getOrNull(index + 1)
-                            ?.currentMessage
-                            ?.parts
-                            ?.filterIsInstance<UIMessagePart.ToolResult>()
-                            ?.asSequence()
-                            ?.map { it.toolCallId }
-                            ?.filter { it.isNotBlank() }
-                            ?.toSet()
-                            .orEmpty()
-                    }
+                    val hiddenToolCallIds = rememberStableValue(
+                        if (index in processDisplayPlan.visibleTrailingProcessOwnerIndexes) {
+                            emptySet()
+                        } else {
+                            conversation.messageNodes
+                                .getOrNull(index + 1)
+                                ?.currentMessage
+                                ?.parts
+                                ?.filterIsInstance<UIMessagePart.ToolResult>()
+                                ?.asSequence()
+                                ?.map { it.toolCallId }
+                                ?.filter { it.isNotBlank() }
+                                ?.toSet()
+                                .orEmpty()
+                        }
+                    )
                     val modelForMessage = message.modelId?.let { settings.findModelById(it) }
-                    val assistantForMessage = resolveAssistantForMessage(message)
+                    // 群聊改名场景下 resolve 可能每次返回新 copy，实例稳定化以支持跳过
+                    val assistantForMessage = rememberStableValue(resolveAssistantForMessage(message))
                     val standaloneModelForMessage = standaloneAssistantOwnerMessage
                         ?.modelId
                         ?.let { settings.findModelById(it) }
-                    val standaloneAssistantForMessage = standaloneAssistantOwnerMessage
-                        ?.let(::resolveAssistantForMessage)
-                    val currentAssistantDisplayIdentity = buildAssistantDisplayIdentity(
-                        message = message,
-                        model = modelForMessage,
-                        assistant = assistantForMessage,
+                    val standaloneAssistantForMessage = rememberStableValue(
+                        standaloneAssistantOwnerMessage?.let(::resolveAssistantForMessage)
                     )
-                    val standaloneAssistantDisplayIdentity = standaloneAssistantOwnerMessage?.let { ownerMessage ->
+                    // 身份对象按内容相等复用旧实例，避免每 tick 为所有可见消息重复分配
+                    val currentAssistantDisplayIdentity = rememberStableValue(
                         buildAssistantDisplayIdentity(
-                            message = ownerMessage,
-                            model = standaloneModelForMessage,
-                            assistant = standaloneAssistantForMessage,
+                            message = message,
+                            model = modelForMessage,
+                            assistant = assistantForMessage,
                         )
-                    }
-                    val previousAssistantDisplayIdentity = previousVisibleMessage?.let { visibleMessage ->
-                        buildAssistantDisplayIdentity(
-                            message = visibleMessage,
-                            model = visibleMessage.modelId?.let { settings.findModelById(it) },
-                            assistant = resolveAssistantForMessage(visibleMessage),
-                        )
-                    }
+                    )
+                    val standaloneAssistantDisplayIdentity = rememberStableValue(
+                        standaloneAssistantOwnerMessage?.let { ownerMessage ->
+                            buildAssistantDisplayIdentity(
+                                message = ownerMessage,
+                                model = standaloneModelForMessage,
+                                assistant = standaloneAssistantForMessage,
+                            )
+                        }
+                    )
+                    val previousAssistantDisplayIdentity = rememberStableValue(
+                        previousVisibleMessage?.let { visibleMessage ->
+                            buildAssistantDisplayIdentity(
+                                message = visibleMessage,
+                                model = visibleMessage.modelId?.let { settings.findModelById(it) },
+                                assistant = resolveAssistantForMessage(visibleMessage),
+                            )
+                        }
+                    )
                     val speakerChanged = previousMessage?.role == MessageRole.ASSISTANT &&
                         message.role == MessageRole.ASSISTANT &&
                         previousAssistantDisplayIdentity != currentAssistantDisplayIdentity
@@ -1119,7 +1157,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                         model = standaloneModelForMessage,
                                         assistant = standaloneAssistantForMessage,
                                         forceUseAssistantAvatar = groupChatTemplateForConversation != null,
-                                        onAvatarLongPress = onAssistantAvatarLongPress,
+                                        onAvatarLongPress = onAssistantAvatarLongPressUpdated,
                                         loading = loading && isLast,
                                         modifier = Modifier.weight(1f)
                                     )
@@ -1133,7 +1171,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                 model = standaloneModelForMessage ?: modelForMessage,
                                 assistant = standaloneAssistantForMessage ?: assistantForMessage,
                                 reasoningBodyStates = reasoningBodyStates,
-                                onOpenToolPreview = ::openToolPreview,
+                                onOpenToolPreview = openToolPreview,
                                 streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
                             )
                         }
@@ -1160,39 +1198,43 @@ private fun SharedTransitionScope.ChatListNormal(
                                 hiddenToolCallIds = hiddenToolCallIds,
                                 leadingProcessParts = prefixedDisplaySegments,
                                 reasoningBodyStates = reasoningBodyStates,
-                                onOpenToolPreview = ::openToolPreview,
+                                onOpenToolPreview = openToolPreview,
                                 conversationId = conversation.id,
                                 onCitationClick = onCitationClick,
                                 model = modelForMessage,
                                 assistant = assistantForMessage,
                                 forceUseAssistantAvatar = groupChatTemplateForConversation != null,
-                                onAssistantAvatarLongPress = onAssistantAvatarLongPress,
+                                onAssistantAvatarLongPress = onAssistantAvatarLongPressUpdated,
                                 loading = loading && isLast,
                                 isRecentlyRestored = node.id in recentlyRestoredNodeIds,
                                 onRegenerate = {
-                                    onRegenerate(message)
+                                    onRegenerateUpdated(message)
                                 },
                                 onContinue = {
-                                    onContinue(message)
+                                    onContinueUpdated(message)
                                 },
                                 canContinue = canContinue,
                                 onEdit = {
-                                    onEdit(message)
+                                    onEditUpdated(message)
                                 },
                                 onFork = {
-                                    onForkMessage(message)
+                                    onForkMessageUpdated(message)
                                 },
                                 onDelete = {
-                                    onDelete(message)
+                                    onDeleteUpdated(message)
                                 },
                                 onShare = {
                                     selecting = true  // 使用 CoroutineScope 延迟状态更新
                                     selectedItems.clear()
-                                    selectedItems.addAll(conversation.messageNodes.map { it.id }
-                                        .subList(0, conversation.messageNodes.indexOf(node) + 1))
+                                    val nodes = conversationUpdated.messageNodes
+                                    val nodeIndex = nodes.indexOfFirst { it.id == node.id }
+                                    // 节点已从最新会话中移除时不做选择，避免静默选中空集
+                                    if (nodeIndex >= 0) {
+                                        selectedItems.addAll(nodes.map { it.id }.subList(0, nodeIndex + 1))
+                                    }
                                 },
                                 onUpdate = {
-                                    onUpdateMessage(it)
+                                    onUpdateMessageUpdated(it)
                                 },
                                 onEditLorebookEntry = { entry ->
                                     navController.navigate(Screen.SettingLorebookDetail(entry.lorebookId, entry.entryId))
@@ -1206,7 +1248,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                     // memoryType: 0 = CORE, 1 = EPISODIC
                                     navController.navigate(
                                         Screen.AssistantDetail(
-                                            id = conversation.assistantId.toString(),
+                                            id = conversationUpdated.assistantId.toString(),
                                             startRoute = "memory",
                                             initialMemoryTab = memory.memoryType,
                                             scrollToMemoryId = memory.memoryId
@@ -1215,22 +1257,24 @@ private fun SharedTransitionScope.ChatListNormal(
                                 },
                                 currentSessionMemories = conversation.sessionMemories,
                                 onUpdateSessionMemory = { memoryId, content ->
-                                    val updatedConversation = conversation.updateSessionMemoryContent(
+                                    val currentConversation = conversationUpdated
+                                    val updatedConversation = currentConversation.updateSessionMemoryContent(
                                         memoryId = memoryId,
                                         content = content
                                     )
-                                    if (updatedConversation != conversation) {
-                                        onUpdateConversation(updatedConversation)
+                                    if (updatedConversation != currentConversation) {
+                                        onUpdateConversationUpdated(updatedConversation)
                                     }
                                 },
                                 onDeleteSessionMemory = { memoryId ->
-                                    val updatedConversation = conversation.deleteSessionMemory(memoryId)
-                                    if (updatedConversation != conversation) {
-                                        onUpdateConversation(updatedConversation)
+                                    val currentConversation = conversationUpdated
+                                    val updatedConversation = currentConversation.deleteSessionMemory(memoryId)
+                                    if (updatedConversation != currentConversation) {
+                                        onUpdateConversationUpdated(updatedConversation)
                                     }
                                 },
                                 streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
-                                onQuoteFollowUp = onQuoteFollowUp,
+                                onQuoteFollowUp = { onQuoteFollowUpUpdated(it) },
                             )
                         }
                     }

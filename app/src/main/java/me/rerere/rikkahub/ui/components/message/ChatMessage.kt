@@ -526,9 +526,9 @@ private fun MessagePartsBlock(
 ) {
     val contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
 
-    fun handleClickCitation(citationId: String) {
-        onCitationClick(citationId)
-    }
+    // 常驻回调实例：函数引用每次重组都会重建，会让流式期间未变化的文本块无法跳过重组
+    val currentOnCitationClick by rememberUpdatedState(onCitationClick)
+    val handleClickCitation: (String) -> Unit = remember { { citationId -> currentOnCitationClick(citationId) } }
 
     // 消息输出HapticFeedback
     val hapticFeedback = LocalHapticFeedback.current
@@ -572,7 +572,7 @@ private fun MessagePartsBlock(
                     role = role,
                     part = block.part,
                     textIndex = block.textIndex,
-                    onCitationClick = ::handleClickCitation,
+                    onCitationClick = handleClickCitation,
                     loading = loading,
                     onQuoteFollowUp = onQuoteFollowUp,
                 )
