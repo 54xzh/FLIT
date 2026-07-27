@@ -12,6 +12,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -52,7 +53,9 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -85,6 +88,7 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -148,8 +152,32 @@ private val BREAK_LINE_REGEX = Regex("(?i)<br\\s*/?>")
 private const val MARKDOWN_LAZY_RENDER_MIN_CHARS = 4_000
 private const val MARKDOWN_LAZY_RENDER_MIN_BLOCKS = 8
 private const val MARKDOWN_LAZY_INITIAL_RENDER_BLOCKS = 3
+// 向上翻历史时消息从底部先进入视口，尾部块也需要立即渲染，避免先看到占位再闪现内容
+private const val MARKDOWN_LAZY_INITIAL_RENDER_TAIL_BLOCKS = 2
 private const val MARKDOWN_ESTIMATED_CHARS_PER_LINE = 42
 private val MarkdownLazyViewportPadding = 1_200.dp
+
+// 惰性分块的实测高度缓存：消息条目滚出屏幕后组合被销毁，滚回来时若仍用估算高度作占位，
+// 与真实高度的偏差会造成滚动位置跳动；按消息键共享实测高度即可让占位精确到像素。
+// meta 用于失效判定：消息被编辑或切换到非前缀增长的内容、字号/可用宽度等布局环境变化后，
+// 旧实测值比估算值更具迷惑性，必须整表清空重测。
+// 只存长度+哈希而非全文，避免缓存长期持有整篇消息文本；前缀判定用"新文本取旧长度的前缀再哈希"完成。
+// meta 与 heights 都是快照状态：组合被放弃时两者一起回滚，不会出现"元数据已推进、清空被回滚"的错位。
+private data class LazyBlockHeightsMeta(
+    val contentLength: Int,
+    val contentHash: Int,
+    val layoutFingerprint: String,
+    val blockCount: Int,
+)
+
+private class LazyBlockHeightsEntry(initialMeta: LazyBlockHeightsMeta) {
+    val meta = mutableStateOf(initialMeta)
+    val heights: SnapshotStateMap<String, Int> = mutableStateMapOf()
+}
+
+private val lazyBlockHeightsCache = object : android.util.LruCache<String, LazyBlockHeightsEntry>(64) {
+    override fun sizeOf(key: String, value: LazyBlockHeightsEntry): Int = 1
+}
 
 /**
  * CompositionLocal for RP style rules - enables color customization throughout the markdown tree
@@ -526,6 +554,8 @@ fun MarkdownBlock(
     onClickCitation: (String) -> Unit = {},
     exportAssets: MermaidExportAssets? = null,
     lazyRenderOffscreen: Boolean = false,
+    lazyBlockHeightsCacheKey: String? = null,
+    lazyKeepRenderedBlocks: Boolean = false,
 ) {
     // Read rpStyleRules from settings
     val settings = LocalSettings.current
@@ -602,11 +632,21 @@ fun MarkdownBlock(
                 modifier = modifier.padding(start = 4.dp)
             ) {
                 if (shouldLazyRenderOffscreen) {
-                    LazyMarkdownChildren(
-                        children = astTree.children,
-                        content = preprocessed,
-                        onClickCitation = onClickCitation,
-                    )
+                    // BoxWithConstraints 提供真实可用宽度（受多选勾选框、分屏、旋转影响），
+                    // 供实测高度缓存做布局指纹；宽度变化即换行变化，旧实测高度必须失效
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val layoutWidth = maxWidth
+                        Column {
+                            LazyMarkdownChildren(
+                                children = astTree.children,
+                                content = preprocessed,
+                                heightsCacheKey = lazyBlockHeightsCacheKey,
+                                keepRenderedBlocks = lazyKeepRenderedBlocks,
+                                layoutWidth = layoutWidth,
+                                onClickCitation = onClickCitation,
+                            )
+                        }
+                    }
                 } else {
                     astTree.children.fastForEach { child ->
                         MarkdownNode(
@@ -626,23 +666,113 @@ fun MarkdownBlock(
 private fun LazyMarkdownChildren(
     children: List<ASTNode>,
     content: String,
+    heightsCacheKey: String?,
+    keepRenderedBlocks: Boolean,
+    layoutWidth: Dp,
     onClickCitation: (String) -> Unit,
 ) {
-    val measuredHeightsPx = remember { mutableStateMapOf<String, Int>() }
+    // 可用宽度、密度、系统字体缩放、字号、字体族、字重任一变化都会改变换行/像素结果，实测高度随之失效
+    val textStyle = LocalTextStyle.current
+    val density = LocalDensity.current
+    val layoutFingerprint =
+        "$layoutWidth:${density.density}:${density.fontScale}:${textStyle.fontSize}:${textStyle.lineHeight}:" +
+            "${textStyle.fontFamily?.hashCode() ?: 0}:${textStyle.fontWeight?.weight ?: 0}"
+    // EOL 等空白 token 渲染高度为 0，若走惰性包装，估算函数会把它们当两行高造成占位系统性虚高；
+    // 直接渲染（零成本）并跳过惰性包装。尾部初始渲染按"最后 N 个非空白块"计——消息以换行结尾时
+    // 末尾是零高度 EOL，只按下标取尾会让真正的最后一个内容块错过初始渲染。
+    val (blankNodeFlags, tailRenderStartIndex) = remember(children, content) {
+        val flags = BooleanArray(children.size) { index ->
+            children[index].getTextInNode(content).isBlank()
+        }
+        var remaining = MARKDOWN_LAZY_INITIAL_RENDER_TAIL_BLOCKS
+        var startIndex = children.size
+        for (index in children.indices.reversed()) {
+            if (!flags[index]) {
+                startIndex = index
+                remaining--
+                if (remaining == 0) break
+            }
+        }
+        flags to startIndex
+    }
+    // 无键调用方（如思维链正文）沿用组合内局部表：不带任何 remember 键，
+    // 流式内容变化时保留已测高度，与旧行为一致
+    val localHeightsPx = remember { mutableStateMapOf<String, Int>() }
+    // 有稳定键（聊天消息）时使用共享缓存，让实测高度跨组合销毁复用。
+    // 缓存键按"消息 ID + 渲染块序号"生成，同一时刻仅有一处组合持有，组合期内的失效清理是单写者操作。
+    val sharedEntry = if (heightsCacheKey == null) {
+        null
+    } else {
+        remember(heightsCacheKey, content, layoutFingerprint) {
+            val newMeta = LazyBlockHeightsMeta(
+                contentLength = content.length,
+                contentHash = content.hashCode(),
+                layoutFingerprint = layoutFingerprint,
+                blockCount = children.size,
+            )
+            val cached = lazyBlockHeightsCache.get(heightsCacheKey)
+            val entry = cached ?: LazyBlockHeightsEntry(newMeta)
+            if (cached != null) {
+                val oldMeta = entry.meta.value
+                // 新内容以旧内容为前缀（流式增长/续写）时高度大体有效；否则视为编辑/换分支，整表重测
+                val contentCompatible = content.length >= oldMeta.contentLength &&
+                    content.substring(0, oldMeta.contentLength).hashCode() == oldMeta.contentHash
+                when {
+                    oldMeta.layoutFingerprint != layoutFingerprint || !contentCompatible -> {
+                        entry.heights.clear()
+                    }
+
+                    content.length > oldMeta.contentLength -> {
+                        // 前缀增长时旧内容边界处的块可能已继续变长，旧实测值"自信但偏小"，
+                        // 丢弃旧末块附近的条目让它们退回估算并重测
+                        val staleStartIndex = (oldMeta.blockCount - 3).coerceAtLeast(0)
+                        entry.heights.keys
+                            .filter { key ->
+                                key.substringBefore(':').toIntOrNull()?.let { it >= staleStartIndex } == true
+                            }
+                            .forEach { key -> entry.heights.remove(key) }
+                    }
+                }
+                entry.meta.value = newMeta
+            }
+            entry
+        }
+    }
+    if (heightsCacheKey != null && sharedEntry != null) {
+        // 入缓存放在 SideEffect：组合成功应用后才执行。若在组合期 put，被放弃的组合会把
+        // "从未应用的快照中创建的状态对象"留在进程级缓存里，后续读取会抛快照一致性异常
+        SideEffect {
+            if (lazyBlockHeightsCache.get(heightsCacheKey) !== sharedEntry) {
+                lazyBlockHeightsCache.put(heightsCacheKey, sharedEntry)
+            }
+        }
+    }
+    val measuredHeightsPx = sharedEntry?.heights ?: localHeightsPx
 
     children.forEachIndexed { index, child ->
         val nodeKey = remember(index, child.type) {
             "$index:${child.type}"
         }
         key(nodeKey) {
-            LazyMarkdownNode(
-                node = child,
-                content = content,
-                nodeKey = nodeKey,
-                measuredHeightsPx = measuredHeightsPx,
-                renderInitially = index < MARKDOWN_LAZY_INITIAL_RENDER_BLOCKS,
-                onClickCitation = onClickCitation,
-            )
+            if (blankNodeFlags[index]) {
+                MarkdownNode(
+                    node = child,
+                    content = content,
+                    onClickCitation = onClickCitation,
+                    exportAssets = null,
+                )
+            } else {
+                LazyMarkdownNode(
+                    node = child,
+                    content = content,
+                    nodeKey = nodeKey,
+                    measuredHeightsPx = measuredHeightsPx,
+                    renderInitially = index < MARKDOWN_LAZY_INITIAL_RENDER_BLOCKS ||
+                        index >= tailRenderStartIndex,
+                    keepRendered = keepRenderedBlocks,
+                    onClickCitation = onClickCitation,
+                )
+            }
         }
     }
 }
@@ -654,6 +784,7 @@ private fun LazyMarkdownNode(
     nodeKey: String,
     measuredHeightsPx: MutableMap<String, Int>,
     renderInitially: Boolean,
+    keepRendered: Boolean,
     onClickCitation: (String) -> Unit,
 ) {
     val density = LocalDensity.current
@@ -698,8 +829,13 @@ private fun LazyMarkdownNode(
                 val bounds = coordinates.boundsInWindow()
                 val nearViewport = bounds.bottom >= -viewportPaddingPx &&
                     bounds.top <= viewportHeightPx + viewportPaddingPx
-                if (isNearViewport != nearViewport) {
-                    isNearViewport = nearViewport
+                // keepRendered（完成态消息）下渲染过的块不再退回占位：块内 Text 不会随滚动
+                // 反复注册/注销，规避 SelectionContainer 选择态下的并发修改风险，
+                // 也避免占位与实测的高度往返；流式路径仍允许退回，限制每 tick 的重组范围
+                if (nearViewport) {
+                    if (!isNearViewport) isNearViewport = true
+                } else if (!keepRendered && isNearViewport) {
+                    isNearViewport = false
                 }
             }
     ) {

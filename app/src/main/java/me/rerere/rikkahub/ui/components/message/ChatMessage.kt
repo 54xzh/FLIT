@@ -365,6 +365,7 @@ fun ChatMessage(
             MessagePartsBlock(
                 assistant = assistant,
                 role = message.role,
+                messageId = message.id,
                 parts = message.parts,
                 annotations = message.annotations,
                 isLast = isLast,
@@ -507,6 +508,7 @@ private fun MessagePartsBlock(
     assistant: Assistant?,
     role: MessageRole,
     model: Model?,
+    messageId: Uuid? = null,
     parts: List<UIMessagePart>,
     annotations: List<UIMessageAnnotation>,
     isLast: Boolean,
@@ -550,7 +552,7 @@ private fun MessagePartsBlock(
             parts = parts,
         )
     }
-    renderBlocks.fastForEach { block ->
+    renderBlocks.fastForEachIndexed { blockIndex, block ->
         when (block) {
             is MessageRenderBlock.ProcessGroup -> {
                 ChatProcessTimeline(
@@ -570,6 +572,9 @@ private fun MessagePartsBlock(
                 MessageTextPart(
                     assistant = assistant,
                     role = role,
+                    // 合并气泡会把前一条消息的文本段并入本条渲染，textIndex 每段从 0 重新计数，
+                    // 高度缓存键必须用渲染块在整条列表中的序号，避免同键互相污染
+                    lazyBlockHeightsCacheKey = messageId?.let { "$it:$blockIndex" },
                     part = block.part,
                     textIndex = block.textIndex,
                     onCitationClick = ::handleClickCitation,
@@ -717,12 +722,16 @@ internal fun QuotedFollowUpLine(
 private fun MessageTextPart(
     assistant: Assistant?,
     role: MessageRole,
+    lazyBlockHeightsCacheKey: String?,
     part: UIMessagePart.Text,
     textIndex: Int,
     onCitationClick: (String) -> Unit,
     loading: Boolean,
     onQuoteFollowUp: (String) -> Unit = {},
 ) {
+    // 历史长消息滚回屏幕也走惰性分块渲染，避免整篇 Markdown 树在一帧内组合造成滑动顿挫；
+    // 共享分块实测高度，滚出再滚回时占位高度精确，不会引起滚动跳动。
+    // 完成态（非流式）渲染过的块不退回占位，保证选择态稳定
     if (role == MessageRole.USER) {
         val displayText = remember(part.text, assistant?.regexes) {
             part.text.replaceRegexes(
@@ -744,14 +753,17 @@ private fun MessageTextPart(
                     MarkdownBlock(
                         content = displayText,
                         onClickCitation = onCitationClick,
-                        lazyRenderOffscreen = loading,
+                        lazyRenderOffscreen = true,
+                        lazyBlockHeightsCacheKey = lazyBlockHeightsCacheKey,
                     )
                 } else {
                     SelectionContainer {
                         MarkdownBlock(
                             content = displayText,
                             onClickCitation = onCitationClick,
-                            lazyRenderOffscreen = loading,
+                            lazyRenderOffscreen = true,
+                            lazyBlockHeightsCacheKey = lazyBlockHeightsCacheKey,
+                            lazyKeepRenderedBlocks = true,
                         )
                     }
                 }
@@ -776,7 +788,8 @@ private fun MessageTextPart(
                 content = displayText,
                 onClickCitation = onCitationClick,
                 modifier = Modifier.limitedTextGrowthAnimation(contentLength = displayText.length),
-                lazyRenderOffscreen = loading,
+                lazyRenderOffscreen = true,
+                lazyBlockHeightsCacheKey = lazyBlockHeightsCacheKey,
             )
         } else {
             // 追问：选中助手回复文本后弹出菜单中的"追问"项，把选中文本回填到输入框作为引用。
@@ -804,7 +817,9 @@ private fun MessageTextPart(
                 MarkdownBlock(
                     content = displayText,
                     onClickCitation = onCitationClick,
-                    lazyRenderOffscreen = loading,
+                    lazyRenderOffscreen = true,
+                    lazyBlockHeightsCacheKey = lazyBlockHeightsCacheKey,
+                    lazyKeepRenderedBlocks = true,
                 )
             }
         }
