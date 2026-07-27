@@ -17,6 +17,7 @@ import com.termux.view.TerminalViewClient
 import java.io.File
 import me.rerere.rikkahub.workspace.SandboxRootfsPatcher
 import me.rerere.rikkahub.workspace.SandboxWorkspaceManager
+import me.rerere.rikkahub.workspace.SandboxBindMount
 import me.rerere.rikkahub.workspace.sandboxBindMounts
 
 internal fun createWorkspaceTerminalSession(
@@ -24,6 +25,7 @@ internal fun createWorkspaceTerminalSession(
     workspaceId: String,
     manager: SandboxWorkspaceManager,
     client: TerminalSessionClient,
+    workspaceBindMounts: List<SandboxBindMount>,
 ): TerminalSession {
     val appContext = context.applicationContext
     val filesDir = manager.filesDir(workspaceId)
@@ -33,41 +35,11 @@ internal fun createWorkspaceTerminalSession(
     val proot = File(nativeLibraryDir, PROOT_EXEC)
     val loader = File(nativeLibraryDir, PROOT_LOADER)
 
-    val args = mutableListOf(
-        "--root-id",
-        "--link2symlink",
-        "--kill-on-exit",
-        "-r",
-        linuxDir.absolutePath,
-        "-w",
-        WORKSPACE_DIR,
-        "-b",
-        "${filesDir.absolutePath}:$WORKSPACE_DIR",
-    )
-    sandboxBindMounts(appContext)
-        .filter { it.source.exists() }
-        .forEach { mount ->
-            args += "-b"
-            args += "${mount.source.absolutePath}:${mount.target.trimEnd('/')}"
-        }
-    listOf("/dev", "/proc", "/sys").forEach { path ->
-        if (File(path).exists()) {
-            args += "-b"
-            args += path
-        }
-    }
-    args += listOf(
-        "/usr/bin/env",
-        "-i",
-        "HOME=/root",
-        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-        "TERM=xterm-256color",
-        "LANG=C.UTF-8",
-        "LC_ALL=C.UTF-8",
-        "USER=root",
-        "SHELL=/bin/bash",
-        "/bin/bash",
-        "-l",
+    val bindMounts = sandboxBindMounts(appContext).filter { it.source.exists() } + workspaceBindMounts
+    val args = buildWorkspaceTerminalArgs(
+        filesDir = filesDir,
+        linuxDir = linuxDir,
+        bindMounts = bindMounts,
     )
 
     val env = arrayOf(
@@ -86,6 +58,47 @@ internal fun createWorkspaceTerminalSession(
     ).apply {
         mSessionName = workspaceId
     }
+}
+
+internal fun buildWorkspaceTerminalArgs(
+    filesDir: File,
+    linuxDir: File,
+    bindMounts: List<SandboxBindMount>,
+): List<String> = buildList {
+    addAll(listOf(
+        "--root-id",
+        "--link2symlink",
+        "--kill-on-exit",
+        "-r",
+        linuxDir.absolutePath,
+        "-w",
+        WORKSPACE_DIR,
+        "-b",
+        "${filesDir.absolutePath}:$WORKSPACE_DIR",
+    ))
+    bindMounts.forEach { mount ->
+        add("-b")
+        add("${mount.source.absolutePath}:${mount.target.trimEnd('/')}")
+    }
+    listOf("/dev", "/proc", "/sys").forEach { path ->
+        if (File(path).exists()) {
+            add("-b")
+            add(path)
+        }
+    }
+    addAll(listOf(
+        "/usr/bin/env",
+        "-i",
+        "HOME=/root",
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "TERM=xterm-256color",
+        "LANG=C.UTF-8",
+        "LC_ALL=C.UTF-8",
+        "USER=root",
+        "SHELL=/bin/bash",
+        "/bin/bash",
+        "-l",
+    ))
 }
 
 internal fun prepareWorkspaceTerminalSession(

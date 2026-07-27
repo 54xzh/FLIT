@@ -71,6 +71,34 @@ class WorkspaceTransferArchiveTest {
     }
 
     @Test
+    fun roundTripPreservesMountedFolderMarkers() {
+        val manager = manager()
+        val archive = WorkspaceTransferArchive(SandboxRootfsInstaller(manager))
+        manager.ensureWorkspace("mount-source")
+        File(manager.filesDir("mount-source"), "keep.txt").writeText("keep")
+        val summary = archive.scan(manager.workspaceDir("mount-source"))
+        val manifest = manifest(summary).copy(
+            mounts = listOf(
+                WorkspaceTransferMount(
+                    treeUri = "content://com.android.externalstorage.documents/tree/primary%3ADocuments",
+                    sourcePath = "/storage/emulated/0/Documents",
+                    targetPath = "/workspace/Documents",
+                )
+            )
+        )
+        val bytes = ByteArrayOutputStream().also { output ->
+            archive.export(manager.workspaceDir("mount-source"), manifest, output)
+        }.toByteArray()
+        val target = temporaryFolder.newFolder("mount-restored").also { it.delete() }
+
+        val restored = archive.import(ByteArrayInputStream(bytes), target)
+
+        assertEquals(manifest.mounts, restored.mounts)
+        assertEquals("keep", File(target, "files/keep.txt").readText())
+        assertEquals(false, File(target, "files/Documents").exists())
+    }
+
+    @Test
     fun importRejectsPathOutsideWorkspacePayload() {
         val manifest = manifest(WorkspaceArchiveSummary(bytes = 1, entries = 1))
         val bytes = ByteArrayOutputStream().also { output ->

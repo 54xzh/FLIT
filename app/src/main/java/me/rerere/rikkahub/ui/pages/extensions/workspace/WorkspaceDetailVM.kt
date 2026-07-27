@@ -27,9 +27,12 @@ import me.rerere.rikkahub.data.repository.SafRepository
 import me.rerere.rikkahub.data.repository.Workspace
 import me.rerere.rikkahub.data.repository.WorkspaceFileEntry
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.repository.SandboxMountDraft
+import me.rerere.rikkahub.data.db.entity.SandboxWorkspaceMountEntity
 import me.rerere.rikkahub.workspace.SandboxRootfsInstallProgress
 import me.rerere.rikkahub.workspace.SandboxRootfsInstallStage
 import me.rerere.rikkahub.workspace.SandboxStorageArea
+import me.rerere.rikkahub.workspace.SandboxBindMount
 
 class WorkspaceDetailVM(
     private val workspaceId: String,
@@ -139,6 +142,53 @@ class WorkspaceDetailVM(
                     }
                 }
             }
+        }
+    }
+
+    fun hasAllFilesAccess(): Boolean = repository.hasAllFilesAccess()
+
+    suspend fun terminalBindMounts(): List<SandboxBindMount> = repository.getSandboxBindMounts(workspaceId)
+
+    fun prepareMount(treeUri: String, onResult: (Result<SandboxMountDraft>) -> Unit) {
+        viewModelScope.launch {
+            val result = runCatching { repository.prepareSandboxMount(workspaceId, treeUri) }
+            if (result.isFailure) repository.releaseUnusedMountPermission(treeUri)
+            onResult(result)
+        }
+    }
+
+    fun createMount(
+        draft: SandboxMountDraft,
+        parentPath: String,
+        name: String,
+        onResult: (Result<SandboxWorkspaceMountEntity>) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val result = runCatching {
+                repository.createSandboxMount(
+                    id = workspaceId,
+                    treeUri = draft.source.treeUri,
+                    parentPath = parentPath,
+                    name = name,
+                )
+            }
+            result.onSuccess { refreshFiles() }
+            onResult(result)
+        }
+    }
+
+    fun cancelMountDraft(draft: SandboxMountDraft) {
+        viewModelScope.launch { repository.releaseUnusedMountPermission(draft.source.treeUri) }
+    }
+
+    fun unmount(entry: WorkspaceFileEntry) {
+        val mountId = entry.mountId ?: return
+        viewModelScope.launch {
+            runCatching { repository.removeSandboxMount(workspaceId, mountId) }
+                .onSuccess { refreshFiles() }
+                .onFailure { error ->
+                    _filesState.update { it.copy(error = error.message ?: "Unmount failed") }
+                }
         }
     }
 

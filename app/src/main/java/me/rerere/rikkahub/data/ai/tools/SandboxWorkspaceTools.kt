@@ -105,7 +105,7 @@ private fun sandboxEditTool(id: String, repository: WorkspaceRepository, approva
 
 private fun sandboxShellTool(id: String, repository: WorkspaceRepository, approval: (String) -> Boolean) = Tool(
     name = "sandbox_shell",
-    description = "Run a shell command in the sandbox Rootfs. /workspace, /skills, /upload and /tool_outputs are mounted and writable. Always inspect the command before approving it.",
+    description = "Run a shell command in the sandbox Rootfs. /workspace, /skills, /upload and /tool_outputs are mounted and writable. Folders mounted from the phone under /workspace modify the original phone files. Always inspect the command before approving it.",
     parameters = {
         InputSchema.Obj(
             properties = buildJsonObject {
@@ -149,6 +149,7 @@ private fun JsonObject.string(name: String): String? = this[name]?.jsonPrimitive
 private const val SANDBOX_PROMPT = """
 You are using a persistent Linux sandbox. Sandbox file tools accept absolute paths under /workspace only.
 Use sandbox_shell for commands. The shell can write /workspace, /skills, /upload and /tool_outputs; do not claim that uploads are read-only.
+Mounted phone folders under /workspace are live and writable; changes affect the original phone files.
 """
 
 private fun kotlinx.serialization.json.JsonObjectBuilder.putSandboxPath(required: Boolean) {

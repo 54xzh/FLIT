@@ -51,6 +51,7 @@ data class SandboxShellContext(
     val tempDir: File,
     val timeoutMillis: Long,
     val stdin: ByteArray? = null,
+    val workspaceBindMounts: List<SandboxBindMount> = emptyList(),
 )
 
 interface SandboxShellRunner {
@@ -169,29 +170,42 @@ class SandboxWorkspaceManager(
         id: String,
         path: String = "",
         area: SandboxStorageArea = SandboxStorageArea.FILES,
-    ): List<SandboxFileEntry> {
-        val root = storageRoot(id, area)
-        val dir = resolve(root, path)
+    ): List<SandboxFileEntry> = listFilesAtRoot(storageRoot(id, area), path)
+
+    fun listExternalFiles(root: File, path: String = ""): List<SandboxFileEntry> = listFilesAtRoot(root, path)
+
+    private fun listFilesAtRoot(root: File, path: String): List<SandboxFileEntry> {
+        val canonicalRoot = root.canonicalFile
+        require(canonicalRoot.isDirectory) { "Mounted folder is unavailable" }
+        val dir = resolve(canonicalRoot, path)
         require(dir.exists()) { "Path does not exist: $path" }
         require(dir.isDirectory) { "Path is not a directory: $path" }
         return dir.listFiles().orEmpty()
             .sortedWith(compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() })
             .take(MAX_LIST_ENTRIES)
-            .map { it.toEntry(root) }
+            .map { it.toEntry(canonicalRoot) }
     }
 
-    fun readText(id: String, path: String): String {
-        val root = filesDir(id).also { it.mkdirs() }
+    fun readText(id: String, path: String): String = readTextAtRoot(filesDir(id).also { it.mkdirs() }, path)
+
+    fun readExternalText(root: File, path: String): String = readTextAtRoot(root, path)
+
+    private fun readTextAtRoot(root: File, path: String): String {
         val file = resolve(root, path)
         require(file.isFile) { "Path is not a file: $path" }
         require(file.length() <= MAX_READ_BYTES) { "File is too large to read" }
         return file.readText(StandardCharsets.UTF_8)
     }
 
-    fun writeText(id: String, path: String, text: String, overwrite: Boolean): SandboxFileEntry {
+    fun writeText(id: String, path: String, text: String, overwrite: Boolean): SandboxFileEntry =
+        writeTextAtRoot(filesDir(id).also { it.mkdirs() }, path, text, overwrite)
+
+    fun writeExternalText(root: File, path: String, text: String, overwrite: Boolean): SandboxFileEntry =
+        writeTextAtRoot(root, path, text, overwrite)
+
+    private fun writeTextAtRoot(root: File, path: String, text: String, overwrite: Boolean): SandboxFileEntry {
         val bytes = text.toByteArray(StandardCharsets.UTF_8)
         require(bytes.size <= MAX_WRITE_BYTES) { "Content is too large" }
-        val root = filesDir(id).also { it.mkdirs() }
         val file = resolve(root, path)
         require(!file.exists() || overwrite) { "File already exists: $path" }
         require(!file.exists() || file.isFile) { "Path is not a file: $path" }
@@ -206,8 +220,17 @@ class SandboxWorkspaceManager(
         fileName: String,
         input: InputStream,
         area: SandboxStorageArea = SandboxStorageArea.FILES,
+    ): SandboxFileEntry = importFileAtRoot(storageRoot(id, area), destinationPath, fileName, input)
+
+    fun importExternalFile(root: File, destinationPath: String, fileName: String, input: InputStream): SandboxFileEntry =
+        importFileAtRoot(root, destinationPath, fileName, input)
+
+    private fun importFileAtRoot(
+        root: File,
+        destinationPath: String,
+        fileName: String,
+        input: InputStream,
     ): SandboxFileEntry {
-        val root = storageRoot(id, area)
         val directory = resolve(root, destinationPath)
         directory.mkdirs()
         require(directory.isDirectory) { "Destination is not a directory" }
@@ -221,8 +244,11 @@ class SandboxWorkspaceManager(
         path: String,
         output: OutputStream,
         area: SandboxStorageArea = SandboxStorageArea.FILES,
-    ) {
-        val root = storageRoot(id, area)
+    ) = exportFileAtRoot(storageRoot(id, area), path, output)
+
+    fun exportExternalFile(root: File, path: String, output: OutputStream) = exportFileAtRoot(root, path, output)
+
+    private fun exportFileAtRoot(root: File, path: String, output: OutputStream) {
         val file = resolve(root, path)
         require(file.isFile) { "Path is not a file: $path" }
         file.inputStream().use { it.copyTo(output) }
@@ -233,9 +259,14 @@ class SandboxWorkspaceManager(
         path: String,
         recursive: Boolean,
         area: SandboxStorageArea = SandboxStorageArea.FILES,
-    ): Boolean {
-        require(path.isNotBlank() && path != ".") { "Refusing to delete workspace root" }
-        val file = resolveWithoutFollowingFinalLink(storageRoot(id, area), path)
+    ): Boolean = deleteFileAtRoot(storageRoot(id, area), path, recursive)
+
+    fun deleteExternalFile(root: File, path: String, recursive: Boolean): Boolean =
+        deleteFileAtRoot(root, path, recursive)
+
+    private fun deleteFileAtRoot(root: File, path: String, recursive: Boolean): Boolean {
+        require(path.isNotBlank() && path != ".") { "Refusing to delete root" }
+        val file = resolveWithoutFollowingFinalLink(root, path)
         val targetPath = file.toPath()
         if (!Files.exists(targetPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return false
         return if (Files.isDirectory(targetPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
@@ -252,11 +283,10 @@ class SandboxWorkspaceManager(
         cwd: String = "",
         timeoutMillis: Long = DEFAULT_COMMAND_TIMEOUT_MS,
         stdin: ByteArray? = null,
+        bindMounts: List<SandboxBindMount> = emptyList(),
     ): SandboxCommandResult {
         require(command.isNotBlank()) { "Command is required" }
         ensureWorkspace(id)
-        val workingDir = resolve(filesDir(id), cwd)
-        require(workingDir.isDirectory) { "Working directory does not exist: $cwd" }
         return shellRunner.execute(
             SandboxShellContext(
                 workspaceId = id,
@@ -267,8 +297,19 @@ class SandboxWorkspaceManager(
                 tempDir = tempDir(id),
                 timeoutMillis = timeoutMillis,
                 stdin = stdin,
+                workspaceBindMounts = bindMounts,
             )
         )
+    }
+
+    fun ensureFilesDirectory(id: String, path: String) {
+        val dir = resolve(filesDir(id), path)
+        require(dir.mkdirs() || dir.isDirectory) { "Cannot create mount parent folder" }
+    }
+
+    fun filesPathExists(id: String, path: String): Boolean {
+        val target = resolveWithoutFollowingFinalLink(filesDir(id), path)
+        return Files.exists(target.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)
     }
 
     private fun resolve(root: File, path: String): File {
@@ -373,7 +414,9 @@ class ProotSandboxShellRunner(
 
     private fun buildCommand(context: SandboxShellContext, proot: File): List<String> = buildList {
         addAll(listOf(proot.absolutePath, "--root-id", "--link2symlink", "--kill-on-exit", "-r", context.linuxDir.absolutePath, "-w", context.prootCwd(), "-b", "${context.filesDir.absolutePath}:/workspace"))
-        extraBindMounts.filter { it.source.exists() }.forEach { mount -> addAll(listOf("-b", "${mount.source.absolutePath}:${mount.target.trimEnd('/')}")) }
+        (extraBindMounts + context.workspaceBindMounts)
+            .filter { it.source.exists() }
+            .forEach { mount -> addAll(listOf("-b", "${mount.source.absolutePath}:${mount.target.trimEnd('/')}")) }
         listOf("/dev", "/proc", "/sys").filter { File(it).exists() }.forEach { addAll(listOf("-b", it)) }
         addAll(listOf("/usr/bin/env", "-i", "HOME=/root", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "TERM=xterm-256color", "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "/bin/bash", "-l", "-c", "cd -- \"\$1\" && eval \"\$2\"", "flit-sandbox", context.prootCwd(), context.command))
     }

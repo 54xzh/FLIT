@@ -94,3 +94,26 @@ data class SandboxWorkspaceEntity(
     @ColumnInfo(name = "rootfs_version") val rootfsVersion: String? = null,
     @ColumnInfo(name = "rootfs_installed_at") val rootfsInstalledAt: Long? = null,
 )
+
+/**
+ * 沙盒工作区挂载的手机本地目录。
+ *
+ * [treeUri] 用来证明目录经过系统选择器授权，并在恢复/导入时判断授权是否仍有效；
+ * [sourcePath] 是 PRoot 实际绑定的本地路径。两者用途不同，不能互相替代。
+ */
+@Entity(
+    tableName = "workspace_sandbox_mounts",
+    indices = [
+        Index(value = ["workspace_id"]),
+        Index(value = ["workspace_id", "target_path"], unique = true),
+        Index(value = ["workspace_id", "source_path"], unique = true),
+    ],
+)
+data class SandboxWorkspaceMountEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "workspace_id") val workspaceId: String,
+    @ColumnInfo(name = "tree_uri") val treeUri: String,
+    @ColumnInfo(name = "source_path") val sourcePath: String,
+    @ColumnInfo(name = "target_path") val targetPath: String,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+)

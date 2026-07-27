@@ -91,6 +91,7 @@ fun WorkspaceTerminalPage(
             workspaceType = workspace?.type,
             rootfsStatus = workspace?.sandboxStatus,
             manager = manager,
+            vm = vm,
             contentPadding = innerPadding,
         )
     }
@@ -102,6 +103,7 @@ private fun WorkspaceTerminalContent(
     workspaceType: WorkspaceType?,
     rootfsStatus: SandboxRootfsStatus?,
     manager: SandboxWorkspaceManager,
+    vm: WorkspaceDetailVM,
     contentPadding: PaddingValues,
 ) {
     val context = LocalContext.current
@@ -143,17 +145,23 @@ private fun WorkspaceTerminalContent(
                         !workspaceTerminalRuntimeReady(context) -> TerminalPreparation.RUNTIME_MISSING
                         else -> {
                             prepareWorkspaceTerminalSession(workspaceId, manager)
-                            TerminalPreparation.READY
+                            TerminalPreparation.Ready(vm.terminalBindMounts())
                         }
                     }
                 }
                 when (prepared) {
                     TerminalPreparation.ROOTFS_MISSING -> TerminalSessionUiState.NotInstalled
                     TerminalPreparation.RUNTIME_MISSING -> TerminalSessionUiState.RuntimeUnavailable
-                    TerminalPreparation.READY -> {
+                    is TerminalPreparation.Ready -> {
                         if (!isActive) return@produceState
                         finished = false
-                        val created = createWorkspaceTerminalSession(context, workspaceId, manager, sessionClient)
+                        val created = createWorkspaceTerminalSession(
+                            context = context,
+                            workspaceId = workspaceId,
+                            manager = manager,
+                            client = sessionClient,
+                            workspaceBindMounts = prepared.bindMounts,
+                        )
                         if (!isActive) {
                             created.finishIfRunning()
                             return@produceState
@@ -360,10 +368,10 @@ private fun TerminalSession.writeText(text: String) {
     write(bytes, 0, bytes.size)
 }
 
-private enum class TerminalPreparation {
-    READY,
-    ROOTFS_MISSING,
-    RUNTIME_MISSING,
+private sealed interface TerminalPreparation {
+    data class Ready(val bindMounts: List<me.rerere.rikkahub.workspace.SandboxBindMount>) : TerminalPreparation
+    data object ROOTFS_MISSING : TerminalPreparation
+    data object RUNTIME_MISSING : TerminalPreparation
 }
 
 private sealed interface TerminalSessionUiState {

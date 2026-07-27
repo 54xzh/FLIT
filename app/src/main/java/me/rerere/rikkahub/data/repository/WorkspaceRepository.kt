@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.repository
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.StatFs
@@ -28,6 +29,7 @@ import me.rerere.rikkahub.data.db.dao.WorkspaceDao
 import me.rerere.rikkahub.data.db.entity.SafWorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
 import me.rerere.rikkahub.data.db.entity.SandboxWorkspaceEntity
+import me.rerere.rikkahub.data.db.entity.SandboxWorkspaceMountEntity
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.WorkspaceType
 import me.rerere.rikkahub.data.sync.SANDBOX_RESTORE_SENTINEL
@@ -35,13 +37,17 @@ import me.rerere.rikkahub.data.db.entity.toolDefaultNeedsApproval
 import me.rerere.rikkahub.data.db.entity.workspaceToolNames
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.workspace.SandboxCommandResult
+import me.rerere.rikkahub.workspace.SandboxBindMount
 import me.rerere.rikkahub.workspace.SandboxFileEntry
 import me.rerere.rikkahub.workspace.SandboxRootfsInstallProgress
 import me.rerere.rikkahub.workspace.SandboxRootfsInstaller
 import me.rerere.rikkahub.workspace.SandboxStorageArea
 import me.rerere.rikkahub.workspace.SandboxWorkspaceManager
+import me.rerere.rikkahub.workspace.SandboxMountPathResolver
+import me.rerere.rikkahub.workspace.SandboxMountSource
 import me.rerere.rikkahub.workspace.WorkspaceTransferArchive
 import me.rerere.rikkahub.workspace.WorkspaceTransferManifest
+import me.rerere.rikkahub.workspace.WorkspaceTransferMount
 import me.rerere.rikkahub.workspace.WorkspaceTransferProgress
 import me.rerere.rikkahub.workspace.WorkspaceTransferStage
 import me.rerere.rikkahub.workspace.estimateWorkspaceImportBytes
@@ -79,6 +85,47 @@ fun uniqueWorkspaceName(
     error("Cannot create a unique workspace name")
 }
 
+internal fun normalizeSandboxMountParentPath(rawPath: String): String {
+    val normalized = rawPath.replace('\\', '/').trim()
+    require(normalized.startsWith('/')) { "Mount path must be absolute" }
+    require(!normalized.contains('\u0000')) { "Mount path contains an invalid character" }
+    val segments = normalized.split('/').filter { it.isNotBlank() }
+    require(segments.isNotEmpty() && segments.first() == "workspace") { "Mount path must be inside /workspace" }
+    require(segments.none { it == "." || it == ".." }) { "Mount path is invalid" }
+    return "/" + segments.joinToString("/")
+}
+
+internal fun normalizeSandboxMountTarget(parentPath: String, rawName: String): String {
+    val parent = normalizeSandboxMountParentPath(parentPath)
+    val name = rawName.trim().take(200)
+    require(name.isNotEmpty()) { "Folder name is required" }
+    require(name != "." && name != ".." && !name.contains('/') && !name.contains('\\') && !name.contains('\u0000')) {
+        "Folder name is invalid"
+    }
+    return "$parent/$name"
+}
+
+internal fun sandboxMountRelativePath(targetPath: String): String =
+    targetPath.removePrefix("/workspace/").removePrefix("/workspace")
+
+internal fun uniqueSandboxMountName(sourceName: String, existingNames: Collection<String>): String {
+    val taken = existingNames.toSet()
+    val base = sourceName.trim().ifBlank { "Mounted folder" }.take(200)
+    if (base !in taken) return base
+    for (index in 2..10_000) {
+        val suffix = " $index"
+        val candidate = base.take((200 - suffix.length).coerceAtLeast(1)).trimEnd() + suffix
+        if (candidate !in taken) return candidate
+    }
+    error("Cannot create a unique folder name")
+}
+
+data class SandboxMountDraft(
+    val source: SandboxMountSource,
+    val parentPath: String = "/workspace",
+    val suggestedName: String,
+)
+
 data class Workspace(
     val id: String,
     val name: String,
@@ -108,6 +155,7 @@ class WorkspaceRepository(
     private val rootfsInstaller: SandboxRootfsInstaller,
     private val workspaceTransferArchive: WorkspaceTransferArchive,
     private val conversationRepository: ConversationRepository,
+    private val mountPathResolver: SandboxMountPathResolver,
 ) : KoinComponent {
     private val sandboxLocks = ConcurrentHashMap<String, Mutex>()
     private val workspaceImportMutex = Mutex()
@@ -186,6 +234,13 @@ class WorkspaceRepository(
     ) = sandboxLock(id).withLock {
         val workspace = requireSandbox(id)
         val detail = workspace.sandbox ?: error("Sandbox details are missing")
+        val transferMounts = dao.getSandboxMounts(id).map { mount ->
+            WorkspaceTransferMount(
+                treeUri = mount.treeUri,
+                sourcePath = mount.sourcePath,
+                targetPath = mount.targetPath,
+            )
+        }
         runInterruptible(Dispatchers.IO) {
             val workspaceDir = sandboxManager.workspaceDir(id)
             val summary = workspaceTransferArchive.scan(workspaceDir, onProgress)
@@ -201,6 +256,7 @@ class WorkspaceRepository(
                 createdAt = System.currentTimeMillis(),
                 payloadBytes = summary.bytes,
                 payloadEntries = summary.entries,
+                mounts = transferMounts,
             )
             workspaceTransferArchive.export(workspaceDir, manifest, output, onProgress)
             onProgress(
@@ -272,7 +328,15 @@ class WorkspaceRepository(
                 )
             }
             databaseCommitted = true
-            resolve(record) ?: error("Failed to import workspace")
+            val imported = resolve(record) ?: error("Failed to import workspace")
+            manifest.mounts.forEach { mount ->
+                runCatching {
+                    restoreSandboxMountMarker(imported.id, mount)
+                }.onFailure { error ->
+                    Log.i(TAG, "importSandboxWorkspace: skipped unavailable mount ${mount.targetPath}: ${error.message}")
+                }
+            }
+            imported
         } finally {
             withContext(NonCancellable + Dispatchers.IO) {
                 sandboxManager.discardImportStaging(newId)
@@ -375,8 +439,11 @@ class WorkspaceRepository(
 
     private suspend fun deleteInternal(workspace: Workspace) {
         if (workspace.type == WorkspaceType.SANDBOX) {
+            val mountUris = dao.getSandboxMounts(workspace.id).map { it.treeUri }.distinct()
+            dao.deleteSandboxMountsByWorkspace(workspace.id)
             withContext(Dispatchers.IO) { sandboxManager.deleteWorkspace(workspace.id) }
             dao.deleteSandboxDetail(workspace.id)
+            mountUris.forEach { releaseTreePermissionIfUnused(it) }
         } else {
             dao.deleteSafDetail(workspace.id)
         }
@@ -464,6 +531,81 @@ class WorkspaceRepository(
                 .onFailure { Log.w(TAG, "checkIntegrity: 删除沙盒恢复 sentinel 失败: ${it.message}") }
             Log.i(TAG, "checkIntegrity: 沙盒恢复清理完成")
         }
+
+        val currentRecords = dao.getAll().associateBy { it.id }
+        dao.getAllSandboxMounts().forEach { mount ->
+            val owner = currentRecords[mount.workspaceId]
+            val valid = owner?.type == WorkspaceType.SANDBOX &&
+                mountPathResolver.hasPersistedReadWritePermission(mount.treeUri) &&
+                runCatching {
+                    check(normalizeSandboxMountTarget(
+                        mount.targetPath.substringBeforeLast('/', "/workspace"),
+                        mount.targetPath.substringAfterLast('/'),
+                    ) == mount.targetPath)
+                    check(mountPathResolver.sourceMarkerMatches(mount.treeUri, mount.sourcePath))
+                    check(!sandboxManager.filesPathExists(mount.workspaceId, sandboxMountRelativePath(mount.targetPath)))
+                }.isSuccess
+            if (!valid) {
+                dao.deleteSandboxMount(mount.id)
+                releaseTreePermissionIfUnused(mount.treeUri)
+            } else {
+                sandboxManager.ensureFilesDirectory(
+                    mount.workspaceId,
+                    sandboxMountRelativePath(mount.targetPath.substringBeforeLast('/', "/workspace")),
+                )
+            }
+        }
+        cleanupOrphanedMountPermissions()
+    }
+
+    fun hasAllFilesAccess(): Boolean = mountPathResolver.hasAllFilesAccess()
+
+    suspend fun prepareSandboxMount(id: String, treeUri: String): SandboxMountDraft = withContext(Dispatchers.IO) {
+        requireSandbox(id)
+        registerMountPermission(treeUri)
+        context.contentResolver.takePersistableUriPermission(
+            Uri.parse(treeUri),
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+        )
+        require(mountPathResolver.hasPersistedReadWritePermission(treeUri)) { "Folder permission was not saved" }
+        val source = mountPathResolver.resolve(Uri.parse(treeUri))
+        val parentPath = "/workspace"
+        val existingNames = sandboxMountChildNames(id, parentPath)
+        SandboxMountDraft(
+            source = source,
+            parentPath = parentPath,
+            suggestedName = uniqueSandboxMountName(source.displayName, existingNames),
+        )
+    }
+
+    suspend fun createSandboxMount(
+        id: String,
+        treeUri: String,
+        parentPath: String,
+        name: String,
+    ): SandboxWorkspaceMountEntity = sandboxLock(id).withLock {
+        withContext(Dispatchers.IO) {
+            requireSandbox(id)
+            require(mountPathResolver.hasPersistedReadWritePermission(treeUri)) { "Folder permission is unavailable" }
+            val source = mountPathResolver.resolve(Uri.parse(treeUri))
+            val targetPath = normalizeSandboxMountTarget(parentPath, name)
+            insertSandboxMountRecord(id, source.treeUri, source.sourcePath, targetPath)
+        }
+    }
+
+    suspend fun removeSandboxMount(workspaceId: String, mountId: String): Boolean = sandboxLock(workspaceId).withLock {
+        withContext(Dispatchers.IO) {
+            requireSandbox(workspaceId)
+            val mount = dao.getSandboxMount(mountId) ?: return@withContext false
+            require(mount.workspaceId == workspaceId) { "Mounted folder belongs to another workspace" }
+            val deleted = dao.deleteSandboxMount(mountId) > 0
+            if (deleted) releaseTreePermissionIfUnused(mount.treeUri)
+            deleted
+        }
+    }
+
+    suspend fun releaseUnusedMountPermission(treeUri: String) = withContext(Dispatchers.IO) {
+        releaseTreePermissionIfUnused(treeUri)
     }
 
     suspend fun listSandboxFiles(
@@ -472,19 +614,57 @@ class WorkspaceRepository(
         area: SandboxStorageArea = SandboxStorageArea.FILES,
     ): List<WorkspaceFileEntry> = withContext(Dispatchers.IO) {
         requireSandbox(id)
-        sandboxManager.listFiles(id, path, area).map(SandboxFileEntry::toWorkspaceEntry)
+        if (area != SandboxStorageArea.FILES) {
+            return@withContext sandboxManager.listFiles(id, path, area).map(SandboxFileEntry::toWorkspaceEntry)
+        }
+        val normalizedPath = normalizeWorkspaceRelativePath(path)
+        val mounts = dao.getSandboxMounts(id)
+        mounts.forEach { mount ->
+            sandboxManager.ensureFilesDirectory(id, mountParentRelative(mount))
+        }
+        val resolved = resolveMount(mounts, normalizedPath)
+        if (resolved != null) {
+            return@withContext sandboxManager.listExternalFiles(mountSourceFile(resolved.mount), resolved.relativePath)
+                .map { entry -> entry.toWorkspaceEntry(resolved.mount, joinRelative(resolved.targetRelative, entry.path)) }
+        }
+        val localEntries = sandboxManager.listFiles(id, normalizedPath, area).map(SandboxFileEntry::toWorkspaceEntry).toMutableList()
+        mounts.filter { mountParentRelative(it) == normalizedPath }.forEach { mount ->
+            val targetRelative = sandboxMountRelativePath(mount.targetPath)
+            localEntries.removeAll { it.path == targetRelative }
+            val source = File(mount.sourcePath)
+            localEntries += WorkspaceFileEntry(
+                path = targetRelative,
+                name = mount.targetPath.substringAfterLast('/'),
+                isDirectory = true,
+                sizeBytes = 0,
+                updatedAt = source.lastModified(),
+                mountId = mount.id,
+                isMountRoot = true,
+            )
+        }
+        localEntries.sortedWith(compareBy<WorkspaceFileEntry> { !it.isDirectory }.thenBy { it.name.lowercase() })
     }
 
     suspend fun readSandboxText(id: String, path: String): String = withContext(Dispatchers.IO) {
         requireSandbox(id)
-        sandboxManager.readText(id, path)
+        val normalized = normalizeWorkspaceRelativePath(path)
+        val resolved = resolveMount(dao.getSandboxMounts(id), normalized)
+        if (resolved == null) sandboxManager.readText(id, normalized)
+        else sandboxManager.readExternalText(mountSourceFile(resolved.mount), resolved.relativePath)
     }
 
     suspend fun writeSandboxText(id: String, path: String, text: String, overwrite: Boolean): WorkspaceFileEntry =
         sandboxLock(id).withLock {
             withContext(Dispatchers.IO) {
                 requireSandbox(id)
-                sandboxManager.writeText(id, path, text, overwrite).toWorkspaceEntry()
+                val normalized = normalizeWorkspaceRelativePath(path)
+                val resolved = resolveMount(dao.getSandboxMounts(id), normalized)
+                if (resolved == null) {
+                    sandboxManager.writeText(id, normalized, text, overwrite).toWorkspaceEntry()
+                } else {
+                    sandboxManager.writeExternalText(mountSourceFile(resolved.mount), resolved.relativePath, text, overwrite)
+                        .toWorkspaceEntry(resolved.mount, normalized)
+                }
             }
         }
 
@@ -498,7 +678,14 @@ class WorkspaceRepository(
         sandboxLock(id).withLock {
             withContext(Dispatchers.IO) {
                 requireSandbox(id)
-                sandboxManager.importFile(id, path, fileName, input, area).toWorkspaceEntry()
+                val normalized = normalizeWorkspaceRelativePath(path)
+                val resolved = if (area == SandboxStorageArea.FILES) resolveMount(dao.getSandboxMounts(id), normalized) else null
+                if (resolved == null) {
+                    sandboxManager.importFile(id, normalized, fileName, input, area).toWorkspaceEntry()
+                } else {
+                    val entry = sandboxManager.importExternalFile(mountSourceFile(resolved.mount), resolved.relativePath, fileName, input)
+                    entry.toWorkspaceEntry(resolved.mount, joinRelative(resolved.targetRelative, entry.path))
+                }
             }
         }
 
@@ -511,7 +698,10 @@ class WorkspaceRepository(
         sandboxLock(id).withLock {
             withContext(Dispatchers.IO) {
                 requireSandbox(id)
-                sandboxManager.exportFile(id, path, output, area)
+                val normalized = normalizeWorkspaceRelativePath(path)
+                val resolved = if (area == SandboxStorageArea.FILES) resolveMount(dao.getSandboxMounts(id), normalized) else null
+                if (resolved == null) sandboxManager.exportFile(id, normalized, output, area)
+                else sandboxManager.exportExternalFile(mountSourceFile(resolved.mount), resolved.relativePath, output)
             }
         }
 
@@ -524,7 +714,18 @@ class WorkspaceRepository(
         sandboxLock(id).withLock {
             withContext(Dispatchers.IO) {
                 val workspace = requireSandbox(id)
-                val deleted = sandboxManager.deleteFile(id, path, recursive, area)
+                val normalized = normalizeWorkspaceRelativePath(path)
+                val mounts = if (area == SandboxStorageArea.FILES) dao.getSandboxMounts(id) else emptyList()
+                require(mounts.none { mount -> isMountDescendantOf(mount, normalized) }) {
+                    "Unmount mounted folders inside this directory before deleting it"
+                }
+                val resolved = resolveMount(mounts, normalized)
+                require(resolved?.relativePath?.isNotBlank() != false) { "Unmount the folder instead of deleting it" }
+                val deleted = if (resolved == null) {
+                    sandboxManager.deleteFile(id, normalized, recursive, area)
+                } else {
+                    sandboxManager.deleteExternalFile(mountSourceFile(resolved.mount), resolved.relativePath, recursive)
+                }
                 if (deleted && area == SandboxStorageArea.ROOTFS && !sandboxManager.hasRootfs(id)) {
                     val detail = workspace.sandbox
                     updateSandboxStatus(
@@ -548,7 +749,15 @@ class WorkspaceRepository(
     ): SandboxCommandResult = sandboxLock(id).withLock {
         val workspace = requireSandbox(id)
         check(workspace.sandboxStatus == SandboxRootfsStatus.READY) { "Rootfs is not ready" }
-        runInterruptible(Dispatchers.IO) { sandboxManager.executeCommand(id, command, cwd, timeoutMillis, stdin) }
+        val bindMounts = loadSandboxBindMounts(id)
+        runInterruptible(Dispatchers.IO) {
+            sandboxManager.executeCommand(id, command, cwd, timeoutMillis, stdin, bindMounts)
+        }
+    }
+
+    suspend fun getSandboxBindMounts(id: String): List<SandboxBindMount> = withContext(Dispatchers.IO) {
+        requireSandbox(id)
+        loadSandboxBindMounts(id)
     }
 
     /**
@@ -697,6 +906,128 @@ class WorkspaceRepository(
         return workspace
     }
 
+    private suspend fun sandboxMountChildNames(id: String, parentPath: String): Set<String> {
+        val normalizedParent = normalizeSandboxMountParentPath(parentPath)
+        val parentRelative = sandboxMountRelativePath(normalizedParent)
+        val localNames = runCatching {
+            sandboxManager.listFiles(id, parentRelative, SandboxStorageArea.FILES).map { it.name }
+        }.getOrDefault(emptyList())
+        val mountNames = dao.getSandboxMounts(id)
+            .filter { mountParentRelative(it) == parentRelative }
+            .map { it.targetPath.substringAfterLast('/') }
+        return (localNames + mountNames).toSet()
+    }
+
+    private suspend fun restoreSandboxMountMarker(id: String, marker: WorkspaceTransferMount) =
+        sandboxLock(id).withLock {
+            withContext(Dispatchers.IO) {
+                requireSandbox(id)
+                require(mountPathResolver.hasPersistedReadWritePermission(marker.treeUri)) {
+                    "Folder permission is unavailable"
+                }
+                require(mountPathResolver.sourceMarkerMatches(marker.treeUri, marker.sourcePath)) {
+                    "Mounted folder marker is invalid"
+                }
+                val targetPath = normalizeSandboxMountTarget(
+                    marker.targetPath.substringBeforeLast('/', "/workspace"),
+                    marker.targetPath.substringAfterLast('/'),
+                )
+                insertSandboxMountRecord(id, marker.treeUri, marker.sourcePath, targetPath)
+            }
+        }
+
+    private suspend fun insertSandboxMountRecord(
+        id: String,
+        treeUri: String,
+        sourcePath: String,
+        targetPath: String,
+    ): SandboxWorkspaceMountEntity {
+        val canonicalSource = File(sourcePath).canonicalFile
+        val targetRelative = sandboxMountRelativePath(targetPath)
+        val parentPath = targetPath.substringBeforeLast('/', "/workspace")
+        val mounts = dao.getSandboxMounts(id)
+        require(mounts.none { File(it.sourcePath).canonicalFile == canonicalSource }) {
+            "This folder is already mounted"
+        }
+        require(mounts.none { pathsOverlap(it.targetPath, targetPath) }) {
+            "The mount path overlaps another mounted folder"
+        }
+        sandboxManager.ensureFilesDirectory(id, sandboxMountRelativePath(parentPath))
+        require(!sandboxManager.filesPathExists(id, targetRelative)) { "A file or folder already exists at the mount path" }
+        val mount = SandboxWorkspaceMountEntity(
+            id = Uuid.random().toString(),
+            workspaceId = id,
+            treeUri = treeUri,
+            sourcePath = canonicalSource.absolutePath,
+            targetPath = targetPath,
+            createdAt = System.currentTimeMillis(),
+        )
+        dao.insertSandboxMount(mount)
+        registerMountPermission(treeUri)
+        return mount
+    }
+
+    private suspend fun releaseTreePermissionIfUnused(treeUri: String) {
+        if (dao.countSandboxMountsByTreeUri(treeUri) > 0) return
+        unregisterMountPermission(treeUri)
+        if (dao.getSafDetailByTreeUri(treeUri) != null) return
+        runCatching {
+            context.contentResolver.releasePersistableUriPermission(
+                Uri.parse(treeUri),
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        }.onFailure { Log.w(TAG, "releaseTreePermissionIfUnused: ${it.message}") }
+    }
+
+    private suspend fun cleanupOrphanedMountPermissions() {
+        registeredMountPermissions().forEach { treeUri ->
+            releaseTreePermissionIfUnused(treeUri)
+        }
+    }
+
+    private fun registerMountPermission(treeUri: String) {
+        synchronized(MOUNT_PERMISSION_LOCK) {
+            val prefs = context.getSharedPreferences(MOUNT_PERMISSION_PREFS, Context.MODE_PRIVATE)
+            val updated = prefs.getStringSet(MOUNT_PERMISSION_URIS, emptySet()).orEmpty().toMutableSet()
+            if (updated.add(treeUri)) prefs.edit().putStringSet(MOUNT_PERMISSION_URIS, updated).commit()
+        }
+    }
+
+    private fun unregisterMountPermission(treeUri: String) {
+        synchronized(MOUNT_PERMISSION_LOCK) {
+            val prefs = context.getSharedPreferences(MOUNT_PERMISSION_PREFS, Context.MODE_PRIVATE)
+            val updated = prefs.getStringSet(MOUNT_PERMISSION_URIS, emptySet()).orEmpty().toMutableSet()
+            if (updated.remove(treeUri)) prefs.edit().putStringSet(MOUNT_PERMISSION_URIS, updated).commit()
+        }
+    }
+
+    private fun registeredMountPermissions(): Set<String> = synchronized(MOUNT_PERMISSION_LOCK) {
+        context.getSharedPreferences(MOUNT_PERMISSION_PREFS, Context.MODE_PRIVATE)
+            .getStringSet(MOUNT_PERMISSION_URIS, emptySet())
+            .orEmpty()
+            .toSet()
+    }
+
+    private fun mountSourceFile(mount: SandboxWorkspaceMountEntity): File {
+        check(hasAllFilesAccess()) { "All files access is required for mounted folders" }
+        check(mountPathResolver.hasPersistedReadWritePermission(mount.treeUri)) { "Mounted folder permission is unavailable" }
+        val resolved = mountPathResolver.resolve(Uri.parse(mount.treeUri))
+        val stored = File(mount.sourcePath).canonicalFile
+        val selected = File(resolved.sourcePath).canonicalFile
+        check(stored == selected) { "Mounted folder path no longer matches its permission" }
+        check(stored.isDirectory) { "Mounted folder is unavailable: ${mount.targetPath}" }
+        return stored
+    }
+
+    private suspend fun loadSandboxBindMounts(id: String): List<SandboxBindMount> {
+        val mounts = dao.getSandboxMounts(id)
+        if (mounts.isNotEmpty()) check(hasAllFilesAccess()) { "All files access is required for mounted folders" }
+        return mounts.map { mount ->
+            sandboxManager.ensureFilesDirectory(id, mountParentRelative(mount))
+            SandboxBindMount(mountSourceFile(mount), mount.targetPath)
+        }
+    }
+
     private suspend fun updateSandboxStatus(id: String, status: SandboxRootfsStatus, sourceUrl: String?, version: String?, installedAt: Long?) {
         dao.updateSandboxRootfs(id, status, sourceUrl, version, installedAt)
     }
@@ -742,6 +1073,72 @@ class WorkspaceRepository(
     }
 
     private fun sandboxLock(id: String): Mutex = sandboxLocks.getOrPut(id) { Mutex() }
+
+    private companion object {
+        const val MOUNT_PERMISSION_PREFS = "sandbox_mount_permissions"
+        const val MOUNT_PERMISSION_URIS = "tree_uris"
+        val MOUNT_PERMISSION_LOCK = Any()
+    }
 }
 
 private fun SandboxFileEntry.toWorkspaceEntry() = WorkspaceFileEntry(path, name, isDirectory, sizeBytes, updatedAt)
+
+private fun SandboxFileEntry.toWorkspaceEntry(
+    mount: SandboxWorkspaceMountEntity,
+    workspacePath: String,
+) = WorkspaceFileEntry(
+    path = workspacePath,
+    name = name,
+    isDirectory = isDirectory,
+    sizeBytes = sizeBytes,
+    updatedAt = updatedAt,
+    mountId = mount.id,
+)
+
+private data class ResolvedMount(
+    val mount: SandboxWorkspaceMountEntity,
+    val targetRelative: String,
+    val relativePath: String,
+)
+
+private fun resolveMount(
+    mounts: List<SandboxWorkspaceMountEntity>,
+    workspaceRelativePath: String,
+): ResolvedMount? = mounts.mapNotNull { mount ->
+    val target = sandboxMountRelativePath(mount.targetPath)
+    when {
+        workspaceRelativePath == target -> ResolvedMount(mount, target, "")
+        workspaceRelativePath.startsWith("$target/") ->
+            ResolvedMount(mount, target, workspaceRelativePath.removePrefix("$target/"))
+        else -> null
+    }
+}.maxByOrNull { it.targetRelative.length }
+
+private fun mountParentRelative(mount: SandboxWorkspaceMountEntity): String =
+    sandboxMountRelativePath(mount.targetPath.substringBeforeLast('/', "/workspace"))
+
+private fun isMountDescendantOf(mount: SandboxWorkspaceMountEntity, workspaceRelativePath: String): Boolean {
+    return sandboxMountTargetIsDescendantOf(mount.targetPath, workspaceRelativePath)
+}
+
+internal fun sandboxMountTargetIsDescendantOf(targetPath: String, workspaceRelativePath: String): Boolean {
+    if (workspaceRelativePath.isBlank()) return true
+    val target = sandboxMountRelativePath(targetPath)
+    return target.startsWith("${workspaceRelativePath.trimEnd('/')}/")
+}
+
+private fun pathsOverlap(first: String, second: String): Boolean =
+    first == second || first.startsWith("$second/") || second.startsWith("$first/")
+
+private fun normalizeWorkspaceRelativePath(rawPath: String): String {
+    val normalized = rawPath.replace('\\', '/').trim().trim('/')
+    require(!normalized.contains('\u0000')) { "Path contains an invalid character" }
+    require(normalized.split('/').none { it == "." || it == ".." }) { "Path is invalid" }
+    return normalized
+}
+
+private fun joinRelative(parent: String, child: String): String = when {
+    parent.isBlank() -> child.trim('/')
+    child.isBlank() -> parent.trim('/')
+    else -> "${parent.trimEnd('/')}/${child.trimStart('/')}"
+}

@@ -24,7 +24,7 @@ import me.rerere.rikkahub.utils.JsonInstant
 const val WORKSPACE_TRANSFER_EXTENSION = "flitspace"
 const val WORKSPACE_TRANSFER_MIME = "application/octet-stream"
 
-private const val FORMAT_VERSION = 1
+private const val FORMAT_VERSION = 2
 private const val MANIFEST_ENTRY = "manifest.json"
 private const val PAYLOAD_ENTRY = "workspace.tar"
 private const val TAR_BLOCK_SIZE = 512
@@ -52,6 +52,13 @@ data class WorkspaceTransferProgress(
 )
 
 @Serializable
+data class WorkspaceTransferMount(
+    val treeUri: String,
+    val sourcePath: String,
+    val targetPath: String,
+)
+
+@Serializable
 data class WorkspaceTransferManifest(
     val formatVersion: Int = FORMAT_VERSION,
     val sourceWorkspaceId: String,
@@ -65,6 +72,7 @@ data class WorkspaceTransferManifest(
     val createdAt: Long,
     val payloadBytes: Long,
     val payloadEntries: Long,
+    val mounts: List<WorkspaceTransferMount> = emptyList(),
 )
 
 data class WorkspaceArchiveSummary(
@@ -141,7 +149,7 @@ class WorkspaceTransferArchive(
         output: OutputStream,
         onProgress: (WorkspaceTransferProgress) -> Unit = {},
     ) {
-        require(manifest.formatVersion == FORMAT_VERSION)
+        require(manifest.formatVersion in 1..FORMAT_VERSION)
         validateManifest(manifest)
         ZipOutputStream(output).use { zip ->
             val manifestBytes = JsonInstant.encodeToString(manifest).toByteArray(StandardCharsets.UTF_8)
@@ -248,12 +256,18 @@ class WorkspaceTransferArchive(
     }
 
     private fun validateManifest(manifest: WorkspaceTransferManifest) {
-        require(manifest.formatVersion == FORMAT_VERSION) { "Unsupported workspace package version" }
+        require(manifest.formatVersion in 1..FORMAT_VERSION) { "Unsupported workspace package version" }
         require(manifest.sourceWorkspaceId.isNotBlank()) { "Workspace ID is missing" }
         require(manifest.name.isNotBlank() && manifest.name.length <= 200) { "Workspace name is invalid" }
         require(manifest.toolApprovals.length <= 64 * 1024) { "Workspace settings are too large" }
         require(manifest.payloadBytes in 0..MAX_UNPACKED_BYTES) { "Workspace package size is invalid" }
         require(manifest.payloadEntries in 1..MAX_ARCHIVE_ENTRIES) { "Workspace package file count is invalid" }
+        require(manifest.mounts.size <= 1_000) { "Workspace package contains too many mounted folders" }
+        manifest.mounts.forEach { mount ->
+            require(mount.treeUri.length in 1..8_192) { "Mounted folder permission is invalid" }
+            require(mount.sourcePath.length in 1..4_096) { "Mounted folder source is invalid" }
+            require(mount.targetPath.length in 1..1_024) { "Mounted folder path is invalid" }
+        }
     }
 
     private fun validatePayloadPath(name: String) {

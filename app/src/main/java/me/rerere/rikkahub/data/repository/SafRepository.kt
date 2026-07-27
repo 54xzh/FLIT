@@ -181,4 +181,6 @@ data class WorkspaceFileEntry(
     val isDirectory: Boolean,
     val sizeBytes: Long,
     val updatedAt: Long,
+    val mountId: String? = null,
+    val isMountRoot: Boolean = false,
 )

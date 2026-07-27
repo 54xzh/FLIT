@@ -21,6 +21,8 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.InsertDriveFile
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.LinkOff
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -65,6 +67,7 @@ fun WorkspaceFilesPage(
     onGoUp: () -> Unit,
     onOpen: (WorkspaceFileEntry) -> Unit,
     onDelete: (WorkspaceFileEntry) -> Unit,
+    onUnmount: (WorkspaceFileEntry) -> Unit,
     onOpenFile: (WorkspaceFileEntry) -> Unit,
     onExport: (WorkspaceFileEntry) -> Unit,
 ) {
@@ -102,6 +105,10 @@ fun WorkspaceFilesPage(
                 context = context,
                 onOpen = { onOpen(entry) },
                 onDelete = { onDelete(entry) },
+                onUnmount = {
+                    haptics.perform(HapticPattern.Pop)
+                    onUnmount(entry)
+                },
                 onOpenFile = { onOpenFile(entry) },
                 onExport = { onExport(entry) },
             )
@@ -165,6 +172,7 @@ private fun WorkspaceFileCard(
     context: android.content.Context,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
+    onUnmount: () -> Unit,
     onOpenFile: () -> Unit,
     onExport: () -> Unit,
 ) {
@@ -186,12 +194,24 @@ private fun WorkspaceFileCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Icon(
-                imageVector = if (entry.isDirectory) Icons.Rounded.Folder else Icons.Rounded.InsertDriveFile,
-                contentDescription = null,
-                tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp),
-            )
+            Box(modifier = Modifier.size(28.dp)) {
+                Icon(
+                    imageVector = if (entry.isDirectory) Icons.Rounded.Folder else Icons.Rounded.InsertDriveFile,
+                    contentDescription = null,
+                    tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp),
+                )
+                if (entry.isMountRoot) {
+                    Icon(
+                        imageVector = Icons.Rounded.Link,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier
+                            .size(14.dp)
+                            .align(Alignment.BottomEnd),
+                    )
+                }
+            }
             Column(
                 modifier = Modifier.weight(1f),
             ) {
@@ -222,14 +242,20 @@ private fun WorkspaceFileCard(
                     Icon(Icons.Rounded.MoreVert, contentDescription = null)
                 }
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    if (!entry.isDirectory) {
+                    if (entry.isMountRoot) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.workspace_mount_unmount)) },
+                            leadingIcon = { Icon(Icons.Rounded.LinkOff, contentDescription = null) },
+                            onClick = { menuExpanded = false; onUnmount() },
+                        )
+                    } else if (!entry.isDirectory) {
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.workspace_detail_export_file)) },
                             leadingIcon = { Icon(Icons.Rounded.FileUpload, contentDescription = null) },
                             onClick = { menuExpanded = false; onExport() },
                         )
                     }
-                    DropdownMenuItem(
+                    if (!entry.isMountRoot) DropdownMenuItem(
                         text = {
                             Text(
                                 stringResource(R.string.workspace_detail_delete_file_or_dir),

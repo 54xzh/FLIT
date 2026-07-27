@@ -15,6 +15,7 @@ import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.workspace.ProotSandboxShellRunner
 import me.rerere.rikkahub.workspace.SandboxRootfsInstaller
 import me.rerere.rikkahub.workspace.SandboxWorkspaceManager
+import me.rerere.rikkahub.workspace.SandboxMountPathResolver
 import me.rerere.rikkahub.workspace.WorkspaceTransferArchive
 import me.rerere.rikkahub.workspace.sandboxBindMounts
 import me.rerere.ai.provider.providers.openai.OpenRouterModelCapabilityProvider
@@ -76,6 +77,8 @@ val repositoryModule = module {
 
     single { SandboxRootfsInstaller(get()) }
 
+    single { SandboxMountPathResolver(get()) }
+
     single { WorkspaceTransferArchive(get()) }
 
     single {
@@ -88,6 +91,7 @@ val repositoryModule = module {
             rootfsInstaller = get(),
             workspaceTransferArchive = get(),
             conversationRepository = get(),
+            mountPathResolver = get(),
         )
     }
 

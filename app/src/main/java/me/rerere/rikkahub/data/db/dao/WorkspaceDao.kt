@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import me.rerere.rikkahub.data.db.entity.SafWorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
 import me.rerere.rikkahub.data.db.entity.SandboxWorkspaceEntity
+import me.rerere.rikkahub.data.db.entity.SandboxWorkspaceMountEntity
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 
 @Dao
@@ -67,4 +68,25 @@ interface WorkspaceDao {
 
     @Query("DELETE FROM workspace_sandbox_details WHERE workspace_id = :workspaceId")
     suspend fun deleteSandboxDetail(workspaceId: String): Int
+
+    @Query("SELECT * FROM workspace_sandbox_mounts WHERE workspace_id = :workspaceId ORDER BY target_path")
+    suspend fun getSandboxMounts(workspaceId: String): List<SandboxWorkspaceMountEntity>
+
+    @Query("SELECT * FROM workspace_sandbox_mounts")
+    suspend fun getAllSandboxMounts(): List<SandboxWorkspaceMountEntity>
+
+    @Query("SELECT * FROM workspace_sandbox_mounts WHERE id = :id LIMIT 1")
+    suspend fun getSandboxMount(id: String): SandboxWorkspaceMountEntity?
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertSandboxMount(mount: SandboxWorkspaceMountEntity)
+
+    @Query("DELETE FROM workspace_sandbox_mounts WHERE id = :id")
+    suspend fun deleteSandboxMount(id: String): Int
+
+    @Query("DELETE FROM workspace_sandbox_mounts WHERE workspace_id = :workspaceId")
+    suspend fun deleteSandboxMountsByWorkspace(workspaceId: String): Int
+
+    @Query("SELECT COUNT(*) FROM workspace_sandbox_mounts WHERE tree_uri = :treeUri")
+    suspend fun countSandboxMountsByTreeUri(treeUri: String): Int
 }

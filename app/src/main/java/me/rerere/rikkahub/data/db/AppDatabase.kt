@@ -47,6 +47,7 @@ import me.rerere.rikkahub.data.db.entity.UsageStatsEntity
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.SafWorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.SandboxWorkspaceEntity
+import me.rerere.rikkahub.data.db.entity.SandboxWorkspaceMountEntity
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.utils.JsonInstant
 
@@ -71,8 +72,9 @@ import me.rerere.rikkahub.utils.JsonInstant
         WorkspaceEntity::class,
         SafWorkspaceEntity::class,
         SandboxWorkspaceEntity::class,
+        SandboxWorkspaceMountEntity::class,
     ],
-    version = 44,
+    version = 45,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -114,6 +116,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 41->42 is manual migration (MIGRATION_41_42) - adds branch counter (root_id, branch_number)
         // 42->43 is manual migration (MIGRATION_42_43) - persists monotonic branch counters
         // 43->44 is manual migration (MIGRATION_43_44) - adds conversation workspace override
+        // 44->45 is manual migration (MIGRATION_44_45) - adds sandbox folder mounts
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -467,6 +470,28 @@ abstract class AppDatabase : RoomDatabase() {
                 // 否则 Room 在 v43->v44 升级后会因 schema 校验不一致而崩溃。
                 db.execSQL("ALTER TABLE conversationentity ADD COLUMN workspace_override_id TEXT DEFAULT NULL")
                 Log.i(TAG, "migrate: migrate from 43 to 44 success")
+            }
+        }
+
+        val MIGRATION_44_45 = object : Migration(44, 45) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 44 to 45")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `workspace_sandbox_mounts` (
+                        `id` TEXT NOT NULL PRIMARY KEY,
+                        `workspace_id` TEXT NOT NULL,
+                        `tree_uri` TEXT NOT NULL,
+                        `source_path` TEXT NOT NULL,
+                        `target_path` TEXT NOT NULL,
+                        `created_at` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_workspace_sandbox_mounts_workspace_id` ON `workspace_sandbox_mounts` (`workspace_id`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workspace_sandbox_mounts_workspace_id_target_path` ON `workspace_sandbox_mounts` (`workspace_id`, `target_path`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workspace_sandbox_mounts_workspace_id_source_path` ON `workspace_sandbox_mounts` (`workspace_id`, `source_path`)")
+                Log.i(TAG, "migrate: migrate from 44 to 45 success")
             }
         }
     }

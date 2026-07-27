@@ -1,6 +1,8 @@
 package me.rerere.rikkahub.ui.pages.extensions.workspace
 
 import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -14,6 +16,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Terminal
@@ -46,6 +49,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
 import me.rerere.rikkahub.data.repository.WorkspaceFileEntry
+import me.rerere.rikkahub.data.repository.SandboxMountDraft
 import me.rerere.rikkahub.data.db.entity.WorkspaceType
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.context.LocalNavController
@@ -83,8 +87,43 @@ fun WorkspaceDetailPage(
     var deleteFileTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
     var exportFileTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
     var showInstallDialog by remember { mutableStateOf(false) }
+    var showMountPermissionDialog by remember { mutableStateOf(false) }
+    var mountDraft by remember { mutableStateOf<SandboxMountDraft?>(null) }
+    var mountSubmitting by remember { mutableStateOf(false) }
 
     val ws = workspace
+
+    val mountFolderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        vm.prepareMount(uri.toString()) { result ->
+            result.onSuccess { mountDraft = it }
+                .onFailure { error ->
+                    haptics.perform(HapticPattern.Error)
+                    toaster.show(context.getString(R.string.workspace_mount_failed, error.message.orEmpty()))
+                }
+        }
+    }
+
+    val allFilesPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) {
+        if (vm.hasAllFilesAccess()) {
+            mountFolderPicker.launch(null)
+        } else {
+            toaster.show(context.getString(R.string.workspace_mount_permission_not_granted))
+        }
+    }
+
+    val requestMount: () -> Unit = {
+        haptics.perform(HapticPattern.Pop)
+        if (vm.hasAllFilesAccess()) {
+            mountFolderPicker.launch(null)
+        } else {
+            showMountPermissionDialog = true
+        }
+    }
 
     // 导入文件：SAF OpenDocument -> 查显示名 -> 开流 -> vm.importFile
     val filePicker = rememberLauncherForActivityResult(
@@ -198,8 +237,16 @@ fun WorkspaceDetailPage(
                         IconButton(onClick = { haptics.perform(HapticPattern.Pop); vm.refreshFiles() }) {
                             Icon(Icons.Rounded.Refresh, contentDescription = null)
                         }
+                        if (ws?.type == WorkspaceType.SANDBOX) {
+                            IconButton(onClick = requestMount) {
+                                Icon(
+                                    Icons.Rounded.CreateNewFolder,
+                                    contentDescription = stringResource(R.string.workspace_mount_action),
+                                )
+                            }
+                        }
                     }
-                    if (ws != null) {
+                    if (ws != null && pagerState.currentPage == 0) {
                         if (
                             ws.type == WorkspaceType.SANDBOX &&
                             ws.sandboxStatus == SandboxRootfsStatus.READY
@@ -216,7 +263,7 @@ fun WorkspaceDetailPage(
                                 )
                             }
                         }
-                        if (pagerState.currentPage == 0 && ws.type == WorkspaceType.SANDBOX) {
+                        if (ws.type == WorkspaceType.SANDBOX) {
                             IconButton(
                                 enabled = !transferState.active,
                                 onClick = {
@@ -319,6 +366,7 @@ fun WorkspaceDetailPage(
                         onGoUp = vm::goUp,
                         onOpen = vm::open,
                         onDelete = { deleteFileTarget = it },
+                        onUnmount = vm::unmount,
                         onOpenFile = openFile,
                         onExport = { entry -> exportFileTarget = entry; exportFilePicker.launch(entry.name) },
                     )
@@ -384,6 +432,58 @@ fun WorkspaceDetailPage(
         )
     }
 
+    if (showMountPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showMountPermissionDialog = false },
+            title = { Text(stringResource(R.string.workspace_mount_permission_title)) },
+            text = { Text(stringResource(R.string.workspace_mount_permission_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showMountPermissionDialog = false
+                        val intent = Intent(
+                            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                            Uri.parse("package:${context.packageName}"),
+                        )
+                        allFilesPermissionLauncher.launch(intent)
+                    }
+                ) { Text(stringResource(R.string.workspace_mount_go_authorize)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMountPermissionDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    mountDraft?.let { draft ->
+        WorkspaceMountSheet(
+            draft = draft,
+            submitting = mountSubmitting,
+            onDismiss = {
+                if (!mountSubmitting) {
+                    vm.cancelMountDraft(draft)
+                    mountDraft = null
+                }
+            },
+            onConfirm = { parentPath, name ->
+                mountSubmitting = true
+                vm.createMount(draft, parentPath, name) { result ->
+                    mountSubmitting = false
+                    result.onSuccess {
+                        haptics.perform(HapticPattern.Success)
+                        toaster.show(context.getString(R.string.workspace_mount_success))
+                        mountDraft = null
+                    }.onFailure { error ->
+                        haptics.perform(HapticPattern.Error)
+                        toaster.show(context.getString(R.string.workspace_mount_failed, error.message.orEmpty()))
+                    }
+                }
+            },
+        )
+    }
+
     if (showInstallDialog && ws != null && ws.type == WorkspaceType.SANDBOX) {
         InstallRootfsDialog(
             workspaceName = ws.name,
@@ -416,6 +516,8 @@ fun WorkspaceDetailPage(
                 Text(
                     if (filesState.area == SandboxStorageArea.ROOTFS) {
                         stringResource(R.string.workspace_rootfs_delete_warning, target.path)
+                    } else if (target.mountId != null) {
+                        stringResource(R.string.workspace_mount_delete_external_warning, target.path)
                     } else {
                         stringResource(R.string.workspace_detail_will_delete, target.path)
                     }

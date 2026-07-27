@@ -79,6 +79,50 @@ class SandboxWorkspaceManagerTest {
     }
 
     @Test
+    fun externalFolderOperationsStayInsideSelectedSource() {
+        val manager = manager()
+        val source = temporaryFolder.newFolder("phone-folder")
+        File(source, "notes").mkdirs()
+        File(source, "notes/a.txt").writeText("a")
+
+        assertEquals(listOf("notes"), manager.listExternalFiles(source).map { it.path })
+        assertEquals("a", manager.readExternalText(source, "notes/a.txt"))
+        manager.writeExternalText(source, "notes/b.txt", "b", overwrite = true)
+        assertEquals("b", File(source, "notes/b.txt").readText())
+        try {
+            manager.readExternalText(source, "../outside.txt")
+            fail("Expected traversal path to be rejected")
+        } catch (_: IllegalArgumentException) {
+        }
+    }
+
+    @Test
+    fun shellReceivesWorkspaceBindMountsWithoutRequiringHostTargetFolder() {
+        lateinit var captured: SandboxShellContext
+        val manager = SandboxWorkspaceManager(
+            baseDir = temporaryFolder.newFolder("bind-sandbox"),
+            shellRunner = object : SandboxShellRunner {
+                override fun execute(context: SandboxShellContext): SandboxCommandResult {
+                    captured = context
+                    return SandboxCommandResult(0, "", "")
+                }
+            },
+        )
+        val source = temporaryFolder.newFolder("bind-source")
+        val bind = SandboxBindMount(source, "/workspace/Phone")
+
+        manager.executeCommand(
+            id = "sandbox-bind",
+            command = "pwd",
+            cwd = "Phone",
+            bindMounts = listOf(bind),
+        )
+
+        assertEquals(listOf(bind), captured.workspaceBindMounts)
+        assertEquals("Phone", captured.cwd)
+    }
+
+    @Test
     fun rootfsFileManagerRejectsTraversal() {
         val manager = manager()
         File(manager.linuxDir("sandbox-rootfs-path"), "bin").mkdirs()

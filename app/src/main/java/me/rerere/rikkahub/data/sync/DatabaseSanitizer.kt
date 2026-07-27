@@ -71,7 +71,11 @@ object DatabaseSanitizer {
                 "GenMediaEntity",
                 "ChatEpisodeEntity",
                 "EmbeddingCacheEntity",
-                "DailyActivityEntity"
+                "DailyActivityEntity",
+                "workspaces",
+                "workspace_saf_details",
+                "workspace_sandbox_details",
+                "workspace_sandbox_mounts",
             )
 
             for (table in tables) {
