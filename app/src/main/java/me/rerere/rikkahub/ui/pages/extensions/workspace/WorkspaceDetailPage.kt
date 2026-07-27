@@ -16,7 +16,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
-import androidx.compose.material.icons.rounded.CreateNewFolder
+import androidx.compose.material.icons.rounded.AddLink
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Terminal
@@ -240,7 +240,7 @@ fun WorkspaceDetailPage(
                         if (ws?.type == WorkspaceType.SANDBOX) {
                             IconButton(onClick = requestMount) {
                                 Icon(
-                                    Icons.Rounded.CreateNewFolder,
+                                    Icons.Rounded.AddLink,
                                     contentDescription = stringResource(R.string.workspace_mount_action),
                                 )
                             }
