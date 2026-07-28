@@ -25,6 +25,7 @@ import kotlinx.io.asSource
 import kotlinx.io.buffered
 import kotlinx.serialization.json.JsonObject
 import me.rerere.rikkahub.AppScope
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getMcpToolCallTimeoutSeconds
 import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
@@ -185,6 +186,9 @@ internal class StdioMcpSessionRegistry(
             if (updateCachedTools(config, serverTools)) {
                 updateStatusIfCurrent(config, McpStatus.Ready)
             }
+        } catch (error: TimeoutCancellationException) {
+            terminalError = error
+            throw error
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -194,7 +198,10 @@ internal class StdioMcpSessionRegistry(
             temporarySessions.remove(session)
             closeSession(session)
             terminalError?.let { error ->
-                updateErrorIfCurrent(config, errorStatus(error, session.stderrTail.value()))
+                updateErrorIfCurrent(
+                    config,
+                    stdioErrorStatus(error, session.stderrTail.value(), config),
+                )
             }
         }
     }
@@ -215,22 +222,32 @@ internal class StdioMcpSessionRegistry(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
-            updateErrorIfCurrent(config, errorStatus(error, ""))
+            updateErrorIfCurrent(config, stdioErrorStatus(error, "", config))
             throw error
         }
         val session = sessionFor(config)
-        val client = session.lifecycleMutex.withLock {
-            session.idleJob?.cancel()
-            session.idleJob = null
-            val connected = session.client ?: connectWithInitializationRetryLocked(session, config)
-            session.activity.begin(System.currentTimeMillis())
-            connected
+        val client = try {
+            session.lifecycleMutex.withLock {
+                session.idleJob?.cancel()
+                session.idleJob = null
+                val connected = session.client ?: connectWithInitializationRetryLocked(session, config)
+                session.activity.begin(System.currentTimeMillis())
+                connected
+            }
+        } catch (error: TimeoutCancellationException) {
+            updateErrorIfCurrent(config, stdioErrorStatus(error, session.stderrTail.value(), config))
+            throw error
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            updateErrorIfCurrent(config, stdioErrorStatus(error, session.stderrTail.value(), config))
+            throw error
         }
 
         var closeAfterCall = false
         var terminalError: Throwable? = null
+        val timeoutSeconds = settingsStore.settingsFlow.value.getMcpToolCallTimeoutSeconds()
         try {
-            val timeoutSeconds = settingsStore.settingsFlow.value.getMcpToolCallTimeoutSeconds()
             return callStdioToolOnce {
                 client.callTool(
                     request = CallToolRequest(
@@ -261,7 +278,16 @@ internal class StdioMcpSessionRegistry(
                     }
                 }
                 terminalError?.let { error ->
-                    updateErrorIfCurrent(config, errorStatus(error, session.stderrTail.value()))
+                    updateErrorIfCurrent(
+                        config,
+                        stdioErrorStatus(
+                            error = error,
+                            stderr = session.stderrTail.value(),
+                            config = config,
+                            phase = StdioFailurePhase.TOOL_CALL,
+                            timeoutSeconds = timeoutSeconds,
+                        ),
+                    )
                 }
             }
         }
@@ -387,22 +413,15 @@ internal class StdioMcpSessionRegistry(
                 invalidateClosedProcess(
                     session,
                     process,
-                ) { exitCode, stderr ->
-                    McpStatus.Error(
-                        message = if (exitCode == null) {
-                            "STDIO MCP process closed"
-                        } else {
-                            "STDIO MCP process exited with code $exitCode"
-                        },
-                        detail = stderr.takeIf { it.isNotBlank() },
-                    )
+                ) { exitCode, stderr, phase ->
+                    stdioProcessExitStatus(config, exitCode, stderr, phase)
                 }
             }
         }
         transport.onError { error ->
             appScope.launch {
-                invalidateClosedProcess(session, process) { _, stderr ->
-                    errorStatus(error, stderr)
+                invalidateClosedProcess(session, process) { _, stderr, phase ->
+                    stdioErrorStatus(error, stderr, config, phase)
                 }
             }
         }
@@ -420,13 +439,18 @@ internal class StdioMcpSessionRegistry(
     private suspend fun invalidateClosedProcess(
         session: StdioSession,
         process: SandboxRawProcess,
-        status: (exitCode: Int?, stderr: String) -> McpStatus,
+        status: (exitCode: Int?, stderr: String, phase: StdioFailurePhase) -> McpStatus,
     ) {
         session.lifecycleMutex.withLock {
             if (session.process !== process) return
             val exitCode = process.exitCodeOrNull()
+            val phase = if (session.client == null) {
+                StdioFailurePhase.STARTUP
+            } else {
+                StdioFailurePhase.TOOL_CALL
+            }
             closeSessionLocked(session)
-            updateStatusIfCurrent(session.config, status(exitCode, session.stderrTail.value()))
+            updateStatusIfCurrent(session.config, status(exitCode, session.stderrTail.value(), phase))
         }
     }
 
@@ -510,20 +534,6 @@ internal class StdioMcpSessionRegistry(
         drainStderrReader(stderrJob)
     }
 
-    private fun errorStatus(error: Throwable, stderr: String): McpStatus.Error {
-        val diagnostic = stderr.trim().takeIf { it.isNotEmpty() }
-        return McpStatus.Error(
-            message = error.message ?: error.javaClass.simpleName,
-            detail = buildString {
-                append(error.stackTraceToString())
-                if (diagnostic != null) {
-                    append("\n\nSTDERR (tail):\n")
-                    append(diagnostic)
-                }
-            },
-        )
-    }
-
     private fun updateStatusIfCurrent(config: McpServerConfig.StdioServer, status: McpStatus) {
         val current = settingsStore.settingsFlow.value.mcpServers
             .filterIsInstance<McpServerConfig.StdioServer>()
@@ -538,6 +548,167 @@ internal class StdioMcpSessionRegistry(
             updateStatusIfCurrent(config, status)
         }
     }
+}
+
+internal enum class StdioFailureKind {
+    COMMAND_NOT_FOUND,
+    PERMISSION_DENIED,
+    NODE_VERSION_UNSUPPORTED,
+    TLS_ERROR,
+    NETWORK_ERROR,
+    STARTUP_TIMEOUT,
+    TOOL_CALL_TIMEOUT,
+    CONNECTION_CLOSED,
+    CONNECTION_LOST,
+}
+
+internal enum class StdioFailurePhase {
+    STARTUP,
+    TOOL_CALL,
+}
+
+internal fun classifyStdioFailure(
+    error: Throwable?,
+    stderr: String,
+    command: String,
+    phase: StdioFailurePhase = StdioFailurePhase.STARTUP,
+): StdioFailureKind? {
+    val commandName = command.substringAfterLast('/')
+    val commandPattern = Regex(
+        pattern = "(?:env|exec(?:vp)?)[^\\n]*\\b${Regex.escape(commandName)}\\b[^\\n]*" +
+            "(?:no such file|not found)",
+        option = RegexOption.IGNORE_CASE,
+    )
+    val permissionPattern = Regex(
+        pattern = "(?:env|exec(?:vp)?)[^\\n]*\\b${Regex.escape(commandName)}\\b[^\\n]*permission denied",
+        option = RegexOption.IGNORE_CASE,
+    )
+    val combined = buildString {
+        append(stderr)
+        error?.message?.let {
+            append('\n')
+            append(it)
+        }
+    }
+
+    return when {
+        commandName.isNotBlank() && commandPattern.containsMatchIn(stderr) ->
+            StdioFailureKind.COMMAND_NOT_FOUND
+        commandName.isNotBlank() && permissionPattern.containsMatchIn(stderr) ->
+            StdioFailureKind.PERMISSION_DENIED
+        combined.contains("EBADENGINE", ignoreCase = true) ||
+            combined.contains("Unsupported engine", ignoreCase = true) ||
+            combined.contains("requires node", ignoreCase = true) ->
+            StdioFailureKind.NODE_VERSION_UNSUPPORTED
+        listOf(
+            "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+            "SELF_SIGNED_CERT_IN_CHAIN",
+            "CERT_HAS_EXPIRED",
+            "certificate verify failed",
+        ).any { combined.contains(it, ignoreCase = true) } -> StdioFailureKind.TLS_ERROR
+        listOf("EAI_AGAIN", "ENOTFOUND", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT").any {
+            combined.contains(it, ignoreCase = true)
+        } -> StdioFailureKind.NETWORK_ERROR
+        error is TimeoutCancellationException -> when (phase) {
+            StdioFailurePhase.STARTUP -> StdioFailureKind.STARTUP_TIMEOUT
+            StdioFailurePhase.TOOL_CALL -> StdioFailureKind.TOOL_CALL_TIMEOUT
+        }
+        error?.message?.contains("Connection closed", ignoreCase = true) == true ||
+            error?.message?.contains("process closed", ignoreCase = true) == true -> when (phase) {
+            StdioFailurePhase.STARTUP -> StdioFailureKind.CONNECTION_CLOSED
+            StdioFailurePhase.TOOL_CALL -> StdioFailureKind.CONNECTION_LOST
+        }
+        else -> null
+    }
+}
+
+internal fun stdioErrorStatus(
+    error: Throwable,
+    stderr: String,
+    config: McpServerConfig.StdioServer,
+    phase: StdioFailurePhase = StdioFailurePhase.STARTUP,
+    timeoutSeconds: Int = config.startupTimeoutSeconds,
+): McpStatus.Error = buildStdioErrorStatus(
+    error = error,
+    stderr = stderr,
+    config = config,
+    fallbackMessage = error.message ?: error.javaClass.simpleName,
+    phase = phase,
+    timeoutSeconds = timeoutSeconds,
+)
+
+internal fun stdioProcessExitStatus(
+    config: McpServerConfig.StdioServer,
+    exitCode: Int?,
+    stderr: String,
+    phase: StdioFailurePhase,
+): McpStatus.Error = buildStdioErrorStatus(
+    error = null,
+    stderr = stderr,
+    config = config,
+    fallbackMessage = if (exitCode == null) {
+        "STDIO MCP process closed"
+    } else {
+        "STDIO MCP process exited with code $exitCode"
+    },
+    phase = phase,
+    timeoutSeconds = config.startupTimeoutSeconds,
+    defaultFailureKind = when (phase) {
+        StdioFailurePhase.STARTUP -> StdioFailureKind.CONNECTION_CLOSED
+        StdioFailurePhase.TOOL_CALL -> StdioFailureKind.CONNECTION_LOST
+    },
+)
+
+private fun buildStdioErrorStatus(
+    error: Throwable?,
+    stderr: String,
+    config: McpServerConfig.StdioServer,
+    fallbackMessage: String,
+    phase: StdioFailurePhase,
+    timeoutSeconds: Int,
+    defaultFailureKind: StdioFailureKind? = null,
+): McpStatus.Error {
+    val diagnostic = stderr.trim().takeIf { it.isNotEmpty() }
+    val failureKind = classifyStdioFailure(error, stderr, config.command, phase) ?: defaultFailureKind
+    val (messageResId, messageArgs) = when (failureKind) {
+        StdioFailureKind.COMMAND_NOT_FOUND ->
+            R.string.mcp_error_stdio_command_not_found to listOf(config.command)
+        StdioFailureKind.PERMISSION_DENIED ->
+            R.string.mcp_error_stdio_permission_denied to listOf(config.command)
+        StdioFailureKind.NODE_VERSION_UNSUPPORTED ->
+            R.string.mcp_error_stdio_node_version_unsupported to emptyList()
+        StdioFailureKind.TLS_ERROR -> R.string.mcp_error_stdio_tls to emptyList()
+        StdioFailureKind.NETWORK_ERROR -> R.string.mcp_error_stdio_network to emptyList()
+        StdioFailureKind.STARTUP_TIMEOUT ->
+            R.string.mcp_error_stdio_startup_timeout to listOf(timeoutSeconds.toString())
+        StdioFailureKind.TOOL_CALL_TIMEOUT ->
+            R.string.mcp_error_stdio_tool_call_timeout to listOf(timeoutSeconds.toString())
+        StdioFailureKind.CONNECTION_CLOSED ->
+            R.string.mcp_error_stdio_connection_closed to emptyList()
+        StdioFailureKind.CONNECTION_LOST ->
+            R.string.mcp_error_stdio_connection_lost to emptyList()
+        null -> null to emptyList()
+    }
+    return McpStatus.Error(
+        message = fallbackMessage,
+        messageResId = messageResId,
+        messageArgs = messageArgs,
+        detail = buildString {
+            if (diagnostic != null) {
+                append("STDERR (tail):\n")
+                append(diagnostic)
+            }
+            if (error != null) {
+                if (isNotEmpty()) append("\n\n")
+                append("Exception:\n")
+                append(error.stackTraceToString())
+            } else {
+                if (isNotEmpty()) append("\n\n")
+                append("Process:\n")
+                append(fallbackMessage)
+            }
+        },
+    )
 }
 
 private data class StdioConnectionKey(

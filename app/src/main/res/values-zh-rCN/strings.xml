@@ -865,6 +865,15 @@
     <string name="mcp_oauth_authorize">OAuth 授权</string>
     <string name="mcp_oauth_cancel">取消授权</string>
     <string name="mcp_error_max_reconnect">连接断开，已达最大重连次数</string>
+    <string name="mcp_error_stdio_command_not_found">沙盒中找不到命令“%1$s”，请先安装后再试。</string>
+    <string name="mcp_error_stdio_permission_denied">沙盒无权运行命令“%1$s”，请检查文件权限后再试。</string>
+    <string name="mcp_error_stdio_node_version_unsupported">沙盒中的 Node.js 版本不符合 MCP 服务要求，请更新后再试。</string>
+    <string name="mcp_error_stdio_tls">沙盒无法验证服务器证书，请检查系统时间和证书设置。</string>
+    <string name="mcp_error_stdio_network">沙盒无法连接或下载 MCP 服务，请检查网络后再试。</string>
+    <string name="mcp_error_stdio_startup_timeout">MCP 服务在 %1$s 秒内未能完成启动，请检查命令或延长启动等待时间。</string>
+    <string name="mcp_error_stdio_tool_call_timeout">MCP 工具在 %1$s 秒内未返回结果，已停止本次调用。</string>
+    <string name="mcp_error_stdio_connection_closed">MCP 服务尚未完成启动就已退出，请打开错误详情查看原始输出。</string>
+    <string name="mcp_error_stdio_connection_lost">MCP 服务连接已中断，请再次调用工具以重新启动。</string>
     <string name="mcp_status_idle">空闲</string>
     <string name="mcp_tool_approval_approve">批准</string>
     <string name="mcp_tool_approval_approved_calling">已批准，正在执行 %1$s…</string>

@@ -1509,6 +1509,15 @@
   <string name="mcp_oauth_authorize">OAuth 授權</string>
   <string name="mcp_oauth_cancel">取消授權</string>
   <string name="mcp_error_max_reconnect">連線中斷，已達最大重連次數</string>
+  <string name="mcp_error_stdio_command_not_found">沙盒中找不到命令「%1$s」，請先安裝後再試。</string>
+  <string name="mcp_error_stdio_permission_denied">沙盒無權執行命令「%1$s」，請檢查檔案權限後再試。</string>
+  <string name="mcp_error_stdio_node_version_unsupported">沙盒中的 Node.js 版本不符合 MCP 服務要求，請更新後再試。</string>
+  <string name="mcp_error_stdio_tls">沙盒無法驗證伺服器憑證，請檢查系統時間和憑證設定。</string>
+  <string name="mcp_error_stdio_network">沙盒無法連線或下載 MCP 服務，請檢查網路後再試。</string>
+  <string name="mcp_error_stdio_startup_timeout">MCP 服務在 %1$s 秒內未能完成啟動，請檢查命令或延長啟動等待時間。</string>
+  <string name="mcp_error_stdio_tool_call_timeout">MCP 工具在 %1$s 秒內未傳回結果，已停止本次呼叫。</string>
+  <string name="mcp_error_stdio_connection_closed">MCP 服務尚未完成啟動就已結束，請開啟錯誤詳情查看原始輸出。</string>
+  <string name="mcp_error_stdio_connection_lost">MCP 服務連線已中斷，請再次呼叫工具以重新啟動。</string>
   <string name="mcp_tools_count">%1$d/%2$d 工具</string>
   <string name="setting_page_update_available_title">有可用更新</string>
   <string name="setting_page_update_available_version_desc">已發布版本 %1$s</string>

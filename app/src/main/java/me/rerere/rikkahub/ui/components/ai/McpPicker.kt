@@ -249,7 +249,9 @@ fun McpPicker(
                                 McpStatus.Authorizing -> stringResource(R.string.mcp_status_authorizing)
                                 is McpStatus.Error -> {
                                     val err = status as McpStatus.Error
-                                    val msg = err.messageResId?.let { stringResource(it) } ?: err.message
+                                    val msg = err.messageResId?.let {
+                                        stringResource(it, *err.messageArgs.toTypedArray())
+                                    } ?: err.message
                                     stringResource(R.string.mcp_status_error_format, msg)
                                 }
                             },

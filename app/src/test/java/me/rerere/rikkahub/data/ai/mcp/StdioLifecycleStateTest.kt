@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.workspace.SandboxRawProcess
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -52,6 +53,96 @@ class StdioLifecycleStateTest {
 
         assertEquals("last diagnostic", tail.value())
         assertTrue(reader.isCompleted)
+    }
+
+    @Test
+    fun `missing stdio command is translated and raw stderr comes first`() {
+        val config = McpServerConfig.StdioServer(
+            workspaceId = "sandbox",
+            command = "npx",
+        )
+        val stderr = "/usr/bin/env: 'npx': No such file or directory"
+
+        val status = stdioErrorStatus(
+            error = IllegalStateException("MCP error -32000: Connection closed"),
+            stderr = stderr,
+            config = config,
+        )
+
+        assertEquals(R.string.mcp_error_stdio_command_not_found, status.messageResId)
+        assertEquals(listOf("npx"), status.messageArgs)
+        assertTrue(status.detail?.startsWith("STDERR (tail):\n$stderr") == true)
+    }
+
+    @Test
+    fun `stdio failures distinguish node version and network errors`() {
+        assertEquals(
+            StdioFailureKind.NODE_VERSION_UNSUPPORTED,
+            classifyStdioFailure(
+                error = null,
+                stderr = "npm error code EBADENGINE\nnpm error Unsupported engine",
+                command = "npx",
+            ),
+        )
+        assertEquals(
+            StdioFailureKind.NETWORK_ERROR,
+            classifyStdioFailure(
+                error = null,
+                stderr = "npm error code EAI_AGAIN",
+                command = "npx",
+            ),
+        )
+    }
+
+    @Test
+    fun `stdio timeout and closed connection follow their lifecycle phase`() {
+        val timeout = runCatching {
+            runBlocking { withTimeout(1) { delay(100) } }
+        }.exceptionOrNull()
+        checkNotNull(timeout)
+
+        assertEquals(
+            StdioFailureKind.STARTUP_TIMEOUT,
+            classifyStdioFailure(timeout, "", "server", StdioFailurePhase.STARTUP),
+        )
+        assertEquals(
+            StdioFailureKind.TOOL_CALL_TIMEOUT,
+            classifyStdioFailure(timeout, "", "server", StdioFailurePhase.TOOL_CALL),
+        )
+        val connectionClosed = IllegalStateException("MCP error -32000: Connection closed")
+        assertEquals(
+            StdioFailureKind.CONNECTION_CLOSED,
+            classifyStdioFailure(connectionClosed, "", "server", StdioFailurePhase.STARTUP),
+        )
+        assertEquals(
+            StdioFailureKind.CONNECTION_LOST,
+            classifyStdioFailure(connectionClosed, "", "server", StdioFailurePhase.TOOL_CALL),
+        )
+    }
+
+    @Test
+    fun `stdio process exit always keeps exit code in details`() {
+        val config = McpServerConfig.StdioServer(
+            workspaceId = "sandbox",
+            command = "server",
+        )
+
+        val withoutStderr = stdioProcessExitStatus(
+            config = config,
+            exitCode = 127,
+            stderr = "",
+            phase = StdioFailurePhase.STARTUP,
+        )
+        val withStderr = stdioProcessExitStatus(
+            config = config,
+            exitCode = 1,
+            stderr = "original diagnostic",
+            phase = StdioFailurePhase.STARTUP,
+        )
+
+        assertTrue(withoutStderr.detail?.contains("exited with code 127") == true)
+        assertTrue(withStderr.detail?.startsWith("STDERR (tail):\noriginal diagnostic") == true)
+        assertTrue(withStderr.detail?.contains("exited with code 1") == true)
     }
 
     @Test

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,6 +29,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -496,7 +498,9 @@ private fun McpServerItem(
                             }
                             is McpStatus.Error -> Tag(type = TagType.ERROR) {
                                 val err = status as McpStatus.Error
-                                val msg = err.messageResId?.let { stringResource(it) } ?: err.message
+                                val msg = err.messageResId?.let {
+                                    stringResource(it, *err.messageArgs.toTypedArray())
+                                } ?: err.message
                                 Text(stringResource(R.string.mcp_status_error_format, msg), maxLines = 3)
                             }
                             else -> Unit
@@ -552,7 +556,17 @@ private fun McpServerItem(
         AlertDialog(
             onDismissRequest = { showErrorDetail = false },
             title = { Text(stringResource(R.string.setting_mcp_page_error_details)) },
-            text = { Text(errorDetail) },
+            text = {
+                SelectionContainer {
+                    Text(
+                        text = errorDetail,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 420.dp)
+                            .verticalScroll(rememberScrollState()),
+                    )
+                }
+            },
             confirmButton = {
                 TextButton(onClick = { showErrorDetail = false }) { Text(stringResource(R.string.confirm)) }
             },

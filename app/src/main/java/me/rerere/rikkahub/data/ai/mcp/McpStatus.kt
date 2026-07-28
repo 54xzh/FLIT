@@ -13,11 +13,13 @@ sealed class McpStatus {
      *
      * @param message 简短摘要（兜底文案，英文/未本地化场景使用），用于列表内联展示
      * @param messageResId 本地化文案资源 id；非 null 时 UI 应优先用它而非 [message]
+     * @param messageArgs [messageResId] 的格式化参数
      * @param detail 完整错误信息（含 cause 链与堆栈），用于展开查看与复制；无异常来源时为 null
      */
     data class Error(
         val message: String,
         val messageResId: Int? = null,
+        val messageArgs: List<String> = emptyList(),
         val detail: String? = null,
         val canRetryAuthorization: Boolean = false,
     ) : McpStatus() {
