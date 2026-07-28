@@ -35,7 +35,7 @@ import me.rerere.rikkahub.data.repository.Workspace
 import me.rerere.rikkahub.ui.pages.extensions.workspace.sandboxStatusText
 
 /**
- * 工作区选择底部弹窗：列出所有工作区 + "不绑定" + "管理工作区"。
+ * 工作区选择底部弹窗：列出工作区、可选的“不绑定”项和“管理工作区”。
  *
  * @param selectedWorkspaceId 当前选中的 workspaceId（助手场景=助手绑定；会话场景=会话覆写；null = 未绑定/跟随助手）
  * @param workspaces 所有可选工作区
@@ -44,6 +44,7 @@ import me.rerere.rikkahub.ui.pages.extensions.workspace.sandboxStatusText
  * @param onDismiss 关闭
  * @param noneOptionTitle 「不绑定」那一行的标题文案。助手场景默认为 [R.string.workspace_no_binding]；
  *   会话覆写场景应传「跟随助手」，让 null 的语义与「跟随助手绑定」对齐，避免「不绑定」产生歧义。
+ * @param showNoneOption 是否显示“不绑定”选项；必选场景应关闭。
  */
 @Composable
 fun WorkspaceSelectSheet(
@@ -53,6 +54,7 @@ fun WorkspaceSelectSheet(
     onManage: () -> Unit,
     onDismiss: () -> Unit,
     noneOptionTitle: String = stringResource(R.string.workspace_no_binding),
+    showNoneOption: Boolean = true,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -77,11 +79,13 @@ fun WorkspaceSelectSheet(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                WorkspaceSelectRow(
-                    title = noneOptionTitle,
-                    selected = selectedWorkspaceId == null,
-                    onClick = { onSelect(null) },
-                )
+                if (showNoneOption) {
+                    WorkspaceSelectRow(
+                        title = noneOptionTitle,
+                        selected = selectedWorkspaceId == null,
+                        onClick = { onSelect(null) },
+                    )
+                }
                 workspaces.forEach { workspace ->
                     WorkspaceSelectRow(
                         title = workspace.name,

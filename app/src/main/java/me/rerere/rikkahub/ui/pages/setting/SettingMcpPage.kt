@@ -37,6 +37,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -382,7 +385,7 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
             },
             onManage = { navController.navigate(me.rerere.rikkahub.Screen.Workspaces) },
             onDismiss = { pendingClaudeJson = null },
-            noneOptionTitle = stringResource(R.string.setting_mcp_page_stdio_select_workspace),
+            showNoneOption = false,
         )
     }
 
@@ -1151,17 +1154,39 @@ private fun McpStdioOptionsConfigure(
         .collectAsStateWithLifecycle(emptyList())
     val sandboxes = workspaces.filter { it.type == WorkspaceType.SANDBOX }
     val selectedWorkspace = sandboxes.firstOrNull { it.id == config.workspaceId }
+    val workspaceUnavailable = config.workspaceId.isNotBlank() && selectedWorkspace == null
     var showWorkspacePicker by remember { mutableStateOf(false) }
+    val haptics = rememberPremiumHaptics()
 
     FormItem(
         label = { Text(stringResource(R.string.setting_mcp_page_stdio_workspace)) },
         description = { Text(stringResource(R.string.setting_mcp_page_stdio_trust_warning)) },
     ) {
-        Button(
-            onClick = { showWorkspacePicker = true },
-            modifier = Modifier.fillMaxWidth(),
+        ExposedDropdownMenuBox(
+            expanded = showWorkspacePicker,
+            onExpandedChange = {
+                haptics.perform(HapticPattern.Pop)
+                showWorkspacePicker = true
+            },
         ) {
-            Text(selectedWorkspace?.name ?: stringResource(R.string.setting_mcp_page_stdio_select_workspace))
+            OutlinedTextField(
+                value = when {
+                    selectedWorkspace != null -> selectedWorkspace.name
+                    workspaceUnavailable -> stringResource(R.string.setting_mcp_page_stdio_workspace_unavailable)
+                    else -> ""
+                },
+                onValueChange = {},
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                readOnly = true,
+                singleLine = true,
+                isError = workspaceUnavailable,
+                placeholder = { Text(stringResource(R.string.setting_mcp_page_stdio_select_workspace)) },
+                trailingIcon = {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = showWorkspacePicker)
+                },
+            )
         }
     }
 
@@ -1315,7 +1340,7 @@ private fun McpStdioOptionsConfigure(
             },
             onManage = { navController.navigate(me.rerere.rikkahub.Screen.Workspaces) },
             onDismiss = { showWorkspacePicker = false },
-            noneOptionTitle = stringResource(R.string.setting_mcp_page_stdio_select_workspace),
+            showNoneOption = false,
         )
     }
 }

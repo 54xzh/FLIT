@@ -2390,6 +2390,7 @@
     <string name="setting_mcp_page_transport_stdio">STDIO</string>
     <string name="setting_mcp_page_stdio_workspace">Sandbox workspace</string>
     <string name="setting_mcp_page_stdio_select_workspace">Select a sandbox</string>
+    <string name="setting_mcp_page_stdio_workspace_unavailable">Selected sandbox is unavailable</string>
     <string name="setting_mcp_page_stdio_trust_warning">PRoot is not a security boundary. Only run MCP servers you trust.</string>
     <string name="setting_mcp_page_stdio_command">Command</string>
     <string name="setting_mcp_page_stdio_command_desc">Executable path or command inside the selected sandbox.</string>

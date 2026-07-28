@@ -2313,6 +2313,7 @@
     <string name="setting_mcp_page_transport_stdio">STDIO</string>
     <string name="setting_mcp_page_stdio_workspace">沙盒工作区</string>
     <string name="setting_mcp_page_stdio_select_workspace">选择沙盒</string>
+    <string name="setting_mcp_page_stdio_workspace_unavailable">所选沙盒不可用</string>
     <string name="setting_mcp_page_stdio_trust_warning">PRoot 不是安全边界，请只运行你信任的 MCP。</string>
     <string name="setting_mcp_page_stdio_command">命令</string>
     <string name="setting_mcp_page_stdio_command_desc">所选沙盒内的可执行文件路径或命令。</string>
