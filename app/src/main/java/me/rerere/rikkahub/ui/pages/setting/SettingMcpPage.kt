@@ -3,6 +3,7 @@ package me.rerere.rikkahub.ui.pages.setting
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +41,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -73,10 +75,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CommentsDisabled
 import androidx.compose.material.icons.rounded.Delete
@@ -108,6 +112,8 @@ import me.rerere.rikkahub.ui.components.ui.PhysicsSwipeToDelete
 import me.rerere.rikkahub.ui.components.ui.ItemPosition
 import me.rerere.rikkahub.ui.hooks.EditState
 import me.rerere.rikkahub.ui.hooks.EditStateContent
+import me.rerere.rikkahub.ui.hooks.HapticPattern
+import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.ui.theme.extendColors
 import org.koin.androidx.compose.koinViewModel
@@ -443,11 +449,19 @@ private fun McpServerItem(
                     is McpStatus.Reconnecting -> CircularProgressIndicator(
                         modifier = Modifier.size(24.dp)
                     )
-                    McpStatus.NeedsAuthorization -> Icon(Icons.Rounded.ErrorOutline, null)
+                    McpStatus.NeedsAuthorization -> Icon(
+                        imageVector = Icons.Rounded.ErrorOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
                     McpStatus.Authorizing -> CircularProgressIndicator(
                         modifier = Modifier.size(24.dp)
                     )
-                    is McpStatus.Error -> Icon(Icons.Rounded.ErrorOutline, null)
+                    is McpStatus.Error -> Icon(
+                        imageVector = Icons.Rounded.ErrorOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
                 }
 
                 Column(
@@ -496,13 +510,7 @@ private fun McpServerItem(
                             McpStatus.Authorizing -> Tag(type = TagType.WARNING) {
                                 Text(stringResource(R.string.mcp_status_authorizing))
                             }
-                            is McpStatus.Error -> Tag(type = TagType.ERROR) {
-                                val err = status as McpStatus.Error
-                                val msg = err.messageResId?.let {
-                                    stringResource(it, *err.messageArgs.toTypedArray())
-                                } ?: err.message
-                                Text(stringResource(R.string.mcp_status_error_format, msg), maxLines = 3)
-                            }
+                            is McpStatus.Error -> Unit
                             else -> Unit
                         }
                         if (!workspaceAvailable) {
@@ -514,6 +522,16 @@ private fun McpServerItem(
                                 Text(stringResource(R.string.mcp_status_rootfs_not_ready))
                             }
                         }
+                    }
+                    (status as? McpStatus.Error)?.let { error ->
+                        val message = error.messageResId?.let {
+                            stringResource(it, *error.messageArgs.toTypedArray())
+                        } ?: error.message
+                        McpErrorSummary(
+                            message = stringResource(R.string.mcp_status_error_format, message),
+                            hasDetails = error.detail != null,
+                            onShowDetails = { showErrorDetail = true },
+                        )
                     }
                     val canAuthorize = status == McpStatus.NeedsAuthorization ||
                         (status as? McpStatus.Error)?.canRetryAuthorization == true
@@ -532,11 +550,6 @@ private fun McpServerItem(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                         ) {
                             Text(stringResource(R.string.mcp_oauth_cancel))
-                        }
-                    }
-                    if ((status as? McpStatus.Error)?.detail != null) {
-                        TextButton(onClick = { showErrorDetail = true }) {
-                            Text(stringResource(R.string.setting_mcp_page_error_details))
                         }
                     }
                 }
@@ -571,6 +584,50 @@ private fun McpServerItem(
                 TextButton(onClick = { showErrorDetail = false }) { Text(stringResource(R.string.confirm)) }
             },
         )
+    }
+}
+
+@Composable
+private fun McpErrorSummary(
+    message: String,
+    hasDetails: Boolean,
+    onShowDetails: () -> Unit,
+) {
+    val haptics = rememberPremiumHaptics()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .minimumInteractiveComponentSize()
+            .let { modifier ->
+                if (hasDetails) {
+                    modifier.clickable {
+                        haptics.perform(HapticPattern.Pop)
+                        onShowDetails()
+                    }
+                } else {
+                    modifier
+                }
+            }
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = message,
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (hasDetails) {
+            Icon(
+                imageVector = Icons.Rounded.ChevronRight,
+                contentDescription = stringResource(R.string.setting_mcp_page_error_details),
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
     }
 }
 
