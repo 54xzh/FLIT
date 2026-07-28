@@ -1359,12 +1359,7 @@ private fun McpImportSheet(
             )
             FormItem(
                 label = { Text(stringResource(R.string.setting_mcp_page_stdio_workspace)) },
-                description = {
-                    Column {
-                        Text(stringResource(R.string.setting_mcp_page_import_workspace_desc))
-                        Text(stringResource(R.string.setting_mcp_page_stdio_trust_warning))
-                    }
-                },
+                description = { Text(stringResource(R.string.setting_mcp_page_import_workspace_desc)) },
             ) {
                 ExposedDropdownMenuBox(
                     expanded = showWorkspacePicker,
