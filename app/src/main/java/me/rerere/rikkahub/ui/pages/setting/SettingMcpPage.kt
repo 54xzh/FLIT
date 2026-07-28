@@ -452,7 +452,6 @@ private fun McpServerItem(
                     McpStatus.NeedsAuthorization -> Icon(
                         imageVector = Icons.Rounded.ErrorOutline,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
                     )
                     McpStatus.Authorizing -> CircularProgressIndicator(
                         modifier = Modifier.size(24.dp)
@@ -460,7 +459,6 @@ private fun McpServerItem(
                     is McpStatus.Error -> Icon(
                         imageVector = Icons.Rounded.ErrorOutline,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
                     )
                 }
 
