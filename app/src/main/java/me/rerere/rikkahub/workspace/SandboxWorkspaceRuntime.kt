@@ -58,6 +58,55 @@ interface SandboxShellRunner {
     fun execute(context: SandboxShellContext): SandboxCommandResult
 }
 
+data class SandboxProcessContext(
+    val workspaceId: String,
+    val command: String,
+    val args: List<String>,
+    val workingDirectory: String,
+    val environment: Map<String, String>,
+    val filesDir: File,
+    val linuxDir: File,
+    val tempDir: File,
+    val workspaceBindMounts: List<SandboxBindMount> = emptyList(),
+) {
+    override fun toString(): String =
+        "SandboxProcessContext(workspaceId=$workspaceId, command=***, args=***(${args.size}), " +
+            "workingDirectory=$workingDirectory, environment=***(${environment.size}), " +
+            "filesDir=$filesDir, linuxDir=$linuxDir, tempDir=$tempDir, " +
+            "workspaceBindMounts=${workspaceBindMounts.size})"
+}
+
+interface SandboxProcessLauncher {
+    fun start(context: SandboxProcessContext): SandboxRawProcess
+}
+
+class SandboxRawProcess internal constructor(internal val process: Process) {
+    val stdin: OutputStream get() = process.outputStream
+    val stdout: InputStream get() = process.inputStream
+    val stderr: InputStream get() = process.errorStream
+    val isAlive: Boolean get() = process.isAlive
+
+    fun waitFor(timeoutMillis: Long): Boolean =
+        process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
+
+    fun exitCodeOrNull(): Int? = if (process.isAlive) null else runCatching { process.exitValue() }.getOrNull()
+
+    fun close() {
+        runCatching { process.outputStream.close() }
+        if (process.waitFor(PROCESS_GRACE_MILLIS, TimeUnit.MILLISECONDS)) return
+        process.destroy()
+        if (process.waitFor(PROCESS_TERMINATE_MILLIS, TimeUnit.MILLISECONDS)) return
+        process.destroyForcibly()
+        process.waitFor(PROCESS_FORCE_MILLIS, TimeUnit.MILLISECONDS)
+    }
+
+    private companion object {
+        const val PROCESS_GRACE_MILLIS = 1_000L
+        const val PROCESS_TERMINATE_MILLIS = 1_000L
+        const val PROCESS_FORCE_MILLIS = 1_000L
+    }
+}
+
 data class SandboxBindMount(val source: File, val target: String) {
     init {
         require(target.startsWith('/')) { "Bind mount target must be absolute" }
@@ -388,16 +437,17 @@ class SandboxWorkspaceManager(
 }
 
 /** PRoot 只隔离 Rootfs 视图，不替代 Android 权限或工具审批。 */
-class ProotSandboxShellRunner(
+class ProotSandboxProcessLauncher(
     private val nativeLibraryDir: File,
     private val extraBindMounts: List<SandboxBindMount>,
     private val patcher: SandboxRootfsPatcher = SandboxRootfsPatcher(),
-) : SandboxShellRunner {
-    override fun execute(context: SandboxShellContext): SandboxCommandResult {
-        if (!File(context.linuxDir, "bin/sh").isFile) return SandboxCommandResult(127, "", "Rootfs is not installed")
+) : SandboxProcessLauncher {
+    override fun start(context: SandboxProcessContext): SandboxRawProcess {
+        require(File(context.linuxDir, "bin/sh").isFile) { "Rootfs is not installed" }
         val proot = File(nativeLibraryDir, "libproot_exec.so")
         val loader = File(nativeLibraryDir, "libproot_loader.so")
-        if (!proot.isFile || !loader.isFile) return SandboxCommandResult(127, "", "Sandbox runtime is unavailable")
+        require(proot.isFile && loader.isFile) { "Sandbox runtime is unavailable" }
+        validate(context)
         context.tempDir.mkdirs()
         patcher.patch(context.linuxDir)
         val process = ProcessBuilder(buildCommand(context, proot))
@@ -409,19 +459,71 @@ class ProotSandboxShellRunner(
                 environment()["TMPDIR"] = context.tempDir.absolutePath
             }
             .start()
-        return process.readResult(context.timeoutMillis, context.stdin)
+        return SandboxRawProcess(process)
     }
 
-    private fun buildCommand(context: SandboxShellContext, proot: File): List<String> = buildList {
-        addAll(listOf(proot.absolutePath, "--root-id", "--link2symlink", "--kill-on-exit", "-r", context.linuxDir.absolutePath, "-w", context.prootCwd(), "-b", "${context.filesDir.absolutePath}:/workspace"))
+    internal fun buildCommand(context: SandboxProcessContext, proot: File): List<String> = buildList {
+        addAll(listOf(proot.absolutePath, "--root-id", "--link2symlink", "--kill-on-exit", "-r", context.linuxDir.absolutePath, "-w", context.workingDirectory, "-b", "${context.filesDir.absolutePath}:/workspace"))
         (extraBindMounts + context.workspaceBindMounts)
             .filter { it.source.exists() }
             .forEach { mount -> addAll(listOf("-b", "${mount.source.absolutePath}:${mount.target.trimEnd('/')}")) }
         listOf("/dev", "/proc", "/sys").filter { File(it).exists() }.forEach { addAll(listOf("-b", it)) }
-        addAll(listOf("/usr/bin/env", "-i", "HOME=/root", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "TERM=xterm-256color", "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "/bin/bash", "-l", "-c", "cd -- \"\$1\" && eval \"\$2\"", "flit-sandbox", context.prootCwd(), context.command))
+        val processEnvironment = linkedMapOf(
+            "HOME" to "/root",
+            "PATH" to "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "TERM" to "xterm-256color",
+            "LANG" to "C.UTF-8",
+            "LC_ALL" to "C.UTF-8",
+        ).apply { putAll(context.environment) }
+        addAll(listOf("/usr/bin/env", "-i"))
+        processEnvironment.forEach { (name, value) -> add("$name=$value") }
+        add(context.command)
+        addAll(context.args)
     }
 
-    private fun SandboxShellContext.prootCwd(): String = cwd.trim().trim('/').takeIf { it.isNotEmpty() }?.let { "/workspace/$it" } ?: "/workspace"
+    private fun validate(context: SandboxProcessContext) {
+        require(context.command.isNotBlank() && '\u0000' !in context.command) { "Command is required" }
+        require(context.args.none { '\u0000' in it }) { "Argument contains an invalid character" }
+        require(context.workingDirectory.startsWith('/') && '\u0000' !in context.workingDirectory) {
+            "Working directory must be absolute"
+        }
+        context.environment.forEach { (name, value) ->
+            require(name.matches(ENV_NAME)) { "Environment variable name is invalid" }
+            require('\u0000' !in value) { "Environment variable value contains an invalid character" }
+        }
+    }
+
+    private companion object {
+        val ENV_NAME = Regex("[A-Za-z_][A-Za-z0-9_]*")
+    }
+}
+
+class ProotSandboxShellRunner(
+    private val processLauncher: SandboxProcessLauncher,
+) : SandboxShellRunner {
+    override fun execute(context: SandboxShellContext): SandboxCommandResult {
+        val process = try {
+            processLauncher.start(
+                SandboxProcessContext(
+                    workspaceId = context.workspaceId,
+                    command = "/bin/bash",
+                    args = listOf("-l", "-c", context.command),
+                    workingDirectory = context.prootCwd(),
+                    environment = emptyMap(),
+                    filesDir = context.filesDir,
+                    linuxDir = context.linuxDir,
+                    tempDir = context.tempDir,
+                    workspaceBindMounts = context.workspaceBindMounts,
+                )
+            )
+        } catch (error: IllegalArgumentException) {
+            return SandboxCommandResult(127, "", error.message.orEmpty())
+        }
+        return process.process.readResult(context.timeoutMillis, context.stdin)
+    }
+
+    private fun SandboxShellContext.prootCwd(): String =
+        cwd.trim().trim('/').takeIf { it.isNotEmpty() }?.let { "/workspace/$it" } ?: "/workspace"
 }
 
 enum class SandboxRootfsInstallStage {

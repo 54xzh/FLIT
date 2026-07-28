@@ -221,6 +221,7 @@ class ScheduledTaskWorker(
         }
 
         val tools = buildTools(
+            taskId = task.id,
             assistantForRun = assistantForRun,
             model = runtimeModel,
             conversationId = conversationId,
@@ -444,13 +445,17 @@ class ScheduledTaskWorker(
             .toSet()
     }
 
-    private fun buildTools(
+    private suspend fun buildTools(
+        taskId: String,
         assistantForRun: Assistant,
         model: me.rerere.ai.provider.Model,
         conversationId: Uuid,
         settings: me.rerere.rikkahub.data.datastore.Settings,
     ): List<Tool> {
-        val mcpTools = mcpManager.getAvailableToolsForAssistant(assistantForRun)
+        val mcpTools = mcpManager.getAvailableToolsForAssistant(
+            assistantForRun,
+            assistantForRun.workspaceId,
+        )
         val hasExternalTools = assistantForRun.searchMode !is AssistantSearchMode.Off || mcpTools.isNotEmpty()
 
         return buildList {
@@ -484,13 +489,30 @@ class ScheduledTaskWorker(
             mcpTools.forEach { tool ->
                 add(
                     Tool(
-                        name = tool.name,
+                        name = tool.exposedName,
                         description = tool.description ?: "",
                         parameters = { tool.inputSchema },
                         requiresUserApproval = tool.requireApproval,
                         execute = { args ->
                             val obj = args as? JsonObject ?: JsonObject(emptyMap())
-                            mcpManager.callToolForAssistant(assistantForRun, tool.name, obj)
+                            val latestTask = taskDao.getById(taskId)?.takeIf { currentTask ->
+                                currentTask.enabled && currentTask.assistantId == assistantForRun.id.toString()
+                            }
+                            val latestSettings = settingsStore.settingsFlow.value
+                            val latestAssistant = latestSettings.getAssistantById(assistantForRun.id)
+                            val latestSelection = if (latestTask != null && latestAssistant != null) {
+                                resolveMcpServersOverride(latestTask, latestAssistant)
+                            } else {
+                                emptySet()
+                            }
+                            mcpManager.callToolForAssistant(
+                                selectedServerIds = latestSelection,
+                                effectiveWorkspaceId = latestAssistant?.workspaceId,
+                                serverId = tool.serverId,
+                                originalToolName = tool.originalName,
+                                expectedRuntimeScope = tool.runtimeScope,
+                                args = obj,
+                            )
                         },
                     )
                 )

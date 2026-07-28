@@ -56,6 +56,7 @@ import me.rerere.rikkahub.service.scheduledtask.ScheduledTaskOverrideType
 import me.rerere.rikkahub.service.scheduledtask.ScheduledTaskRepeatType
 import me.rerere.rikkahub.service.scheduledtask.ScheduledTaskSearchOverrideType
 import me.rerere.rikkahub.ui.components.ai.McpPickerButton
+import me.rerere.rikkahub.data.ai.mcp.isMcpServerEffective
 import me.rerere.rikkahub.ui.components.ai.ModelSelector
 import me.rerere.rikkahub.ui.components.ai.SearchPickerButton
 import me.rerere.rikkahub.ui.components.nav.BackButton
@@ -701,6 +702,10 @@ private fun McpServerPicker(
 ) {
     if (settings.mcpServers.isEmpty()) return
 
+    val workspaceRepository = koinInject<me.rerere.rikkahub.data.repository.WorkspaceRepository>()
+    val workspaces by remember(workspaceRepository) { workspaceRepository.listFlow() }
+        .collectAsStateWithLifecycle(emptyList())
+
     val assistant = runCatching { Uuid.parse(draft.assistantId) }
         .getOrNull()
         ?.let(settings::getAssistantById)
@@ -729,11 +734,17 @@ private fun McpServerPicker(
         ScheduledTaskOverrideType.OVERRIDE -> draft.mcpServerId.toUuidSet()
         else -> assistant.mcpServers
     }
+    val visibleSelectedCount = settings.mcpServers.count { server ->
+        isMcpServerEffective(server, selectedServerIds, assistant.workspaceId) &&
+            (server !is me.rerere.rikkahub.data.ai.mcp.McpServerConfig.StdioServer ||
+                workspaces.firstOrNull { it.id == server.workspaceId }?.sandboxStatus ==
+                me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus.READY)
+    }
 
     val subtitle = when (selectedModeValue) {
-        ScheduledTaskOverrideType.INHERIT -> "$inheritText · ${assistant.mcpServers.size}"
+        ScheduledTaskOverrideType.INHERIT -> "$inheritText · $visibleSelectedCount"
         ScheduledTaskOverrideType.OFF -> offText
-        else -> "$customText · ${selectedServerIds.size}"
+        else -> "$customText · $visibleSelectedCount"
     }
 
     fun defaultServerIdsCsvOrNull(): String? {
@@ -769,19 +780,19 @@ private fun McpServerPicker(
                     modifier = Modifier.width(110.dp),
                 )
 
-                val assistantForPicker = assistant.copy(mcpServers = selectedServerIds)
                 McpPickerButton(
-                    assistant = assistantForPicker,
+                    selectedServerIds = selectedServerIds,
+                    visibleWorkspaceId = assistant.workspaceId,
                     servers = settings.mcpServers,
                     mcpManager = koinInject(),
-                    onUpdateAssistant = { updatedAssistant ->
+                    onSelectionChange = { selected ->
                         onUpdate { d ->
                             d.copy(
                                 mcpOverrideType = ScheduledTaskOverrideType.OVERRIDE,
-                                mcpServerId = updatedAssistant.mcpServers.toUuidCsvOrNull(),
+                                mcpServerId = selected.toUuidCsvOrNull(),
                             )
                         }
-                    }
+                    },
                 )
             }
         }

@@ -387,6 +387,7 @@ data class WebLorebookDto(
 @Serializable
 data class WebAssistantDto(
     val id: String,
+    val workspaceId: String? = null,
     val chatModelId: String? = null,
     val reasoningLevel: ReasoningLevel = ReasoningLevel.AUTO,
     val mcpServers: List<String> = emptyList(),
@@ -450,6 +451,7 @@ data class WebMcpCommonOptionsDto(
 data class WebMcpServerDto(
     val id: String,
     val type: String,
+    val workspaceId: String? = null,
     val commonOptions: WebMcpCommonOptionsDto,
 )
 
@@ -805,6 +807,7 @@ private fun DisplaySetting.toWebDisplaySetting(context: Context): WebDisplaySett
 internal fun Assistant.toWebAssistantDto(context: Context): WebAssistantDto {
     return WebAssistantDto(
         id = id.toString(),
+        workspaceId = workspaceId,
         chatModelId = chatModelId?.toString(),
         reasoningLevel = reasoningLevel,
         mcpServers = mcpServers.map(Uuid::toString),
@@ -863,10 +866,12 @@ private fun me.rerere.rikkahub.data.ai.mcp.McpServerConfig.toWebMcpServerDto(): 
     val type = when (this) {
         is me.rerere.rikkahub.data.ai.mcp.McpServerConfig.SseTransportServer -> "sse"
         is me.rerere.rikkahub.data.ai.mcp.McpServerConfig.StreamableHTTPServer -> "streamable_http"
+        is me.rerere.rikkahub.data.ai.mcp.McpServerConfig.StdioServer -> "stdio"
     }
     return WebMcpServerDto(
         id = id.toString(),
         type = type,
+        workspaceId = (this as? me.rerere.rikkahub.data.ai.mcp.McpServerConfig.StdioServer)?.workspaceId,
         commonOptions = WebMcpCommonOptionsDto(
             enable = commonOptions.enable,
             name = commonOptions.name,

@@ -48,6 +48,18 @@ interface ScheduledTaskDao {
     @Query(
         """
         UPDATE scheduled_tasks
+        SET mcp_server_id = NULLIF(
+            TRIM(REPLACE(',' || COALESCE(mcp_server_id, '') || ',', ',' || :serverId || ',', ','), ','),
+            ''
+        )
+        WHERE ',' || COALESCE(mcp_server_id, '') || ',' LIKE '%,' || :serverId || ',%'
+        """
+    )
+    suspend fun removeMcpServerOverride(serverId: String)
+
+    @Query(
+        """
+        UPDATE scheduled_tasks
         SET last_run_at = :lastRunAt,
             last_scheduled_for = :lastScheduledFor,
             next_run_at = :nextRunAt,

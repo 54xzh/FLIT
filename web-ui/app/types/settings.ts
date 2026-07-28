@@ -82,6 +82,7 @@ export interface LorebookProfile {
 
 export interface AssistantProfile {
   id: string;
+  workspaceId?: string | null;
   chatModelId?: string | null;
   reasoningLevel?: ReasoningLevel;
   mcpServers?: string[];
@@ -114,6 +115,7 @@ export interface McpCommonOptions {
 export interface McpServerConfig {
   id: string;
   type?: string;
+  workspaceId?: string | null;
   commonOptions: McpCommonOptions;
   [key: string]: unknown;
 }

@@ -96,6 +96,35 @@ sealed class McpServerConfig {
             return copy(id = id, commonOptions = commonOptions)
         }
     }
+
+    @Serializable
+    @SerialName("stdio")
+    data class StdioServer(
+        override val id: Uuid = Uuid.random(),
+        override val commonOptions: McpCommonOptions = McpCommonOptions(),
+        val workspaceId: String = "",
+        val command: String = "",
+        val args: List<String> = emptyList(),
+        val environment: Map<String, String> = emptyMap(),
+        val workingDirectory: String = "/workspace",
+        val startupTimeoutSeconds: Int = 60,
+    ) : McpServerConfig() {
+        init {
+            require(startupTimeoutSeconds in 1..900) {
+                "startupTimeoutSeconds must be between 1 and 900"
+            }
+        }
+
+        override fun clone(id: Uuid, commonOptions: McpCommonOptions): McpServerConfig {
+            return copy(id = id, commonOptions = commonOptions)
+        }
+
+        override fun toString(): String =
+            "StdioServer(id=$id, enabled=${commonOptions.enable}, name=${commonOptions.name}, " +
+                "tools=${commonOptions.tools.size}, workspaceId=$workspaceId, " +
+                "command=***, args=***(${args.size}), environment=***(${environment.size}), " +
+                "workingDirectory=$workingDirectory, startupTimeoutSeconds=$startupTimeoutSeconds)"
+    }
 }
 
 /** MCP Server 的连接地址（作为 OAuth 的 canonical resource 标识）。 */
@@ -103,4 +132,8 @@ val McpServerConfig.serverUrl: String
     get() = when (this) {
         is McpServerConfig.SseTransportServer -> url
         is McpServerConfig.StreamableHTTPServer -> url
+        is McpServerConfig.StdioServer -> ""
     }
+
+val McpServerConfig.isRemote: Boolean
+    get() = this !is McpServerConfig.StdioServer

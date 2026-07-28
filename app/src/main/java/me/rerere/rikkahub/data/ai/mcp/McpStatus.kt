@@ -4,6 +4,8 @@ sealed class McpStatus {
     data object Idle : McpStatus()
     data object Connecting : McpStatus()
     data object Connected : McpStatus()
+    /** STDIO 已测试并缓存工具，但当前没有常驻进程。 */
+    data object Ready : McpStatus()
     data class Reconnecting(val attempt: Int, val maxAttempts: Int) : McpStatus()
 
     /**

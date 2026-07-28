@@ -2501,15 +2501,35 @@ class ChatService(
                     if (enabledSkills.isNotEmpty()) {
                         add(localTools.createSkillFileTool(enabledSkills))
                     }
-                    mcpManager.getAllAvailableTools().forEach { tool ->
+                    mcpManager.getAvailableToolsForAssistant(assistant, effectiveWorkspaceId).forEach { tool ->
                         add(
                             Tool(
-                                name = tool.name,
+                                name = tool.exposedName,
                                 description = tool.description ?: "",
                                 parameters = { tool.inputSchema },
                                 requiresUserApproval = tool.requireApproval,
                                 execute = {
-                                    mcpManager.callTool(tool.name, it.jsonObject)
+                                    val latestSettings = settingsStore.settingsFlow.value
+                                    val latestConversation = getConversationFlow(conversation.id).value
+                                    val latestAssistant = latestSettings.getAssistantById(assistant.id)
+                                        ?.takeIf { latestConversation.assistantId == assistant.id }
+                                    val requestedWorkspaceOverride = latestConversation.workspaceOverrideId
+                                        ?.takeIf { latestAssistant?.allowConversationWorkspaceOverride == true }
+                                    var invocationWorkspaceId = requestedWorkspaceOverride
+                                        ?: latestAssistant?.workspaceId
+                                    if (requestedWorkspaceOverride != null &&
+                                        workspaceRepository.getById(requestedWorkspaceOverride) == null
+                                    ) {
+                                        invocationWorkspaceId = latestAssistant?.workspaceId
+                                    }
+                                    mcpManager.callToolForAssistant(
+                                        selectedServerIds = latestAssistant?.mcpServers.orEmpty(),
+                                        effectiveWorkspaceId = invocationWorkspaceId,
+                                        serverId = tool.serverId,
+                                        originalToolName = tool.originalName,
+                                        expectedRuntimeScope = tool.runtimeScope,
+                                        args = it.jsonObject,
+                                    )
                                 },
                             )
                         )
@@ -2990,15 +3010,40 @@ class ChatService(
 
                 // MCP tools, if enabled for this seat.
                 if (seatAssistant.mcpServers.isNotEmpty()) {
-                    mcpManager.getAvailableToolsForAssistant(seatAssistant).forEach { tool ->
+                    mcpManager.getAvailableToolsForAssistant(
+                        seatAssistant,
+                        seatAssistant.workspaceId,
+                    ).forEach { tool ->
                         add(
                             Tool(
-                                name = tool.name,
+                                name = tool.exposedName,
                                 description = tool.description ?: "",
                                 parameters = { tool.inputSchema },
                                 requiresUserApproval = tool.requireApproval,
                                 execute = {
-                                    mcpManager.callToolForAssistant(seatAssistant, tool.name, it.jsonObject)
+                                    val latestSettings = settingsStore.settingsFlow.value
+                                    val latestSeat = latestSettings.groupChatTemplates
+                                        .firstOrNull { it.id == template.id }
+                                        ?.seats
+                                        ?.firstOrNull { it.id == seat.id }
+                                        ?.takeIf { it.assistantId == assistant.id }
+                                    val latestSeatAssistant = latestSeat
+                                        ?.let { currentSeat ->
+                                            latestSettings.getAssistantById(currentSeat.assistantId)
+                                                ?.let { currentAssistant ->
+                                                    currentAssistant.copy(
+                                                        mcpServers = currentSeat.overrides.mcpServerIds,
+                                                    )
+                                                }
+                                        }
+                                    mcpManager.callToolForAssistant(
+                                        selectedServerIds = latestSeatAssistant?.mcpServers.orEmpty(),
+                                        effectiveWorkspaceId = latestSeatAssistant?.workspaceId,
+                                        serverId = tool.serverId,
+                                        originalToolName = tool.originalName,
+                                        expectedRuntimeScope = tool.runtimeScope,
+                                        args = it.jsonObject,
+                                    )
                                 },
                             )
                         )

@@ -45,6 +45,7 @@ import me.rerere.rikkahub.workspace.SandboxStorageArea
 import me.rerere.rikkahub.workspace.SandboxWorkspaceManager
 import me.rerere.rikkahub.workspace.SandboxMountPathResolver
 import me.rerere.rikkahub.workspace.SandboxMountSource
+import me.rerere.rikkahub.workspace.SandboxProcessCoordinator
 import me.rerere.rikkahub.workspace.WorkspaceTransferArchive
 import me.rerere.rikkahub.workspace.WorkspaceTransferManifest
 import me.rerere.rikkahub.workspace.WorkspaceTransferMount
@@ -156,6 +157,7 @@ class WorkspaceRepository(
     private val workspaceTransferArchive: WorkspaceTransferArchive,
     private val conversationRepository: ConversationRepository,
     private val mountPathResolver: SandboxMountPathResolver,
+    private val sandboxProcessCoordinator: SandboxProcessCoordinator,
 ) : KoinComponent {
     private val sandboxLocks = ConcurrentHashMap<String, Mutex>()
     private val workspaceImportMutex = Mutex()
@@ -232,6 +234,7 @@ class WorkspaceRepository(
         output: OutputStream,
         onProgress: (WorkspaceTransferProgress) -> Unit = {},
     ) = sandboxLock(id).withLock {
+        sandboxProcessCoordinator.withWorkspaceMaintenance(id) {
         val workspace = requireSandbox(id)
         val detail = workspace.sandbox ?: error("Sandbox details are missing")
         val transferMounts = dao.getSandboxMounts(id).map { mount ->
@@ -269,12 +272,14 @@ class WorkspaceRepository(
                 )
             )
         }
+        }
     }
 
     suspend fun importSandboxWorkspace(
         input: InputStream,
         onProgress: (WorkspaceTransferProgress) -> Unit = {},
     ): Workspace = workspaceImportMutex.withLock {
+        sandboxProcessCoordinator.withGlobalMaintenance {
         val newId = Uuid.random().toString()
         val staging = withContext(Dispatchers.IO) { sandboxManager.prepareImportStaging(newId) }
         var movedToFinal = false
@@ -343,6 +348,7 @@ class WorkspaceRepository(
                 if (movedToFinal && !databaseCommitted) sandboxManager.deleteWorkspace(newId)
             }
         }
+        }
     }
 
     private fun validateWorkspaceImportCapacity(manifest: WorkspaceTransferManifest) {
@@ -405,6 +411,7 @@ class WorkspaceRepository(
         sourceUrl: String,
         onProgress: (SandboxRootfsInstallProgress) -> Unit = {},
     ): Boolean = sandboxLock(id).withLock {
+        sandboxProcessCoordinator.withWorkspaceMaintenance(id) {
         val workspace = requireSandbox(id)
         val previous = workspace.sandbox ?: error("Sandbox details are missing")
         val now = System.currentTimeMillis()
@@ -425,12 +432,17 @@ class WorkspaceRepository(
             updateSandboxStatus(id, SandboxRootfsStatus.BROKEN, sourceUrl, previous.rootfsVersion, previous.rootfsInstalledAt)
             throw error
         }
+        }
     }
 
     suspend fun delete(id: String): Boolean {
         val workspace = getById(id) ?: return false
         if (workspace.type == WorkspaceType.SANDBOX) {
-            sandboxLock(id).withLock { deleteInternal(workspace) }
+            sandboxLock(id).withLock {
+                sandboxProcessCoordinator.withWorkspaceMaintenance(id) {
+                    deleteInternal(workspace)
+                }
+            }
         } else {
             deleteInternal(workspace)
         }
@@ -452,6 +464,7 @@ class WorkspaceRepository(
     }
 
     suspend fun checkIntegrity() = withContext(Dispatchers.IO) {
+        sandboxProcessCoordinator.withGlobalMaintenance {
         sandboxManager.cleanupImportStagingDirectories()
         val workspaceRecords = dao.getAll()
         sandboxManager.cleanupOrphanedWorkspaceDirectories(
@@ -556,6 +569,7 @@ class WorkspaceRepository(
             }
         }
         cleanupOrphanedMountPermissions()
+        }
     }
 
     fun hasAllFilesAccess(): Boolean = mountPathResolver.hasAllFilesAccess()
@@ -712,7 +726,8 @@ class WorkspaceRepository(
         area: SandboxStorageArea = SandboxStorageArea.FILES,
     ): Boolean =
         sandboxLock(id).withLock {
-            withContext(Dispatchers.IO) {
+            val deleteAction: suspend () -> Boolean = {
+                withContext(Dispatchers.IO) {
                 val workspace = requireSandbox(id)
                 val normalized = normalizeWorkspaceRelativePath(path)
                 val mounts = if (area == SandboxStorageArea.FILES) dao.getSandboxMounts(id) else emptyList()
@@ -737,6 +752,12 @@ class WorkspaceRepository(
                     )
                 }
                 deleted
+                }
+            }
+            if (area == SandboxStorageArea.ROOTFS) {
+                sandboxProcessCoordinator.withWorkspaceMaintenance(id, deleteAction)
+            } else {
+                deleteAction()
             }
         }
 
@@ -796,11 +817,13 @@ class WorkspaceRepository(
      */
     suspend fun cleanSandboxRootfs(id: String): Boolean = withContext(Dispatchers.IO) {
         sandboxLock(id).withLock {
+            sandboxProcessCoordinator.withWorkspaceMaintenance(id) {
             requireSandbox(id)
             val detail = dao.getSandboxDetail(id)
             val cleaned = sandboxManager.cleanRootfsResidue(id)
             updateSandboxStatus(id, SandboxRootfsStatus.DISABLED, detail?.rootfsSourceUrl, detail?.rootfsVersion, null)
             cleaned
+            }
         }
     }
 

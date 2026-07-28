@@ -4,11 +4,13 @@ import android.content.Context
 import android.util.Log
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -16,9 +18,14 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToJsonElement
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.datastore.SettingsStore
-import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus
+import me.rerere.rikkahub.data.db.entity.WorkspaceType
+import me.rerere.rikkahub.workspace.SandboxProcessCoordinator
+import me.rerere.rikkahub.workspace.SandboxProcessLauncher
+import me.rerere.rikkahub.workspace.SandboxWorkspaceManager
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import kotlin.uuid.Uuid
@@ -31,13 +38,16 @@ private const val TAG = "McpManager"
  * 这里仅协调配置、OAuth、连接注册表；单个服务器的连接状态机由
  * [McpSessionRegistry] 管理，OAuth 协议细节由 [McpOAuthCoordinator] 管理。
  *
- * 对外保留旧版 API（callTool 按工具名调用、返回 JsonElement；getAllAvailableTools 返回 List<McpTool>），
- * 不改动 ChatService / ScheduledTaskWorker 等调用方。
+ * 所有工具查询和调用都显式接收有效工作区，并用 serverId + 原始工具名精确路由。
  */
 class McpManager(
     private val settingsStore: SettingsStore,
     private val appScope: AppScope,
     appEventBus: AppEventBus,
+    private val workspaceRepository: WorkspaceRepository,
+    private val sandboxWorkspaceManager: SandboxWorkspaceManager,
+    sandboxProcessLauncher: SandboxProcessLauncher,
+    sandboxProcessCoordinator: SandboxProcessCoordinator,
 ) {
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -62,13 +72,25 @@ class McpManager(
         oauthCoordinator = oauthCoordinator,
         statusStore = statusStore,
     )
+    private val stdioSessionRegistry = StdioMcpSessionRegistry(
+        settingsStore = settingsStore,
+        appScope = appScope,
+        workspaceRepository = workspaceRepository,
+        sandboxWorkspaceManager = sandboxWorkspaceManager,
+        processLauncher = sandboxProcessLauncher,
+        processCoordinator = sandboxProcessCoordinator,
+        statusStore = statusStore,
+    )
 
     init {
         appScope.launch {
             settingsStore.settingsFlow
                 .map { settings -> settings.mcpServers }
                 .distinctUntilChanged()
-                .collect(sessionRegistry::reconcile)
+                .collect { configs ->
+                    sessionRegistry.reconcile(configs)
+                    stdioSessionRegistry.reconcile(configs)
+                }
         }
         // 进程启动即恢复进行中的 OAuth 授权，确保 deep link 到达前订阅已就绪。
         oauthCoordinator.resumePendingAuthorization()
@@ -77,55 +99,100 @@ class McpManager(
     val syncingStatus: StateFlow<Map<Uuid, McpStatus>>
         get() = statusStore.status
 
-    fun getClient(config: McpServerConfig): Client? = sessionRegistry.getClient(config.id)
-
-    fun getStatus(config: McpServerConfig): Flow<McpStatus> = sessionRegistry.getStatus(config.id)
-
-    fun getAllAvailableTools(): List<McpTool> {
-        val settings = settingsStore.settingsFlow.value
-        val assistant = settings.getCurrentAssistant()
-        return getAvailableToolsForAssistant(assistant)
+    fun getClient(config: McpServerConfig): Client? = when (config) {
+        is McpServerConfig.StdioServer -> stdioSessionRegistry.getClient(config.id)
+        else -> sessionRegistry.getClient(config.id)
     }
 
-    fun getAvailableToolsForAssistant(assistant: Assistant): List<McpTool> {
+    fun getStatus(config: McpServerConfig): Flow<McpStatus> = statusStore.get(config.id)
+
+    suspend fun getAvailableToolsForAssistant(
+        assistant: Assistant,
+        effectiveWorkspaceId: String?,
+    ): List<McpResolvedTool> {
         val settings = settingsStore.settingsFlow.value
-        return settings.mcpServers
-            .filter { it.commonOptions.enable && it.id in assistant.mcpServers }
-            .flatMap { it.commonOptions.tools.filter { tool -> tool.enable } }
+        val validWorkspaceId = resolveRunnableSandboxId(effectiveWorkspaceId)
+        return resolveMcpTools(settings.mcpServers, assistant.mcpServers, validWorkspaceId)
     }
 
-    suspend fun callTool(toolName: String, args: JsonObject): JsonElement {
-        val assistant = settingsStore.settingsFlow.value.getCurrentAssistant()
-        return callToolForAssistant(assistant, toolName, args)
-    }
-
-    suspend fun callToolForAssistant(assistant: Assistant, toolName: String, args: JsonObject): JsonElement {
+    suspend fun callToolForAssistant(
+        selectedServerIds: Set<Uuid>,
+        effectiveWorkspaceId: String?,
+        serverId: Uuid,
+        originalToolName: String,
+        expectedRuntimeScope: McpRuntimeScope,
+        args: JsonObject,
+    ): JsonElement {
         val settings = settingsStore.settingsFlow.value
-        // 找到该助手启用、且包含此工具名的 server
-        val server = settings.mcpServers.firstOrNull { config ->
-            config.commonOptions.enable &&
-                config.id in assistant.mcpServers &&
-                config.commonOptions.tools.any { it.name == toolName && it.enable }
-        } ?: return JsonPrimitive("Failed to execute tool, because no such tool")
+        val validWorkspaceId = resolveRunnableSandboxId(effectiveWorkspaceId)
+        val server = settings.mcpServers.firstOrNull { it.id == serverId }
+            ?: return JsonPrimitive("Failed to execute tool, because no such tool")
+        val tool = server.commonOptions.tools.firstOrNull { it.name == originalToolName }
+        if (tool == null || !isMcpInvocationAvailable(
+                server = server,
+                tool = tool,
+                selectedServerIds = selectedServerIds,
+                effectiveWorkspaceId = validWorkspaceId,
+                expectedRuntimeScope = expectedRuntimeScope,
+            )
+        ) {
+            return JsonPrimitive("Failed to execute tool, because it is unavailable in the active workspace")
+        }
 
         return try {
-            val result = sessionRegistry.callTool(server.id, toolName, args)
+            val result = when (server) {
+                is McpServerConfig.StdioServer -> stdioSessionRegistry.callTool(
+                    configInput = server,
+                    expectedRuntimeScope = expectedRuntimeScope,
+                    toolName = originalToolName,
+                    args = args,
+                )
+                else -> sessionRegistry.callTool(server.id, originalToolName, args)
+            }
             McpJson.encodeToJsonElement(result.content)
         } catch (e: CancellationException) {
             throw e
         } catch (e: McpClientUnavailableException) {
             Log.w(TAG, "callTool unavailable: ${e.message}")
-            JsonPrimitive("Failed to execute tool, because no such mcp client for the tool")
+            JsonPrimitive("Failed to execute tool: ${e.message}")
+        } catch (e: Exception) {
+            Log.w(TAG, "callTool failed for server $serverId: ${e.message}")
+            JsonPrimitive("Failed to execute tool: ${e.message ?: e.javaClass.simpleName}")
         }
     }
 
-    suspend fun addClient(config: McpServerConfig) = sessionRegistry.addClient(config)
+    suspend fun addClient(config: McpServerConfig) {
+        when (config) {
+            is McpServerConfig.StdioServer -> {
+                sessionRegistry.removeClient(config)
+                if (config.commonOptions.enable) {
+                    stdioSessionRegistry.remove(config.id)
+                    stdioSessionRegistry.testAndSync(config)
+                } else {
+                    stdioSessionRegistry.remove(config.id)
+                }
+            }
+            else -> {
+                stdioSessionRegistry.remove(config.id)
+                sessionRegistry.addClient(config)
+            }
+        }
+    }
 
-    suspend fun removeClient(config: McpServerConfig) = sessionRegistry.removeClient(config)
+    suspend fun removeClient(config: McpServerConfig) {
+        sessionRegistry.removeClient(config)
+        stdioSessionRegistry.remove(config.id)
+    }
 
-    suspend fun syncAll() = sessionRegistry.syncAll()
+    suspend fun syncAll() {
+        sessionRegistry.syncAll()
+        val stdioConfigs = settingsStore.settingsFlow.value.mcpServers
+            .filterIsInstance<McpServerConfig.StdioServer>()
+        stdioSessionRegistry.syncAll(stdioConfigs)
+    }
 
     fun startAuthorization(config: McpServerConfig, context: Context) {
+        if (config is McpServerConfig.StdioServer) return
         oauthCoordinator.startAuthorization(config, context)
     }
 
@@ -134,8 +201,21 @@ class McpManager(
     }
 
     suspend fun clearAuthorization(config: McpServerConfig) {
+        if (config is McpServerConfig.StdioServer) return
         val freshConfig = oauthCoordinator.clearAuthorization(config)
         sessionRegistry.addClient(freshConfig)
+    }
+
+    private suspend fun resolveRunnableSandboxId(workspaceId: String?): String? {
+        val workspace = workspaceId?.let { workspaceRepository.getById(it) } ?: return null
+        val rootfsAvailable = withContext(Dispatchers.IO) {
+            sandboxWorkspaceManager.hasRootfs(workspace.id)
+        }
+        return workspace.id.takeIf {
+            workspace.type == WorkspaceType.SANDBOX &&
+                workspace.sandboxStatus == SandboxRootfsStatus.READY &&
+                rootfsAvailable
+        }
     }
 }
 

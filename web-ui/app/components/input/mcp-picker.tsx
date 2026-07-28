@@ -57,11 +57,21 @@ export function McpPickerButton({ disabled = false, className }: McpPickerButton
     [allServers],
   );
   const enabledServers = React.useMemo(
-    () => allServers.filter((server) => server.commonOptions?.enable),
-    [allServers],
+    () =>
+      allServers.filter(
+        (server) =>
+          server.commonOptions?.enable &&
+          (server.type !== "stdio" || server.workspaceId === currentAssistant?.workspaceId),
+      ),
+    [allServers, currentAssistant?.workspaceId],
   );
   const enabledServerIdSet = React.useMemo(
-    () => new Set(enabledServers.map((server) => server.id)),
+    () =>
+      new Set(
+        enabledServers
+          .filter((server) => server.commonOptions?.tools?.some((tool) => tool.enable))
+          .map((server) => server.id),
+      ),
     [enabledServers],
   );
 

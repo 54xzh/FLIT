@@ -163,6 +163,9 @@ import me.rerere.common.android.appTempFolder
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.mcp.McpStatus
+import me.rerere.rikkahub.data.ai.mcp.isVisibleForWorkspace
+import me.rerere.rikkahub.data.ai.mcp.applyMcpSelectionDelta
+import me.rerere.rikkahub.data.ai.mcp.isMcpServerEffective
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.ConversationWorkDirBinding
 import me.rerere.rikkahub.data.datastore.ConversationWorkDirMode
@@ -1571,15 +1574,14 @@ private fun FilesPicker(
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     val toaster = LocalToaster.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val settingsStore = org.koin.compose.koinInject<me.rerere.rikkahub.data.datastore.SettingsStore>()
     val currentChatModel = settings.getCurrentChatModel()
     val showGeminiAttachmentMenu = remember(currentChatModel?.modelId) {
         isGeminiAttachmentMenuEnabled(currentChatModel)
     }
 
     val mcpServers = settings.mcpServers
-    val enabledMcpServersCount = remember(mcpServers, assistant.mcpServers) {
-        mcpServers.count { it.commonOptions.enable && it.id in assistant.mcpServers }
-    }
     val enabledSkills = remember(settings.skills, assistant.enabledSkills) {
         settings.skills.filter { skill -> skill.name in assistant.enabledSkills }
     }
@@ -1598,21 +1600,36 @@ private fun FilesPicker(
     var showInjectionPicker by remember { mutableStateOf(false) }
     var showWorkspacePicker by remember { mutableStateOf(false) }
 
-    // 会话级工作区覆写：仅当助手允许且开启了工作区文件工具时，展开菜单才显示工作区条目。
+    // 会话工作区同时影响工作区工具与 STDIO MCP，因此入口不依赖工作区文件工具。
     val workspaceRepository: me.rerere.rikkahub.data.repository.WorkspaceRepository =
         org.koin.compose.koinInject()
     val workspaces by remember(workspaceRepository) { workspaceRepository.listFlow() }
         .collectAsStateWithLifecycle(emptyList())
     // 会话级工作区覆写入口门闩：
     // - uiMode == Normal：排除群聊模板（群聊座位各自用各自助手的工作区，覆写会被忽略，不显示入口避免误导）；
-    // - 助手需显式开启 allowConversationWorkspaceOverride；
-    // - 助手需启用工作区文件工具，否则覆写无意义。
+    // - 助手需显式开启 allowConversationWorkspaceOverride。
     val showWorkspaceOverrideEntry = uiMode == ChatInputUiMode.Normal &&
-        assistant.allowConversationWorkspaceOverride &&
-        assistant.localTools.contains(me.rerere.rikkahub.data.ai.tools.LocalToolOption.WorkspaceFiles)
-    val effectiveWorkspace = workspaces.firstOrNull { it.id == conversation.workspaceOverrideId }
-    val workspaceOverrideSubtitle = effectiveWorkspace?.name
+        assistant.allowConversationWorkspaceOverride
+    val overrideWorkspace = conversation.workspaceOverrideId
+        ?.takeIf { assistant.allowConversationWorkspaceOverride }
+        ?.let { id -> workspaces.firstOrNull { it.id == id } }
+    val assistantWorkspaceId = assistant.workspaceId?.takeIf { id -> workspaces.any { it.id == id } }
+    val effectiveWorkspaceId = overrideWorkspace?.id ?: assistantWorkspaceId
+    val workspaceOverrideSubtitle = overrideWorkspace?.name
         ?: stringResource(R.string.chat_input_workspace_override_follow_assistant)
+    val visibleMcpServers = remember(mcpServers, effectiveWorkspaceId) {
+        mcpServers.filter {
+            it.commonOptions.enable && it.isVisibleForWorkspace(effectiveWorkspaceId)
+        }
+    }
+    val enabledMcpServersCount = remember(visibleMcpServers, assistant.mcpServers, workspaces) {
+        visibleMcpServers.count { server ->
+            isMcpServerEffective(server, assistant.mcpServers, effectiveWorkspaceId) &&
+                (server !is me.rerere.rikkahub.data.ai.mcp.McpServerConfig.StdioServer ||
+                    workspaces.firstOrNull { it.id == server.workspaceId }?.sandboxStatus ==
+                    me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus.READY)
+        }
+    }
 
     val isDarkMode = LocalDarkMode.current
     val isKeyboardVisible = WindowInsets.isImeVisible
@@ -1939,7 +1956,7 @@ private fun FilesPicker(
                     },
                     trailingContent = {
                         Text(
-                            text = "${enabledMcpServersCount}/${mcpServers.size}",
+                            text = "${enabledMcpServersCount}/${visibleMcpServers.size}",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                             maxLines = 1,
@@ -1979,7 +1996,7 @@ private fun FilesPicker(
                             contentDescription = stringResource(R.string.chat_input_workspace_override_title),
                             // 按「有效工作区」高亮：覆写指向已删除工作区时不高亮，
                             // 与「跟随助手」语义一致（此时实际会回退到助手绑定）。
-                            tint = if (effectiveWorkspace != null)
+                            tint = if (overrideWorkspace != null)
                                 MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -2081,9 +2098,30 @@ private fun FilesPicker(
                     }
                 }
                 McpPicker(
-                    assistant = assistant,
+                    selectedServerIds = assistant.mcpServers,
+                    visibleWorkspaceId = effectiveWorkspaceId,
                     servers = mcpServers,
-                    onUpdateAssistant = onUpdateAssistant,
+                    onSelectionChange = { selected ->
+                        scope.launch {
+                            settingsStore.update { latest ->
+                                latest.copy(
+                                    assistants = latest.assistants.map { current ->
+                                        if (current.id == assistant.id) {
+                                            current.copy(
+                                                mcpServers = applyMcpSelectionDelta(
+                                                    latestSelection = current.mcpServers,
+                                                    displayedSelection = assistant.mcpServers,
+                                                    requestedSelection = selected,
+                                                )
+                                            )
+                                        } else {
+                                            current
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)

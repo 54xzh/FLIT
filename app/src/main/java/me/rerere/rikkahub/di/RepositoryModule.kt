@@ -13,6 +13,9 @@ import me.rerere.rikkahub.data.repository.StorageManagerRepository
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.workspace.ProotSandboxShellRunner
+import me.rerere.rikkahub.workspace.ProotSandboxProcessLauncher
+import me.rerere.rikkahub.workspace.SandboxProcessLauncher
+import me.rerere.rikkahub.workspace.SandboxProcessCoordinator
 import me.rerere.rikkahub.workspace.SandboxRootfsInstaller
 import me.rerere.rikkahub.workspace.SandboxWorkspaceManager
 import me.rerere.rikkahub.workspace.SandboxMountPathResolver
@@ -64,14 +67,21 @@ val repositoryModule = module {
         ModelQuotaRepository(get())
     }
 
+    single<SandboxProcessLauncher> {
+        val context: android.content.Context = get()
+        ProotSandboxProcessLauncher(
+            nativeLibraryDir = File(context.applicationInfo.nativeLibraryDir),
+            extraBindMounts = sandboxBindMounts(context),
+        )
+    }
+
+    single { SandboxProcessCoordinator() }
+
     single {
         val context: android.content.Context = get()
         SandboxWorkspaceManager(
             baseDir = File(context.filesDir, "sandbox_workspaces"),
-            shellRunner = ProotSandboxShellRunner(
-                nativeLibraryDir = File(context.applicationInfo.nativeLibraryDir),
-                extraBindMounts = sandboxBindMounts(context),
-            ),
+            shellRunner = ProotSandboxShellRunner(get()),
         )
     }
 
@@ -92,6 +102,7 @@ val repositoryModule = module {
             workspaceTransferArchive = get(),
             conversationRepository = get(),
             mountPathResolver = get(),
+            sandboxProcessCoordinator = get(),
         )
     }
 

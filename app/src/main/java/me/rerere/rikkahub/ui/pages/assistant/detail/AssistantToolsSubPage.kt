@@ -130,31 +130,16 @@ fun AssistantToolsSubPage(
                 }
             )
 
-            // Workspace binding — only visible when Workspace Files is enabled.
-            // The bound workspace id is intentionally kept when hidden (not cleared),
-            // so re-enabling Workspace Files restores the previous selection.
-            val workspaceFilesEnabled = assistant.localTools.contains(LocalToolOption.WorkspaceFiles)
-            AnimatedVisibility(
-                visible = workspaceFilesEnabled,
-                enter = expandVertically(
-                    animationSpec = spring(dampingRatio = 0.7f, stiffness = 300f)
-                ) + fadeIn(
-                    animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f)
-                ),
-                exit = shrinkVertically(
-                    animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f)
-                ) + fadeOut(),
+            // 工作区绑定也决定 STDIO MCP 的范围，因此始终可配置。
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
                     SettingGroupItem(
                         title = boundWorkspace?.name ?: stringResource(R.string.workspace_unbound),
                         subtitle = stringResource(R.string.assistant_page_workspace_binding_desc),
                         onClick = { showWorkspaceSheet = true },
                     )
 
-                    // 会话级工作区覆写开关：作为「工作区文件」的子选项，跟随其展开/收起。
                     SettingGroupItem(
                         title = stringResource(R.string.assistant_page_allow_conversation_workspace_override_title),
                         subtitle = stringResource(R.string.assistant_page_allow_conversation_workspace_override_desc),
@@ -167,7 +152,6 @@ fun AssistantToolsSubPage(
                             )
                         }
                     )
-                }
             }
         }
 
@@ -551,10 +535,13 @@ fun AssistantToolsSubPage(
                     subtitle = stringResource(R.string.assistant_page_mcp_servers_desc),
                     trailing = {
                         McpPickerButton(
-                            assistant = assistant,
+                            selectedServerIds = assistant.mcpServers,
+                            visibleWorkspaceId = assistant.workspaceId,
                             servers = mcpServerConfigs,
                             mcpManager = org.koin.compose.koinInject(),
-                            onUpdateAssistant = onUpdate
+                            onSelectionChange = { selected ->
+                                onUpdate(assistant.copy(mcpServers = selected))
+                            },
                         )
                     }
                 )

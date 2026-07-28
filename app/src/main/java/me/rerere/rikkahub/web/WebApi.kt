@@ -63,6 +63,7 @@ import me.rerere.ai.provider.ModelType
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.ai.mcp.isVisibleForWorkspace
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
@@ -702,10 +703,19 @@ private fun Route.webRoutes(
                 throw NotFoundException("Assistant not found")
             }
 
-            val validServerIds = settings.mcpServers.map { it.id }.toSet()
+            val assistant = settings.assistants.first { it.id == assistantId }
+            val knownServerIds = settings.mcpServers.mapTo(mutableSetOf()) { it.id }
+            val visibleServerIds = settings.mcpServers
+                .filter { it.isVisibleForWorkspace(assistant.workspaceId) }
+                .map { it.id }
+                .toSet()
             val requestedIds = request.mcpServerIds.map { it.toUuid("mcp server id") }.toSet()
-            if (!validServerIds.containsAll(requestedIds)) {
+            if (!knownServerIds.containsAll(requestedIds)) {
                 throw BadRequestException("mcpServerIds contains unknown server id")
+            }
+            val newlySelectedIds = requestedIds - assistant.mcpServers
+            if (!visibleServerIds.containsAll(newlySelectedIds)) {
+                throw BadRequestException("mcpServerIds contains a server outside the assistant workspace")
             }
 
             settingsStore.update { current ->

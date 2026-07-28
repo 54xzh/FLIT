@@ -112,7 +112,7 @@ internal class McpSessionRegistry(
 
     fun reconcile(configs: List<McpServerConfig>) {
         val activeConfigs = configs
-            .filter { it.commonOptions.enable && it.commonOptions.name.isNotBlank() }
+            .filter { it.isRemote && it.commonOptions.enable && it.commonOptions.name.isNotBlank() }
             .associateBy { it.id }
 
         (sessions.keys - activeConfigs.keys).forEach { configId ->
@@ -178,7 +178,10 @@ internal class McpSessionRegistry(
             removeClient(configInput)
             return
         }
-        if (!desiredConfig.commonOptions.enable || desiredConfig.commonOptions.name.isBlank()) {
+        if (!desiredConfig.isRemote ||
+            !desiredConfig.commonOptions.enable ||
+            desiredConfig.commonOptions.name.isBlank()
+        ) {
             removeClient(desiredConfig)
             return
         }
@@ -223,6 +226,7 @@ internal class McpSessionRegistry(
             }
 
             val config = oauthCoordinator.ensureFreshToken(session.config)
+            if (!config.isRemote) return@withLock ConnectResult.Stale
             session.config = config
             if (!forceReconnect &&
                 session.client != null &&
@@ -244,7 +248,12 @@ internal class McpSessionRegistry(
             try {
                 sdkClient.connect(transport)
                 val syncedConfig = syncTools(session, sdkClient, config)
+                val latestConfig = settingsStore.settingsFlow.value.mcpServers
+                    .firstOrNull { it.id == config.id }
                 if (sessions[config.id] !== session ||
+                    latestConfig == null ||
+                    !latestConfig.isRemote ||
+                    !hasSameConnectionParameters(config, latestConfig) ||
                     !hasSameConnectionParameters(config, syncedConfig)
                 ) {
                     closeClient(sdkClient, config.commonOptions.name)
@@ -323,7 +332,13 @@ internal class McpSessionRegistry(
             old.copy(
                 mcpServers = old.mcpServers.map { storedConfig ->
                     if (storedConfig.id != connectionConfig.id) return@map storedConfig
-                    val tools = mergeTools(storedConfig.commonOptions.tools, serverTools)
+                    if (!storedConfig.isRemote ||
+                        !hasSameConnectionParameters(storedConfig, connectionConfig)
+                    ) {
+                        updatedConfig = storedConfig
+                        return@map storedConfig
+                    }
+                    val tools = mergeMcpTools(storedConfig.commonOptions.tools, serverTools)
                     storedConfig.clone(commonOptions = storedConfig.commonOptions.copy(tools = tools))
                         .also { updatedConfig = it }
                 }
@@ -396,6 +411,7 @@ internal class McpSessionRegistry(
             delay(delayMs)
             val latestConfig = settingsStore.settingsFlow.value.mcpServers.find {
                 it.id == session.config.id &&
+                    it.isRemote &&
                     it.commonOptions.enable &&
                     it.commonOptions.name.isNotBlank()
             } ?: return
@@ -452,6 +468,8 @@ internal class McpSessionRegistry(
             url = config.url,
             headers = config.resolvedHeaders().toMap(),
         )
+
+        is McpServerConfig.StdioServer -> error("STDIO transport is managed separately")
     }
 
     private fun calculateBackoffDelay(attempt: Int): Long {
@@ -479,6 +497,7 @@ internal fun McpServerConfig.connectionKey(): McpConnectionKey = McpConnectionKe
     transportType = when (this) {
         is McpServerConfig.SseTransportServer -> "sse"
         is McpServerConfig.StreamableHTTPServer -> "streamable_http"
+        is McpServerConfig.StdioServer -> "stdio"
     },
     serverUrl = serverUrl,
     clientName = commonOptions.name,
@@ -491,6 +510,7 @@ private fun hasSameConnectionParameters(
 ): Boolean = left != null && right != null && left.connectionKey() == right.connectionKey()
 
 internal fun McpServerConfig.resolvedHeaders(): List<Pair<String, String>> {
+    if (this is McpServerConfig.StdioServer) return emptyList()
     val base = commonOptions.headers
     val resource = McpOAuthClient.canonicalResource(serverUrl)
     val token = commonOptions.oauth
@@ -504,7 +524,7 @@ internal fun McpServerConfig.resolvedHeaders(): List<Pair<String, String>> {
     }
 }
 
-private fun mergeTools(storedTools: List<McpTool>, serverTools: List<Tool>): List<McpTool> {
+internal fun mergeMcpTools(storedTools: List<McpTool>, serverTools: List<Tool>): List<McpTool> {
     val toolsByName = storedTools.associateBy { it.name }
     return serverTools.map { serverTool ->
         toolsByName[serverTool.name]?.copy(

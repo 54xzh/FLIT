@@ -814,12 +814,13 @@ private fun SeatOverridesEditor(
                         )
                     }
                     McpPickerButton(
-                        assistant = mcpAssistant,
+                        selectedServerIds = mcpAssistant.mcpServers,
+                        visibleWorkspaceId = mcpAssistant.workspaceId,
                         servers = settings.mcpServers,
                         mcpManager = mcpManager,
-                        onUpdateAssistant = { updated ->
-                            onUpdateOverrides { it.copy(mcpServerIds = updated.mcpServers) }
-                        }
+                        onSelectionChange = { selected ->
+                            onUpdateOverrides { it.copy(mcpServerIds = selected) }
+                        },
                     )
                 }
             }

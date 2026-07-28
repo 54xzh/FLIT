@@ -3,6 +3,8 @@ package me.rerere.rikkahub.ui.pages.setting
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 
 import androidx.compose.foundation.background
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,17 +79,24 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CommentsDisabled
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Terminal
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import me.rerere.ai.core.InputSchema
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.ai.mcp.McpClaudeDesktopCodec
 import me.rerere.rikkahub.data.ai.mcp.McpOAuthClient
 import me.rerere.rikkahub.data.ai.mcp.McpOAuthState
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
 import me.rerere.rikkahub.data.ai.mcp.McpStatus
+import me.rerere.rikkahub.data.db.entity.WorkspaceType
+import me.rerere.rikkahub.ui.components.ai.WorkspaceSelectSheet
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
 import me.rerere.rikkahub.ui.components.ui.FormItem
@@ -106,24 +115,48 @@ import org.koin.compose.koinInject
 fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val mcpConfigs = settings.mcpServers
+    val context = LocalContext.current
+    val navController = me.rerere.rikkahub.ui.context.LocalNavController.current
+    val scope = rememberCoroutineScope()
+    val workspaceRepository = koinInject<me.rerere.rikkahub.data.repository.WorkspaceRepository>()
+    val workspaces by remember(workspaceRepository) { workspaceRepository.listFlow() }
+        .collectAsStateWithLifecycle(emptyList())
+    val sandboxWorkspaces = workspaces.filter { it.type == WorkspaceType.SANDBOX }
+    var pendingClaudeJson by remember { mutableStateOf<String?>(null) }
+    var importError by remember { mutableStateOf<String?>(null) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                            ?: error("Cannot read the selected file")
+                    }
+                }.onSuccess { pendingClaudeJson = it }
+                    .onFailure { importError = it.message }
+            }
+        }
+    }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    val json = McpClaudeDesktopCodec.exportStdioServers(mcpConfigs)
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(json) }
+                            ?: error("Cannot write the selected file")
+                    }
+                }.onFailure { importError = it.message }
+            }
+        }
+    }
     val creationState = useEditState<McpServerConfig> {
-        vm.updateSettings(
-            settings.copy(
-                mcpServers = mcpConfigs + it
-            )
-        )
+        vm.saveMcpConfig(it)
     }
     val editState = useEditState<McpServerConfig> { newConfig ->
-        vm.updateSettings(
-            settings.copy(
-                mcpServers = mcpConfigs.map {
-                    if (it.id == newConfig.id) {
-                        newConfig
-                    } else {
-                        it
-                    }
-                }
-            ))
+        vm.saveMcpConfig(newConfig)
     }
     
     // Delete confirmation state - at function level so accessible by dialog
@@ -141,6 +174,15 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                     BackButton()
                 },
                 actions = {
+                    IconButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/json")) }) {
+                        Icon(Icons.Rounded.FileUpload, stringResource(R.string.setting_mcp_page_import_claude))
+                    }
+                    IconButton(
+                        onClick = { exportLauncher.launch("claude_desktop_config.json") },
+                        enabled = mcpConfigs.any { it is McpServerConfig.StdioServer },
+                    ) {
+                        Icon(Icons.Rounded.FileDownload, stringResource(R.string.setting_mcp_page_export_claude))
+                    }
                     IconButton(
                         onClick = {
                             creationState.open(McpServerConfig.SseTransportServer())
@@ -228,6 +270,14 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                         
                         McpServerItem(
                             item = mcpConfig,
+                            workspaceAvailable = mcpConfig !is McpServerConfig.StdioServer ||
+                                sandboxWorkspaces.any { it.id == mcpConfig.workspaceId },
+                            workspaceReady = mcpConfig !is McpServerConfig.StdioServer ||
+                                sandboxWorkspaces.firstOrNull { it.id == mcpConfig.workspaceId }
+                                    ?.let { workspace ->
+                                        workspace.sandboxStatus ==
+                                            me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus.READY
+                                    } == true,
                             position = position,
                             neighborOffset = neighborOffset,
                             onDragProgress = { offset, unlocked ->
@@ -295,11 +345,7 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                 TextButton(
                     onClick = {
                         mcpToDelete?.let { mcp ->
-                            vm.updateSettings(
-                                settings.copy(
-                                    mcpServers = mcpConfigs.filter { it.id != mcp.id }
-                                )
-                            )
+                            vm.deleteMcpConfig(mcp)
                         }
                         showDeleteDialog = false
                         mcpToDelete = null
@@ -312,11 +358,43 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
     }
     McpServerConfigModal(creationState)
     McpServerConfigModal(editState)
+
+    if (pendingClaudeJson != null) {
+        WorkspaceSelectSheet(
+            selectedWorkspaceId = null,
+            workspaces = sandboxWorkspaces,
+            onSelect = { workspaceId ->
+                val json = pendingClaudeJson
+                if (workspaceId != null && json != null) {
+                    runCatching { McpClaudeDesktopCodec.importStdioServers(json, workspaceId) }
+                        .onSuccess(vm::importMcpConfigs)
+                        .onFailure { importError = it.message }
+                    pendingClaudeJson = null
+                }
+            },
+            onManage = { navController.navigate(me.rerere.rikkahub.Screen.Workspaces) },
+            onDismiss = { pendingClaudeJson = null },
+            noneOptionTitle = stringResource(R.string.setting_mcp_page_stdio_select_workspace),
+        )
+    }
+
+    importError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { importError = null },
+            title = { Text(stringResource(R.string.setting_mcp_page_import_error)) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { importError = null }) { Text(stringResource(R.string.confirm)) }
+            },
+        )
+    }
 }
 
 @Composable
 private fun McpServerItem(
     item: McpServerConfig,
+    workspaceAvailable: Boolean,
+    workspaceReady: Boolean,
     position: ItemPosition,
     neighborOffset: Float = 0f,
     onDragProgress: ((Float, Boolean) -> Unit)? = null,
@@ -327,6 +405,7 @@ private fun McpServerItem(
 ) {
     val mcpManager = koinInject<McpManager>()
     val status by mcpManager.getStatus(item).collectAsStateWithLifecycle(McpStatus.Idle)
+    var showErrorDetail by remember { mutableStateOf(false) }
     
     PhysicsSwipeToDelete(
         onDelete = onDelete,
@@ -358,6 +437,7 @@ private fun McpServerItem(
                     )
 
                     McpStatus.Connected -> Icon(Icons.Rounded.Terminal, null)
+                    McpStatus.Ready -> Icon(Icons.Rounded.Terminal, null)
                     is McpStatus.Reconnecting -> CircularProgressIndicator(
                         modifier = Modifier.size(24.dp)
                     )
@@ -400,6 +480,7 @@ private fun McpServerItem(
                             when (item) {
                                 is McpServerConfig.SseTransportServer -> Text(stringResource(R.string.setting_mcp_page_transport_sse))
                                 is McpServerConfig.StreamableHTTPServer -> Text(stringResource(R.string.setting_mcp_page_transport_streamable_http))
+                                is McpServerConfig.StdioServer -> Text(stringResource(R.string.setting_mcp_page_transport_stdio))
                             }
                         }
                         when (status) {
@@ -419,6 +500,15 @@ private fun McpServerItem(
                                 Text(stringResource(R.string.mcp_status_error_format, msg), maxLines = 3)
                             }
                             else -> Unit
+                        }
+                        if (!workspaceAvailable) {
+                            Tag(type = TagType.ERROR) {
+                                Text(stringResource(R.string.mcp_status_workspace_missing))
+                            }
+                        } else if (!workspaceReady) {
+                            Tag(type = TagType.WARNING) {
+                                Text(stringResource(R.string.mcp_status_rootfs_not_ready))
+                            }
                         }
                     }
                     val canAuthorize = status == McpStatus.NeedsAuthorization ||
@@ -440,6 +530,11 @@ private fun McpServerItem(
                             Text(stringResource(R.string.mcp_oauth_cancel))
                         }
                     }
+                    if ((status as? McpStatus.Error)?.detail != null) {
+                        TextButton(onClick = { showErrorDetail = true }) {
+                            Text(stringResource(R.string.setting_mcp_page_error_details))
+                        }
+                    }
                 }
 
                 IconButton(
@@ -451,6 +546,17 @@ private fun McpServerItem(
                 }
             }
         }
+    }
+    val errorDetail = (status as? McpStatus.Error)?.detail
+    if (showErrorDetail && errorDetail != null) {
+        AlertDialog(
+            onDismissRequest = { showErrorDetail = false },
+            title = { Text(stringResource(R.string.setting_mcp_page_error_details)) },
+            text = { Text(errorDetail) },
+            confirmButton = {
+                TextButton(onClick = { showErrorDetail = false }) { Text(stringResource(R.string.confirm)) }
+            },
+        )
     }
 }
 
@@ -539,14 +645,22 @@ private fun McpServerConfigModal(state: EditState<McpServerConfig>) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
+                    val canSave = config.commonOptions.name.isNotBlank() && when (config) {
+                        is McpServerConfig.StdioServer ->
+                            config.workspaceId.isNotBlank() &&
+                                config.command.isNotBlank() &&
+                                config.workingDirectory.startsWith('/')
+                        else -> true
+                    }
                     TextButton(
                         onClick = {
-                            if (config.commonOptions.name.isNotBlank()) {
+                            if (canSave) {
                                 state.confirm()
                             }
-                        }
+                        },
+                        enabled = canSave,
                     ) {
-                        Text(stringResource(R.string.setting_mcp_page_save))
+                        Text(stringResource(R.string.setting_mcp_page_save_and_sync))
                     }
                 }
             }
@@ -586,17 +700,7 @@ private fun McpCommonOptionsConfigure(
                 HapticSwitch(
                     checked = config.commonOptions.enable,
                     onCheckedChange = { enabled ->
-                        update(
-                            when (config) {
-                                is McpServerConfig.SseTransportServer -> config.copy(
-                                    commonOptions = config.commonOptions.copy(enable = enabled)
-                                )
-
-                                is McpServerConfig.StreamableHTTPServer -> config.copy(
-                                    commonOptions = config.commonOptions.copy(enable = enabled)
-                                )
-                            }
-                        )
+                        update(config.clone(commonOptions = config.commonOptions.copy(enable = enabled)))
                     }
                 )
             }
@@ -616,17 +720,7 @@ private fun McpCommonOptionsConfigure(
             OutlinedTextField(
                 value = config.commonOptions.name,
                 onValueChange = { name ->
-                    update(
-                        when (config) {
-                            is McpServerConfig.SseTransportServer -> config.copy(
-                                commonOptions = config.commonOptions.copy(name = name)
-                            )
-
-                            is McpServerConfig.StreamableHTTPServer -> config.copy(
-                                commonOptions = config.commonOptions.copy(name = name)
-                            )
-                        }
-                    )
+                    update(config.clone(commonOptions = config.commonOptions.copy(name = name)))
                 },
                 label = { Text(stringResource(R.string.setting_mcp_page_name)) },
                 modifier = Modifier.fillMaxWidth(),
@@ -647,11 +741,13 @@ private fun McpCommonOptionsConfigure(
         ) {
             val transportTypes = listOf(
                 "SSE",
-                "Streamable HTTP"
+                "HTTP",
+                "STDIO",
             )
             val currentTypeIndex = when (config) {
                 is McpServerConfig.SseTransportServer -> 0
                 is McpServerConfig.StreamableHTTPServer -> 1
+                is McpServerConfig.StdioServer -> 2
             }
 
             SingleChoiceSegmentedButtonRow(
@@ -669,6 +765,7 @@ private fun McpCommonOptionsConfigure(
                                         url = when (config) {
                                             is McpServerConfig.SseTransportServer -> config.url
                                             is McpServerConfig.StreamableHTTPServer -> config.url
+                                            is McpServerConfig.StdioServer -> ""
                                         }
                                     )
 
@@ -678,7 +775,17 @@ private fun McpCommonOptionsConfigure(
                                         url = when (config) {
                                             is McpServerConfig.SseTransportServer -> config.url
                                             is McpServerConfig.StreamableHTTPServer -> config.url
+                                            is McpServerConfig.StdioServer -> ""
                                         }
+                                    )
+
+                                    2 -> McpServerConfig.StdioServer(
+                                        id = config.id,
+                                        commonOptions = config.commonOptions.copy(
+                                            headers = emptyList(),
+                                            oauth = null,
+                                            tools = emptyList(),
+                                        ),
                                     )
 
                                     else -> config
@@ -696,6 +803,9 @@ private fun McpCommonOptionsConfigure(
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        if (config is McpServerConfig.StdioServer) {
+            McpStdioOptionsConfigure(config, update)
+        } else {
         // 服务器地址配置
         FormItem(
             label = {
@@ -706,6 +816,7 @@ private fun McpCommonOptionsConfigure(
                     when (config) {
                         is McpServerConfig.SseTransportServer -> stringResource(R.string.setting_mcp_page_sse_url_desc)
                         is McpServerConfig.StreamableHTTPServer -> stringResource(R.string.setting_mcp_page_streamable_http_url_desc)
+                        is McpServerConfig.StdioServer -> ""
                     }
                 )
             }
@@ -714,6 +825,7 @@ private fun McpCommonOptionsConfigure(
                 value = when (config) {
                     is McpServerConfig.SseTransportServer -> config.url
                     is McpServerConfig.StreamableHTTPServer -> config.url
+                    is McpServerConfig.StdioServer -> ""
                 },
                 onValueChange = { url ->
                     update(
@@ -726,6 +838,7 @@ private fun McpCommonOptionsConfigure(
                                 url = url,
                                 commonOptions = config.commonOptions.copy(oauth = null),
                             )
+                            is McpServerConfig.StdioServer -> config
                         }
                     )
                 },
@@ -736,6 +849,7 @@ private fun McpCommonOptionsConfigure(
                         when (config) {
                             is McpServerConfig.SseTransportServer -> stringResource(R.string.setting_mcp_page_sse_url_placeholder)
                             is McpServerConfig.StreamableHTTPServer -> stringResource(R.string.setting_mcp_page_streamable_http_url_placeholder)
+                            is McpServerConfig.StdioServer -> ""
                         }
                     )
                 }
@@ -867,6 +981,7 @@ private fun McpCommonOptionsConfigure(
                                             is McpServerConfig.StreamableHTTPServer -> config.copy(
                                                 commonOptions = config.commonOptions.copy(headers = updatedHeaders)
                                             )
+                                            is McpServerConfig.StdioServer -> config
                                         }
                                     )
                                 },
@@ -891,6 +1006,7 @@ private fun McpCommonOptionsConfigure(
                                             is McpServerConfig.StreamableHTTPServer -> config.copy(
                                                 commonOptions = config.commonOptions.copy(headers = updatedHeaders)
                                             )
+                                            is McpServerConfig.StdioServer -> config
                                         }
                                     )
                                 },
@@ -911,6 +1027,7 @@ private fun McpCommonOptionsConfigure(
                                     is McpServerConfig.StreamableHTTPServer -> config.copy(
                                         commonOptions = config.commonOptions.copy(headers = updatedHeaders)
                                     )
+                                    is McpServerConfig.StdioServer -> config
                                 }
                             )
                         }) {
@@ -935,6 +1052,7 @@ private fun McpCommonOptionsConfigure(
                                 is McpServerConfig.StreamableHTTPServer -> config.copy(
                                     commonOptions = config.commonOptions.copy(headers = updatedHeaders)
                                 )
+                                is McpServerConfig.StdioServer -> config
                             }
                         )
                     },
@@ -949,6 +1067,187 @@ private fun McpCommonOptionsConfigure(
                 }
             }
         }
+        }
+    }
+}
+
+@Composable
+private fun McpStdioOptionsConfigure(
+    config: McpServerConfig.StdioServer,
+    update: (McpServerConfig) -> Unit,
+) {
+    val workspaceRepository = koinInject<me.rerere.rikkahub.data.repository.WorkspaceRepository>()
+    val navController = me.rerere.rikkahub.ui.context.LocalNavController.current
+    val workspaces by remember(workspaceRepository) { workspaceRepository.listFlow() }
+        .collectAsStateWithLifecycle(emptyList())
+    val sandboxes = workspaces.filter { it.type == WorkspaceType.SANDBOX }
+    val selectedWorkspace = sandboxes.firstOrNull { it.id == config.workspaceId }
+    var showWorkspacePicker by remember { mutableStateOf(false) }
+
+    FormItem(
+        label = { Text(stringResource(R.string.setting_mcp_page_stdio_workspace)) },
+        description = { Text(stringResource(R.string.setting_mcp_page_stdio_trust_warning)) },
+    ) {
+        Button(
+            onClick = { showWorkspacePicker = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(selectedWorkspace?.name ?: stringResource(R.string.setting_mcp_page_stdio_select_workspace))
+        }
+    }
+
+    FormItem(
+        label = { Text(stringResource(R.string.setting_mcp_page_stdio_command)) },
+        description = { Text(stringResource(R.string.setting_mcp_page_stdio_command_desc)) },
+    ) {
+        OutlinedTextField(
+            value = config.command,
+            onValueChange = { update(config.copy(command = it)) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+    }
+
+    FormItem(
+        label = { Text(stringResource(R.string.setting_mcp_page_stdio_args)) },
+        description = { Text(stringResource(R.string.setting_mcp_page_stdio_args_desc)) },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            config.args.forEachIndexed { index, argument ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = argument,
+                        onValueChange = { value ->
+                            update(config.copy(args = config.args.toMutableList().apply { this[index] = value }))
+                        },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.setting_mcp_page_stdio_arg, index + 1)) },
+                    )
+                    IconButton(onClick = {
+                        update(config.copy(args = config.args.toMutableList().apply { removeAt(index) }))
+                    }) {
+                        Icon(Icons.Rounded.Delete, stringResource(R.string.delete))
+                    }
+                }
+            }
+            Button(
+                onClick = { update(config.copy(args = config.args + "")) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Rounded.Add, null)
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.setting_mcp_page_stdio_add_arg))
+            }
+        }
+    }
+
+    FormItem(
+        label = { Text(stringResource(R.string.setting_mcp_page_stdio_working_directory)) },
+        description = { Text(stringResource(R.string.setting_mcp_page_stdio_working_directory_desc)) },
+    ) {
+        OutlinedTextField(
+            value = config.workingDirectory,
+            onValueChange = { update(config.copy(workingDirectory = it)) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+    }
+
+    FormItem(
+        label = { Text(stringResource(R.string.setting_mcp_page_stdio_environment)) },
+        description = { Text(stringResource(R.string.setting_mcp_page_stdio_environment_desc)) },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            config.environment.entries.toList().forEachIndexed { index, entry ->
+                val entries = config.environment.entries.toList()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        OutlinedTextField(
+                            value = entry.key,
+                            onValueChange = { name ->
+                                val updated = linkedMapOf<String, String>()
+                                entries.forEachIndexed { currentIndex, current ->
+                                    updated[if (currentIndex == index) name else current.key] = current.value
+                                }
+                                update(config.copy(environment = updated))
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text(stringResource(R.string.setting_mcp_page_stdio_env_name)) },
+                        )
+                        OutlinedTextField(
+                            value = entry.value,
+                            onValueChange = { value ->
+                                update(config.copy(environment = config.environment + (entry.key to value)))
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text(stringResource(R.string.setting_mcp_page_stdio_env_value)) },
+                            visualTransformation = PasswordVisualTransformation(),
+                        )
+                    }
+                    IconButton(onClick = {
+                        update(config.copy(environment = config.environment - entry.key))
+                    }) {
+                        Icon(Icons.Rounded.Delete, stringResource(R.string.delete))
+                    }
+                }
+            }
+            Button(
+                onClick = {
+                    var index = config.environment.size + 1
+                    var name = "VARIABLE_$index"
+                    while (name in config.environment) {
+                        index++
+                        name = "VARIABLE_$index"
+                    }
+                    update(config.copy(environment = config.environment + (name to "")))
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Rounded.Add, null)
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.setting_mcp_page_stdio_add_env))
+            }
+        }
+    }
+
+    FormItem(
+        label = { Text(stringResource(R.string.setting_mcp_page_stdio_startup_timeout)) },
+        description = { Text(stringResource(R.string.setting_mcp_page_stdio_startup_timeout_desc)) },
+    ) {
+        OutlinedTextField(
+            value = config.startupTimeoutSeconds.toString(),
+            onValueChange = { value ->
+                value.toIntOrNull()?.coerceIn(1, 900)?.let {
+                    update(config.copy(startupTimeoutSeconds = it))
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        )
+    }
+
+    if (showWorkspacePicker) {
+        WorkspaceSelectSheet(
+            selectedWorkspaceId = config.workspaceId.ifBlank { null },
+            workspaces = sandboxes,
+            onSelect = { workspaceId ->
+                if (workspaceId != null) update(config.copy(workspaceId = workspaceId))
+                showWorkspacePicker = false
+            },
+            onManage = { navController.navigate(me.rerere.rikkahub.Screen.Workspaces) },
+            onDismiss = { showWorkspacePicker = false },
+            noneOptionTitle = stringResource(R.string.setting_mcp_page_stdio_select_workspace),
+        )
     }
 }
 
@@ -994,7 +1293,7 @@ private fun McpToolsConfigure(
         verticalArrangement = Arrangement.spacedBy(4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (mcpManager.getClient(config) == null) {
+        if (mcpManager.getClient(config) == null && config.commonOptions.tools.isEmpty()) {
             item {
                 Text(stringResource(R.string.setting_mcp_page_tools_unavailable_message))
             }

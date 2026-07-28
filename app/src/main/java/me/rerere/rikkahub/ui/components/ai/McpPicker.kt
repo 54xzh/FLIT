@@ -47,7 +47,9 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
 import me.rerere.rikkahub.data.ai.mcp.McpStatus
-import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.ai.mcp.isVisibleForWorkspace
+import me.rerere.rikkahub.data.ai.mcp.isMcpServerEffective
+import kotlin.uuid.Uuid
 import me.rerere.rikkahub.ui.components.ui.Tag
 import me.rerere.rikkahub.ui.components.ui.TagType
 import me.rerere.rikkahub.ui.components.ui.ToggleSurface
@@ -55,21 +57,31 @@ import org.koin.compose.koinInject
 
 @Composable
 fun McpPickerButton(
-    assistant: Assistant,
+    selectedServerIds: Set<Uuid>,
+    visibleWorkspaceId: String?,
     servers: List<McpServerConfig>,
     mcpManager: McpManager,
     modifier: Modifier = Modifier,
-    onUpdateAssistant: (Assistant) -> Unit
+    onSelectionChange: (Set<Uuid>) -> Unit,
 ) {
     var showMcpPicker by remember { mutableStateOf(false) }
+    val workspaceRepository = koinInject<me.rerere.rikkahub.data.repository.WorkspaceRepository>()
+    val workspaces by remember(workspaceRepository) { workspaceRepository.listFlow() }
+        .collectAsStateWithLifecycle(emptyList())
     val status by mcpManager.syncingStatus.collectAsStateWithLifecycle()
     val loading = status.values.any { it == McpStatus.Connecting }
-    val enabledServers = servers.fastFilter {
-        it.commonOptions.enable && assistant.mcpServers.contains(it.id)
+    val visibleServers = servers.fastFilter {
+        it.commonOptions.enable && it.isVisibleForWorkspace(visibleWorkspaceId)
+    }
+    val enabledServers = visibleServers.fastFilter {
+        isMcpServerEffective(it, selectedServerIds, visibleWorkspaceId) &&
+            (it !is McpServerConfig.StdioServer ||
+                workspaces.firstOrNull { workspace -> workspace.id == it.workspaceId }?.sandboxStatus ==
+                me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus.READY)
     }
     ToggleSurface(
         modifier = modifier,
-        checked = assistant.mcpServers.isNotEmpty(),
+        checked = enabledServers.isNotEmpty(),
         onClick = {
             showMcpPicker = true
         }
@@ -144,11 +156,10 @@ fun McpPickerButton(
                     }
                 }
                 McpPicker(
-                    assistant = assistant,
+                    selectedServerIds = selectedServerIds,
+                    visibleWorkspaceId = visibleWorkspaceId,
                     servers = servers,
-                    onUpdateAssistant = {
-                        onUpdateAssistant(it)
-                    },
+                    onSelectionChange = onSelectionChange,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
@@ -160,18 +171,27 @@ fun McpPickerButton(
 
 @Composable
 fun McpPicker(
-    assistant: Assistant,
+    selectedServerIds: Set<Uuid>,
+    visibleWorkspaceId: String?,
     servers: List<McpServerConfig>,
     modifier: Modifier = Modifier,
-    onUpdateAssistant: (Assistant) -> Unit
+    onSelectionChange: (Set<Uuid>) -> Unit,
 ) {
     val mcpManager = koinInject<McpManager>()
+    val workspaceRepository = koinInject<me.rerere.rikkahub.data.repository.WorkspaceRepository>()
+    val workspaces by remember(workspaceRepository) { workspaceRepository.listFlow() }
+        .collectAsStateWithLifecycle(emptyList())
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        items(servers.fastFilter { it.commonOptions.enable }) { server ->
+        items(servers.fastFilter {
+            it.commonOptions.enable && it.isVisibleForWorkspace(visibleWorkspaceId)
+        }) { server ->
             val status by mcpManager.getStatus(server).collectAsStateWithLifecycle(McpStatus.Idle)
+            val stdioRuntimeReady = server !is McpServerConfig.StdioServer ||
+                workspaces.firstOrNull { it.id == server.workspaceId }?.sandboxStatus ==
+                    me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus.READY
             Card(
                 shape = me.rerere.rikkahub.ui.theme.AppShapes.CardLarge,
                 colors = CardDefaults.cardColors(
@@ -194,6 +214,7 @@ fun McpPicker(
                         )
 
                         McpStatus.Connected -> Icon(Icons.Rounded.Terminal, null)
+                        McpStatus.Ready -> Icon(Icons.Rounded.Terminal, null)
                         is McpStatus.Reconnecting -> CircularProgressIndicator(
                             modifier = Modifier.size(24.dp)
                         )
@@ -212,10 +233,13 @@ fun McpPicker(
                             style = MaterialTheme.typography.titleLarge,
                         )
                         Text(
-                            text = when (status) {
+                            text = if (!stdioRuntimeReady) {
+                                stringResource(R.string.mcp_status_rootfs_not_ready)
+                            } else when (status) {
                                 is McpStatus.Idle -> stringResource(R.string.mcp_status_idle)
                                 is McpStatus.Connecting -> stringResource(R.string.mcp_status_connecting)
                                 is McpStatus.Connected -> stringResource(R.string.mcp_status_connected)
+                                is McpStatus.Ready -> stringResource(R.string.mcp_status_ready)
                                 is McpStatus.Reconnecting -> stringResource(
                                     R.string.mcp_status_reconnecting_format,
                                     (status as McpStatus.Reconnecting).attempt,
@@ -233,7 +257,7 @@ fun McpPicker(
                             color = LocalContentColor.current.copy(alpha = 0.8f),
                             maxLines = 5
                         )
-                        if (status == McpStatus.Connected) {
+                        if (status == McpStatus.Connected || status == McpStatus.Ready) {
                             val tools = server.commonOptions.tools
                             val enabledTools = tools.fastFilter { it.enable }
                             Tag(
@@ -244,27 +268,11 @@ fun McpPicker(
                         }
                     }
                     HapticSwitch(
-                        checked = server.id in assistant.mcpServers,
+                        checked = server.id in selectedServerIds,
                         onCheckedChange = {
-                            if (it) {
-                                val newServers = assistant.mcpServers.toMutableSet()
-                                newServers.add(server.id)
-                                newServers.removeIf { servers.none { s -> s.id == server.id } } // remove invalid servers
-                                onUpdateAssistant(
-                                    assistant.copy(
-                                        mcpServers = newServers.toSet()
-                                    )
-                                )
-                            } else {
-                                val newServers = assistant.mcpServers.toMutableSet()
-                                newServers.remove(server.id)
-                                newServers.removeIf { servers.none { s -> s.id == server.id } } //  remove invalid servers
-                                onUpdateAssistant(
-                                    assistant.copy(
-                                        mcpServers = newServers.toSet()
-                                    )
-                                )
-                            }
+                            onSelectionChange(
+                                if (it) selectedServerIds + server.id else selectedServerIds - server.id
+                            )
                         }
                     )
                 }

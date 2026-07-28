@@ -148,7 +148,17 @@ val dataSourceModule = module {
 
     single { AppEventBus() }
 
-    single { McpManager(settingsStore = get(), appScope = get(), appEventBus = get()) }
+    single {
+        McpManager(
+            settingsStore = get(),
+            appScope = get(),
+            appEventBus = get(),
+            workspaceRepository = get(),
+            sandboxWorkspaceManager = get(),
+            sandboxProcessLauncher = get(),
+            sandboxProcessCoordinator = get(),
+        )
+    }
 
     single {
         GenerationHandler(
