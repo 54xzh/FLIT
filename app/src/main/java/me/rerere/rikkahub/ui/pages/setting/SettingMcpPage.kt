@@ -34,7 +34,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -74,7 +73,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -125,7 +123,6 @@ import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.ui.theme.extendColors
-import me.rerere.rikkahub.utils.getText
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
@@ -1308,7 +1305,6 @@ private fun McpImportSheet(
     val scope = rememberCoroutineScope()
     val haptics = rememberPremiumHaptics()
     val toaster = LocalToaster.current
-    val clipboard = LocalClipboard.current
     val context = LocalContext.current
     val navController = me.rerere.rikkahub.ui.context.LocalNavController.current
 
@@ -1361,24 +1357,6 @@ private fun McpImportSheet(
                 textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
                 placeholder = { Text(stringResource(R.string.setting_mcp_page_import_placeholder)) },
             )
-            FilledTonalButton(
-                onClick = {
-                    haptics.perform(HapticPattern.Pop)
-                    scope.launch {
-                        clipboard.getClipEntry()?.clipData?.getText()?.let {
-                            text = it
-                            errorMessage = null
-                        }
-                    }
-                },
-                modifier = Modifier.align(Alignment.End),
-            ) {
-                Icon(Icons.Rounded.ContentPaste, null)
-                Text(
-                    stringResource(R.string.setting_mcp_page_import_paste),
-                    modifier = Modifier.padding(start = 4.dp),
-                )
-            }
             FormItem(
                 label = { Text(stringResource(R.string.setting_mcp_page_stdio_workspace)) },
                 description = {

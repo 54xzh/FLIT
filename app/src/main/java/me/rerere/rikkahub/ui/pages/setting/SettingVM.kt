@@ -80,9 +80,13 @@ class SettingVM(
     fun importMcpConfigs(configs: List<McpServerConfig>) {
         if (configs.isEmpty()) return
         viewModelScope.launch {
-            // McpManager observes settingsFlow.mcpServers and reconciles new servers automatically
             settingsStore.update { latest ->
                 latest.copy(mcpServers = latest.mcpServers + configs)
+            }
+            // 对齐手动添加：reconcile 不会为新增的 STDIO 服务器拉取工具列表，
+            // 需主动触发一次连接同步，否则助手无法使用其工具
+            configs.forEach { config ->
+                runCatching { mcpManager.addClient(config) }
             }
         }
     }

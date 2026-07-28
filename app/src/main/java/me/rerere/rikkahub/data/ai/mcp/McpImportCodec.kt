@@ -35,6 +35,8 @@ data class McpImportResult(
  * ```
  * The outer `mcpServers` wrapper is optional; a bare `{ name: {...} }` object is accepted too.
  * Entries without `type` are treated as STDIO when they carry a `command`.
+ * Remote `type` aliases are accepted: `http` / `streamable-http` / `streamable_http` map to
+ * streamable HTTP, `sse` maps to SSE.
  * [workspaceId] is applied to STDIO entries only; remote transports ignore it. STDIO entries
  * are skipped (and counted in [McpImportResult.skippedStdio]) when [workspaceId] is blank,
  * so remote servers can still be imported without a sandbox selection.
@@ -103,7 +105,7 @@ object McpImportCodec {
                     )
                 )
             }
-            type == "http" && url != null -> EntryResult.Parsed(
+            (type == "http" || type == "streamable-http" || type == "streamable_http" || type == "streamablehttp") && url != null -> EntryResult.Parsed(
                 McpServerConfig.StreamableHTTPServer(
                     commonOptions = McpCommonOptions(name = name, headers = headers),
                     url = url,

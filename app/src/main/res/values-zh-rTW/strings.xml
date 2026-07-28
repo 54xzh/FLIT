@@ -2385,8 +2385,7 @@
     <string name="setting_mcp_page_import_close">關閉</string>
     <string name="setting_mcp_page_import_title">匯入 MCP 設定</string>
     <string name="setting_mcp_page_import_placeholder">貼上 Claude Code 相容的設定，例如 {\"mcpServers\": {…}}</string>
-    <string name="setting_mcp_page_import_paste">貼上</string>
-    <string name="setting_mcp_page_import_workspace_desc">用於執行匯入的 STDIO 伺服器的沙盒；SSE/HTTP 伺服器將忽略此項</string>
+    <string name="setting_mcp_page_import_workspace_desc">僅 STDIO 類型的 MCP 伺服器需要選擇，SSE/HTTP 類型會自動忽略</string>
     <string name="setting_mcp_page_import_action">匯入</string>
     <string name="setting_mcp_page_import_success">已匯入 %1$d 個伺服器</string>
     <string name="setting_mcp_page_import_skipped_stdio">已略過 %1$d 個 STDIO 伺服器：未選擇沙盒</string>

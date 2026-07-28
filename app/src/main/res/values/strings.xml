@@ -2395,8 +2395,7 @@
     <string name="setting_mcp_page_import_close">Close</string>
     <string name="setting_mcp_page_import_title">Import MCP config</string>
     <string name="setting_mcp_page_import_placeholder">Paste a Claude Code compatible config, e.g. {\"mcpServers\": {…}}</string>
-    <string name="setting_mcp_page_import_paste">Paste</string>
-    <string name="setting_mcp_page_import_workspace_desc">Sandbox used to run imported STDIO servers; ignored for SSE/HTTP servers</string>
+    <string name="setting_mcp_page_import_workspace_desc">Only STDIO MCP servers need a sandbox; SSE/HTTP types are ignored automatically</string>
     <string name="setting_mcp_page_import_action">Import</string>
     <string name="setting_mcp_page_import_success">Imported %1$d server(s)</string>
     <string name="setting_mcp_page_import_skipped_stdio">Skipped %1$d STDIO server(s): no sandbox selected</string>

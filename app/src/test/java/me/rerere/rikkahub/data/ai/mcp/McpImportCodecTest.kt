@@ -158,6 +158,25 @@ class McpImportCodecTest {
     }
 
     @Test
+    fun `streamable-http type alias maps to streamable http`() {
+        val json = """
+            {
+              "mcpServers": {
+                "context7": {
+                  "type": "streamable-http",
+                  "url": "https://mcp.context7.com/mcp"
+                }
+              }
+            }
+        """.trimIndent()
+
+        val config = McpImportCodec.parse(json, workspaceId = "").configs.single()
+        assertTrue(config is McpServerConfig.StreamableHTTPServer)
+        assertEquals("context7", config.commonOptions.name)
+        assertEquals("https://mcp.context7.com/mcp", (config as McpServerConfig.StreamableHTTPServer).url)
+    }
+
+    @Test
     fun `explicit stdio type with command parses as stdio`() {
         val json = """
             { "mcpServers": { "typed": { "type": "stdio", "command": "node" } } }
