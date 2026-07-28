@@ -34,6 +34,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -56,6 +57,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -72,8 +74,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,6 +89,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CommentsDisabled
+import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -92,12 +98,16 @@ import androidx.compose.material.icons.rounded.Terminal
 import kotlinx.coroutines.launch
 import me.rerere.ai.core.InputSchema
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.mcp.McpImportCodec
+import me.rerere.rikkahub.data.ai.mcp.McpImportError
+import me.rerere.rikkahub.data.ai.mcp.McpImportException
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.mcp.McpOAuthClient
 import me.rerere.rikkahub.data.ai.mcp.McpOAuthState
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
 import me.rerere.rikkahub.data.ai.mcp.McpStatus
 import me.rerere.rikkahub.data.db.entity.WorkspaceType
+import me.rerere.rikkahub.data.repository.Workspace
 import me.rerere.rikkahub.ui.components.ai.WorkspaceSelectSheet
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
@@ -106,12 +116,16 @@ import me.rerere.rikkahub.ui.components.ui.Tag
 import me.rerere.rikkahub.ui.components.ui.TagType
 import me.rerere.rikkahub.ui.components.ui.PhysicsSwipeToDelete
 import me.rerere.rikkahub.ui.components.ui.ItemPosition
+import me.rerere.rikkahub.ui.components.ui.ToastType
+import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.EditState
 import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.hooks.useEditState
+import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.ui.theme.extendColors
+import me.rerere.rikkahub.utils.getText
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
@@ -133,9 +147,10 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
     // Delete confirmation state - at function level so accessible by dialog
     var showDeleteDialog by remember { mutableStateOf(false) }
     var mcpToDelete by remember { mutableStateOf<McpServerConfig?>(null) }
+    var showImportSheet by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val lazyListState = rememberLazyListState()
-    
+
     Scaffold(
         topBar = {
             OneUITopAppBar(
@@ -145,6 +160,16 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                     BackButton()
                 },
                 actions = {
+                    IconButton(
+                        onClick = {
+                            showImportSheet = true
+                        }
+                    ) {
+                        Icon(
+                            Icons.Rounded.ContentPaste,
+                            contentDescription = stringResource(R.string.setting_mcp_page_import),
+                        )
+                    }
                     IconButton(
                         onClick = {
                             creationState.open(McpServerConfig.SseTransportServer())
@@ -320,6 +345,13 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
     }
     McpServerConfigModal(creationState)
     McpServerConfigModal(editState)
+    if (showImportSheet) {
+        McpImportSheet(
+            sandboxes = sandboxWorkspaces,
+            onImport = { vm.importMcpConfigs(it) },
+            onDismiss = { showImportSheet = false },
+        )
+    }
 }
 
 @Composable
@@ -1257,6 +1289,178 @@ private fun McpStdioOptionsConfigure(
             workspaces = sandboxes,
             onSelect = { workspaceId ->
                 if (workspaceId != null) update(config.copy(workspaceId = workspaceId))
+                showWorkspacePicker = false
+            },
+            onManage = { navController.navigate(me.rerere.rikkahub.Screen.Workspaces) },
+            onDismiss = { showWorkspacePicker = false },
+            showNoneOption = false,
+        )
+    }
+}
+
+@Composable
+private fun McpImportSheet(
+    sandboxes: List<Workspace>,
+    onImport: (List<McpServerConfig>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val haptics = rememberPremiumHaptics()
+    val toaster = LocalToaster.current
+    val clipboard = LocalClipboard.current
+    val context = LocalContext.current
+    val navController = me.rerere.rikkahub.ui.context.LocalNavController.current
+
+    var text by remember { mutableStateOf("") }
+    var selectedWorkspaceId by remember { mutableStateOf("") }
+    var showWorkspacePicker by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val selectedWorkspace = sandboxes.firstOrNull { it.id == selectedWorkspaceId }
+
+    ModalBottomSheet(
+        onDismissRequest = {
+            scope.launch { sheetState.hide(); onDismiss() }
+        },
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
+        dragHandle = {
+            IconButton(onClick = {
+                scope.launch { sheetState.hide(); onDismiss() }
+            }) {
+                Icon(
+                    Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = stringResource(R.string.setting_mcp_page_import_close),
+                )
+            }
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.setting_mcp_page_import_title),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            OutlinedTextField(
+                value = text,
+                onValueChange = {
+                    text = it
+                    errorMessage = null
+                },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 8,
+                maxLines = 15,
+                textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                placeholder = { Text(stringResource(R.string.setting_mcp_page_import_placeholder)) },
+            )
+            FilledTonalButton(
+                onClick = {
+                    haptics.perform(HapticPattern.Pop)
+                    scope.launch {
+                        clipboard.getClipEntry()?.clipData?.getText()?.let {
+                            text = it
+                            errorMessage = null
+                        }
+                    }
+                },
+                modifier = Modifier.align(Alignment.End),
+            ) {
+                Icon(Icons.Rounded.ContentPaste, null)
+                Text(
+                    stringResource(R.string.setting_mcp_page_import_paste),
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
+            FormItem(
+                label = { Text(stringResource(R.string.setting_mcp_page_stdio_workspace)) },
+                description = {
+                    Column {
+                        Text(stringResource(R.string.setting_mcp_page_import_workspace_desc))
+                        Text(stringResource(R.string.setting_mcp_page_stdio_trust_warning))
+                    }
+                },
+            ) {
+                ExposedDropdownMenuBox(
+                    expanded = showWorkspacePicker,
+                    onExpandedChange = {
+                        haptics.perform(HapticPattern.Pop)
+                        showWorkspacePicker = true
+                    },
+                ) {
+                    OutlinedTextField(
+                        value = selectedWorkspace?.name ?: "",
+                        onValueChange = {},
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                        readOnly = true,
+                        singleLine = true,
+                        placeholder = { Text(stringResource(R.string.setting_mcp_page_stdio_select_workspace)) },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = showWorkspacePicker)
+                        },
+                    )
+                }
+            }
+            errorMessage?.let {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Button(
+                onClick = {
+                    haptics.perform(HapticPattern.Pop)
+                    runCatching { McpImportCodec.parse(text, selectedWorkspaceId) }
+                        .onSuccess { result ->
+                            onImport(result.configs)
+                            haptics.perform(HapticPattern.Success)
+                            toaster.show(
+                                message = buildString {
+                                    append(context.getString(R.string.setting_mcp_page_import_success, result.configs.size))
+                                    if (result.skippedStdio > 0) {
+                                        append("\n")
+                                        append(context.getString(R.string.setting_mcp_page_import_skipped_stdio, result.skippedStdio))
+                                    }
+                                },
+                                type = ToastType.Success,
+                            )
+                            scope.launch { sheetState.hide(); onDismiss() }
+                        }
+                        .onFailure { error ->
+                            haptics.perform(HapticPattern.Error)
+                            errorMessage = when ((error as? McpImportException)?.kind) {
+                                McpImportError.NotAnObject -> context.getString(R.string.setting_mcp_page_import_error_not_json)
+                                McpImportError.NoServers -> context.getString(R.string.setting_mcp_page_import_error_no_servers)
+                                McpImportError.SandboxRequired -> context.getString(R.string.setting_mcp_page_import_error_sandbox_required)
+                                null -> context.getString(R.string.setting_mcp_page_import_error)
+                            }
+                        }
+                },
+                enabled = text.isNotBlank(),
+                shape = AppShapes.ButtonPill,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.setting_mcp_page_import_action))
+            }
+        }
+    }
+
+    if (showWorkspacePicker) {
+        WorkspaceSelectSheet(
+            selectedWorkspaceId = selectedWorkspaceId.ifBlank { null },
+            workspaces = sandboxes,
+            onSelect = { workspaceId ->
+                if (workspaceId != null) selectedWorkspaceId = workspaceId
                 showWorkspacePicker = false
             },
             onManage = { navController.navigate(me.rerere.rikkahub.Screen.Workspaces) },

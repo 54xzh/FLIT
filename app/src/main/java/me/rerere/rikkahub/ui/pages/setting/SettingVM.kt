@@ -77,6 +77,16 @@ class SettingVM(
         }
     }
 
+    fun importMcpConfigs(configs: List<McpServerConfig>) {
+        if (configs.isEmpty()) return
+        viewModelScope.launch {
+            // McpManager observes settingsFlow.mcpServers and reconciles new servers automatically
+            settingsStore.update { latest ->
+                latest.copy(mcpServers = latest.mcpServers + configs)
+            }
+        }
+    }
+
     fun deleteMcpConfig(config: McpServerConfig) {
         viewModelScope.launch {
             settingsStore.update { latest ->
