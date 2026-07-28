@@ -89,12 +89,4 @@ class SettingVM(
         }
     }
 
-    fun importMcpConfigs(configs: List<McpServerConfig.StdioServer>) {
-        viewModelScope.launch {
-            settingsStore.update { latest ->
-                latest.copy(mcpServers = latest.mcpServers + configs)
-            }
-            configs.forEach { config -> runCatching { mcpManager.addClient(config) } }
-        }
-    }
 }

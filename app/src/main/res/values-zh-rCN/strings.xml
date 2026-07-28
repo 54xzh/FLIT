@@ -2330,9 +2330,6 @@
     <string name="setting_mcp_page_stdio_add_env">添加环境变量</string>
     <string name="setting_mcp_page_stdio_startup_timeout">启动超时（秒）</string>
     <string name="setting_mcp_page_stdio_startup_timeout_desc">可设置为 1 到 900 秒。</string>
-    <string name="setting_mcp_page_import_claude">导入 Claude Desktop JSON</string>
-    <string name="setting_mcp_page_export_claude">导出 Claude Desktop JSON</string>
-    <string name="setting_mcp_page_import_error">MCP 导入或导出失败</string>
     <string name="setting_mcp_page_save_and_sync">保存并同步</string>
     <string name="setting_mcp_page_error_details">错误详情</string>
     <string name="mcp_status_rootfs_not_ready">沙盒环境未就绪，请先安装 Rootfs；当前仍会保留配置和选择。</string>

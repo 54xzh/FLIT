@@ -2407,9 +2407,6 @@
     <string name="setting_mcp_page_stdio_add_env">Add environment variable</string>
     <string name="setting_mcp_page_stdio_startup_timeout">Startup timeout (seconds)</string>
     <string name="setting_mcp_page_stdio_startup_timeout_desc">Allowed range: 1 to 900 seconds.</string>
-    <string name="setting_mcp_page_import_claude">Import Claude Desktop JSON</string>
-    <string name="setting_mcp_page_export_claude">Export Claude Desktop JSON</string>
-    <string name="setting_mcp_page_import_error">MCP import or export failed</string>
     <string name="setting_mcp_page_save_and_sync">Save and sync</string>
     <string name="setting_mcp_page_error_details">Error details</string>
     <string name="mcp_status_rootfs_not_ready">Sandbox environment is not ready. Install Rootfs before calling this server.</string>

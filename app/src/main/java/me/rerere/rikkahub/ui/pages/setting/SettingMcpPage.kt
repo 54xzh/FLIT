@@ -4,8 +4,6 @@ import me.rerere.rikkahub.ui.theme.LocalDarkMode
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -88,18 +86,13 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CommentsDisabled
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.FileDownload
-import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Terminal
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import me.rerere.ai.core.InputSchema
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.mcp.McpManager
-import me.rerere.rikkahub.data.ai.mcp.McpClaudeDesktopCodec
 import me.rerere.rikkahub.data.ai.mcp.McpOAuthClient
 import me.rerere.rikkahub.data.ai.mcp.McpOAuthState
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
@@ -126,43 +119,10 @@ import org.koin.compose.koinInject
 fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val mcpConfigs = settings.mcpServers
-    val context = LocalContext.current
-    val navController = me.rerere.rikkahub.ui.context.LocalNavController.current
-    val scope = rememberCoroutineScope()
     val workspaceRepository = koinInject<me.rerere.rikkahub.data.repository.WorkspaceRepository>()
     val workspaces by remember(workspaceRepository) { workspaceRepository.listFlow() }
         .collectAsStateWithLifecycle(emptyList())
     val sandboxWorkspaces = workspaces.filter { it.type == WorkspaceType.SANDBOX }
-    var pendingClaudeJson by remember { mutableStateOf<String?>(null) }
-    var importError by remember { mutableStateOf<String?>(null) }
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            scope.launch {
-                runCatching {
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                            ?: error("Cannot read the selected file")
-                    }
-                }.onSuccess { pendingClaudeJson = it }
-                    .onFailure { importError = it.message }
-            }
-        }
-    }
-    val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                runCatching {
-                    val json = McpClaudeDesktopCodec.exportStdioServers(mcpConfigs)
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(json) }
-                            ?: error("Cannot write the selected file")
-                    }
-                }.onFailure { importError = it.message }
-            }
-        }
-    }
     val creationState = useEditState<McpServerConfig> {
         vm.saveMcpConfig(it)
     }
@@ -185,15 +145,6 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                     BackButton()
                 },
                 actions = {
-                    IconButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/json")) }) {
-                        Icon(Icons.Rounded.FileUpload, stringResource(R.string.setting_mcp_page_import_claude))
-                    }
-                    IconButton(
-                        onClick = { exportLauncher.launch("claude_desktop_config.json") },
-                        enabled = mcpConfigs.any { it is McpServerConfig.StdioServer },
-                    ) {
-                        Icon(Icons.Rounded.FileDownload, stringResource(R.string.setting_mcp_page_export_claude))
-                    }
                     IconButton(
                         onClick = {
                             creationState.open(McpServerConfig.SseTransportServer())
@@ -369,36 +320,6 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
     }
     McpServerConfigModal(creationState)
     McpServerConfigModal(editState)
-
-    if (pendingClaudeJson != null) {
-        WorkspaceSelectSheet(
-            selectedWorkspaceId = null,
-            workspaces = sandboxWorkspaces,
-            onSelect = { workspaceId ->
-                val json = pendingClaudeJson
-                if (workspaceId != null && json != null) {
-                    runCatching { McpClaudeDesktopCodec.importStdioServers(json, workspaceId) }
-                        .onSuccess(vm::importMcpConfigs)
-                        .onFailure { importError = it.message }
-                    pendingClaudeJson = null
-                }
-            },
-            onManage = { navController.navigate(me.rerere.rikkahub.Screen.Workspaces) },
-            onDismiss = { pendingClaudeJson = null },
-            showNoneOption = false,
-        )
-    }
-
-    importError?.let { message ->
-        AlertDialog(
-            onDismissRequest = { importError = null },
-            title = { Text(stringResource(R.string.setting_mcp_page_import_error)) },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = { importError = null }) { Text(stringResource(R.string.confirm)) }
-            },
-        )
-    }
 }
 
 @Composable

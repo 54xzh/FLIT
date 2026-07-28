@@ -2,7 +2,6 @@ package me.rerere.rikkahub.data.ai.mcp
 
 import me.rerere.rikkahub.utils.JsonInstant
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -50,30 +49,4 @@ class McpStdioConfigTest {
         assertEquals("https://example.com/mcp", decoded.serverUrl)
     }
 
-    @Test
-    fun `claude desktop import preserves argv and env and export omits workspace`() {
-        val imported = McpClaudeDesktopCodec.importStdioServers(
-            json = """
-                {
-                  "mcpServers": {
-                    "demo": {
-                      "command": "node",
-                      "args": ["server.js", "value with spaces", ""],
-                      "env": {"API_TOKEN": "secret value"}
-                    }
-                  }
-                }
-            """.trimIndent(),
-            workspaceId = "workspace-a",
-        ).single()
-
-        assertEquals(listOf("server.js", "value with spaces", ""), imported.args)
-        assertEquals(mapOf("API_TOKEN" to "secret value"), imported.environment)
-        assertEquals("workspace-a", imported.workspaceId)
-
-        val exported = McpClaudeDesktopCodec.exportStdioServers(listOf(imported))
-        assertFalse(exported.contains("workspaceId"))
-        assertFalse(exported.contains("workspace-a"))
-        assertTrue(exported.contains("value with spaces"))
-    }
 }
