@@ -42,7 +42,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -558,7 +557,6 @@ private fun McpStatusSummary(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .minimumInteractiveComponentSize()
             .let { modifier ->
                 if (hasDetails) {
                     modifier.clickable {
