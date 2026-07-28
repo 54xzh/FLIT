@@ -450,36 +450,45 @@ private fun McpServerItem(
                                 is McpServerConfig.StdioServer -> Text(stringResource(R.string.setting_mcp_page_transport_stdio))
                             }
                         }
-                        when (status) {
-                            is McpStatus.Reconnecting -> Tag(type = TagType.WARNING) {
-                                val s = status as McpStatus.Reconnecting
-                                Text(stringResource(R.string.mcp_status_reconnecting_format, s.attempt, s.maxAttempts))
-                            }
-                            McpStatus.NeedsAuthorization -> Tag(type = TagType.ERROR) {
-                                Text(stringResource(R.string.mcp_status_needs_authorization))
-                            }
-                            McpStatus.Authorizing -> Tag(type = TagType.WARNING) {
-                                Text(stringResource(R.string.mcp_status_authorizing))
-                            }
-                            is McpStatus.Error -> Unit
-                            else -> Unit
+                    }
+                    val statusSummary = when (status) {
+                        is McpStatus.Reconnecting -> {
+                            val s = status as McpStatus.Reconnecting
+                            stringResource(R.string.mcp_status_reconnecting_format, s.attempt, s.maxAttempts) to MaterialTheme.extendColors.orange8
                         }
-                        if (!workspaceAvailable) {
-                            Tag(type = TagType.ERROR) {
-                                Text(stringResource(R.string.mcp_status_workspace_missing))
-                            }
-                        } else if (!workspaceReady) {
-                            Tag(type = TagType.WARNING) {
-                                Text(stringResource(R.string.mcp_status_rootfs_not_ready))
-                            }
+                        McpStatus.NeedsAuthorization -> {
+                            stringResource(R.string.mcp_status_needs_authorization) to MaterialTheme.colorScheme.error
                         }
+                        McpStatus.Authorizing -> {
+                            stringResource(R.string.mcp_status_authorizing) to MaterialTheme.extendColors.orange8
+                        }
+                        is McpStatus.Error -> null
+                        else -> null
+                    }
+                    statusSummary?.let { (message, color) ->
+                        McpStatusSummary(
+                            message = message,
+                            color = color,
+                        )
+                    }
+                    if (!workspaceAvailable) {
+                        McpStatusSummary(
+                            message = stringResource(R.string.mcp_status_workspace_missing),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    } else if (!workspaceReady) {
+                        McpStatusSummary(
+                            message = stringResource(R.string.mcp_status_rootfs_not_ready),
+                            color = MaterialTheme.extendColors.orange8,
+                        )
                     }
                     (status as? McpStatus.Error)?.let { error ->
                         val message = error.messageResId?.let {
                             stringResource(it, *error.messageArgs.toTypedArray())
                         } ?: error.message
-                        McpErrorSummary(
+                        McpStatusSummary(
                             message = stringResource(R.string.mcp_status_error_format, message),
+                            color = MaterialTheme.colorScheme.error,
                             hasDetails = error.detail != null,
                             onShowDetails = { showErrorDetail = true },
                         )
@@ -539,10 +548,11 @@ private fun McpServerItem(
 }
 
 @Composable
-private fun McpErrorSummary(
+private fun McpStatusSummary(
     message: String,
-    hasDetails: Boolean,
-    onShowDetails: () -> Unit,
+    color: Color,
+    hasDetails: Boolean = false,
+    onShowDetails: () -> Unit = {},
 ) {
     val haptics = rememberPremiumHaptics()
     Row(
@@ -566,7 +576,7 @@ private fun McpErrorSummary(
         Text(
             text = message,
             modifier = Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.error,
+            color = color,
             style = MaterialTheme.typography.bodySmall,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -576,7 +586,7 @@ private fun McpErrorSummary(
                 imageVector = Icons.Rounded.ChevronRight,
                 contentDescription = stringResource(R.string.setting_mcp_page_error_details),
                 modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.error,
+                tint = color,
             )
         }
     }
