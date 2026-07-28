@@ -1677,13 +1677,13 @@
     <string name="mcp_oauth_cancel">Cancel</string>
     <string name="mcp_error_max_reconnect">Disconnected: max reconnect attempts reached</string>
     <string name="mcp_error_stdio_command_not_found">Command "%1$s" was not found in this sandbox. Install it and try again.</string>
-    <string name="mcp_error_stdio_permission_denied">This sandbox does not have permission to run "%1$s". Check the file permissions and try again.</string>
+    <string name="mcp_error_stdio_permission_denied">The sandbox cannot run "%1$s". Check file permissions and try again.</string>
     <string name="mcp_error_stdio_node_version_unsupported">The Node.js version in this sandbox does not meet the MCP server requirements. Update Node.js and try again.</string>
     <string name="mcp_error_stdio_tls">The sandbox could not verify the server certificate. Check its time and certificate settings.</string>
     <string name="mcp_error_stdio_network">The sandbox could not reach or download the MCP server. Check its network connection and try again.</string>
-    <string name="mcp_error_stdio_startup_timeout">The MCP server did not finish starting within %1$s seconds. Check the command or increase the startup timeout.</string>
-    <string name="mcp_error_stdio_tool_call_timeout">The MCP tool did not respond within %1$s seconds, so this call was stopped.</string>
-    <string name="mcp_error_stdio_connection_closed">The MCP server exited before it finished starting. Open error details to view its original output.</string>
+    <string name="mcp_error_stdio_startup_timeout">The MCP server did not start within %1$s seconds. Check the command or increase the timeout.</string>
+    <string name="mcp_error_stdio_tool_call_timeout">The MCP tool did not respond within %1$s seconds, so the call was stopped.</string>
+    <string name="mcp_error_stdio_connection_closed">The MCP server exited before finishing startup. See error details for its output.</string>
     <string name="mcp_error_stdio_connection_lost">The MCP server connection was interrupted. Try the tool again to restart it.</string>
     <string name="mcp_tools_count">%1$d/%2$d tools</string>
     <string name="setting_page_update_available_title">Update Available</string>
@@ -2395,7 +2395,7 @@
     <string name="setting_mcp_page_import_close">Close</string>
     <string name="setting_mcp_page_import_title">Import MCP config</string>
     <string name="setting_mcp_page_import_placeholder">Paste a Claude Code compatible config, e.g. {\"mcpServers\": {…}}</string>
-    <string name="setting_mcp_page_import_workspace_desc">Only STDIO MCP servers need a sandbox; SSE/HTTP types are ignored automatically</string>
+    <string name="setting_mcp_page_import_workspace_desc">Only STDIO servers need a sandbox; SSE/HTTP will be ignored automatically</string>
     <string name="setting_mcp_page_import_action">Import</string>
     <string name="setting_mcp_page_import_success">Imported %1$d server(s)</string>
     <string name="setting_mcp_page_import_skipped_stdio">Skipped %1$d STDIO server(s): no sandbox selected</string>

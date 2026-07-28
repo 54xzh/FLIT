@@ -870,9 +870,9 @@
     <string name="mcp_error_stdio_node_version_unsupported">沙盒中的 Node.js 版本不符合 MCP 服务要求，请更新后再试。</string>
     <string name="mcp_error_stdio_tls">沙盒无法验证服务器证书，请检查系统时间和证书设置。</string>
     <string name="mcp_error_stdio_network">沙盒无法连接或下载 MCP 服务，请检查网络后再试。</string>
-    <string name="mcp_error_stdio_startup_timeout">MCP 服务在 %1$s 秒内未能完成启动，请检查命令或延长启动等待时间。</string>
-    <string name="mcp_error_stdio_tool_call_timeout">MCP 工具在 %1$s 秒内未返回结果，已停止本次调用。</string>
-    <string name="mcp_error_stdio_connection_closed">MCP 服务尚未完成启动就已退出，请打开错误详情查看原始输出。</string>
+    <string name="mcp_error_stdio_startup_timeout">MCP 服务 %1$s 秒内未启动，请检查命令或增大超时。</string>
+    <string name="mcp_error_stdio_tool_call_timeout">MCP 工具在 %1$s 秒内未返回结果，已停止调用。</string>
+    <string name="mcp_error_stdio_connection_closed">MCP 服务启动未完成即退出，请查看错误详情。</string>
     <string name="mcp_error_stdio_connection_lost">MCP 服务连接已中断，请再次调用工具以重新启动。</string>
     <string name="mcp_status_idle">空闲</string>
     <string name="mcp_tool_approval_approve">批准</string>
@@ -2318,7 +2318,7 @@
     <string name="setting_mcp_page_import_close">关闭</string>
     <string name="setting_mcp_page_import_title">导入 MCP 配置</string>
     <string name="setting_mcp_page_import_placeholder">粘贴 Claude Code 兼容的配置，例如 {\"mcpServers\": {…}}</string>
-    <string name="setting_mcp_page_import_workspace_desc">仅 STDIO 类型的 MCP 服务器需要选择，SSE/HTTP 类型会自动忽略</string>
+    <string name="setting_mcp_page_import_workspace_desc">仅 STDIO 服务器需选择沙盒，SSE/HTTP 将自动忽略</string>
     <string name="setting_mcp_page_import_action">导入</string>
     <string name="setting_mcp_page_import_success">已导入 %1$d 个服务器</string>
     <string name="setting_mcp_page_import_skipped_stdio">已跳过 %1$d 个 STDIO 服务器：未选择沙盒</string>
@@ -2344,6 +2344,6 @@
     <string name="setting_mcp_page_stdio_startup_timeout_desc">可设置为 1 到 900 秒。</string>
     <string name="setting_mcp_page_save_and_sync">保存并同步</string>
     <string name="setting_mcp_page_error_details">错误详情</string>
-    <string name="mcp_status_rootfs_not_ready">沙盒环境未就绪，请先安装 Rootfs；当前仍会保留配置和选择。</string>
+    <string name="mcp_status_rootfs_not_ready">沙盒环境未就绪，请先安装 Rootfs。</string>
     <string name="mcp_status_workspace_missing">绑定的沙盒已不存在，请重新选择。</string>
 </resources>
