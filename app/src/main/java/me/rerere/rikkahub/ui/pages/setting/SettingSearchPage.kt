@@ -254,6 +254,12 @@ val SEARCH_SERVICE_PRESETS = listOf(
         hasScraping = true
     ),
     SearchServicePreset(
+        name = "豆包搜索",
+        descriptionRes = R.string.setting_search_preset_doubao_desc,
+        optionsClass = SearchServiceOptions.DoubaoSearchOptions::class,
+        hasScraping = false
+    ),
+    SearchServicePreset(
         name = "智谱",
         description = "Zhipu AI web search",
         optionsClass = SearchServiceOptions.ZhipuOptions::class,
@@ -655,6 +661,11 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
                             }
                             is SearchServiceOptions.ZhipuOptions -> {
                                 ZhipuOptions(currentService as SearchServiceOptions.ZhipuOptions) {
+                                    currentService = it
+                                }
+                            }
+                            is SearchServiceOptions.DoubaoSearchOptions -> {
+                                DoubaoSearchOptions(currentService as SearchServiceOptions.DoubaoSearchOptions) {
                                     currentService = it
                                 }
                             }
@@ -1267,6 +1278,26 @@ fun ZhipuOptions(
                         apiKey = it
                     )
                 )
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+private fun DoubaoSearchOptions(
+    options: SearchServiceOptions.DoubaoSearchOptions,
+    onUpdateOptions: (SearchServiceOptions.DoubaoSearchOptions) -> Unit
+) {
+    FormItem(
+        label = {
+            Text(stringResource(R.string.setting_search_page_api_key))
+        }
+    ) {
+        OutlinedTextField(
+            value = options.apiKey,
+            onValueChange = {
+                onUpdateOptions(options.copy(apiKey = it))
             },
             modifier = Modifier.fillMaxWidth()
         )

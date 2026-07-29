@@ -1590,6 +1590,7 @@
   <string name="setting_search_page_search_depth_desc">標準更快/更便宜，深度更全面</string>
   <string name="setting_search_preset_grok_desc">xAI 網路搜尋並引用答案</string>
   <string name="setting_search_preset_serper_desc">通過 Serper API 使用 Google 搜尋結果</string>
+  <string name="setting_search_preset_doubao_desc">豆包搜尋 Global 版網路搜尋</string>
   <string name="setting_search_page_bing_no_config">Bing 搜索無需任何配置。</string>
   <string name="setting_search_page_edit_service_title">編輯 %1$s</string>
   <string name="setting_search_page_service_fallback_name">搜索服務</string>

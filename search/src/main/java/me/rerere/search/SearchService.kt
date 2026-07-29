@@ -46,6 +46,7 @@ interface SearchService<T : SearchServiceOptions> {
                 is SearchServiceOptions.TavilyOptions -> TavilySearchService
                 is SearchServiceOptions.ExaOptions -> ExaSearchService
                 is SearchServiceOptions.ZhipuOptions -> ZhipuSearchService
+                is SearchServiceOptions.DoubaoSearchOptions -> DoubaoSearchService
                 is SearchServiceOptions.BingLocalOptions -> BingSearchService
                 is SearchServiceOptions.SearXNGOptions -> SearXNGService
                 is SearchServiceOptions.LinkUpOptions -> LinkUpService
@@ -165,6 +166,7 @@ sealed class SearchServiceOptions {
         val TYPES = mapOf(
             BingLocalOptions::class to "Bing",
             ZhipuOptions::class to "智谱",
+            DoubaoSearchOptions::class to "豆包搜索",
             TavilyOptions::class to "Tavily",
             ExaOptions::class to "Exa",
             SearXNGOptions::class to "SearXNG",
@@ -192,6 +194,14 @@ sealed class SearchServiceOptions {
     @Serializable
     @SerialName("zhipu")
     data class ZhipuOptions(
+        override val id: Uuid = Uuid.random(),
+        val apiKey: String = "",
+        val alias: String = "",
+    ) : SearchServiceOptions()
+
+    @Serializable
+    @SerialName("doubao_search")
+    data class DoubaoSearchOptions(
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
         val alias: String = "",
@@ -353,6 +363,7 @@ val SearchServiceOptions.rawAlias: String
     get() = when (this) {
         is SearchServiceOptions.BingLocalOptions -> alias
         is SearchServiceOptions.ZhipuOptions -> alias
+        is SearchServiceOptions.DoubaoSearchOptions -> alias
         is SearchServiceOptions.TavilyOptions -> alias
         is SearchServiceOptions.ExaOptions -> alias
         is SearchServiceOptions.SearXNGOptions -> alias
@@ -374,6 +385,7 @@ val SearchServiceOptions.displayName: String
         val alias = when (this) {
             is SearchServiceOptions.BingLocalOptions -> alias
             is SearchServiceOptions.ZhipuOptions -> alias
+            is SearchServiceOptions.DoubaoSearchOptions -> alias
             is SearchServiceOptions.TavilyOptions -> alias
             is SearchServiceOptions.ExaOptions -> alias
             is SearchServiceOptions.SearXNGOptions -> alias
@@ -395,6 +407,7 @@ val SearchServiceOptions.displayName: String
 fun SearchServiceOptions.withAlias(newAlias: String): SearchServiceOptions = when (this) {
     is SearchServiceOptions.BingLocalOptions -> copy(alias = newAlias)
     is SearchServiceOptions.ZhipuOptions -> copy(alias = newAlias)
+    is SearchServiceOptions.DoubaoSearchOptions -> copy(alias = newAlias)
     is SearchServiceOptions.TavilyOptions -> copy(alias = newAlias)
     is SearchServiceOptions.ExaOptions -> copy(alias = newAlias)
     is SearchServiceOptions.SearXNGOptions -> copy(alias = newAlias)

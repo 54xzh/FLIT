@@ -890,6 +890,7 @@ private fun me.rerere.search.SearchServiceOptions.toWebSearchServiceDto(): WebSe
     val type = when (this) {
         is me.rerere.search.SearchServiceOptions.BingLocalOptions -> "bing_local"
         is me.rerere.search.SearchServiceOptions.ZhipuOptions -> "zhipu"
+        is me.rerere.search.SearchServiceOptions.DoubaoSearchOptions -> "doubao_search"
         is me.rerere.search.SearchServiceOptions.TavilyOptions -> "tavily"
         is me.rerere.search.SearchServiceOptions.ExaOptions -> "exa"
         is me.rerere.search.SearchServiceOptions.SearXNGOptions -> "searxng"

@@ -1750,6 +1750,7 @@
     <string name="setting_search_page_search_depth_desc">Standard is faster/cheaper, Deep is more comprehensive</string>
     <string name="setting_search_preset_grok_desc">xAI web search with cited answers</string>
     <string name="setting_search_preset_serper_desc">Google search results through Serper API</string>
+    <string name="setting_search_preset_doubao_desc">Web search powered by Doubao Search Global</string>
     <string name="setting_search_page_bing_no_config">Bing search does not require any configuration.</string>
     <string name="setting_search_page_edit_service_title">Edit %1$s</string>
     <string name="setting_search_page_enable_search_agent">Enable Search Agent</string>

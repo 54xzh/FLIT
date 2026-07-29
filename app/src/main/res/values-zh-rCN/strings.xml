@@ -1773,6 +1773,7 @@
     <string name="setting_search_page_username">用户名</string>
     <string name="setting_search_preset_grok_desc">xAI 网络搜索并引用答案</string>
     <string name="setting_search_preset_serper_desc">通过 Serper API 使用 Google 搜索结果</string>
+    <string name="setting_search_preset_doubao_desc">豆包搜索 Global 版联网搜索</string>
     <string name="setting_tool_prompts_affected_tools">涉及工具：%1$s</string>
     <string name="setting_tool_prompts_desc">编辑每个内置工具的系统提示词模板。</string>
     <string name="setting_tool_prompts_group_local">本地工具</string>
