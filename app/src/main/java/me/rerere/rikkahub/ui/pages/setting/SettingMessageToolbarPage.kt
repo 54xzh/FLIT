@@ -14,6 +14,7 @@ import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.KeyboardDoubleArrowRight
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.OpenInBrowser
 import androidx.compose.material.icons.rounded.Refresh
@@ -163,6 +164,7 @@ private val ASSISTANT_BUTTONS: List<Pair<MessageToolbarButton, androidx.compose.
     MessageToolbarButton.COPY to Icons.Rounded.ContentCopy,
     MessageToolbarButton.FORK to Icons.AutoMirrored.Rounded.CallSplit,
     MessageToolbarButton.REGENERATE to Icons.Rounded.Refresh,
+    MessageToolbarButton.CONTINUE to Icons.Rounded.KeyboardDoubleArrowRight,
     MessageToolbarButton.TTS to Icons.AutoMirrored.Rounded.VolumeUp,
     MessageToolbarButton.EDIT to Icons.Rounded.Edit,
     MessageToolbarButton.SHARE to Icons.Rounded.Share,
@@ -176,6 +178,7 @@ private fun buttonTitle(button: MessageToolbarButton): String = when (button) {
     MessageToolbarButton.COPY -> stringResource(R.string.copy)
     MessageToolbarButton.FORK -> stringResource(R.string.create_fork)
     MessageToolbarButton.REGENERATE -> stringResource(R.string.regenerate)
+    MessageToolbarButton.CONTINUE -> stringResource(R.string.continue_generation)
     MessageToolbarButton.TTS -> stringResource(R.string.tts)
     MessageToolbarButton.EDIT -> stringResource(R.string.edit)
     MessageToolbarButton.SHARE -> stringResource(R.string.share)

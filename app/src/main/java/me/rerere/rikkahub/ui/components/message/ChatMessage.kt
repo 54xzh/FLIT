@@ -481,6 +481,8 @@ fun ChatMessage(
                 }
             },
             onRegenerate = onRegenerate,
+            onContinue = onContinue,
+            canContinue = canContinue,
             copyText = displayState.selectionCopyText,
             ttsText = displayState.ttsText,
             onCustomizeToolbar = {

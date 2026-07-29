@@ -47,6 +47,7 @@ import androidx.compose.material.icons.automirrored.rounded.CallSplit
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.KeyboardDoubleArrowRight
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.OpenInBrowser
 import androidx.compose.material.icons.rounded.Refresh
@@ -245,23 +246,47 @@ fun ColumnScope.ChatMessageActionButtons(
                     .combinedClickable(
                         interactionSource = regenerateInteractionSource,
                         indication = LocalIndication.current,
-                        onClick = { onRegenerate() },
-                        onLongClick = if (canContinue) {
-                            {
-                                haptics.perform(HapticPattern.Pop)
-                                onContinue()
-                            }
-                        } else {
-                            null
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            onRegenerate()
                         },
-                        onLongClickLabel = if (canContinue) {
-                            stringResource(R.string.a11y_continue_generation)
-                        } else {
-                            null
-                        }
                     )
                     .padding(8.dp)
                     .size(16.dp)
+            )
+        }
+
+        if (
+            message.role == MessageRole.ASSISTANT &&
+                canContinue &&
+                toolbarConfig.isOnToolbar(MessageToolbarButton.CONTINUE)
+        ) {
+            val continueInteractionSource = remember { MutableInteractionSource() }
+            val isContinuePressed by continueInteractionSource.collectIsPressedAsState()
+            val continueScale by animateFloatAsState(
+                targetValue = if (isContinuePressed) 0.85f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+                label = "message_continue_scale"
+            )
+            Icon(
+                imageVector = Icons.Rounded.KeyboardDoubleArrowRight,
+                contentDescription = stringResource(R.string.continue_generation),
+                modifier = Modifier
+                    .graphicsLayer {
+                        scaleX = continueScale
+                        scaleY = continueScale
+                    }
+                    .clip(CircleShape)
+                    .combinedClickable(
+                        interactionSource = continueInteractionSource,
+                        indication = LocalIndication.current,
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            onContinue()
+                        },
+                    )
+                    .padding(8.dp)
+                    .size(16.dp),
             )
         }
 
@@ -484,6 +509,8 @@ fun ChatMessageActionsSheet(
     onWebViewPreview: () -> Unit,
     onDismissRequest: () -> Unit,
     onRegenerate: () -> Unit = {},
+    onContinue: () -> Unit = {},
+    canContinue: Boolean = false,
     copyText: String = "",
     ttsText: String = "",
     onCustomizeToolbar: () -> Unit = {},
@@ -601,6 +628,42 @@ fun ChatMessageActionsSheet(
                         )
                         Text(
                             text = stringResource(R.string.regenerate),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                }
+            }
+
+            // Continue (latest assistant message only)
+            if (
+                message.role == MessageRole.ASSISTANT &&
+                    canContinue &&
+                    showInMore(MessageToolbarButton.CONTINUE)
+            ) {
+                Card(
+                    onClick = {
+                        onDismissRequest()
+                        onContinue()
+                    },
+                    shape = me.rerere.rikkahub.ui.theme.AppShapes.CardMedium,
+                    colors = CardDefaults.cardColors(
+                        containerColor = if(me.rerere.rikkahub.ui.theme.LocalDarkMode.current) androidx.compose.ui.graphics.Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.KeyboardDoubleArrowRight,
+                            contentDescription = null,
+                            modifier = Modifier.padding(4.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.continue_generation),
                             style = MaterialTheme.typography.titleMedium,
                         )
                     }

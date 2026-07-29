@@ -539,6 +539,7 @@
   <string name="reasoning_max">最高</string>
   <string name="reasoning_max_desc">模型將使用最高強度推理，適合高難度任務。</string>
   <string name="regenerate">重新生成</string>
+  <string name="continue_generation">續寫</string>
   <string name="chat_continue_only_last_assistant_message">僅支援對最新一條模型訊息進行續寫。</string>
   <string name="chat_quote_follow_up">追問</string>
   <string name="chat_continue_group_chat_not_supported">群聊暫不支援續寫。</string>
@@ -1469,7 +1470,6 @@
   <string name="a11y_sent">已發送</string>
   <string name="a11y_show_more">查看更多</string>
   <string name="a11y_speed">速度</string>
-  <string name="a11y_continue_generation">繼續續寫</string>
   <string name="a11y_toggle_view_mode">切換視圖模式</string>
   <string name="a11y_tts_settings">TTS 設置</string>
   <string name="a11y_logo">Logo</string>
