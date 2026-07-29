@@ -1483,7 +1483,7 @@ enum class MessageToolbarButton {
     COPY,             // 复制
     FORK,             // 创建 Fork
     REGENERATE,       // 重新生成
-    CONTINUE,         // 续写（仅助手消息有效）
+    CONTINUE,         // 继续生成（仅助手消息有效）
     TTS,              // 朗读（仅助手消息有效）
     EDIT,             // 编辑
     SHARE,            // 分享
@@ -1510,7 +1510,7 @@ data class MessageToolbarConfig(
 
     companion object {
         // 默认值复刻当前硬编码行为：复制/Fork/重新生成 在工具栏，其余在更多菜单。
-        // 续写默认收进更多菜单，用户可单独添加到助手消息工具栏。
+        // 继续生成默认收进更多菜单，用户可单独添加到助手消息工具栏。
         // 注意：Fork 不再同时出现在更多菜单（避免与工具栏重复）。
         val DEFAULT_USER = MessageToolbarConfig(
             toolbarButtons = setOf(

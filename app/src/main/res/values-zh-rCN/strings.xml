@@ -482,9 +482,9 @@
   <string name="calculating">计算中...</string>
   <string name="cancel">取消</string>
   <string name="cancel_edit">取消编辑</string>
-  <string name="chat_continue_group_chat_not_supported">群聊暂不支持续写。</string>
-  <string name="chat_continue_only_last_assistant_message">仅支持对最新一条模型消息进行续写。</string>
-  <string name="continue_generation">续写</string>
+  <string name="chat_continue_group_chat_not_supported">群聊暂不支持继续生成。</string>
+  <string name="chat_continue_only_last_assistant_message">仅支持对最新一条模型消息继续生成。</string>
+  <string name="continue_generation">继续生成</string>
   <string name="chat_quote_follow_up">追问</string>
   <string name="chat_input_fullscreen">全屏输入</string>
   <string name="chat_input_placeholder">输入消息聊天</string>
