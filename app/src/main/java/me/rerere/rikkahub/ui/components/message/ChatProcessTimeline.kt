@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -672,7 +673,13 @@ private fun CompactToolTimelineItem(
     } else {
         remember { mutableStateOf(null as SearchAgentProgress?) }
     }
-    val title = toolTimelineTitle(toolName = toolName, arguments = arguments)
+    val isSandboxShell = toolName == "sandbox_shell"
+    val title = if (isSandboxShell) {
+        shellCommandPreview(arguments)
+            ?: toolTimelineTitle(toolName = toolName, arguments = arguments)
+    } else {
+        toolTimelineTitle(toolName = toolName, arguments = arguments)
+    }
     val subtitle = toolTimelineSubtitle(
         toolName = toolName,
         arguments = arguments,
@@ -685,6 +692,7 @@ private fun CompactToolTimelineItem(
     ProcessStepRow(
         title = title,
         subtitle = subtitle,
+        subtitleIsCode = isSandboxShell && content != null,
         trailing = {
             if (loading && content == null) {
                 CircularProgressIndicator(
@@ -874,6 +882,7 @@ private fun CompactApprovalTimelineItem(
 private fun ProcessStepRow(
     title: String,
     subtitle: String? = null,
+    subtitleIsCode: Boolean = false,
     trailingIcon: ImageVector? = null,
     onClick: (() -> Unit)? = null,
     trailing: @Composable (() -> Unit)? = null,
@@ -908,7 +917,11 @@ private fun ProcessStepRow(
             subtitle?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     text = it,
-                    style = ProcessStepSubtitleTextStyle,
+                    style = if (subtitleIsCode) {
+                        ProcessStepSubtitleTextStyle.copy(fontFamily = FontFamily.Monospace)
+                    } else {
+                        ProcessStepSubtitleTextStyle
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -1045,6 +1058,21 @@ private fun toolTimelineSubtitle(
                     ?.contentOrNull
         }
 
+        "sandbox_shell" -> {
+            if (isRunning) {
+                stringResource(R.string.notification_live_update_tool_call)
+            } else {
+                val preview = shellResultPreview(content)
+                preview?.output ?: when (preview?.state) {
+                    ShellResultState.TimedOut -> stringResource(R.string.chat_message_tool_shell_timed_out)
+                    ShellResultState.Failed -> preview.exitCode?.let { exitCode ->
+                        stringResource(R.string.chat_message_tool_shell_failed_exit_code, exitCode)
+                    } ?: stringResource(R.string.chat_message_tool_shell_failed)
+                    else -> null
+                }
+            }
+        }
+
         "ask_user" -> {
             val singleAnswer = runCatching {
                 content?.jsonObject?.get("answer")?.jsonPrimitiveOrNull?.contentOrNull
@@ -1102,7 +1130,7 @@ private fun processTimelineIcon(part: UIMessagePart): ImageVector {
 private fun processTimelineToolIcon(toolName: String): ImageVector {
     return when (toolName) {
         "search_agent", "search_web", "scrape_web" -> Icons.Rounded.Public
-        "run_skill_script", "eval_python" -> Icons.Rounded.Terminal
+        "run_skill_script", "eval_python", "sandbox_shell" -> Icons.Rounded.Terminal
         "create_memory", "edit_memory", "delete_memory" -> Icons.Rounded.Bookmark
         "ask_user" -> Icons.Rounded.HelpOutline
         else -> Icons.Rounded.Build

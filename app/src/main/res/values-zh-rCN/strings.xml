@@ -501,6 +501,9 @@
   <string name="chat_message_tool_call_result">调用结果</string>
   <string name="chat_message_tool_call_skill">调用技能 %1$s</string>
   <string name="chat_message_tool_call_title">工具调用</string>
+  <string name="chat_message_tool_shell_failed">Shell 命令执行失败</string>
+  <string name="chat_message_tool_shell_failed_exit_code">Shell 命令执行失败（退出码 %1$d）</string>
+  <string name="chat_message_tool_shell_timed_out">Shell 命令运行超时</string>
   <string name="chat_message_tool_create_memory">创建了记忆</string>
   <string name="chat_message_tool_delete_memory">删除了记忆</string>
   <string name="chat_message_tool_edit_memory">更新了记忆</string>

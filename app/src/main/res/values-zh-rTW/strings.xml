@@ -285,6 +285,9 @@
   <string name="chat_message_tool_call_skill">調用技能 %1$s</string>
   <string name="chat_message_tool_call_result">調用結果</string>
   <string name="chat_message_tool_call_title">工具調用</string>
+  <string name="chat_message_tool_shell_failed">Shell 命令執行失敗</string>
+  <string name="chat_message_tool_shell_failed_exit_code">Shell 命令執行失敗（退出碼 %1$d）</string>
+  <string name="chat_message_tool_shell_timed_out">Shell 命令執行逾時</string>
   <string name="mcp_tool_approval_prompt">是否允許執行 %1$s</string>
   <string name="mcp_tool_approval_title">工具審批</string>
   <string name="mcp_tool_approval_subtitle">工具：%1$s</string>

@@ -423,6 +423,9 @@
     <string name="chat_message_tool_call_skill">Calling skill %1$s</string>
     <string name="chat_message_tool_call_result">Result</string>
     <string name="chat_message_tool_call_title">Tool Call</string>
+    <string name="chat_message_tool_shell_failed">Shell command failed</string>
+    <string name="chat_message_tool_shell_failed_exit_code">Shell command failed (exit code %1$d)</string>
+    <string name="chat_message_tool_shell_timed_out">Shell command timed out</string>
     <string name="mcp_tool_approval_prompt">Allow running %1$s?</string>
     <string name="mcp_tool_approval_title">Tool approval</string>
     <string name="mcp_tool_approval_subtitle">Tool: %1$s</string>
