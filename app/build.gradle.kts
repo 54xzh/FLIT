@@ -366,12 +366,12 @@ dependencies {
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.auth)
-    implementation(libs.ktor.server.auth.jwt)
     implementation(libs.ktor.server.compression)
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.server.default.headers)
     implementation(libs.ktor.server.status.pages)
     implementation(libs.jmdns)
+    implementation(libs.jose4j)
 
     // pebble (template engine)
     implementation(libs.pebble)

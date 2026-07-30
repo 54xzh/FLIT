@@ -2,9 +2,6 @@ package me.rerere.rikkahub.web
 
 import android.content.Context
 import androidx.core.net.toUri
-import com.auth0.jwt.JWT
-import com.auth0.jwt.JWTVerifier
-import com.auth0.jwt.algorithms.Algorithm
 import io.ktor.http.ContentDisposition
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -17,9 +14,9 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
+import io.ktor.server.auth.UserIdPrincipal
 import io.ktor.server.auth.authenticate
-import io.ktor.server.auth.jwt.JWTPrincipal
-import io.ktor.server.auth.jwt.jwt
+import io.ktor.server.auth.bearer
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.receive
@@ -43,9 +40,7 @@ import java.io.Writer
 import java.net.URLConnection
 import java.security.MessageDigest
 import java.time.Instant
-import java.util.Date
 import java.util.Locale
-import java.util.UUID
 import kotlin.uuid.Uuid
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
@@ -74,6 +69,13 @@ import me.rerere.rikkahub.data.model.buildAssistantProviderSearchMode
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.utils.JsonInstant
+import org.jose4j.jwa.AlgorithmConstraints
+import org.jose4j.jws.AlgorithmIdentifiers
+import org.jose4j.jws.JsonWebSignature
+import org.jose4j.jwt.JwtClaims
+import org.jose4j.jwt.NumericDate
+import org.jose4j.jwt.consumer.JwtConsumerBuilder
+import org.jose4j.keys.HmacKey
 
 private const val MAX_UPLOAD_FILE_SIZE_BYTES = 20 * 1024 * 1024
 private const val WEB_JWT_ISSUER = "lastchat-web"
@@ -109,13 +111,8 @@ fun Application.configureWebApi(
 
     if (jwtEnabled) {
         install(Authentication) {
-            jwt("auth-jwt") {
+            bearer("auth-jwt") {
                 realm = WEB_AUTH_REALM
-                verifier {
-                    val currentPassword = settingsStore.settingsFlow.value.webServerAccessPassword
-                    val secret = currentPassword.ifBlank { "__missing_password_${UUID.randomUUID()}__" }
-                    buildWebJwtVerifier(secret)
-                }
                 authHeader { call ->
                     extractAccessToken(
                         authorizationHeader = call.request.headers[HttpHeaders.Authorization],
@@ -124,28 +121,14 @@ fun Application.configureWebApi(
                         HttpAuthHeader.Single("Bearer", token)
                     }
                 }
-                validate { credential ->
+                authenticate { credential ->
                     val currentPassword = settingsStore.settingsFlow.value.webServerAccessPassword
                     if (currentPassword.isBlank()) {
                         null
                     } else {
-                        credential.payload.subject
-                            ?.takeIf { it == WEB_JWT_SUBJECT }
-                            ?.let { JWTPrincipal(credential.payload) }
-                    }
-                }
-                challenge { _, _ ->
-                    val currentPassword = settingsStore.settingsFlow.value.webServerAccessPassword
-                    if (currentPassword.isBlank()) {
-                        call.respond(
-                            HttpStatusCode.Forbidden,
-                            ErrorResponse("Access password is not configured", HttpStatusCode.Forbidden.value)
-                        )
-                    } else {
-                        call.respond(
-                            HttpStatusCode.Unauthorized,
-                            ErrorResponse("Unauthorized", HttpStatusCode.Unauthorized.value)
-                        )
+                        credential.token
+                            .takeIf { verifyWebJwt(it, currentPassword) }
+                            ?.let(::UserIdPrincipal)
                     }
                 }
             }
@@ -1286,25 +1269,47 @@ private fun String?.toUuid(name: String): Uuid {
     }
 }
 
-private fun createWebJwt(secret: String): Pair<String, Long> {
+internal fun createWebJwt(secret: String): Pair<String, Long> {
     val now = System.currentTimeMillis()
     val expiresAt = now + WEB_JWT_TTL_MILLIS
-    val token = JWT.create()
-        .withIssuer(WEB_JWT_ISSUER)
-        .withAudience(WEB_JWT_AUDIENCE)
-        .withSubject(WEB_JWT_SUBJECT)
-        .withIssuedAt(Date(now))
-        .withExpiresAt(Date(expiresAt))
-        .sign(Algorithm.HMAC256(secret))
+
+    val claims = JwtClaims().apply {
+        setIssuer(WEB_JWT_ISSUER)
+        setAudience(WEB_JWT_AUDIENCE)
+        setSubject(WEB_JWT_SUBJECT)
+        setIssuedAt(NumericDate.fromMilliseconds(now))
+        setExpirationTime(NumericDate.fromMilliseconds(expiresAt))
+    }
+    val token = JsonWebSignature().apply {
+        payload = claims.toJson()
+        algorithmHeaderValue = AlgorithmIdentifiers.HMAC_SHA256
+        key = HmacKey(secret.toByteArray(Charsets.UTF_8))
+        setDoKeyValidation(false)
+        setHeader("typ", "JWT")
+    }.compactSerialization
+
     return token to expiresAt
 }
 
-private fun buildWebJwtVerifier(secret: String): JWTVerifier {
-    return JWT.require(Algorithm.HMAC256(secret))
-        .withIssuer(WEB_JWT_ISSUER)
-        .withAudience(WEB_JWT_AUDIENCE)
-        .withSubject(WEB_JWT_SUBJECT)
-        .build()
+internal fun verifyWebJwt(token: String, secret: String): Boolean {
+    if (secret.isBlank()) return false
+
+    return runCatching {
+        JwtConsumerBuilder()
+            .setRequireExpirationTime()
+            .setRequireIssuedAt()
+            .setExpectedIssuer(WEB_JWT_ISSUER)
+            .setExpectedAudience(WEB_JWT_AUDIENCE)
+            .setExpectedSubject(WEB_JWT_SUBJECT)
+            .setVerificationKey(HmacKey(secret.toByteArray(Charsets.UTF_8)))
+            .setJwsAlgorithmConstraints(
+                AlgorithmConstraints.ConstraintType.PERMIT,
+                AlgorithmIdentifiers.HMAC_SHA256,
+            )
+            .setRelaxVerificationKeyValidation()
+            .build()
+            .processToClaims(token)
+    }.isSuccess
 }
 
 private fun extractBearerToken(authorizationHeader: String?): String? {

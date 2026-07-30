@@ -90,9 +90,18 @@ function getValidWebAuthToken(): string | null {
   return auth.token;
 }
 
+function extractBearerToken(authorizationHeader: string | null): string | null {
+  if (!authorizationHeader) return null;
+
+  const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
 function dispatchWebAuthRequired(detail: WebAuthRequiredEventDetail) {
   if (!isBrowser()) return;
-  window.dispatchEvent(new CustomEvent<WebAuthRequiredEventDetail>(WEB_AUTH_REQUIRED_EVENT, { detail }));
+  window.dispatchEvent(
+    new CustomEvent<WebAuthRequiredEventDetail>(WEB_AUTH_REQUIRED_EVENT, { detail }),
+  );
 }
 
 function dispatchWebAuthStateChange() {
@@ -134,8 +143,11 @@ async function handleError(error: unknown): Promise<never> {
     const message = errorData?.error ?? error.message;
     const isAuthTokenEndpoint = response.url.includes("/api/auth/token");
     if (code === 401 && !isAuthTokenEndpoint) {
-      clearWebAuthToken();
-      dispatchWebAuthRequired({ message, code });
+      const requestToken = extractBearerToken(error.request.headers.get("Authorization"));
+      if (requestToken === getValidWebAuthToken()) {
+        clearWebAuthToken();
+        dispatchWebAuthRequired({ message, code });
+      }
     }
     throw new ApiError(message, code);
   }
@@ -157,7 +169,7 @@ export function clearWebAuthToken(): void {
 export function onWebAuthRequired(
   listener: (detail: WebAuthRequiredEventDetail) => void,
 ): () => void {
-  if (!isBrowser()) return () => { };
+  if (!isBrowser()) return () => {};
 
   const handler = (event: Event) => {
     const customEvent = event as CustomEvent<WebAuthRequiredEventDetail>;
@@ -185,7 +197,7 @@ export function isWebAuthLocked(): boolean {
 export function onWebAuthStateChange(
   listener: (detail: WebAuthStateChangeDetail) => void,
 ): () => void {
-  if (!isBrowser()) return () => { };
+  if (!isBrowser()) return () => {};
 
   const handler = (event: Event) => {
     const customEvent = event as CustomEvent<WebAuthStateChangeDetail>;
