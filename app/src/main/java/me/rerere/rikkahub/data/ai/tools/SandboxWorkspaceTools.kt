@@ -154,8 +154,8 @@ Mounted phone folders under /workspace are live and writable; changes affect the
 
 ### deliverable versioning
 - When a change produces a file meant for the user (to send, share, open, or save), do not overwrite the existing file; keep it and write the changed result to a new file in the same directory.
-- Name the new file after the change the user asked for, keeping the original language and base name. Example: if the user asks to switch /workspace/诗词.docx to Kai script (楷体), write /workspace/诗词-楷体版.docx; if the user asks to translate /workspace/report.pdf into English, write /workspace/report-english.pdf.
-- If that name is already taken, add a short distinguishing note (such as /workspace/诗词-楷体版-精简.docx) instead of overwriting either file.
+- Name the new file after the change the user asked for, keeping the original base name and its language. Example: if the user asks to translate /workspace/report.pdf into English, write /workspace/report-english.pdf; if they ask to shorten /workspace/notes.docx, write /workspace/notes-shortened.docx.
+- If that name is already taken, add a short distinguishing note (such as /workspace/report-english-revised.pdf) instead of overwriting either file.
 - Do not delete previous versions unless the user explicitly asks.
 - Temporary or internal files may still be overwritten when needed.
 """

@@ -43,7 +43,7 @@ class WorkspaceFileReferenceToolsTest {
         assertTrue(WORKSPACE_DELIVERABLE_VERSIONING_PROMPT.contains("do not overwrite the existing file"))
         val writeTemplate = workspaceToolSystemPromptTemplate("workspace_write_file", includeCommonRules = false)
         assertTrue(writeTemplate.contains("Name the new file after the change the user asked for"))
-        assertTrue(writeTemplate.contains("诗词-楷体版.docx"))
+        assertTrue(writeTemplate.contains("report-english.pdf"))
         assertTrue(
             workspaceToolSystemPromptTemplate(
                 WORKSPACE_FILE_REFERENCE_TOOL_NAME,

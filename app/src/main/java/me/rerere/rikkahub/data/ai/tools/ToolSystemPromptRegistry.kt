@@ -462,8 +462,8 @@ val WORKSPACE_COMMON_RULES_PROMPT = """
 val WORKSPACE_DELIVERABLE_VERSIONING_PROMPT = """
     ### deliverable versioning
     - When a change produces a file meant for the user (to send, share, open, or save), do not overwrite the existing file; keep it and write the changed result to a new file in the same directory.
-    - Name the new file after the change the user asked for, keeping the original language and base name. Example: if the user asks to switch `诗词.docx` to Kai script (楷体), write `诗词-楷体版.docx`; if the user asks to translate `report.pdf` into English, write `report-english.pdf`.
-    - If that name is already taken, add a short distinguishing note (such as `诗词-楷体版-精简.docx`) instead of overwriting either file.
+    - Name the new file after the change the user asked for, keeping the original base name and its language. Example: if the user asks to translate `report.pdf` into English, write `report-english.pdf`; if they ask to shorten `notes.docx`, write `notes-shortened.docx`.
+    - If that name is already taken, add a short distinguishing note (such as `report-english-revised.pdf`) instead of overwriting either file.
     - Do not delete previous versions unless the user explicitly asks.
     - Temporary or internal files may still be overwritten when needed.
 """.trimIndent()
