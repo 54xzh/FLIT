@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.ai.tools
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WorkspaceFileReferenceToolsTest {
@@ -35,5 +36,20 @@ class WorkspaceFileReferenceToolsTest {
         assertNull(normalizeWorkspaceFileReferencePath("/workspace/output//report.pdf", sandbox = true))
         assertNull(normalizeWorkspaceFileReferencePath("/workspace/", sandbox = true))
         assertNull(normalizeWorkspaceFileReferencePath("", sandbox = false))
+    }
+
+    @Test
+    fun `workspace prompts preserve user-facing deliverable versions`() {
+        assertTrue(WORKSPACE_COMMON_RULES_PROMPT.contains("do not overwrite the existing file"))
+        assertTrue(
+            workspaceToolSystemPromptTemplate("workspace_write_file", includeCommonRules = false)
+                .contains("report-v001.pdf"),
+        )
+        assertTrue(
+            workspaceToolSystemPromptTemplate(
+                WORKSPACE_FILE_REFERENCE_TOOL_NAME,
+                includeCommonRules = true,
+            ).contains("new versioned path"),
+        )
     }
 }

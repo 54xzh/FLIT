@@ -53,7 +53,7 @@ private fun sandboxWriteTool(id: String, repository: WorkspaceRepository, approv
             properties = buildJsonObject {
                 putSandboxPath(required = true)
                 put("text", buildJsonObject { put("type", "string"); put("description", "UTF-8 content") })
-                put("overwrite", buildJsonObject { put("type", "boolean"); put("description", "Overwrite an existing file; defaults to true") })
+                put("overwrite", buildJsonObject { put("type", "boolean"); put("description", "Overwrite an existing file; defaults to true. Use only for temporary/internal files or when the user explicitly asks to replace it; user-facing deliverables must use a new versioned path.") })
             },
             required = listOf("path", "text"),
         )
@@ -151,6 +151,12 @@ private const val SANDBOX_PROMPT = """
 You are using a persistent Linux sandbox. Sandbox file tools accept absolute paths under /workspace only.
 Use sandbox_shell for commands. The shell can write /workspace, /skills, /upload and /tool_outputs; do not claim that uploads are read-only.
 Mounted phone folders under /workspace are live and writable; changes affect the original phone files.
+
+### deliverable versioning
+- For files prepared to send, share, open, or save for the user, or files already sent as deliverables, do not overwrite the existing file.
+- Keep the previous file at its old path and write the changed result to a new versioned path, such as /workspace/output/report-v001.pdf and /workspace/output/report-v002.pdf.
+- Inspect the parent directory and use the next unused version; do not delete previous versions unless the user explicitly asks.
+- Temporary or internal files may still be overwritten when needed.
 """
 
 private fun kotlinx.serialization.json.JsonObjectBuilder.putSandboxPath(required: Boolean) {

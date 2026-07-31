@@ -449,6 +449,12 @@ val WORKSPACE_COMMON_RULES_PROMPT = """
     ### parameter naming
     - Use the exact parameter keys from the schema (usually snake_case, e.g. `max_entries`, `max_chars`).
 
+    ### deliverable versioning
+    - For files prepared to send, share, open, or save for the user, or files already sent as deliverables, do not overwrite the existing file.
+    - Keep the previous file at its old path and write the changed result to a new versioned path.
+    - Use a clear suffix such as `report-v001.pdf`, `report-v002.pdf`; inspect the parent directory and use the next unused version.
+    - Temporary or internal files may still be overwritten when needed.
+
     ### setup
     - If you see an error like "Workspace root is not set", ask the user to set the default root in Settings -> Skills, or authorize a root folder for this conversation in Work directory settings.
 """.trimIndent()
@@ -470,6 +476,10 @@ fun workspaceToolSystemPromptTemplate(
         """.trimIndent()
 
         "workspace_write_file" -> """
+            ### rules
+            - For a user-facing deliverable, do not overwrite an existing file. Keep the old path and write the changed result to a new versioned path.
+            - For example, modify `report.pdf` by creating `report-v001.pdf`, then use higher unused versions such as `report-v002.pdf` for later changes.
+
             ### examples
             - Write a file: {"path":"notes.txt","content":"hello"}
         """.trimIndent()
@@ -480,11 +490,18 @@ fun workspaceToolSystemPromptTemplate(
         """.trimIndent()
 
         "workspace_delete" -> """
+            ### rules
+            - Do not delete a previous version of a user-facing deliverable unless the user explicitly asks.
+
             ### examples
             - Delete a file: {"path":"output/old.txt","recursive":false}
         """.trimIndent()
 
         "workspace_rename" -> """
+            ### rules
+            - Do not rename or move an already sent deliverable to replace its old path.
+            - When creating a new deliverable version, keep the old path and write the new versioned file instead.
+
             ### examples
             - Rename/move: {"from":"a.txt","to":"archive/a.txt","create_parents":true}
         """.trimIndent()
@@ -492,7 +509,8 @@ fun workspaceToolSystemPromptTemplate(
         WORKSPACE_FILE_REFERENCE_TOOL_NAME -> """
             ### rules
             - Use only after the requested file already exists and the user asks to receive, share, open, or save it.
-            - Create a reference to the existing workspace file; do not copy or upload its contents.
+            - Create a reference to the existing workspace file; do not copy or upload its contents in this tool.
+            - If the file is a changed user-facing deliverable, reference its new versioned path so earlier versions remain available.
 
             ### examples
             - Reference a file for the user: {"path":"output/report.pdf"}
