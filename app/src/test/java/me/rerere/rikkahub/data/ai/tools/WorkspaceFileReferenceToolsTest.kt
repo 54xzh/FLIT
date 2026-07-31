@@ -40,16 +40,15 @@ class WorkspaceFileReferenceToolsTest {
 
     @Test
     fun `workspace prompts preserve user-facing deliverable versions`() {
-        assertTrue(WORKSPACE_COMMON_RULES_PROMPT.contains("do not overwrite the existing file"))
-        assertTrue(
-            workspaceToolSystemPromptTemplate("workspace_write_file", includeCommonRules = false)
-                .contains("report-v001.pdf"),
-        )
+        assertTrue(WORKSPACE_DELIVERABLE_VERSIONING_PROMPT.contains("do not overwrite the existing file"))
+        val writeTemplate = workspaceToolSystemPromptTemplate("workspace_write_file", includeCommonRules = false)
+        assertTrue(writeTemplate.contains("Name the new file after the change the user asked for"))
+        assertTrue(writeTemplate.contains("诗词-楷体版.docx"))
         assertTrue(
             workspaceToolSystemPromptTemplate(
                 WORKSPACE_FILE_REFERENCE_TOOL_NAME,
                 includeCommonRules = true,
-            ).contains("new versioned path"),
+            ).contains("new deliverable file"),
         )
     }
 }

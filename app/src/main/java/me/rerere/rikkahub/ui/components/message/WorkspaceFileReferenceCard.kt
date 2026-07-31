@@ -62,6 +62,7 @@ import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import org.koin.compose.koinInject
 import java.io.File
+import java.security.MessageDigest
 import java.util.Locale
 
 private data class WorkspaceFileReference(
@@ -346,9 +347,11 @@ private suspend fun resolveWorkspaceFileUri(
 ): android.net.Uri {
     repository.resolveWorkspaceFileUri(reference.workspaceId, reference.path)?.let { return it }
 
+    // 用路径的 SHA-256 前缀做缓存文件名：hashCode 只有 32 位，不同路径可能碰撞，
+    // 导致打开 A 文件时看到 B 的内容。
     val shareFile = File(
         context.cacheDir,
-        "workspace_share/${reference.workspaceId}/${reference.path.hashCode()}_${reference.name.safeWorkspaceFileName()}",
+        "workspace_share/${reference.workspaceId}/${reference.path.sha256HexPrefix()}_${reference.name.safeWorkspaceFileName()}",
     )
     shareFile.parentFile?.mkdirs()
     try {
@@ -373,6 +376,11 @@ private fun openWorkspaceFile(context: Context, uri: android.net.Uri, mime: Stri
 
 private fun String.safeWorkspaceFileName(): String =
     replace('/', '_').replace('\\', '_').ifBlank { "workspace_file" }
+
+private fun String.sha256HexPrefix(): String {
+    val bytes = MessageDigest.getInstance("SHA-256").digest(toByteArray())
+    return bytes.take(8).joinToString(separator = "") { byte -> "%02x".format(byte) }
+}
 
 private fun fileMimeLabel(mime: String, unknownLabel: String): String = when {
     mime == "application/octet-stream" -> unknownLabel

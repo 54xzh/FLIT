@@ -449,14 +449,23 @@ val WORKSPACE_COMMON_RULES_PROMPT = """
     ### parameter naming
     - Use the exact parameter keys from the schema (usually snake_case, e.g. `max_entries`, `max_chars`).
 
-    ### deliverable versioning
-    - For files prepared to send, share, open, or save for the user, or files already sent as deliverables, do not overwrite the existing file.
-    - Keep the previous file at its old path and write the changed result to a new versioned path.
-    - Use a clear suffix such as `report-v001.pdf`, `report-v002.pdf`; inspect the parent directory and use the next unused version.
-    - Temporary or internal files may still be overwritten when needed.
-
     ### setup
     - If you see an error like "Workspace root is not set", ask the user to set the default root in Settings -> Skills, or authorize a root folder for this conversation in Work directory settings.
+""".trimIndent()
+
+/**
+ * 交付物版本化完整规则。
+ * 只注入到真正决定文件名的写入工具（workspace_write_file）；delete / rename / send_file
+ * 各自只保留与自身操作相关的一行提醒，避免同一段话在一次请求里重复多遍。
+ * 沙盒侧在 SANDBOX_PROMPT 中维护自己的副本。
+ */
+val WORKSPACE_DELIVERABLE_VERSIONING_PROMPT = """
+    ### deliverable versioning
+    - When a change produces a file meant for the user (to send, share, open, or save), do not overwrite the existing file; keep it and write the changed result to a new file in the same directory.
+    - Name the new file after the change the user asked for, keeping the original language and base name. Example: if the user asks to switch `诗词.docx` to Kai script (楷体), write `诗词-楷体版.docx`; if the user asks to translate `report.pdf` into English, write `report-english.pdf`.
+    - If that name is already taken, add a short distinguishing note (such as `诗词-楷体版-精简.docx`) instead of overwriting either file.
+    - Do not delete previous versions unless the user explicitly asks.
+    - Temporary or internal files may still be overwritten when needed.
 """.trimIndent()
 
 fun workspaceToolSystemPromptTemplate(
@@ -476,10 +485,6 @@ fun workspaceToolSystemPromptTemplate(
         """.trimIndent()
 
         "workspace_write_file" -> """
-            ### rules
-            - For a user-facing deliverable, do not overwrite an existing file. Keep the old path and write the changed result to a new versioned path.
-            - For example, modify `report.pdf` by creating `report-v001.pdf`, then use higher unused versions such as `report-v002.pdf` for later changes.
-
             ### examples
             - Write a file: {"path":"notes.txt","content":"hello"}
         """.trimIndent()
@@ -499,8 +504,7 @@ fun workspaceToolSystemPromptTemplate(
 
         "workspace_rename" -> """
             ### rules
-            - Do not rename or move an already sent deliverable to replace its old path.
-            - When creating a new deliverable version, keep the old path and write the new versioned file instead.
+            - Do not rename or move a user-facing deliverable over its old path; a changed deliverable is written as a new file instead.
 
             ### examples
             - Rename/move: {"from":"a.txt","to":"archive/a.txt","create_parents":true}
@@ -510,7 +514,7 @@ fun workspaceToolSystemPromptTemplate(
             ### rules
             - Use only after the requested file already exists and the user asks to receive, share, open, or save it.
             - Create a reference to the existing workspace file; do not copy or upload its contents in this tool.
-            - If the file is a changed user-facing deliverable, reference its new versioned path so earlier versions remain available.
+            - If the change produced a new deliverable file, reference that new file so earlier versions remain available.
 
             ### examples
             - Reference a file for the user: {"path":"output/report.pdf"}
@@ -525,6 +529,10 @@ fun workspaceToolSystemPromptTemplate(
             appendLine()
         }
         appendLine("## tool: $toolName")
+        if (toolName == "workspace_write_file") {
+            appendLine()
+            appendLine(WORKSPACE_DELIVERABLE_VERSIONING_PROMPT)
+        }
         if (examples.isNotBlank()) {
             appendLine()
             appendLine(examples)

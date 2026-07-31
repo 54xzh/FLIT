@@ -4521,7 +4521,7 @@ class ChatService(
                         })
                         put("overwrite", buildJsonObject {
                             put("type", "boolean")
-                            put("description", "Overwrite an existing file (default: true). Use only for temporary/internal files or when the user explicitly asks to replace it; user-facing deliverables must use a new versioned path.")
+                            put("description", "Overwrite an existing file (default: true). Use only for temporary/internal files or when the user explicitly asks to replace it; user-facing deliverables must be written to a new, descriptively named path.")
                         })
                         put("append", buildJsonObject {
                             put("type", "boolean")

@@ -53,7 +53,7 @@ private fun sandboxWriteTool(id: String, repository: WorkspaceRepository, approv
             properties = buildJsonObject {
                 putSandboxPath(required = true)
                 put("text", buildJsonObject { put("type", "string"); put("description", "UTF-8 content") })
-                put("overwrite", buildJsonObject { put("type", "boolean"); put("description", "Overwrite an existing file; defaults to true. Use only for temporary/internal files or when the user explicitly asks to replace it; user-facing deliverables must use a new versioned path.") })
+                put("overwrite", buildJsonObject { put("type", "boolean"); put("description", "Overwrite an existing file; defaults to true. Use only for temporary/internal files or when the user explicitly asks to replace it; user-facing deliverables must be written to a new, descriptively named path.") })
             },
             required = listOf("path", "text"),
         )
@@ -153,9 +153,10 @@ Use sandbox_shell for commands. The shell can write /workspace, /skills, /upload
 Mounted phone folders under /workspace are live and writable; changes affect the original phone files.
 
 ### deliverable versioning
-- For files prepared to send, share, open, or save for the user, or files already sent as deliverables, do not overwrite the existing file.
-- Keep the previous file at its old path and write the changed result to a new versioned path, such as /workspace/output/report-v001.pdf and /workspace/output/report-v002.pdf.
-- Inspect the parent directory and use the next unused version; do not delete previous versions unless the user explicitly asks.
+- When a change produces a file meant for the user (to send, share, open, or save), do not overwrite the existing file; keep it and write the changed result to a new file in the same directory.
+- Name the new file after the change the user asked for, keeping the original language and base name. Example: if the user asks to switch /workspace/诗词.docx to Kai script (楷体), write /workspace/诗词-楷体版.docx; if the user asks to translate /workspace/report.pdf into English, write /workspace/report-english.pdf.
+- If that name is already taken, add a short distinguishing note (such as /workspace/诗词-楷体版-精简.docx) instead of overwriting either file.
+- Do not delete previous versions unless the user explicitly asks.
 - Temporary or internal files may still be overwritten when needed.
 """
 

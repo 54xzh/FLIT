@@ -137,5 +137,5 @@ private const val SANDBOX_FILE_REFERENCE_PROMPT = """
 You are using a persistent Linux sandbox. Use this tool only when the user asks to receive, share, open, or save a file.
 The tool creates a reference to an existing regular file; it does not upload or copy the file into the conversation.
 The path must be an absolute file path under /workspace, for example /workspace/output/report.pdf.
-If a user-facing deliverable was changed, keep the old file and reference a new versioned path such as /workspace/output/report-v001.pdf.
+If the change produced a new deliverable file, reference that new file so earlier versions remain available.
 """
