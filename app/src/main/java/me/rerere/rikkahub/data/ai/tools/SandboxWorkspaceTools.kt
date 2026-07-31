@@ -153,7 +153,9 @@ Use sandbox_shell for commands. The shell can write /workspace, /skills, /upload
 Mounted phone folders under /workspace are live and writable; changes affect the original phone files.
 
 ### deliverable versioning
-- When a change produces a file meant for the user (to send, share, open, or save), do not overwrite the existing file; keep it and write the changed result to a new file in the same directory.
+- `workspace_send_file` does not copy the file into the conversation; it creates a live reference to the file path. When the user later opens or saves a referenced file, the app reads whatever is at that path at that moment.
+- If you overwrite an existing file, every earlier reference to it silently starts showing the new content, and the user's previous version is gone everywhere at once.
+- So when a change produces a file meant for the user (to send, share, open, or save), keep the existing file and write the changed result to a new file in the same directory.
 - Name the new file after the change the user asked for, keeping the original base name and its language. Example: if the user asks to translate /workspace/report.pdf into English, write /workspace/report-english.pdf; if they ask to shorten /workspace/notes.docx, write /workspace/notes-shortened.docx.
 - If that name is already taken, add a short distinguishing note (such as /workspace/report-english-revised.pdf) instead of overwriting either file.
 - Do not delete previous versions unless the user explicitly asks.
