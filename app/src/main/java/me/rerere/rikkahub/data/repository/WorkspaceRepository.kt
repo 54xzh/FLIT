@@ -158,6 +158,7 @@ class WorkspaceRepository(
     private val conversationRepository: ConversationRepository,
     private val mountPathResolver: SandboxMountPathResolver,
     private val sandboxProcessCoordinator: SandboxProcessCoordinator,
+    private val safRepository: SafRepository,
 ) : KoinComponent {
     private val sandboxLocks = ConcurrentHashMap<String, Mutex>()
     private val workspaceImportMutex = Mutex()
@@ -905,6 +906,69 @@ class WorkspaceRepository(
     fun resolveRoot(treeUri: String): DocumentFile? = runCatching {
         DocumentFile.fromTreeUri(context, Uri.parse(treeUri))
     }.getOrNull()?.takeIf { it.isDirectory }
+
+    /** Resolve a regular file from either workspace implementation without reading its contents. */
+    suspend fun resolveWorkspaceFile(id: String, path: String): WorkspaceFileEntry? = withContext(Dispatchers.IO) {
+        val workspace = getById(id) ?: return@withContext null
+        val normalized = runCatching { normalizeWorkspaceRelativePath(path) }.getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: return@withContext null
+        when (workspace.type) {
+            WorkspaceType.LIGHTWEIGHT -> {
+                val root = workspace.treeUri?.let(::resolveRoot) ?: return@withContext null
+                val target = safRepository.resolve(root, normalized)
+                    ?.takeIf { it.isFile }
+                    ?: return@withContext null
+                WorkspaceFileEntry(
+                    path = normalized,
+                    name = target.name ?: normalized.substringAfterLast('/'),
+                    isDirectory = false,
+                    sizeBytes = target.length(),
+                    updatedAt = target.lastModified(),
+                )
+            }
+
+            WorkspaceType.SANDBOX -> try {
+                val parent = normalized.substringBeforeLast('/', "")
+                listSandboxFiles(id, parent).firstOrNull { it.path == normalized && !it.isDirectory }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    /** Return a direct URI when the file is SAF-backed; sandbox files need a temporary export. */
+    suspend fun resolveWorkspaceFileUri(id: String, path: String): Uri? = withContext(Dispatchers.IO) {
+        val workspace = getById(id) ?: return@withContext null
+        if (workspace.type != WorkspaceType.LIGHTWEIGHT) return@withContext null
+        val normalized = runCatching { normalizeWorkspaceRelativePath(path) }.getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: return@withContext null
+        val root = workspace.treeUri?.let(::resolveRoot) ?: return@withContext null
+        safRepository.resolve(root, normalized)?.takeIf { it.isFile }?.uri
+    }
+
+    /** Stream the current file into [output], rechecking the workspace path at click time. */
+    suspend fun exportWorkspaceFile(id: String, path: String, output: OutputStream) = withContext(Dispatchers.IO) {
+        val workspace = getById(id) ?: error("Workspace is unavailable")
+        val normalized = runCatching { normalizeWorkspaceRelativePath(path) }.getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: error("Invalid workspace file path")
+        when (workspace.type) {
+            WorkspaceType.LIGHTWEIGHT -> {
+                val root = workspace.treeUri?.let(::resolveRoot) ?: error("Workspace folder is unavailable")
+                val target = safRepository.resolve(root, normalized)?.takeIf { it.isFile }
+                    ?: error("File is unavailable")
+                context.contentResolver.openInputStream(target.uri)?.use { input ->
+                    input.copyTo(output)
+                } ?: error("Unable to read file")
+            }
+
+            WorkspaceType.SANDBOX -> exportSandboxFile(id, normalized, output)
+        }
+    }
 
     private suspend fun resolve(record: WorkspaceEntity): Workspace? = when (record.type) {
         WorkspaceType.LIGHTWEIGHT -> dao.getSafDetail(record.id)?.let { detail -> record.toWorkspace(treeUri = detail.treeUri) }

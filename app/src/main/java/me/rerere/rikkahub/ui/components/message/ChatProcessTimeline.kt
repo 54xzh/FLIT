@@ -161,16 +161,20 @@ internal fun ChatProcessTimeline(
         intervalMs = streamingContentUpdateIntervalMs,
         key = conversationId,
     )
+    val processPartsForTimeline = remember(displayedProcessParts) {
+        displayedProcessParts.filterNot { it.isHiddenWorkspaceFileReferencePart() }
+    }
+    if (processPartsForTimeline.isEmpty()) return
 
     val localReasoningBodyStates = remember { mutableStateMapOf<String, ReasoningBodyState>() }
     val resolvedReasoningBodyStates = reasoningBodyStates ?: localReasoningBodyStates
 
-    val toolApprovalsById = remember(displayedProcessParts) {
-        displayedProcessParts.filterIsInstance<UIMessagePart.ToolApproval>()
+    val toolApprovalsById = remember(processPartsForTimeline) {
+        processPartsForTimeline.filterIsInstance<UIMessagePart.ToolApproval>()
             .associateBy { it.toolCallId }
     }
-    val toolCallArgumentsById = remember(displayedProcessParts) {
-        displayedProcessParts.filterIsInstance<UIMessagePart.ToolCall>()
+    val toolCallArgumentsById = remember(processPartsForTimeline) {
+        processPartsForTimeline.filterIsInstance<UIMessagePart.ToolCall>()
             .associate { toolCall ->
                 val parsedArguments = runCatching {
                     JsonInstant.parseToJsonElement(toolCall.arguments)
@@ -178,14 +182,14 @@ internal fun ChatProcessTimeline(
                 toolCall.toolCallId to parsedArguments
             }
     }
-    val hiddenResolvedToolCallIds = remember(displayedProcessParts, hiddenToolCallIds) {
-        hiddenToolCallIds + displayedProcessParts
+    val hiddenResolvedToolCallIds = remember(processPartsForTimeline, hiddenToolCallIds) {
+        hiddenToolCallIds + processPartsForTimeline
             .filterIsInstance<UIMessagePart.ToolResult>()
             .mapNotNull { it.toolCallId.takeIf(String::isNotBlank) }
             .toSet()
     }
-    val visibleParts = remember(displayedProcessParts, hiddenResolvedToolCallIds, toolApprovalsById) {
-        displayedProcessParts.filter { part ->
+    val visibleParts = remember(processPartsForTimeline, hiddenResolvedToolCallIds, toolApprovalsById) {
+        processPartsForTimeline.filter { part ->
             when (part) {
                 is UIMessagePart.ToolCall -> {
                     val shouldHide = part.toolCallId.isNotBlank() &&

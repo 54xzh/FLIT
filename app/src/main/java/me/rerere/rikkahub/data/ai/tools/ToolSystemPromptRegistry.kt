@@ -176,6 +176,15 @@ object ToolSystemPromptRegistry {
             variables = listOf(ToolSystemPromptVariable(WORKSPACE_COMMON_RULES_VARIABLE)),
         ),
         ToolSystemPromptDefinition(
+            toolName = WORKSPACE_FILE_REFERENCE_TOOL_NAME,
+            group = ToolSystemPromptGroup.Workspace,
+            defaultTemplate = workspaceToolSystemPromptTemplate(
+                toolName = WORKSPACE_FILE_REFERENCE_TOOL_NAME,
+                includeCommonRules = true,
+            ),
+            variables = listOf(ToolSystemPromptVariable(WORKSPACE_COMMON_RULES_VARIABLE)),
+        ),
+        ToolSystemPromptDefinition(
             toolName = SCHEDULED_TASKS_MANAGEMENT_TOOL_NAME,
             group = ToolSystemPromptGroup.ScheduledTasks,
             defaultTemplate = SCHEDULED_TASK_SYSTEM_PROMPT_TEMPLATE,
@@ -478,6 +487,15 @@ fun workspaceToolSystemPromptTemplate(
         "workspace_rename" -> """
             ### examples
             - Rename/move: {"from":"a.txt","to":"archive/a.txt","create_parents":true}
+        """.trimIndent()
+
+        WORKSPACE_FILE_REFERENCE_TOOL_NAME -> """
+            ### rules
+            - Use only after the requested file already exists and the user asks to receive, share, open, or save it.
+            - Create a reference to the existing workspace file; do not copy or upload its contents.
+
+            ### examples
+            - Reference a file for the user: {"path":"output/report.pdf"}
         """.trimIndent()
 
         else -> ""

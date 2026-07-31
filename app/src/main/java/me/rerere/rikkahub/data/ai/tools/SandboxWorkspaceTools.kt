@@ -20,6 +20,7 @@ suspend fun createSandboxWorkspaceTools(
     val overrides = workspaceRepository.getById(workspaceId)?.toolApprovalOverrides().orEmpty()
     fun approval(name: String): Boolean = overrides[name] ?: toolDefaultNeedsApproval(name)
     return listOf(
+        createWorkspaceFileReferenceTool(workspaceId, workspaceRepository),
         sandboxReadTool(workspaceId, workspaceRepository, ::approval),
         sandboxWriteTool(workspaceId, workspaceRepository, ::approval),
         sandboxEditTool(workspaceId, workspaceRepository, ::approval),

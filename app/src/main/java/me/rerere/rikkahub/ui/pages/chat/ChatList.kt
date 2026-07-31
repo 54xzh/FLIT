@@ -122,6 +122,7 @@ import me.rerere.rikkahub.ui.components.message.ChatMessageAssistantAvatar
 import me.rerere.rikkahub.ui.components.message.ChatProcessTimeline
 import me.rerere.rikkahub.ui.components.message.ReasoningBodyState
 import me.rerere.rikkahub.ui.components.message.ToolCallPreviewSheet
+import me.rerere.rikkahub.ui.components.message.WorkspaceFileReferenceCards
 import me.rerere.rikkahub.ui.components.message.planChatProcessDisplay
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItemContentPadding
@@ -1174,6 +1175,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                 onOpenToolPreview = openToolPreview,
                                 streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
                             )
+                            WorkspaceFileReferenceCards(parts = standaloneProcessParts)
                         }
                     }
 

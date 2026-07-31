@@ -102,6 +102,7 @@ import me.rerere.rikkahub.data.ai.tools.LocalTools
 import me.rerere.rikkahub.data.ai.tools.SearchAgentProgressStore
 import me.rerere.rikkahub.data.ai.tools.SearchAgentTools
 import me.rerere.rikkahub.data.ai.tools.createSandboxWorkspaceTools
+import me.rerere.rikkahub.data.ai.tools.createWorkspaceFileReferenceTool
 import me.rerere.rikkahub.data.ai.tools.WORKSPACE_COMMON_RULES_PROMPT
 import me.rerere.rikkahub.data.ai.tools.WORKSPACE_COMMON_RULES_VARIABLE
 import me.rerere.rikkahub.data.ai.tools.renderToolSystemPromptTemplate
@@ -4164,6 +4165,10 @@ class ChatService(
             createWorkspaceMkdirTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
             createWorkspaceDeleteTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
             createWorkspaceRenameTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
+            createWorkspaceFileReferenceTool(
+                workspaceId = assistant.workspaceId ?: error("Assistant has no workspace bound"),
+                workspaceRepository = workspaceRepository,
+            ),
         )
     }
 

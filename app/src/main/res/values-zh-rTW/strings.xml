@@ -332,6 +332,14 @@
   <string name="chat_message_tool_workspace_mkdir">工作區：建立資料夾 %1$s</string>
   <string name="chat_message_tool_workspace_delete">工作區：刪除 %1$s</string>
   <string name="chat_message_tool_workspace_rename">工作區：重新命名 %1$s → %2$s</string>
+  <string name="workspace_file_reference_info">%1$s · %2$s</string>
+  <string name="workspace_file_reference_unknown_type">檔案</string>
+  <string name="workspace_file_reference_open">開啟</string>
+  <string name="workspace_file_reference_save">儲存副本</string>
+  <string name="workspace_file_reference_saved">檔案已儲存</string>
+  <string name="workspace_file_reference_unavailable">檔案已無法使用，可能已被刪除或移動</string>
+  <string name="workspace_file_reference_open_failed">沒有應用程式可開啟此檔案</string>
+  <string name="workspace_file_reference_save_failed">無法儲存此檔案</string>
   <string name="chat_page_cancel">取消</string>
   <string name="chat_page_clear_context">清空上下文</string>
   <string name="chat_page_context_compressing">正在壓縮上下文</string>

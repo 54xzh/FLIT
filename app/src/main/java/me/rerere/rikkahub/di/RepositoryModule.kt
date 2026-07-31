@@ -103,6 +103,7 @@ val repositoryModule = module {
             conversationRepository = get(),
             mountPathResolver = get(),
             sandboxProcessCoordinator = get(),
+            safRepository = get(),
         )
     }
 

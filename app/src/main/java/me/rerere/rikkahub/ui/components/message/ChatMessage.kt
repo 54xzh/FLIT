@@ -608,6 +608,12 @@ private fun MessagePartsBlock(
         }
     }
 
+    if (role == MessageRole.ASSISTANT) {
+        renderBlocks.workspaceFileReferenceContentsFromBlocks().forEach { content ->
+            WorkspaceFileReferenceCard(content = content)
+        }
+    }
+
     // Token Statistics (shown after all text parts, for assistant messages only)
     // Just shows immediately when conditions are met - no special delay or animation
     val hasTextContent = remember(parts) {

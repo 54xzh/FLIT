@@ -523,6 +523,14 @@
   <string name="chat_message_tool_workspace_read_file">工作区：读取 %1$s</string>
   <string name="chat_message_tool_workspace_rename">工作区：重命名 %1$s → %2$s</string>
   <string name="chat_message_tool_workspace_write_file">工作区：写入 %1$s</string>
+  <string name="workspace_file_reference_info">%1$s · %2$s</string>
+  <string name="workspace_file_reference_unknown_type">文件</string>
+  <string name="workspace_file_reference_open">打开</string>
+  <string name="workspace_file_reference_save">保存副本</string>
+  <string name="workspace_file_reference_saved">文件已保存</string>
+  <string name="workspace_file_reference_unavailable">文件已不可用，可能已被删除或移动</string>
+  <string name="workspace_file_reference_open_failed">没有应用可打开此文件</string>
+  <string name="workspace_file_reference_save_failed">无法保存此文件</string>
   <string name="chat_page_cancel">取消</string>
   <string name="chat_page_clear_context">清空上下文</string>
   <string name="chat_page_clear_context_confirm_action">清空</string>

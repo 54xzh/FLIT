@@ -470,6 +470,14 @@
     <string name="chat_message_tool_workspace_mkdir">Workspace: Mkdir %1$s</string>
     <string name="chat_message_tool_workspace_delete">Workspace: Delete %1$s</string>
     <string name="chat_message_tool_workspace_rename">Workspace: Rename %1$s → %2$s</string>
+    <string name="workspace_file_reference_info">%1$s · %2$s</string>
+    <string name="workspace_file_reference_unknown_type">File</string>
+    <string name="workspace_file_reference_open">Open</string>
+    <string name="workspace_file_reference_save">Save copy</string>
+    <string name="workspace_file_reference_saved">File saved</string>
+    <string name="workspace_file_reference_unavailable">This file is no longer available</string>
+    <string name="workspace_file_reference_open_failed">No app available to open this file</string>
+    <string name="workspace_file_reference_save_failed">Unable to save this file</string>
     <string name="chat_page_cancel">Cancel</string>
     <string name="chat_page_clear_context">Clear Context</string>
     <string name="chat_page_context_compressing">Compressing context</string>
