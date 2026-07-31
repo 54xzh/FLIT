@@ -1831,23 +1831,23 @@
 
     <!-- Prompt Injections -->
     <string name="setting_page_prompt_injections">Prompt Injections</string>
-    <string name="setting_page_prompt_injections_desc">Modes and lorebooks</string>
+    <string name="setting_page_prompt_injections_desc">Preset prompts and lorebooks</string>
     <string name="prompt_injections_page_injection_types">Injection Types</string>
-    <string name="prompt_injections_page_modes">Modes</string>
+    <string name="prompt_injections_page_modes">Preset Prompts</string>
     <string name="prompt_injections_page_modes_desc">Custom prompts that can be toggled on/off</string>
     <string name="prompt_injections_page_lorebooks">Lorebooks</string>
     <string name="prompt_injections_page_lorebooks_desc">Context-triggered prompt entries</string>
 
     <!-- Modes -->
-    <string name="modes_page_description_title">Custom Modes</string>
-    <string name="modes_page_description_text">Define custom prompts that can be toggled on/off per chat. Higher priority modes are injected first.</string>
-    <string name="modes_page_deleted">Mode \"%s\" deleted</string>
+    <string name="modes_page_description_title">Custom Preset Prompts</string>
+    <string name="modes_page_description_text">Define custom prompts that can be toggled on/off per chat. Higher priority preset prompts are injected first.</string>
+    <string name="modes_page_deleted">Preset Prompt \"%s\" deleted</string>
     <string name="modes_page_enable_by_default">Enable by default</string>
-    <string name="modes_page_empty_title">No modes yet</string>
-    <string name="modes_page_empty_desc">Add modes to inject custom prompts</string>
-    <string name="modes_page_unnamed">Unnamed Mode</string>
-    <string name="modes_page_add_mode">Add Mode</string>
-    <string name="modes_page_edit_mode">Edit Mode</string>
+    <string name="modes_page_empty_title">No preset prompts yet</string>
+    <string name="modes_page_empty_desc">Add preset prompts to inject custom prompts</string>
+    <string name="modes_page_unnamed">Unnamed Preset Prompt</string>
+    <string name="modes_page_add_mode">Add Preset Prompt</string>
+    <string name="modes_page_edit_mode">Edit Preset Prompt</string>
     <string name="modes_page_name">Name</string>
     <string name="modes_page_name_placeholder">e.g. Creative Writing</string>
     <string name="modes_page_prompt">Prompt</string>
@@ -1924,9 +1924,9 @@
     <!-- Modes Picker -->
     <string name="modes_page_default_on">On by default</string>
     <string name="modes_page_default_off">Off by default</string>
-    <string name="modes_picker_title">Modes</string>
+    <string name="modes_picker_title">Preset Prompts</string>
     <string name="modes_picker_count">%d active</string>
-    <string name="modes_picker_none">No modes configured</string>
+    <string name="modes_picker_none">No preset prompts configured</string>
     <string name="modes_page_default_enabled">Enable by default</string>
     <string name="modes_page_default_enabled_desc">Automatically enable for new chats</string>
     <string name="modes_page_config_default_assistants">Configure default-enabled assistants (%1$d/%2$d)</string>
@@ -2009,11 +2009,11 @@
     
     <!-- Context Sources -->
     <string name="context_sources_title">Context Sources</string>
-    <string name="context_sources_section_modes">Modes</string>
+    <string name="context_sources_section_modes">Preset Prompts</string>
     <string name="context_sources_section_session_memories">Session Memories</string>
     <string name="context_sources_section_memories">Memories</string>
     <string name="context_sources_section_lorebook_entries">Lorebook Entries</string>
-    <string name="context_sources_mode_label">Mode</string>
+    <string name="context_sources_mode_label">Preset Prompt</string>
     <string name="used_lorebooks_title">Lorebook Entries Used</string>
     <string name="memory_type_core">Core Memory</string>
     <string name="memory_type_session">Session Memory</string>
@@ -2074,7 +2074,7 @@
     <string name="minimal_input_thinking_desc">Think longer for better answers</string>
     <string name="minimal_input_search">Search</string>
     <string name="minimal_input_search_desc">Search the web for information</string>
-    <string name="minimal_input_modes">Modes</string>
+    <string name="minimal_input_modes">Preset Prompts</string>
     <string name="minimal_input_modes_desc">Change how the assistant behaves</string>
     <string name="minimal_input_lorebooks">Lorebooks</string>
     <string name="minimal_input_lorebooks_desc">Add context from your lorebooks</string>
@@ -2226,11 +2226,11 @@
     <string name="injection_picker_desc">Choose what to add to this conversation.</string>
     <string name="injection_picker_summary_skills">Skills %1$d/%2$d</string>
     <string name="injection_picker_summary_lorebooks">Lorebooks %1$d/%2$d</string>
-    <string name="injection_picker_summary_modes">Modes %1$d/%2$d</string>
+    <string name="injection_picker_summary_modes">Preset Prompts %1$d/%2$d</string>
     <string name="injection_picker_summary_empty">No injection</string>
     <string name="injection_picker_tab_skills">Skills %1$s</string>
     <string name="injection_picker_tab_lorebooks">Lorebooks %1$s</string>
-    <string name="injection_picker_tab_modes">Modes %1$s</string>
+    <string name="injection_picker_tab_modes">Presets %1$s</string>
     <string name="injection_picker_empty_skills">Enable skills in assistant settings first.</string>
 
     <!-- Extensions page -->
@@ -2239,8 +2239,8 @@
     <string name="extensions_page_section_extensions">Extensions</string>
     <string name="extensions_page_skills">Skills</string>
     <string name="extensions_page_skills_desc">Import and manage Skill packages</string>
-    <string name="extensions_page_prompts">Modes &amp; Lorebooks</string>
-    <string name="extensions_page_prompts_desc">Modes and lorebooks</string>
+    <string name="extensions_page_prompts">Preset Prompts &amp; Lorebooks</string>
+    <string name="extensions_page_prompts_desc">Preset prompts and lorebooks</string>
     <string name="extensions_page_workspace">Workspaces</string>
     <string name="extensions_page_workspace_desc">Manage workspaces</string>
     <string name="assistant_page_workspace_binding_desc">Choose the assistant\'s workspace</string>

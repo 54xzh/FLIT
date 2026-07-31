@@ -1715,24 +1715,24 @@
   <string name="assistant_page_group_capabilities">功能與能力</string>
   <string name="assistant_page_group_other">其他</string>
   <string name="setting_page_prompt_injections">提示注入</string>
-  <string name="setting_page_prompt_injections_desc">模式與世界書</string>
+  <string name="setting_page_prompt_injections_desc">提示詞預設與世界書</string>
   <string name="prompt_injections_page_injection_types">注入類型</string>
-  <string name="prompt_injections_page_modes">模式</string>
-  <string name="prompt_injections_page_modes_desc">可開關的自定義提示</string>
+  <string name="prompt_injections_page_modes">提示詞預設</string>
+  <string name="prompt_injections_page_modes_desc">可開關的自定義提示詞預設</string>
   <string name="prompt_injections_page_lorebooks">世界書</string>
   <string name="prompt_injections_page_lorebooks_desc">根據上下文觸發的提示條目</string>
-  <string name="modes_picker_title">模式</string>
-  <string name="modes_picker_none">未配置模式</string>
+  <string name="modes_picker_title">提示詞預設</string>
+  <string name="modes_picker_none">未配置提示詞預設</string>
   <string name="modes_picker_count">%d 個已啟用</string>
-  <string name="modes_page_description_title">自定義模式</string>
-  <string name="modes_page_description_text">定義可在每個對話中開關的自定義提示。優先級更高的模式會先注入。</string>
-  <string name="modes_page_deleted">模式 “%s” 已刪除</string>
+  <string name="modes_page_description_title">自定義提示詞預設</string>
+  <string name="modes_page_description_text">定義可在每個對話中開關的自定義提示詞預設。優先級更高的預設會先注入。</string>
+  <string name="modes_page_deleted">提示詞預設 “%s” 已刪除</string>
   <string name="modes_page_enable_by_default">預設啟用</string>
-  <string name="modes_page_empty_title">還沒有模式</string>
-  <string name="modes_page_empty_desc">添加模式以注入自定義提示</string>
-  <string name="modes_page_unnamed">未命名模式</string>
-  <string name="modes_page_add_mode">添加模式</string>
-  <string name="modes_page_edit_mode">編輯模式</string>
+  <string name="modes_page_empty_title">還沒有提示詞預設</string>
+  <string name="modes_page_empty_desc">添加提示詞預設以注入自定義提示</string>
+  <string name="modes_page_unnamed">未命名提示詞預設</string>
+  <string name="modes_page_add_mode">添加提示詞預設</string>
+  <string name="modes_page_edit_mode">編輯提示詞預設</string>
   <string name="modes_page_name">名稱</string>
   <string name="modes_page_name_placeholder">例如：創意寫作</string>
   <string name="modes_page_prompt">提示</string>
@@ -2003,11 +2003,11 @@
 
   <!-- Context Sources -->
   <string name="context_sources_title">上下文來源</string>
-  <string name="context_sources_section_modes">模式</string>
+  <string name="context_sources_section_modes">提示詞預設</string>
   <string name="context_sources_section_session_memories">會話記憶</string>
   <string name="context_sources_section_memories">記憶</string>
   <string name="context_sources_section_lorebook_entries">世界書條目</string>
-  <string name="context_sources_mode_label">模式</string>
+  <string name="context_sources_mode_label">提示詞預設</string>
   <string name="used_lorebooks_title">已使用的世界書條目</string>
   <string name="memory_type_core">核心記憶</string>
   <string name="memory_type_session">會話記憶</string>
@@ -2065,7 +2065,7 @@
   <string name="minimal_input_thinking_desc">更長的思考，獲得更好的回答</string>
   <string name="minimal_input_search">搜尋</string>
   <string name="minimal_input_search_desc">搜尋網頁資訊</string>
-  <string name="minimal_input_modes">模式</string>
+  <string name="minimal_input_modes">提示詞預設</string>
   <string name="minimal_input_modes_desc">改變助手的行為</string>
   <string name="minimal_input_lorebooks">世界書</string>
   <string name="minimal_input_lorebooks_desc">從世界書加入上下文</string>
@@ -2216,11 +2216,11 @@
     <string name="injection_picker_desc">選擇要加入目前對話的內容。</string>
     <string name="injection_picker_summary_skills">技能 %1$d/%2$d</string>
     <string name="injection_picker_summary_lorebooks">世界書 %1$d/%2$d</string>
-    <string name="injection_picker_summary_modes">模式 %1$d/%2$d</string>
+    <string name="injection_picker_summary_modes">提示詞預設 %1$d/%2$d</string>
     <string name="injection_picker_summary_empty">無注入</string>
     <string name="injection_picker_tab_skills">技能 %1$s</string>
     <string name="injection_picker_tab_lorebooks">世界書 %1$s</string>
-    <string name="injection_picker_tab_modes">模式 %1$s</string>
+    <string name="injection_picker_tab_modes">預設 %1$s</string>
     <string name="injection_picker_empty_skills">請先在助手設定裡啟用技能。</string>
 
     <!-- Extensions page -->
@@ -2229,8 +2229,8 @@
     <string name="extensions_page_section_extensions">擴充功能</string>
     <string name="extensions_page_skills">Skills</string>
     <string name="extensions_page_skills_desc">匯入和管理 Skill 包</string>
-    <string name="extensions_page_prompts">模式與 Lorebook</string>
-    <string name="extensions_page_prompts_desc">模式和 Lorebook</string>
+    <string name="extensions_page_prompts">提示詞預設與世界書</string>
+    <string name="extensions_page_prompts_desc">提示詞預設和世界書</string>
     <string name="extensions_page_workspace">工作區</string>
     <string name="extensions_page_workspace_desc">管理工作區</string>
     <string name="assistant_page_workspace_binding_desc">選擇助手的工作區</string>

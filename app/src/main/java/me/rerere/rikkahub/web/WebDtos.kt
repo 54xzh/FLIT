@@ -847,7 +847,7 @@ private fun QuickMessage.toWebQuickMessageDto(): WebQuickMessageDto {
 private fun Mode.toWebModeInjectionDto(): WebModeInjectionDto {
     return WebModeInjectionDto(
         id = id.toString(),
-        name = name.ifBlank { "Mode" },
+        name = name.ifBlank { "Preset Prompt" },
         description = prompt,
         enabled = true,
     )
