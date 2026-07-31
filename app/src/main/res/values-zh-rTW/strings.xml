@@ -484,8 +484,10 @@
   <string name="mermaid_export_success">匯出成功</string>
   <string name="mode_button">模式</string>
   <string name="mode_fast">快速模式</string>
+  <string name="mode_fast_subtitle">更高的處理優先級，可能產生額外費用</string>
   <string name="mode_picker_none">未開啟</string>
   <string name="mode_pro">Pro 模式</string>
+  <string name="mode_pro_subtitle">答案通常更可靠，但會消耗更多的時間和 token</string>
   <string name="model_list_favorite">收藏</string>
   <string name="model_list_no_providers">沒有可用AI提供商，請在設置添加</string>
   <string name="model_list_search_placeholder">輸入模型名稱搜尋</string>

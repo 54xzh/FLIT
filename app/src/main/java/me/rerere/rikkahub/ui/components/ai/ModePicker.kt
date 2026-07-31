@@ -53,6 +53,7 @@ fun ModePicker(
                 if (supportsPro) {
                     SettingGroupItem(
                         title = stringResource(R.string.mode_pro),
+                        subtitle = stringResource(R.string.mode_pro_subtitle),
                         icon = {
                             Icon(
                                 imageVector = Icons.Rounded.Psychology,
@@ -70,6 +71,7 @@ fun ModePicker(
                 if (supportsFast) {
                     SettingGroupItem(
                         title = stringResource(R.string.mode_fast),
+                        subtitle = stringResource(R.string.mode_fast_subtitle),
                         icon = {
                             Icon(
                                 imageVector = Icons.Rounded.Bolt,

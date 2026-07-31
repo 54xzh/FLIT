@@ -943,8 +943,10 @@
     <string name="minimal_input_thinking_desc">更长的思考，获得更好的回答</string>
   <string name="mode_button">模式</string>
   <string name="mode_fast">快速模式</string>
+  <string name="mode_fast_subtitle">更高的处理优先级，可能产生额外费用</string>
   <string name="mode_picker_none">未开启</string>
   <string name="mode_pro">Pro 模式</string>
+  <string name="mode_pro_subtitle">答案通常更可靠，但会消耗更多的时间和 token</string>
   <string name="model_list_favorite">收藏</string>
   <string name="model_list_no_providers">没有可用AI提供商, 请在设置添加</string>
   <string name="model_list_search_placeholder">输入模型名称搜索</string>
