@@ -39,6 +39,8 @@ import me.rerere.ai.provider.Provider
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
+import me.rerere.ai.provider.supportsFastMode
+import me.rerere.ai.provider.supportsProMode
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
@@ -1622,6 +1624,11 @@ class GenerationHandler(
             maxTokens = assistant.maxTokens,
             tools = tools,
             reasoningLevel = assistant.reasoningLevel,
+            // Pro/快速模式: 模型白名单 + 用户开关, 端点能否处理交给上游兜底
+            proMode = model.supportsProMode() &&
+                (assistant.modelModeStates[model.modelId]?.pro == true),
+            fastMode = model.supportsFastMode() &&
+                (assistant.modelModeStates[model.modelId]?.fast == true),
             customHeaders = buildList {
                 addAll(assistant.customHeaders)
                 addAll(model.customHeaders)

@@ -291,7 +291,16 @@ class ResponseAPI(
                     if (level != ReasoningLevel.AUTO) {
                         put("effort", level.effort)
                     }
+                    // Pro 模式: reasoning.mode=pro, 与 effort 同级, 独立判断
+                    if (params.proMode) {
+                        put("mode", "pro")
+                    }
                 })
+            }
+
+            // 快速模式: service_tier=fast, 顶层参数
+            if (params.fastMode) {
+                put("service_tier", "fast")
             }
 
             // tools

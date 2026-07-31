@@ -143,6 +143,7 @@ import androidx.compose.material.icons.rounded.Photo
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.ClearAll
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -158,6 +159,8 @@ import me.rerere.rikkahub.ui.components.crop.CropImageScreen
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ModelType
+import me.rerere.ai.provider.supportsFastMode
+import me.rerere.ai.provider.supportsProMode
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.common.android.appTempFolder
 import me.rerere.rikkahub.R
@@ -180,6 +183,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.buildAssistantProviderSearchMode
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.GroupChatTemplate
+import me.rerere.rikkahub.data.model.ModelModeState
 import me.rerere.rikkahub.data.model.Skill
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.ui.components.ui.KeepScreenOn
@@ -1599,6 +1603,7 @@ private fun FilesPicker(
     var showMcpPicker by remember { mutableStateOf(false) }
     var showInjectionPicker by remember { mutableStateOf(false) }
     var showWorkspacePicker by remember { mutableStateOf(false) }
+    var showModePicker by remember { mutableStateOf(false) }
 
     // 会话工作区同时影响工作区工具与 STDIO MCP，因此入口不依赖工作区文件工具。
     val workspaceRepository: me.rerere.rikkahub.data.repository.WorkspaceRepository =
@@ -1796,7 +1801,7 @@ private fun FilesPicker(
                     }
                 },
             )
-            
+
             // Context Refresh button row - shown when enabled
             if (showContextRefresh) {
                 val totalMessages = conversation.currentMessages.size
@@ -1965,6 +1970,72 @@ private fun FilesPicker(
                 )
             }
 
+            // 模式 (Pro / 快速): 与 MCP 同级, 跟随模型白名单显隐
+            val hasPro = currentChatModel?.supportsProMode() == true
+            val hasFast = currentChatModel?.supportsFastMode() == true
+            if (hasPro || hasFast) {
+                val modeStates = currentChatModel?.modelId?.let {
+                    assistant.modelModeStates[it]
+                } ?: ModelModeState()
+                val activeModeNames = buildList {
+                    if (modeStates.pro) add(stringResource(R.string.mode_pro))
+                    if (modeStates.fast) add(stringResource(R.string.mode_fast))
+                }
+                val modeInteractionSource = remember { MutableInteractionSource() }
+                val isModePressed by modeInteractionSource.collectIsPressedAsState()
+                val modeScale by animateFloatAsState(
+                    targetValue = if (isModePressed) 0.98f else 1f,
+                    animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                    label = "mode_item_scale",
+                )
+                ListItem(
+                    modifier = Modifier
+                        .graphicsLayer {
+                            scaleX = modeScale
+                            scaleY = modeScale
+                        }
+                        .clip(RoundedCornerShape(24.dp))
+                        .clickable(
+                            interactionSource = modeInteractionSource,
+                            indication = LocalIndication.current,
+                        ) {
+                            haptics.perform(HapticPattern.Pop)
+                            showModePicker = true
+                        },
+                    colors = ListItemDefaults.colors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    ),
+                    leadingContent = {
+                        Icon(
+                            imageVector = Icons.Rounded.Tune,
+                            contentDescription = stringResource(R.string.mode_button),
+                            tint = if (activeModeNames.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    headlineContent = {
+                        Text(
+                            text = stringResource(R.string.mode_button),
+                            color = if (activeModeNames.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        )
+                    },
+                    supportingContent = {
+                        Text(
+                            text = if (activeModeNames.isEmpty()) stringResource(R.string.mode_picker_none)
+                            else activeModeNames.joinToString(", "),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    trailingContent = {
+                        Icon(
+                            imageVector = Icons.Rounded.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                        )
+                    },
+                )
+            }
+
             if (showWorkspaceOverrideEntry) {
                 val workspaceInteractionSource = remember { MutableInteractionSource() }
                 val isWorkspacePressed by workspaceInteractionSource.collectIsPressedAsState()
@@ -2041,6 +2112,28 @@ private fun FilesPicker(
                 }
             }
         )
+    }
+
+    if (showModePicker) {
+        val model = currentChatModel
+        val hasPro = model?.supportsProMode() == true
+        val hasFast = model?.supportsFastMode() == true
+        if (model != null && (hasPro || hasFast)) {
+            val modeStates = model.modelId.let { assistant.modelModeStates[it] } ?: ModelModeState()
+            ModePicker(
+                states = modeStates,
+                supportsPro = hasPro,
+                supportsFast = hasFast,
+                onDismissRequest = { showModePicker = false },
+                onUpdate = { newStates ->
+                    onUpdateAssistant(
+                        assistant.copy(
+                            modelModeStates = assistant.modelModeStates + (model.modelId to newStates)
+                        )
+                    )
+                },
+            )
+        }
     }
 
     if (showInjectionPicker) {

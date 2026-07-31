@@ -81,6 +81,14 @@ object ModelRegistry {
         toolReasoningAbility()
     }
 
+    val GPT_5_6 = defineModel {
+        tokens("gpt", "5", "6")
+        // 排除 chat 变体 (gpt-5.6-chat-latest), 它不属于 Pro 模式适用的旗舰模型
+        notTokens("gpt", "5", "6", "chat")
+        visionInput()
+        toolReasoningAbility()
+    }
+
     private val GEMINI_20_FLASH = defineModel {
         tokens("gemini", "2", "0", "flash")
         visionInput()
@@ -386,6 +394,7 @@ object ModelRegistry {
         GPT_5_4_MINI,
         GPT_5_4_NANO,
         GPT_5_5,
+        GPT_5_6,
         GEMINI_20_FLASH,
         GEMINI_2_5_FLASH,
         GEMINI_2_5_PRO,
@@ -463,6 +472,41 @@ object ModelRegistry {
                 def === GEMINI_3_PRO_IMAGE ||
                 def === GEMINI_3_1_FLASH_IMAGE ||
                 def === GEMINI_2_5_IMAGE
+        }
+    }
+
+    // Pro 模式 (reasoning.mode=pro) 适用的模型: 仅 GPT-5.6 系列
+    // (官方文档: 仅 GPT-5.6 支持 standard/pro 两种 reasoning mode)
+    val IS_PRO_MODE_MODEL = ModelData { modelId ->
+        resolveModels(modelId).any { it === GPT_5_6 }
+    }
+
+    // 快速模式 (service_tier=fast) 适用的模型: 来自 OpenAI Priority 定价表
+    // 包括 5.6 系列, 5.5, 5.4/5.4-mini, 5.2, 5.1, 5, 5-mini, 4.1 系, 4o 系, o3, o4-mini
+    // 排除: 长上下文版本 / -pro 变体 / 嵌入 / 微调模型
+    val IS_FAST_MODE_MODEL = ModelData { modelId ->
+        val id = modelId.lowercase()
+        // 排除项先行
+        if (id.contains("embed")) return@ModelData false
+        if (id.contains("long-context") || id.contains("longctx") || id.contains("272k")) return@ModelData false
+        if (id.contains("ft-") || id.endsWith("-ft")) return@ModelData false
+        // gpt-*-pro 变体不在快速模式表内 (如 gpt-5.2-pro, gpt-5.4-pro, gpt-5.5-pro)
+        // 但 gpt-5.6 系列的 pro 由 reasoning.mode 控制, 不是独立 -pro slug, 需放行
+        if (id.contains("-pro") && !id.startsWith("gpt-5.6")) return@ModelData false
+        // o 系列: 快速表只支持 o3 和 o4-mini, 排除 o1 / o1-mini / o3-mini / o3-pro
+        if (id.startsWith("o1")) return@ModelData false
+        if (id == "o3-mini" || id.contains("o3-pro")) return@ModelData false
+        resolveModels(modelId).any { def ->
+            def === GPT_5_6 ||
+                def === GPT_5_5 ||
+                def === GPT_5_4 ||
+                def === GPT_5_4_MINI ||
+                def === GPT_5_2 ||
+                def === GPT_5_1 ||
+                def === GPT_5 ||
+                def === GPT_4_1 ||
+                def === GPT4O ||
+                def === OPENAI_O_MODELS
         }
     }
 

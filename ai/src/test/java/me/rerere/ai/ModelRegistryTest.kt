@@ -103,4 +103,53 @@ class ModelRegistryTest {
             ModelRegistry.MODEL_ABILITIES.getData("deepseek-v4-pro")
         )
     }
+
+    @Test
+    fun testProModeWhitelist() {
+        // GPT-5.6 系列支持 Pro 模式
+        assertTrue(ModelRegistry.IS_PRO_MODE_MODEL.getData("gpt-5.6"))
+        assertTrue(ModelRegistry.IS_PRO_MODE_MODEL.getData("gpt-5.6-sol"))
+        assertTrue(ModelRegistry.IS_PRO_MODE_MODEL.getData("gpt-5.6-terra"))
+        assertTrue(ModelRegistry.IS_PRO_MODE_MODEL.getData("gpt-5.6-luna"))
+        // 排除 chat 变体
+        assertFalse(ModelRegistry.IS_PRO_MODE_MODEL.getData("gpt-5.6-chat-latest"))
+        // 其它模型不支持 Pro
+        assertFalse(ModelRegistry.IS_PRO_MODE_MODEL.getData("gpt-5.5"))
+        assertFalse(ModelRegistry.IS_PRO_MODE_MODEL.getData("gpt-5.4"))
+        assertFalse(ModelRegistry.IS_PRO_MODE_MODEL.getData("gpt-4o"))
+        assertFalse(ModelRegistry.IS_PRO_MODE_MODEL.getData("gpt-5"))
+    }
+
+    @Test
+    fun testFastModeWhitelist() {
+        // 支持快速模式 (Priority 定价表)
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-5.6-sol"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-5.6"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-5.5"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-5.4"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-5.4-mini"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-5.2"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-5.1"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-5"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-5-mini"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-4.1"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-4.1-mini"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-4.1-nano"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-4o"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-4o-mini"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("o3"))
+        assertTrue(ModelRegistry.IS_FAST_MODE_MODEL.getData("o4-mini"))
+        // 排除: -pro 变体
+        assertFalse(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-5.2-pro"))
+        assertFalse(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-5.4-pro"))
+        assertFalse(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-5.5-pro"))
+        // 排除: 嵌入
+        assertFalse(ModelRegistry.IS_FAST_MODE_MODEL.getData("text-embedding-3-small"))
+        // 排除: o1/o3-mini/o3-pro
+        assertFalse(ModelRegistry.IS_FAST_MODE_MODEL.getData("o1"))
+        assertFalse(ModelRegistry.IS_FAST_MODE_MODEL.getData("o3-mini"))
+        assertFalse(ModelRegistry.IS_FAST_MODE_MODEL.getData("o3-pro"))
+        // 排除: 长上下文
+        assertFalse(ModelRegistry.IS_FAST_MODE_MODEL.getData("gpt-5.5-272k"))
+    }
 }

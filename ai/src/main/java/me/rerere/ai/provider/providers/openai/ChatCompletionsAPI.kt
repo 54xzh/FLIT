@@ -383,7 +383,13 @@ class ChatCompletionsAPI(
                     host = host,
                     modelId = params.model.modelId,
                     level = params.reasoningLevel,
+                    proMode = params.proMode,
                 )
+            }
+
+            // 快速模式: service_tier=fast, 顶层参数, 两个端点都支持
+            if (params.fastMode) {
+                put("service_tier", "fast")
             }
 
             if (params.model.abilities.contains(ModelAbility.TOOL) && params.tools.isNotEmpty()) {
@@ -673,6 +679,7 @@ private fun kotlinx.serialization.json.JsonObjectBuilder.applyChatCompletionsRea
     host: String,
     modelId: String,
     level: ReasoningLevel,
+    proMode: Boolean = false,
 ) {
     when (classifyCompletionsReasoningHost(host)) {
         CompletionsReasoningHost.OPENROUTER -> {
@@ -682,6 +689,11 @@ private fun kotlinx.serialization.json.JsonObjectBuilder.applyChatCompletionsRea
                     ReasoningLevel.OFF -> put("effort", "none")
                     ReasoningLevel.AUTO -> put("enabled", true)
                     else -> put("effort", level.effort)
+                }
+                // Pro 模式: OpenRouter 的 Chat Completions 支持 reasoning.mode=pro
+                // (官方文档: 发 reasoning.mode=pro, OpenRouter 会 reroute 到对应 *-pro 模型)
+                if (proMode) {
+                    put("mode", "pro")
                 }
             })
         }

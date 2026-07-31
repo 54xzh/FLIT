@@ -64,6 +64,10 @@ data class TextGenerationParams(
     val maxTokens: Int? = null,
     val tools: List<Tool> = emptyList(),
     val reasoningLevel: ReasoningLevel = ReasoningLevel.OFF,
+    // Pro 模式 (reasoning.mode=pro): 质量增强, 两个端点都发, 端点能否处理交给上游兜底
+    val proMode: Boolean = false,
+    // 快速模式 (service_tier=fast): 算力池加速, 两个端点都发
+    val fastMode: Boolean = false,
     val customHeaders: List<CustomHeader> = emptyList(),
     val customBody: List<CustomBody> = emptyList(),
     @Transient

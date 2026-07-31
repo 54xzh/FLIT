@@ -89,6 +89,16 @@ fun Model.effectiveImageGenCapabilities(): ImageGenCapabilities? {
 fun Model.isGeminiImageModel(): Boolean =
     me.rerere.ai.registry.ModelRegistry.IS_GEMINI_IMAGE_MODEL.getData(modelId)
 
+// 是否支持 Pro 模式 (reasoning.mode=pro): 仅 GPT-5.6 系列
+// 端点限制是 OpenAI 官方平台行为, 第三方 provider (OpenRouter 等) Chat Completions 也支持, 故只看模型
+fun Model.supportsProMode(): Boolean =
+    me.rerere.ai.registry.ModelRegistry.IS_PRO_MODE_MODEL.getData(modelId)
+
+// 是否支持快速模式 (service_tier=fast): 基于 OpenAI Priority 定价表的白名单
+// 排除长上下文 / -pro 变体 / 嵌入 / 微调模型
+fun Model.supportsFastMode(): Boolean =
+    me.rerere.ai.registry.ModelRegistry.IS_FAST_MODE_MODEL.getData(modelId)
+
 @Serializable
 enum class ModelType {
     CHAT,

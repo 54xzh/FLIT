@@ -637,6 +637,10 @@
     <string name="mermaid_export_failed">Export Failed</string>
     <string name="mermaid_export_success">Export Success</string>
     <string name="mermaid_preview">Preview</string>
+    <string name="mode_button">Mode</string>
+    <string name="mode_fast">Fast Mode</string>
+    <string name="mode_picker_none">Off</string>
+    <string name="mode_pro">Pro Mode</string>
     <string name="model_list_favorite">Favorite</string>
     <string name="model_list_no_providers">No AI providers available, please add in settings</string>
     <string name="model_list_search_placeholder">Search models</string>

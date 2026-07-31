@@ -111,6 +111,9 @@ data class Assistant(
     val quickMessages: List<QuickMessage> = emptyList(),
     val regexes: List<AssistantRegex> = emptyList(),
     val reasoningLevel: ReasoningLevel = ReasoningLevel.AUTO,
+    // 每个模型各自的 Pro/快速模式开关状态, key = Model.modelId (真实模型 id 字符串)
+    // 未记录的模型默认全关 (不发参数), 符合"不要默认模式"
+    val modelModeStates: Map<String, ModelModeState> = emptyMap(),
     val maxTokens: Int? = null,
     val customHeaders: List<CustomHeader> = emptyList(),
     val customBodies: List<CustomBody> = emptyList(),
@@ -150,6 +153,13 @@ data class Assistant(
 data class QuickMessage(
     val title: String = "",
     val content: String = "",
+)
+
+// 单个模型的 Pro/快速模式开关状态, 存在 Assistant.modelModeStates 里 (key = modelId)
+@Serializable
+data class ModelModeState(
+    val pro: Boolean = false,
+    val fast: Boolean = false,
 )
 
 @Serializable

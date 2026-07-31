@@ -941,6 +941,10 @@
     <string name="minimal_input_summarize_desc">总结对话</string>
     <string name="minimal_input_thinking">思考</string>
     <string name="minimal_input_thinking_desc">更长的思考，获得更好的回答</string>
+  <string name="mode_button">模式</string>
+  <string name="mode_fast">快速模式</string>
+  <string name="mode_picker_none">未开启</string>
+  <string name="mode_pro">Pro 模式</string>
   <string name="model_list_favorite">收藏</string>
   <string name="model_list_no_providers">没有可用AI提供商, 请在设置添加</string>
   <string name="model_list_search_placeholder">输入模型名称搜索</string>

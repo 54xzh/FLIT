@@ -79,6 +79,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Summarize
 import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.ViewModule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Badge
@@ -126,6 +127,8 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.FileProvider
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.supportsBuiltInSearch
+import me.rerere.ai.provider.supportsFastMode
+import me.rerere.ai.provider.supportsProMode
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.mcp.McpStatus
@@ -146,6 +149,7 @@ import me.rerere.rikkahub.data.datastore.rememberWorkspaceForNewChatsIfEnabled
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.buildAssistantProviderSearchMode
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.ModelModeState
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.ui.components.crop.CropImageScreen
 import me.rerere.rikkahub.ui.components.ui.UIAvatar
@@ -814,6 +818,7 @@ private fun MinimalPickerContent(
     var showInjectionPicker by remember { mutableStateOf(false) }
     var showSearchPicker by remember { mutableStateOf(false) }
     var showMcpPicker by remember { mutableStateOf(false) }
+    var showModePicker by remember { mutableStateOf(false) }
     var showAttachmentMenu by remember { mutableStateOf(false) }
     var showWorkspacePicker by remember { mutableStateOf(false) }
     val currentChatModel = settings.getCurrentChatModel()
@@ -1162,6 +1167,35 @@ private fun MinimalPickerContent(
                 )
             }
 
+            // 模式 (Pro / 快速): 跟随模型白名单显隐, 收进 + 菜单
+            val hasPro = currentChatModel?.supportsProMode() == true
+            val hasFast = currentChatModel?.supportsFastMode() == true
+            if (hasPro || hasFast) {
+                val modeStates = currentChatModel?.modelId?.let {
+                    assistant.modelModeStates[it]
+                } ?: ModelModeState()
+                val activeModeNames = buildList {
+                    if (modeStates.pro) add(stringResource(R.string.mode_pro))
+                    if (modeStates.fast) add(stringResource(R.string.mode_fast))
+                }
+                MinimalPickerItem(
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Rounded.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = if (activeModeNames.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    title = stringResource(R.string.mode_button),
+                    subtitle = if (activeModeNames.isEmpty()) stringResource(R.string.mode_picker_none)
+                    else activeModeNames.joinToString(", "),
+                    onClick = {
+                        showModePicker = true
+                    }
+                )
+            }
+
             // Search picker - show selected provider if enabled
             val selectedSearchServices = currentSearchProviderIndices
                 .asSequence()
@@ -1338,6 +1372,29 @@ private fun MinimalPickerContent(
         )
     }
     
+    // 模式 picker sheet (Pro / 快速)
+    if (uiMode == ChatInputUiMode.Normal && showModePicker) {
+        val model = currentChatModel
+        val hasPro = model?.supportsProMode() == true
+        val hasFast = model?.supportsFastMode() == true
+        if (model != null && (hasPro || hasFast)) {
+            val modeStates = model.modelId.let { assistant.modelModeStates[it] } ?: ModelModeState()
+            ModePicker(
+                states = modeStates,
+                supportsPro = hasPro,
+                supportsFast = hasFast,
+                onDismissRequest = { showModePicker = false },
+                onUpdate = { newStates ->
+                    onUpdateAssistant(
+                        assistant.copy(
+                            modelModeStates = assistant.modelModeStates + (model.modelId to newStates)
+                        )
+                    )
+                },
+            )
+        }
+    }
+
     // Model picker sheet - direct ModalBottomSheet (not ModelSelector which shows its own button)
     if (uiMode == ChatInputUiMode.Normal && showModelPicker) {
         val modelPickerSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
