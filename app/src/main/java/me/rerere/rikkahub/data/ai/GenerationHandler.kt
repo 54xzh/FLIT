@@ -1234,13 +1234,22 @@ class GenerationHandler(
             baseSystemPromptBuilder.append(entry.prompt)
         }
 
-        // Tool system prompts: several workspace/sandbox tools share the same prompt text
-        // (e.g. the four sandbox tools all return the identical SANDBOX_PROMPT). The builder
-        // below deduplicates by the rendered content so a shared prompt is only injected once
-        // per turn instead of repeating for every tool that happens to carry it. User-customized
-        // prompts are unaffected — the dedup key is the final rendered text, so an override that
-        // differs from the default still gets injected, and identical overrides still collapse to one.
-        val seenToolPrompts = linkedSetOf<String>()
+        // Tool system prompts are deduplicated per `## ` section so a block shared by several
+        // tools is injected once per turn, not once per tool.
+        //
+        // Why per-section, not per-whole-text: workspace_list and workspace_send_file both pull in
+        // the identical `## workspace tools (common rules)` block, but each also appends its own
+        // distinct `## tool: <name>` + examples block. Whole-text dedup sees two different strings
+        // and injects the common rules twice. Splitting on `## ` headers and deduping the trimmed
+        // sections collapses the shared block to one while keeping each tool's private block.
+        //
+        // Sandbox tools all return the same SANDBOX_PROMPT verbatim, so every section matches and
+        // the whole prompt collapses to a single copy — same outcome as before.
+        //
+        // User-customized prompts are unaffected: the dedup key is the final rendered section, so
+        // an override that differs from the default is still injected, and identical overrides
+        // still collapse to one.
+        val seenToolSections = linkedSetOf<String>()
         tools.forEach { tool ->
             val rendered = tool.renderConfiguredSystemPrompt(
                 settings = settings,
@@ -1248,9 +1257,12 @@ class GenerationHandler(
                 messages = documentArchivedMessages,
             )
             if (rendered.isBlank()) return@forEach
-            if (!seenToolPrompts.add(rendered.trim())) return@forEach
-            baseSystemPromptBuilder.appendLine()
-            baseSystemPromptBuilder.append(rendered)
+            rendered.splitSections().forEach { section ->
+                if (seenToolSections.add(section.trim())) {
+                    baseSystemPromptBuilder.appendLine()
+                    baseSystemPromptBuilder.append(section)
+                }
+            }
         }
 
         val explicitSkillContextPrompt = buildExplicitSkillContextPrompt(
@@ -2667,4 +2679,37 @@ class GenerationHandler(
             if (changed) message.copy(parts = updatedParts) else message
         }
     }
+}
+
+/**
+ * Splits a tool system prompt into top-level `## ` sections for per-section deduplication.
+ *
+ * Each returned piece is a trimmed block that either starts with `## ` or is the leading text
+ * before the first `## ` header (e.g. the plain intro of SANDBOX_PROMPT). Sections without a
+ * `## ` prefix are kept whole and deduped as a single key. Empty/whitespace-only results are
+ * dropped by the caller.
+ */
+internal fun String.splitSections(): List<String> {
+    if (isBlank()) return emptyList()
+    val sections = mutableListOf<String>()
+    val lines = lines()
+    var current = StringBuilder()
+    for (line in lines) {
+        if (line.startsWith("## ")) {
+            // Flush whatever was accumulated before this header — this covers both the
+            // previous `## ` section AND any leading text that preceded the first header.
+            if (current.toString().trim().isNotEmpty()) {
+                sections.add(current.toString().trim())
+            }
+            current = StringBuilder()
+            current.appendLine(line)
+        } else {
+            current.appendLine(line)
+        }
+    }
+    // Flush the trailing section (or the whole text if no `## ` header exists).
+    if (current.toString().trim().isNotEmpty()) {
+        sections.add(current.toString().trim())
+    }
+    return sections.filter { it.isNotBlank() }
 }
