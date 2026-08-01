@@ -8,9 +8,9 @@ import org.junit.Test
 
 class WorkspaceFileTooltipPositionTest {
     @Test
-    fun `keeps a tooltip beside an offscreen right card inside the window`() {
+    fun `keeps a tooltip above an offscreen right card inside the window`() {
         assertEquals(
-            IntOffset(x = 220, y = 80),
+            IntOffset(x = 220, y = 0),
             calculateWorkspaceFileTooltipPosition(
                 anchorBounds = IntRect(left = 290, top = 40, right = 450, bottom = 80),
                 windowSize = IntSize(width = 300, height = 600),
@@ -20,11 +20,11 @@ class WorkspaceFileTooltipPositionTest {
     }
 
     @Test
-    fun `places a tooltip above when there is no space below`() {
+    fun `places a tooltip below when there is no space above`() {
         assertEquals(
-            IntOffset(x = 90, y = 200),
+            IntOffset(x = 90, y = 60),
             calculateWorkspaceFileTooltipPosition(
-                anchorBounds = IntRect(left = 100, top = 280, right = 180, bottom = 320),
+                anchorBounds = IntRect(left = 100, top = 20, right = 180, bottom = 60),
                 windowSize = IntSize(width = 360, height = 320),
                 popupContentSize = IntSize(width = 100, height = 80),
             ),

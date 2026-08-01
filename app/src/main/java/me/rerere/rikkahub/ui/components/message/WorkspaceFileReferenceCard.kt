@@ -361,8 +361,8 @@ internal fun calculateWorkspaceFileTooltipPosition(
     val belowY = anchorBounds.bottom
     val aboveY = anchorBounds.top - popupContentSize.height
     val preferredY = when {
-        belowY <= maxY -> belowY
         aboveY >= 0 -> aboveY
+        belowY <= maxY -> belowY
         else -> anchorBounds.top
     }
 
