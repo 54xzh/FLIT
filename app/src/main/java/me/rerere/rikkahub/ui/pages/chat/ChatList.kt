@@ -125,6 +125,7 @@ import me.rerere.rikkahub.ui.components.message.ReasoningBodyState
 import me.rerere.rikkahub.ui.components.message.ToolCallPreviewSheet
 import me.rerere.rikkahub.ui.components.message.WorkspaceFileReferenceCards
 import me.rerere.rikkahub.ui.components.message.buildMessageRenderBlocksFromSegments
+import me.rerere.rikkahub.ui.components.message.findCurrentGenerationNodeIndexes
 import me.rerere.rikkahub.ui.components.message.planChatProcessDisplay
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItemContentPadding
@@ -540,6 +541,9 @@ private fun SharedTransitionScope.ChatListNormal(
             nodes = conversation.messageNodes,
             keepTrailingProcessOwnerVisible = !loading,
         )
+    }
+    val currentGenerationNodeIndexes = remember(conversation.messageNodes) {
+        findCurrentGenerationNodeIndexes(conversation.messageNodes)
     }
     val reasoningBodyStates = remember(conversation.id) {
         mutableStateMapOf<String, ReasoningBodyState>()
@@ -1070,6 +1074,9 @@ private fun SharedTransitionScope.ChatListNormal(
                         ?.let { conversation.messageNodes[it].currentMessage }
                     val previousMessage = previousVisibleMessage
                     val isLast = index == conversation.messageNodes.lastIndex
+                    // 工具调用和工具结果会占用多个节点；本轮生成中的助手节点不能
+                    // 因为后面追加了 TOOL 节点，就被误判为已经完成并显示工具栏。
+                    val messageLoading = loading && index in currentGenerationNodeIndexes
                     val streamingContentUpdateIntervalMs = if (isLast) streamingTailContentUpdateIntervalMs else 0L
                     val canContinue = isLast &&
                         message.role == MessageRole.ASSISTANT &&
@@ -1223,7 +1230,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                 assistant = assistantForMessage,
                                 forceUseAssistantAvatar = groupChatTemplateForConversation != null,
                                 onAssistantAvatarLongPress = onAssistantAvatarLongPressUpdated,
-                                loading = loading && isLast,
+                                loading = messageLoading,
                                 isRecentlyRestored = node.id in recentlyRestoredNodeIds,
                                 onRegenerate = {
                                     onRegenerateUpdated(message)

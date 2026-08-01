@@ -50,6 +50,21 @@ internal fun UIMessage.isProcessOnlyDisplayMessage(): Boolean {
     return processDisplayParts().isNotEmpty() && !hasRenderableNonProcessParts()
 }
 
+/**
+ * Tool calls and their results are stored as separate nodes, so the raw last node
+ * is not necessarily the only node that belongs to the active assistant turn. Keep
+ * the user node too until the first assistant/tool node has been appended.
+ */
+internal fun findCurrentGenerationNodeIndexes(nodes: List<MessageNode>): Set<Int> {
+    val latestUserIndex = nodes.indexOfLast {
+        it.currentMessage.role == MessageRole.USER &&
+            !it.currentMessage.isStandaloneInterruptedAppContextMarker()
+    }
+    if (latestUserIndex < 0) return nodes.indices.toSet()
+    if (latestUserIndex == nodes.lastIndex) return setOf(latestUserIndex)
+    return nodes.indices.filter { it > latestUserIndex }.toSet()
+}
+
 private fun UIMessage.hasSameSpeakerIdentity(other: UIMessage): Boolean {
     return speakerSeatId == other.speakerSeatId &&
         speakerAssistantId == other.speakerAssistantId &&
@@ -77,7 +92,7 @@ internal fun planChatProcessDisplay(
         pendingProcessSegments.clear()
     }
 
-    fun flushStandalone() {
+    fun flushStandalone(isTrailingProcessGroup: Boolean = false) {
         if (pendingNodeIndexes.isEmpty() || pendingProcessParts.isEmpty()) return
         val anchorIndex = pendingNodeIndexes.last()
         val assistantOwnerIndex = pendingNodeIndexes
@@ -85,7 +100,7 @@ internal fun planChatProcessDisplay(
             .firstOrNull { nodes[it].currentMessage.role == MessageRole.ASSISTANT }
         if (
             keepTrailingProcessOwnerVisible &&
-            anchorIndex == nodes.lastIndex &&
+            isTrailingProcessGroup &&
             assistantOwnerIndex != null
         ) {
             visibleTrailingProcessOwnerIndexes += assistantOwnerIndex
@@ -105,6 +120,9 @@ internal fun planChatProcessDisplay(
         val message = node.currentMessage
         // 纯打断标记的独立 user 消息: 整条隐藏, 不渲染成空气泡, 也不参与连续发言头判断.
         if (message.isStandaloneInterruptedAppContextMarker()) {
+            // 标记位于工具过程之后。先收束待处理节点，否则 clearPending 会让
+            // 工具调用和工具结果重新作为独立消息卡片渲染，并各自显示工具栏。
+            flushStandalone(isTrailingProcessGroup = true)
             hiddenNodeIndexes += index
             clearPending()
             return@forEachIndexed
@@ -139,7 +157,7 @@ internal fun planChatProcessDisplay(
         }
     }
 
-    flushStandalone()
+    flushStandalone(isTrailingProcessGroup = true)
 
     var pendingAssistantIndex: Int? = null
     var pendingAssistantMessage: UIMessage? = null

@@ -301,8 +301,92 @@ class ChatProcessDisplayPlannerTest {
 
         val plan = planChatProcessDisplay(nodes)
 
-        assertTrue(plan.hiddenNodeIndexes.contains(3))
+        assertTrue(plan.hiddenNodeIndexes.containsAll(setOf(1, 2, 3)))
         // marker 不应被当成 process-only 消息产生独立 timeline
         assertFalse(plan.standaloneProcessSegmentsByIndex.containsKey(3))
+
+        val stoppedPlan = planChatProcessDisplay(
+            nodes = nodes,
+            keepTrailingProcessOwnerVisible = true,
+        )
+        assertEquals(setOf(2, 3), stoppedPlan.hiddenNodeIndexes)
+        assertEquals(setOf(1), stoppedPlan.visibleTrailingProcessOwnerIndexes)
+    }
+
+    @Test
+    fun `finds every node after the latest user turn`() {
+        val nodes = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("上一轮"))).toMessageNode(),
+            UIMessage(role = MessageRole.ASSISTANT, parts = listOf(UIMessagePart.Text("旧回复"))).toMessageNode(),
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("这一轮"))).toMessageNode(),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Text("先说一句"),
+                    UIMessagePart.ToolCall("call_1", "search_web", "{}"),
+                ),
+            ).toMessageNode(),
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(
+                    UIMessagePart.ToolResult(
+                        toolCallId = "call_1",
+                        toolName = "search_web",
+                        content = JsonPrimitive("ok"),
+                        arguments = JsonPrimitive("{}"),
+                    )
+                ),
+            ).toMessageNode(),
+        )
+
+        assertEquals(setOf(3, 4), findCurrentGenerationNodeIndexes(nodes))
+    }
+
+    @Test
+    fun `keeps the latest user node loading until the response starts`() {
+        val nodes = listOf(
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(UIMessagePart.Text("这一轮")),
+            ).toMessageNode(),
+        )
+
+        assertEquals(setOf(0), findCurrentGenerationNodeIndexes(nodes))
+    }
+
+    @Test
+    fun `ignores interrupted marker when finding current generation nodes`() {
+        val nodes = listOf(
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(UIMessagePart.Text("搜一下")),
+            ).toMessageNode(),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Text("先说一句"),
+                    UIMessagePart.ToolCall("call_1", "search_web", "{}"),
+                ),
+            ).toMessageNode(),
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(
+                    UIMessagePart.ToolResult(
+                        toolCallId = "call_1",
+                        toolName = "search_web",
+                        content = JsonPrimitive("interrupted"),
+                        arguments = JsonPrimitive("{}"),
+                    )
+                ),
+            ).toMessageNode(),
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(
+                    UIMessagePart.Text("\n\n<app_context>The user stopped the output.</app_context>"),
+                ),
+            ).toMessageNode(),
+        )
+
+        assertEquals(setOf(1, 2, 3), findCurrentGenerationNodeIndexes(nodes))
     }
 }
