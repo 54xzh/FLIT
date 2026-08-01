@@ -50,7 +50,8 @@ class ChatProcessDisplayPlannerTest {
 
         assertEquals(setOf(1, 2), plan.hiddenNodeIndexes)
         assertEquals(3, plan.prefixedProcessPartsByIndex[3]?.size)
-        assertTrue(plan.standaloneProcessPartsByIndex.isEmpty())
+        assertEquals(listOf(2, 1), plan.prefixedDisplaySegmentsByIndex[3]?.map { it.size })
+        assertTrue(plan.standaloneProcessSegmentsByIndex.isEmpty())
     }
 
     @Test
@@ -72,7 +73,7 @@ class ChatProcessDisplayPlannerTest {
         val plan = planChatProcessDisplay(nodes)
 
         assertEquals(setOf(1), plan.hiddenNodeIndexes)
-        assertEquals(2, plan.standaloneProcessPartsByIndex[1]?.size)
+        assertEquals(2, plan.standaloneProcessSegmentsByIndex[1]?.flatten()?.size)
         assertEquals(1, plan.standaloneAssistantOwnerIndexByIndex[1])
         assertTrue(plan.prefixedProcessPartsByIndex.isEmpty())
     }
@@ -100,7 +101,7 @@ class ChatProcessDisplayPlannerTest {
 
         assertTrue(plan.hiddenNodeIndexes.isEmpty())
         assertEquals(setOf(1), plan.visibleTrailingProcessOwnerIndexes)
-        assertTrue(plan.standaloneProcessPartsByIndex.isEmpty())
+        assertTrue(plan.standaloneProcessSegmentsByIndex.isEmpty())
     }
 
     @Test
@@ -137,7 +138,7 @@ class ChatProcessDisplayPlannerTest {
 
         assertEquals(setOf(2), plan.hiddenNodeIndexes)
         assertEquals(setOf(1), plan.visibleTrailingProcessOwnerIndexes)
-        assertTrue(plan.standaloneProcessPartsByIndex.isEmpty())
+        assertTrue(plan.standaloneProcessSegmentsByIndex.isEmpty())
     }
 
     @Test
@@ -170,7 +171,7 @@ class ChatProcessDisplayPlannerTest {
         val plan = planChatProcessDisplay(nodes)
 
         assertEquals(setOf(1, 2), plan.hiddenNodeIndexes)
-        assertEquals(3, plan.standaloneProcessPartsByIndex[2]?.size)
+        assertEquals(listOf(2, 1), plan.standaloneProcessSegmentsByIndex[2]?.map { it.size })
         assertEquals(1, plan.standaloneAssistantOwnerIndexByIndex[2])
     }
 
@@ -194,7 +195,7 @@ class ChatProcessDisplayPlannerTest {
         val plan = planChatProcessDisplay(nodes)
 
         assertEquals(setOf(1), plan.hiddenNodeIndexes)
-        assertEquals(1, plan.standaloneProcessPartsByIndex[1]?.size)
+        assertEquals(1, plan.standaloneProcessSegmentsByIndex[1]?.flatten()?.size)
         assertTrue(plan.prefixedProcessPartsByIndex.isEmpty())
     }
 
@@ -235,7 +236,7 @@ class ChatProcessDisplayPlannerTest {
         val plan = planChatProcessDisplay(nodes)
 
         assertEquals(setOf(1), plan.hiddenNodeIndexes)
-        assertEquals(1, plan.standaloneProcessPartsByIndex[1]?.size)
+        assertEquals(1, plan.standaloneProcessSegmentsByIndex[1]?.flatten()?.size)
         assertTrue(plan.prefixedProcessPartsByIndex.isEmpty())
     }
 
@@ -302,6 +303,6 @@ class ChatProcessDisplayPlannerTest {
 
         assertTrue(plan.hiddenNodeIndexes.contains(3))
         // marker 不应被当成 process-only 消息产生独立 timeline
-        assertFalse(plan.standaloneProcessPartsByIndex.containsKey(3))
+        assertFalse(plan.standaloneProcessSegmentsByIndex.containsKey(3))
     }
 }

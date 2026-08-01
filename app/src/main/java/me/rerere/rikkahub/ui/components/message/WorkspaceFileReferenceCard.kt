@@ -10,25 +10,33 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
-import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,7 +71,6 @@ import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import org.koin.compose.koinInject
 import java.io.File
 import java.security.MessageDigest
-import java.util.Locale
 
 private data class WorkspaceFileReference(
     val workspaceId: String,
@@ -114,8 +121,27 @@ private fun JsonObject.toWorkspaceFileReference(): WorkspaceFileReference? {
 }
 
 @Composable
-internal fun WorkspaceFileReferenceCard(content: JsonObject) {
-    val reference = remember(content) { content.toWorkspaceFileReference() } ?: return
+internal fun WorkspaceFileReferenceCards(contents: List<JsonObject>) {
+    val references = remember(contents) {
+        contents.mapNotNull { it.toWorkspaceFileReference() }
+    }
+    if (references.isEmpty()) return
+
+    LazyRow(
+        modifier = Modifier.padding(top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        itemsIndexed(
+            items = references,
+            key = { index, reference -> "$index:${reference.workspaceId}:${reference.path}" },
+        ) { _, reference ->
+            WorkspaceFileReferenceCard(reference = reference)
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceFileReferenceCard(reference: WorkspaceFileReference) {
     val context = LocalContext.current
     val repository = koinInject<WorkspaceRepository>()
     val scope = rememberCoroutineScope()
@@ -148,120 +174,123 @@ internal fun WorkspaceFileReferenceCard(content: JsonObject) {
         }
     }
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp),
-        shape = AppShapes.CardMedium,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = 1.dp,
+    val openInteractionSource = remember { MutableInteractionSource() }
+    val openPressed by openInteractionSource.collectIsPressedAsState()
+    val openScale by animateFloatAsState(
+        targetValue = if (openPressed) 0.85f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+        label = "workspace_file_open_scale",
+    )
+    val fileNameTooltipState = rememberTooltipState()
+
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
+        tooltip = {
+            PlainTooltip {
+                Text(
+                    text = reference.name,
+                    modifier = Modifier.widthIn(max = 280.dp),
+                )
+            }
+        },
+        state = fileNameTooltipState,
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Surface(
+            modifier = Modifier
+                .width(160.dp)
+                .height(64.dp),
+            shape = AppShapes.CardMedium,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 1.dp,
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.InsertDriveFile,
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        text = reference.name,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = reference.path,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = stringResource(
-                            R.string.workspace_file_reference_info,
-                            fileMimeLabel(
-                                mime = reference.mime,
-                                unknownLabel = stringResource(R.string.workspace_file_reference_unknown_type),
-                            ),
-                            Formatter.formatShortFileSize(context, reference.sizeBytes),
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                WorkspaceFileAction(
-                    icon = {
-                        if (opening) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .graphicsLayer {
+                            scaleX = openScale
+                            scaleY = openScale
+                            alpha = if (opening) 0.65f else 1f
                         }
-                    },
-                    label = stringResource(R.string.workspace_file_reference_open),
-                    enabled = !opening,
-                    onClick = {
-                        haptics.perform(HapticPattern.Pop)
-                        opening = true
-                        scope.launch {
-                            try {
-                                val uri = withContext(Dispatchers.IO) {
-                                    resolveWorkspaceFileUri(context, repository, reference)
+                        .clip(AppShapes.CardMedium)
+                        .combinedClickable(
+                            enabled = !opening,
+                            role = Role.Button,
+                            onClickLabel = stringResource(R.string.workspace_file_reference_open),
+                            onLongClickLabel = reference.name,
+                            interactionSource = openInteractionSource,
+                            indication = null,
+                            onClick = {
+                                haptics.perform(HapticPattern.Pop)
+                                opening = true
+                                scope.launch {
+                                    try {
+                                        val uri = withContext(Dispatchers.IO) {
+                                            resolveWorkspaceFileUri(context, repository, reference)
+                                        }
+                                        openWorkspaceFile(context, uri, reference.mime)
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (_: FileUnavailableException) {
+                                        haptics.perform(HapticPattern.Error)
+                                        showWorkspaceFileToast(context, R.string.workspace_file_reference_unavailable)
+                                    } catch (_: ActivityNotFoundException) {
+                                        haptics.perform(HapticPattern.Error)
+                                        showWorkspaceFileToast(context, R.string.workspace_file_reference_open_failed)
+                                    } catch (_: Exception) {
+                                        haptics.perform(HapticPattern.Error)
+                                        showWorkspaceFileToast(context, R.string.workspace_file_reference_open_failed)
+                                    } finally {
+                                        opening = false
+                                    }
                                 }
-                                openWorkspaceFile(context, uri, reference.mime)
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (_: FileUnavailableException) {
-                                haptics.perform(HapticPattern.Error)
-                                showWorkspaceFileToast(context, R.string.workspace_file_reference_unavailable)
-                            } catch (_: ActivityNotFoundException) {
-                                haptics.perform(HapticPattern.Error)
-                                showWorkspaceFileToast(context, R.string.workspace_file_reference_open_failed)
-                            } catch (_: Exception) {
-                                haptics.perform(HapticPattern.Error)
-                                showWorkspaceFileToast(context, R.string.workspace_file_reference_open_failed)
-                            } finally {
-                                opening = false
-                            }
-                        }
-                    },
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                WorkspaceFileAction(
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Save,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
+                            },
+                            onLongClick = {
+                                haptics.perform(HapticPattern.Pop)
+                                scope.launch { fileNameTooltipState.show() }
+                            },
                         )
-                    },
-                    label = stringResource(R.string.workspace_file_reference_save),
+                        .padding(start = 10.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (opening) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.InsertDriveFile,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = reference.name,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.MiddleEllipsis,
+                        )
+                        Text(
+                            text = Formatter.formatShortFileSize(context, reference.sizeBytes),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                WorkspaceFileSaveAction(
                     onClick = {
                         haptics.perform(HapticPattern.Pop)
                         saveLauncher.launch(reference.name.safeWorkspaceFileName())
@@ -273,45 +302,35 @@ internal fun WorkspaceFileReferenceCard(content: JsonObject) {
 }
 
 @Composable
-private fun WorkspaceFileAction(
-    icon: @Composable () -> Unit,
-    label: String,
-    enabled: Boolean = true,
+private fun WorkspaceFileSaveAction(
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.9f else 1f,
+        targetValue = if (pressed) 0.85f else 1f,
         animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
-        label = "workspace_file_action_scale",
+        label = "workspace_file_save_scale",
     )
-    Row(
+    Icon(
+        imageVector = Icons.Rounded.Save,
+        contentDescription = stringResource(R.string.workspace_file_reference_save),
         modifier = Modifier
+            .size(40.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                alpha = if (enabled) 1f else 0.65f
             }
             .clip(AppShapes.ButtonPill)
             .clickable(
-                enabled = enabled,
                 role = Role.Button,
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick,
             )
-            .padding(horizontal = 10.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        icon()
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-        )
-    }
+            .padding(10.dp),
+        tint = MaterialTheme.colorScheme.primary,
+    )
 }
 
 private class FileUnavailableException : Exception()
@@ -356,11 +375,6 @@ private fun String.safeWorkspaceFileName(): String =
 private fun String.sha256HexPrefix(): String {
     val bytes = MessageDigest.getInstance("SHA-256").digest(toByteArray())
     return bytes.take(8).joinToString(separator = "") { byte -> "%02x".format(byte) }
-}
-
-private fun fileMimeLabel(mime: String, unknownLabel: String): String = when {
-    mime == "application/octet-stream" -> unknownLabel
-    else -> mime.substringAfterLast('/').uppercase(Locale.ROOT)
 }
 
 private fun showWorkspaceFileToast(context: Context, messageRes: Int) {

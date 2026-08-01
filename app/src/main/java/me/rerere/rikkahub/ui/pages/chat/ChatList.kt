@@ -123,8 +123,8 @@ import me.rerere.rikkahub.ui.components.message.ChatProcessTimeline
 import me.rerere.rikkahub.ui.components.message.MessageRenderBlock
 import me.rerere.rikkahub.ui.components.message.ReasoningBodyState
 import me.rerere.rikkahub.ui.components.message.ToolCallPreviewSheet
-import me.rerere.rikkahub.ui.components.message.WorkspaceFileReferenceCard
-import me.rerere.rikkahub.ui.components.message.buildMessageRenderBlocks
+import me.rerere.rikkahub.ui.components.message.WorkspaceFileReferenceCards
+import me.rerere.rikkahub.ui.components.message.buildMessageRenderBlocksFromSegments
 import me.rerere.rikkahub.ui.components.message.planChatProcessDisplay
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItemContentPadding
@@ -1045,9 +1045,9 @@ private fun SharedTransitionScope.ChatListNormal(
                     val message = node.currentMessage
                     // 展示计划每 tick 全量重建，这里按内容相等复用旧实例，
                     // 让未变化消息的集合参数在引用比较下保持稳定
-                    val standaloneProcessParts = rememberStableValue(
+                    val standaloneProcessSegments = rememberStableValue(
                         processDisplayPlan
-                            .standaloneProcessPartsByIndex[index]
+                            .standaloneProcessSegmentsByIndex[index]
                             .orEmpty()
                     )
                     val standaloneAssistantOwnerMessage = processDisplayPlan
@@ -1140,12 +1140,9 @@ private fun SharedTransitionScope.ChatListNormal(
                     val showInlineTokenUsage = message.role != MessageRole.ASSISTANT ||
                         nextVisibleMessage?.role != MessageRole.ASSISTANT
 
-                    if (standaloneProcessParts.isNotEmpty()) {
-                        val standaloneRenderBlocks = remember(standaloneProcessParts) {
-                            buildMessageRenderBlocks(
-                                leadingProcessParts = emptyList(),
-                                parts = standaloneProcessParts,
-                            )
+                    if (standaloneProcessSegments.isNotEmpty()) {
+                        val standaloneRenderBlocks = remember(standaloneProcessSegments) {
+                            buildMessageRenderBlocksFromSegments(standaloneProcessSegments)
                         }
                         Column(
                             modifier = Modifier.padding(
@@ -1188,8 +1185,8 @@ private fun SharedTransitionScope.ChatListNormal(
                                         )
                                     }
 
-                                    is MessageRenderBlock.WorkspaceFileReferenceBlock -> {
-                                        WorkspaceFileReferenceCard(content = block.content)
+                                    is MessageRenderBlock.WorkspaceFileReferenceGroup -> {
+                                        WorkspaceFileReferenceCards(contents = block.contents)
                                     }
 
                                     else -> Unit

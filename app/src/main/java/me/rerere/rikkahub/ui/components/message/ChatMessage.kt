@@ -571,9 +571,9 @@ private fun MessagePartsBlock(
                 )
             }
 
-            is MessageRenderBlock.WorkspaceFileReferenceBlock -> {
+            is MessageRenderBlock.WorkspaceFileReferenceGroup -> {
                 if (role == MessageRole.ASSISTANT) {
-                    WorkspaceFileReferenceCard(content = block.content)
+                    WorkspaceFileReferenceCards(contents = block.contents)
                 }
             }
 

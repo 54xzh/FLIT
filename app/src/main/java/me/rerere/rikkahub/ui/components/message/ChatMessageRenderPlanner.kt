@@ -8,8 +8,8 @@ internal sealed interface MessageRenderBlock {
         val parts: List<UIMessagePart>,
     ) : MessageRenderBlock
 
-    data class WorkspaceFileReferenceBlock(
-        val content: JsonObject,
+    data class WorkspaceFileReferenceGroup(
+        val contents: List<JsonObject>,
     ) : MessageRenderBlock
 
     data class TextBlock(
@@ -46,6 +46,7 @@ internal fun buildMessageRenderBlocks(
     val blocks = mutableListOf<MessageRenderBlock>()
     val pendingProcessParts = mutableListOf<UIMessagePart>()
     val pendingMediaParts = mutableListOf<UIMessagePart>()
+    val pendingWorkspaceFileReferences = mutableListOf<JsonObject>()
     var pendingMediaKind: String? = null
     var textIndex = 0
 
@@ -78,6 +79,14 @@ internal fun buildMessageRenderBlocks(
         pendingMediaParts.clear()
     }
 
+    fun flushWorkspaceFileReferences() {
+        if (pendingWorkspaceFileReferences.isEmpty()) return
+        blocks += MessageRenderBlock.WorkspaceFileReferenceGroup(
+            contents = pendingWorkspaceFileReferences.toList(),
+        )
+        pendingWorkspaceFileReferences.clear()
+    }
+
     fun appendMediaPart(kind: String, part: UIMessagePart) {
         if (pendingMediaKind != null && pendingMediaKind != kind) {
             flushMediaParts()
@@ -88,12 +97,24 @@ internal fun buildMessageRenderBlocks(
 
     (leadingProcessParts + orderedParts).forEach { part ->
         when (part) {
-            is UIMessagePart.Reasoning,
-            is UIMessagePart.Thinking,
             is UIMessagePart.ToolCall,
             is UIMessagePart.ToolApproval,
+                -> {
+                    // File-send lifecycle entries are hidden from the timeline, so they should
+                    // not split a visible row of consecutively sent files.
+                    if (part.isHiddenWorkspaceFileReferencePart() && pendingWorkspaceFileReferences.isNotEmpty()) {
+                        return@forEach
+                    }
+                    flushWorkspaceFileReferences()
+                    flushMediaParts()
+                    pendingProcessParts += part
+                }
+
+            is UIMessagePart.Reasoning,
+            is UIMessagePart.Thinking,
             is UIMessagePart.AskUser,
                 -> {
+                    flushWorkspaceFileReferences()
                     flushMediaParts()
                     pendingProcessParts += part
                 }
@@ -101,18 +122,18 @@ internal fun buildMessageRenderBlocks(
             is UIMessagePart.ToolResult -> {
                 val fileReferenceContent = part.workspaceFileReferenceContent()
                 if (fileReferenceContent == null) {
+                    flushWorkspaceFileReferences()
                     flushMediaParts()
                     pendingProcessParts += part
                 } else {
                     flushMediaParts()
                     flushProcessParts()
-                    blocks += MessageRenderBlock.WorkspaceFileReferenceBlock(
-                        content = fileReferenceContent,
-                    )
+                    pendingWorkspaceFileReferences += fileReferenceContent
                 }
             }
 
             is UIMessagePart.Text -> {
+                flushWorkspaceFileReferences()
                 flushMediaParts()
                 flushProcessParts()
                 blocks += MessageRenderBlock.TextBlock(
@@ -122,26 +143,31 @@ internal fun buildMessageRenderBlocks(
             }
 
             is UIMessagePart.Image -> {
+                flushWorkspaceFileReferences()
                 flushProcessParts()
                 appendMediaPart(kind = "image", part = part)
             }
 
             is UIMessagePart.Video -> {
+                flushWorkspaceFileReferences()
                 flushProcessParts()
                 appendMediaPart(kind = "video", part = part)
             }
 
             is UIMessagePart.Audio -> {
+                flushWorkspaceFileReferences()
                 flushProcessParts()
                 appendMediaPart(kind = "audio", part = part)
             }
 
             is UIMessagePart.Document -> {
+                flushWorkspaceFileReferences()
                 flushProcessParts()
                 appendMediaPart(kind = "document", part = part)
             }
 
             is UIMessagePart.QuotedFollowUp -> {
+                flushWorkspaceFileReferences()
                 flushProcessParts()
                 flushMediaParts()
                 blocks += MessageRenderBlock.QuotedFollowUpBlock(part = part)
@@ -152,6 +178,7 @@ internal fun buildMessageRenderBlocks(
     }
 
     flushMediaParts()
+    flushWorkspaceFileReferences()
     flushProcessParts()
 
     return blocks

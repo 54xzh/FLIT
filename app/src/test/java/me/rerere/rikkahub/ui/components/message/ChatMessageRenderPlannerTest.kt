@@ -45,8 +45,8 @@ class ChatMessageRenderPlannerTest {
             blocks[0],
         )
         assertEquals(
-            MessageRenderBlock.WorkspaceFileReferenceBlock(
-                content = fileResult.content as JsonObject,
+            MessageRenderBlock.WorkspaceFileReferenceGroup(
+                contents = listOf(fileResult.content as JsonObject),
             ),
             blocks[1],
         )
@@ -192,4 +192,120 @@ class ChatMessageRenderPlannerTest {
         assertEquals(MessageRenderBlock.ImageGroup(parts = listOf(thirdImage)), blocks[2])
         assertTrue(blocks[3] is MessageRenderBlock.DocumentGroup)
     }
+
+    @Test
+    fun `groups files across their hidden send lifecycle`() {
+        val firstCall = workspaceFileCall("call_file_1", "output/summary.pdf")
+        val firstResult = workspaceFileResult("call_file_1", "output/summary.pdf")
+        val secondCall = workspaceFileCall("call_file_2", "output/data.csv")
+        val secondResult = workspaceFileResult("call_file_2", "output/data.csv")
+
+        val blocks = buildMessageRenderBlocks(
+            leadingProcessParts = emptyList(),
+            parts = listOf(firstCall, firstResult, secondCall, secondResult),
+        )
+
+        val fileGroups = blocks.filterIsInstance<MessageRenderBlock.WorkspaceFileReferenceGroup>()
+        assertEquals(1, fileGroups.size)
+        assertEquals(
+            listOf(firstResult.content as JsonObject, secondResult.content as JsonObject),
+            fileGroups.single().contents,
+        )
+    }
+
+    @Test
+    fun `text and other tool results split file groups`() {
+        val firstCall = workspaceFileCall("call_file_1", "output/summary.pdf")
+        val firstResult = workspaceFileResult("call_file_1", "output/summary.pdf")
+        val secondCall = workspaceFileCall("call_file_2", "output/data.csv")
+        val secondResult = workspaceFileResult("call_file_2", "output/data.csv")
+        val searchCall = UIMessagePart.ToolCall(
+            toolCallId = "call_search",
+            toolName = "search_web",
+            arguments = "{}",
+        )
+        val searchResult = UIMessagePart.ToolResult(
+            toolCallId = "call_search",
+            toolName = "search_web",
+            content = buildJsonObject { put("ok", true) },
+            arguments = buildJsonObject { },
+        )
+
+        val textBlocks = buildMessageRenderBlocks(
+            leadingProcessParts = emptyList(),
+            parts = listOf(firstCall, firstResult, UIMessagePart.Text("说明"), secondCall, secondResult),
+        )
+        val toolBlocks = buildMessageRenderBlocks(
+            leadingProcessParts = emptyList(),
+            parts = listOf(firstCall, firstResult, searchCall, searchResult, secondCall, secondResult),
+        )
+
+        assertEquals(2, textBlocks.filterIsInstance<MessageRenderBlock.WorkspaceFileReferenceGroup>().size)
+        assertEquals(2, toolBlocks.filterIsInstance<MessageRenderBlock.WorkspaceFileReferenceGroup>().size)
+    }
+
+    @Test
+    fun `does not group files across display segments`() {
+        val firstCall = workspaceFileCall("call_file_1", "output/summary.pdf")
+        val firstResult = workspaceFileResult("call_file_1", "output/summary.pdf")
+        val secondCall = workspaceFileCall("call_file_2", "output/data.csv")
+        val secondResult = workspaceFileResult("call_file_2", "output/data.csv")
+
+        val blocks = buildMessageRenderBlocksFromSegments(
+            segments = listOf(
+                listOf(firstCall, firstResult),
+                listOf(secondCall, secondResult),
+            ),
+        )
+
+        assertEquals(2, blocks.filterIsInstance<MessageRenderBlock.WorkspaceFileReferenceGroup>().size)
+    }
+
+    @Test
+    fun `failed file result splits file groups`() {
+        val firstCall = workspaceFileCall("call_file_1", "output/summary.pdf")
+        val firstResult = workspaceFileResult("call_file_1", "output/summary.pdf")
+        val failedResult = UIMessagePart.ToolResult(
+            toolCallId = "call_file_2",
+            toolName = "workspace_send_file",
+            content = buildJsonObject {
+                put("ok", false)
+                put("type", "workspace_file_reference")
+            },
+            arguments = buildJsonObject { put("path", "output/missing.pdf") },
+        )
+        val thirdCall = workspaceFileCall("call_file_3", "output/data.csv")
+        val thirdResult = workspaceFileResult("call_file_3", "output/data.csv")
+
+        val blocks = buildMessageRenderBlocks(
+            leadingProcessParts = emptyList(),
+            parts = listOf(firstCall, firstResult, failedResult, thirdCall, thirdResult),
+        )
+
+        assertEquals(2, blocks.filterIsInstance<MessageRenderBlock.WorkspaceFileReferenceGroup>().size)
+    }
+}
+
+private fun workspaceFileCall(toolCallId: String, path: String) = UIMessagePart.ToolCall(
+    toolCallId = toolCallId,
+    toolName = "workspace_send_file",
+    arguments = """{"path":"$path"}""",
+)
+
+private fun workspaceFileResult(toolCallId: String, path: String): UIMessagePart.ToolResult {
+    val name = path.substringAfterLast('/')
+    return UIMessagePart.ToolResult(
+        toolCallId = toolCallId,
+        toolName = "workspace_send_file",
+        content = buildJsonObject {
+            put("ok", true)
+            put("type", "workspace_file_reference")
+            put("workspace_id", "workspace-1")
+            put("path", path)
+            put("name", name)
+            put("mime", "application/octet-stream")
+            put("size_bytes", 1024)
+        },
+        arguments = buildJsonObject { put("path", path) },
+    )
 }

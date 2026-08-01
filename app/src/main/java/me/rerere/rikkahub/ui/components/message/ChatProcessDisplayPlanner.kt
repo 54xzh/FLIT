@@ -9,7 +9,7 @@ import me.rerere.rikkahub.data.model.MessageNode
 internal data class ChatProcessDisplayPlan(
     val prefixedProcessPartsByIndex: Map<Int, List<UIMessagePart>> = emptyMap(),
     val prefixedDisplaySegmentsByIndex: Map<Int, List<List<UIMessagePart>>> = emptyMap(),
-    val standaloneProcessPartsByIndex: Map<Int, List<UIMessagePart>> = emptyMap(),
+    val standaloneProcessSegmentsByIndex: Map<Int, List<List<UIMessagePart>>> = emptyMap(),
     val standaloneAssistantOwnerIndexByIndex: Map<Int, Int> = emptyMap(),
     val visibleTrailingProcessOwnerIndexes: Set<Int> = emptySet(),
     val hiddenNodeIndexes: Set<Int> = emptySet(),
@@ -62,17 +62,19 @@ internal fun planChatProcessDisplay(
 ): ChatProcessDisplayPlan {
     val prefixedProcessPartsByIndex = mutableMapOf<Int, List<UIMessagePart>>()
     val prefixedDisplaySegmentsByIndex = mutableMapOf<Int, List<List<UIMessagePart>>>()
-    val standaloneProcessPartsByIndex = mutableMapOf<Int, List<UIMessagePart>>()
+    val standaloneProcessSegmentsByIndex = mutableMapOf<Int, List<List<UIMessagePart>>>()
     val standaloneAssistantOwnerIndexByIndex = mutableMapOf<Int, Int>()
     val visibleTrailingProcessOwnerIndexes = linkedSetOf<Int>()
     val hiddenNodeIndexes = linkedSetOf<Int>()
 
     val pendingNodeIndexes = mutableListOf<Int>()
     val pendingProcessParts = mutableListOf<UIMessagePart>()
+    val pendingProcessSegments = mutableListOf<List<UIMessagePart>>()
 
     fun clearPending() {
         pendingNodeIndexes.clear()
         pendingProcessParts.clear()
+        pendingProcessSegments.clear()
     }
 
     fun flushStandalone() {
@@ -91,7 +93,7 @@ internal fun planChatProcessDisplay(
             clearPending()
             return
         }
-        standaloneProcessPartsByIndex[anchorIndex] = pendingProcessParts.toList()
+        standaloneProcessSegmentsByIndex[anchorIndex] = pendingProcessSegments.toList()
         if (assistantOwnerIndex != null) {
             standaloneAssistantOwnerIndexByIndex[anchorIndex] = assistantOwnerIndex
         }
@@ -108,8 +110,10 @@ internal fun planChatProcessDisplay(
             return@forEachIndexed
         }
         if (message.isProcessOnlyDisplayMessage()) {
+            val processParts = message.processDisplayParts()
             pendingNodeIndexes += index
-            pendingProcessParts += message.processDisplayParts()
+            pendingProcessParts += processParts
+            pendingProcessSegments += processParts
             return@forEachIndexed
         }
 
@@ -127,7 +131,7 @@ internal fun planChatProcessDisplay(
 
         if (canAttachToCurrentMessage) {
             prefixedProcessPartsByIndex[index] = pendingProcessParts.toList()
-            prefixedDisplaySegmentsByIndex[index] = listOf(pendingProcessParts.toList())
+            prefixedDisplaySegmentsByIndex[index] = pendingProcessSegments.toList()
             hiddenNodeIndexes += pendingNodeIndexes
             clearPending()
         } else {
@@ -173,7 +177,7 @@ internal fun planChatProcessDisplay(
     return ChatProcessDisplayPlan(
         prefixedProcessPartsByIndex = prefixedProcessPartsByIndex,
         prefixedDisplaySegmentsByIndex = prefixedDisplaySegmentsByIndex,
-        standaloneProcessPartsByIndex = standaloneProcessPartsByIndex,
+        standaloneProcessSegmentsByIndex = standaloneProcessSegmentsByIndex,
         standaloneAssistantOwnerIndexByIndex = standaloneAssistantOwnerIndexByIndex,
         visibleTrailingProcessOwnerIndexes = visibleTrailingProcessOwnerIndexes,
         hiddenNodeIndexes = hiddenNodeIndexes,

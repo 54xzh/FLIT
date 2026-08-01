@@ -54,7 +54,7 @@ internal fun buildChatMessageDisplayState(
     )
 }
 
-private fun buildMessageRenderBlocksFromSegments(segments: List<List<UIMessagePart>>): List<MessageRenderBlock> {
+internal fun buildMessageRenderBlocksFromSegments(segments: List<List<UIMessagePart>>): List<MessageRenderBlock> {
     val blocks = mutableListOf<MessageRenderBlock>()
 
     segments.forEach { segment ->
@@ -111,7 +111,7 @@ private fun buildMessageCopyBlocks(blocks: List<MessageRenderBlock>): List<Strin
             is MessageRenderBlock.VideoGroup,
             is MessageRenderBlock.AudioGroup,
             is MessageRenderBlock.DocumentGroup,
-            is MessageRenderBlock.WorkspaceFileReferenceBlock,
+            is MessageRenderBlock.WorkspaceFileReferenceGroup,
             is MessageRenderBlock.QuotedFollowUpBlock,
                 -> emptyList()
         }
