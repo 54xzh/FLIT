@@ -35,7 +35,6 @@ import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -51,7 +50,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupPositionProvider
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -184,7 +188,7 @@ private fun WorkspaceFileReferenceCard(reference: WorkspaceFileReference) {
     val fileNameTooltipState = rememberTooltipState()
 
     TooltipBox(
-        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
+        positionProvider = WorkspaceFileTooltipPositionProvider,
         tooltip = {
             PlainTooltip {
                 Text(
@@ -330,6 +334,41 @@ private fun WorkspaceFileSaveAction(
             )
             .padding(10.dp),
         tint = MaterialTheme.colorScheme.primary,
+    )
+}
+
+private object WorkspaceFileTooltipPositionProvider : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset = calculateWorkspaceFileTooltipPosition(
+        anchorBounds = anchorBounds,
+        windowSize = windowSize,
+        popupContentSize = popupContentSize,
+    )
+}
+
+internal fun calculateWorkspaceFileTooltipPosition(
+    anchorBounds: IntRect,
+    windowSize: IntSize,
+    popupContentSize: IntSize,
+): IntOffset {
+    val maxX = (windowSize.width - popupContentSize.width).coerceAtLeast(0)
+    val maxY = (windowSize.height - popupContentSize.height).coerceAtLeast(0)
+    val centeredX = anchorBounds.left + (anchorBounds.width - popupContentSize.width) / 2
+    val belowY = anchorBounds.bottom
+    val aboveY = anchorBounds.top - popupContentSize.height
+    val preferredY = when {
+        belowY <= maxY -> belowY
+        aboveY >= 0 -> aboveY
+        else -> anchorBounds.top
+    }
+
+    return IntOffset(
+        x = centeredX.coerceIn(0, maxX),
+        y = preferredY.coerceIn(0, maxY),
     )
 }
 
