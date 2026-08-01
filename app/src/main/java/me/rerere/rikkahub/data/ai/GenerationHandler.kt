@@ -1234,15 +1234,23 @@ class GenerationHandler(
             baseSystemPromptBuilder.append(entry.prompt)
         }
 
+        // Tool system prompts: several workspace/sandbox tools share the same prompt text
+        // (e.g. the four sandbox tools all return the identical SANDBOX_PROMPT). The builder
+        // below deduplicates by the rendered content so a shared prompt is only injected once
+        // per turn instead of repeating for every tool that happens to carry it. User-customized
+        // prompts are unaffected — the dedup key is the final rendered text, so an override that
+        // differs from the default still gets injected, and identical overrides still collapse to one.
+        val seenToolPrompts = linkedSetOf<String>()
         tools.forEach { tool ->
-            baseSystemPromptBuilder.appendLine()
-            baseSystemPromptBuilder.append(
-                tool.renderConfiguredSystemPrompt(
-                    settings = settings,
-                    model = model,
-                    messages = documentArchivedMessages,
-                )
+            val rendered = tool.renderConfiguredSystemPrompt(
+                settings = settings,
+                model = model,
+                messages = documentArchivedMessages,
             )
+            if (rendered.isBlank()) return@forEach
+            if (!seenToolPrompts.add(rendered.trim())) return@forEach
+            baseSystemPromptBuilder.appendLine()
+            baseSystemPromptBuilder.append(rendered)
         }
 
         val explicitSkillContextPrompt = buildExplicitSkillContextPrompt(
