@@ -470,6 +470,20 @@ val WORKSPACE_DELIVERABLE_VERSIONING_PROMPT = """
     - Temporary or internal files may still be overwritten when needed.
 """.trimIndent()
 
+/**
+ * 文件夹整理规则。
+ * 与交付物版本化规则一样，只注入真正决定文件路径的写入工具（workspace_write_file），
+ * 避免同一段话在一次请求里重复多遍。沙盒侧在 SANDBOX_PROMPT 中维护自己的副本。
+ */
+val WORKSPACE_FOLDER_ORGANIZATION_PROMPT = """
+    ### folder organization
+    - When a task produces new files for the first time, put them in a new folder named after the task instead of the workspace root (example: `travel-plan/itinerary.md`, not `itinerary.md`).
+    - Keep folder names short and descriptive; one level is usually enough.
+    - If the user specifies a path, follow it.
+    - Revised versions of an existing file stay in its current directory (see deliverable versioning); this rule is for new files.
+    - Temporary or internal scratch files may stay anywhere convenient.
+""".trimIndent()
+
 fun workspaceToolSystemPromptTemplate(
     toolName: String,
     includeCommonRules: Boolean,
@@ -488,12 +502,12 @@ fun workspaceToolSystemPromptTemplate(
 
         "workspace_write_file" -> """
             ### examples
-            - Write a file: {"path":"notes.txt","content":"hello"}
+            - Write a file for a task: {"path":"travel-plan/itinerary.md","content":"hello"}
         """.trimIndent()
 
         "workspace_mkdir" -> """
             ### examples
-            - Create a folder: {"path":"output","parents":true}
+            - Create a task folder: {"path":"travel-plan","parents":true}
         """.trimIndent()
 
         "workspace_delete" -> """
@@ -534,6 +548,8 @@ fun workspaceToolSystemPromptTemplate(
         if (toolName == "workspace_write_file") {
             appendLine()
             appendLine(WORKSPACE_DELIVERABLE_VERSIONING_PROMPT)
+            appendLine()
+            appendLine(WORKSPACE_FOLDER_ORGANIZATION_PROMPT)
         }
         if (examples.isNotBlank()) {
             appendLine()

@@ -40,7 +40,7 @@ class WorkspaceFileReferenceToolsTest {
 
     @Test
     fun `workspace prompts preserve user-facing deliverable versions`() {
-        assertTrue(WORKSPACE_DELIVERABLE_VERSIONING_PROMPT.contains("do not overwrite the existing file"))
+        assertTrue(WORKSPACE_DELIVERABLE_VERSIONING_PROMPT.contains("keep the existing file"))
         val writeTemplate = workspaceToolSystemPromptTemplate("workspace_write_file", includeCommonRules = false)
         assertTrue(writeTemplate.contains("Name the new file after the change the user asked for"))
         assertTrue(writeTemplate.contains("report-english.pdf"))
@@ -50,5 +50,15 @@ class WorkspaceFileReferenceToolsTest {
                 includeCommonRules = true,
             ).contains("new deliverable file"),
         )
+    }
+
+    @Test
+    fun `workspace prompts keep new task files in task folders`() {
+        val writeTemplate = workspaceToolSystemPromptTemplate("workspace_write_file", includeCommonRules = false)
+        assertTrue(writeTemplate.contains("folder organization"))
+        assertTrue(writeTemplate.contains("named after the task instead of the workspace root"))
+        assertTrue(writeTemplate.contains("travel-plan/itinerary.md"))
+        // 文件夹整理只约束新文件，不能和交付物版本化规则打架
+        assertTrue(writeTemplate.contains("Revised versions of an existing file stay in its current directory"))
     }
 }

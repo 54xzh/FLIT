@@ -160,6 +160,13 @@ Mounted phone folders under /workspace are live and writable; changes affect the
 - If that name is already taken, add a short distinguishing note (such as /workspace/report-english-revised.pdf) instead of overwriting either file.
 - Do not delete previous versions unless the user explicitly asks.
 - Temporary or internal files may still be overwritten when needed.
+
+### folder organization
+- When a task produces new files for the first time, put them in a new folder named after the task instead of the /workspace root (example: /workspace/travel-plan/itinerary.md, not /workspace/itinerary.md).
+- Keep folder names short and descriptive; one level is usually enough.
+- If the user specifies a path, follow it.
+- Revised versions of an existing file stay in its current directory (see deliverable versioning); this rule is for new files.
+- Temporary or internal scratch files may stay anywhere convenient.
 """
 
 private fun kotlinx.serialization.json.JsonObjectBuilder.putSandboxPath(required: Boolean) {
