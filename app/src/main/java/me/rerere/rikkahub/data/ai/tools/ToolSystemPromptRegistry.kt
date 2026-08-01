@@ -178,9 +178,16 @@ object ToolSystemPromptRegistry {
         ToolSystemPromptDefinition(
             toolName = WORKSPACE_FILE_REFERENCE_TOOL_NAME,
             group = ToolSystemPromptGroup.Workspace,
+            // includeCommonRules = false: the common-rules block is already carried by
+            // workspace_list, and the tool-prompt dedup in GenerationHandler is whole-text only
+            // (it deliberately does not parse markdown). Carrying the shared block here too would
+            // inject it twice, since this tool's own `## tool:` block differs from workspace_list's
+            // and so the two rendered prompts are not equal as whole strings. The tool's own
+            // description, parameter schema, and examples below are enough to guide usage when
+            // workspace_list is not present in the same turn.
             defaultTemplate = workspaceToolSystemPromptTemplate(
                 toolName = WORKSPACE_FILE_REFERENCE_TOOL_NAME,
-                includeCommonRules = true,
+                includeCommonRules = false,
             ),
             variables = listOf(ToolSystemPromptVariable(WORKSPACE_COMMON_RULES_VARIABLE)),
         ),

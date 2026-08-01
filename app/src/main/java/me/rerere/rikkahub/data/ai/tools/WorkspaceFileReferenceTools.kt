@@ -56,9 +56,14 @@ suspend fun createWorkspaceFileReferenceTool(
             if (isSandbox) {
                 SANDBOX_FILE_REFERENCE_PROMPT
             } else {
+                // includeCommonRules = false: the common-rules block is carried by workspace_list,
+                // and GenerationHandler dedups tool prompts by whole rendered text (no markdown
+                // parsing). Carrying the shared block here would inject it twice, since this
+                // tool's own `## tool:` block differs from workspace_list's. The tool's own
+                // description, schema, and examples are enough when workspace_list is absent.
                 workspaceToolSystemPromptTemplate(
                     toolName = WORKSPACE_FILE_REFERENCE_TOOL_NAME,
-                    includeCommonRules = true,
+                    includeCommonRules = false,
                 ).renderWorkspaceFileReferencePrompt()
             }
         },
