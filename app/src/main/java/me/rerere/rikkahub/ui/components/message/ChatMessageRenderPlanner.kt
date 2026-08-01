@@ -1,10 +1,15 @@
 package me.rerere.rikkahub.ui.components.message
 
+import kotlinx.serialization.json.JsonObject
 import me.rerere.ai.ui.UIMessagePart
 
 internal sealed interface MessageRenderBlock {
     data class ProcessGroup(
         val parts: List<UIMessagePart>,
+    ) : MessageRenderBlock
+
+    data class WorkspaceFileReferenceBlock(
+        val content: JsonObject,
     ) : MessageRenderBlock
 
     data class TextBlock(
@@ -39,7 +44,7 @@ internal fun buildMessageRenderBlocks(
 ): List<MessageRenderBlock> {
     val orderedParts = parts.normalizeMessagePartsForDisplay()
     val blocks = mutableListOf<MessageRenderBlock>()
-    val pendingProcessParts = leadingProcessParts.toMutableList()
+    val pendingProcessParts = mutableListOf<UIMessagePart>()
     val pendingMediaParts = mutableListOf<UIMessagePart>()
     var pendingMediaKind: String? = null
     var textIndex = 0
@@ -81,18 +86,31 @@ internal fun buildMessageRenderBlocks(
         pendingMediaParts += part
     }
 
-    orderedParts.forEach { part ->
+    (leadingProcessParts + orderedParts).forEach { part ->
         when (part) {
             is UIMessagePart.Reasoning,
             is UIMessagePart.Thinking,
             is UIMessagePart.ToolCall,
             is UIMessagePart.ToolApproval,
-            is UIMessagePart.ToolResult,
             is UIMessagePart.AskUser,
                 -> {
                     flushMediaParts()
                     pendingProcessParts += part
                 }
+
+            is UIMessagePart.ToolResult -> {
+                val fileReferenceContent = part.workspaceFileReferenceContent()
+                if (fileReferenceContent == null) {
+                    flushMediaParts()
+                    pendingProcessParts += part
+                } else {
+                    flushMediaParts()
+                    flushProcessParts()
+                    blocks += MessageRenderBlock.WorkspaceFileReferenceBlock(
+                        content = fileReferenceContent,
+                    )
+                }
+            }
 
             is UIMessagePart.Text -> {
                 flushMediaParts()

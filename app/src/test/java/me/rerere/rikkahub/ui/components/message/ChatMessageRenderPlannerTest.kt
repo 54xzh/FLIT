@@ -1,11 +1,87 @@
 package me.rerere.rikkahub.ui.components.message
 
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.JsonObject
 import me.rerere.ai.ui.UIMessagePart
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatMessageRenderPlannerTest {
+    @Test
+    fun `places workspace file reference at its tool result position`() {
+        val reasoningBeforeTool = UIMessagePart.Reasoning("先想")
+        val toolCall = UIMessagePart.ToolCall(
+            toolCallId = "call_file",
+            toolName = "workspace_send_file",
+            arguments = """{"path":"output/report.pdf"}""",
+        )
+        val fileResult = UIMessagePart.ToolResult(
+            toolCallId = "call_file",
+            toolName = "workspace_send_file",
+            content = buildJsonObject {
+                put("ok", true)
+                put("type", "workspace_file_reference")
+                put("workspace_id", "workspace-1")
+                put("path", "output/report.pdf")
+                put("name", "report.pdf")
+                put("mime", "application/pdf")
+                put("size_bytes", 1024)
+            },
+            arguments = buildJsonObject { put("path", "output/report.pdf") },
+        )
+        val reasoningAfterTool = UIMessagePart.Reasoning("再整理")
+        val text = UIMessagePart.Text("这是结果")
+
+        val blocks = buildMessageRenderBlocks(
+            leadingProcessParts = emptyList(),
+            parts = listOf(reasoningBeforeTool, toolCall, fileResult, reasoningAfterTool, text),
+        )
+
+        assertEquals(4, blocks.size)
+        assertEquals(
+            MessageRenderBlock.ProcessGroup(parts = listOf(reasoningBeforeTool, toolCall)),
+            blocks[0],
+        )
+        assertEquals(
+            MessageRenderBlock.WorkspaceFileReferenceBlock(
+                content = fileResult.content as JsonObject,
+            ),
+            blocks[1],
+        )
+        assertEquals(
+            MessageRenderBlock.ProcessGroup(parts = listOf(reasoningAfterTool)),
+            blocks[2],
+        )
+        assertEquals(MessageRenderBlock.TextBlock(part = text, textIndex = 0), blocks[3])
+    }
+
+    @Test
+    fun `keeps non-reference tool results in the process group`() {
+        val toolCall = UIMessagePart.ToolCall(
+            toolCallId = "call_search",
+            toolName = "search_web",
+            arguments = """{"query":"LastChat"}""",
+        )
+        val toolResult = UIMessagePart.ToolResult(
+            toolCallId = "call_search",
+            toolName = "search_web",
+            content = buildJsonObject { put("ok", true) },
+            arguments = buildJsonObject { put("query", "LastChat") },
+        )
+
+        val blocks = buildMessageRenderBlocks(
+            leadingProcessParts = emptyList(),
+            parts = listOf(toolCall, toolResult),
+        )
+
+        assertEquals(
+            listOf(MessageRenderBlock.ProcessGroup(parts = listOf(toolCall, toolResult))),
+            blocks,
+        )
+    }
+
     @Test
     fun `keeps process parts on both sides of text in original order`() {
         val reasoning = UIMessagePart.Reasoning("先想")

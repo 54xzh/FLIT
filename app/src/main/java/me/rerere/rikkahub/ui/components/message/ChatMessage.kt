@@ -571,6 +571,12 @@ private fun MessagePartsBlock(
                 )
             }
 
+            is MessageRenderBlock.WorkspaceFileReferenceBlock -> {
+                if (role == MessageRole.ASSISTANT) {
+                    WorkspaceFileReferenceCard(content = block.content)
+                }
+            }
+
             is MessageRenderBlock.TextBlock -> {
                 MessageTextPart(
                     assistant = assistant,
@@ -605,12 +611,6 @@ private fun MessagePartsBlock(
             is MessageRenderBlock.QuotedFollowUpBlock -> {
                 QuotedFollowUpLine(text = block.part.text)
             }
-        }
-    }
-
-    if (role == MessageRole.ASSISTANT) {
-        renderBlocks.workspaceFileReferenceContentsFromBlocks().forEach { content ->
-            WorkspaceFileReferenceCard(content = content)
         }
     }
 

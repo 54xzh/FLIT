@@ -80,34 +80,10 @@ internal fun UIMessagePart.isHiddenWorkspaceFileReferencePart(): Boolean = when 
     else -> false
 }
 
-private fun UIMessagePart.workspaceFileReferenceContent(): JsonObject? {
+internal fun UIMessagePart.workspaceFileReferenceContent(): JsonObject? {
     val result = this as? UIMessagePart.ToolResult ?: return null
     if (result.toolName != WORKSPACE_FILE_REFERENCE_TOOL_NAME) return null
-    return result.content as? JsonObject
-}
-
-internal fun List<UIMessagePart>.workspaceFileReferenceContentsFromParts(): List<JsonObject> {
-    return mapNotNull(UIMessagePart::workspaceFileReferenceContent)
-        .filter { it.toWorkspaceFileReference() != null }
-        .distinctBy { content ->
-            val reference = content.toWorkspaceFileReference()
-            "${reference?.workspaceId}:${reference?.path}"
-        }
-}
-
-internal fun List<MessageRenderBlock>.workspaceFileReferenceContentsFromBlocks(): List<JsonObject> {
-    return flatMap { block ->
-        (block as? MessageRenderBlock.ProcessGroup)
-            ?.parts
-            .orEmpty()
-    }.workspaceFileReferenceContentsFromParts()
-}
-
-@Composable
-internal fun WorkspaceFileReferenceCards(parts: List<UIMessagePart>) {
-    parts.workspaceFileReferenceContentsFromParts().forEach { content ->
-        WorkspaceFileReferenceCard(content = content)
-    }
+    return (result.content as? JsonObject)?.takeIf { it.toWorkspaceFileReference() != null }
 }
 
 private fun JsonObject.toWorkspaceFileReference(): WorkspaceFileReference? {

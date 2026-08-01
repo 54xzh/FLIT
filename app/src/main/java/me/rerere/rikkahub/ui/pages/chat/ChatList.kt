@@ -120,9 +120,11 @@ import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.ui.components.message.ChatMessage
 import me.rerere.rikkahub.ui.components.message.ChatMessageAssistantAvatar
 import me.rerere.rikkahub.ui.components.message.ChatProcessTimeline
+import me.rerere.rikkahub.ui.components.message.MessageRenderBlock
 import me.rerere.rikkahub.ui.components.message.ReasoningBodyState
 import me.rerere.rikkahub.ui.components.message.ToolCallPreviewSheet
-import me.rerere.rikkahub.ui.components.message.WorkspaceFileReferenceCards
+import me.rerere.rikkahub.ui.components.message.WorkspaceFileReferenceCard
+import me.rerere.rikkahub.ui.components.message.buildMessageRenderBlocks
 import me.rerere.rikkahub.ui.components.message.planChatProcessDisplay
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItemContentPadding
@@ -1139,6 +1141,12 @@ private fun SharedTransitionScope.ChatListNormal(
                         nextVisibleMessage?.role != MessageRole.ASSISTANT
 
                     if (standaloneProcessParts.isNotEmpty()) {
+                        val standaloneRenderBlocks = remember(standaloneProcessParts) {
+                            buildMessageRenderBlocks(
+                                leadingProcessParts = emptyList(),
+                                parts = standaloneProcessParts,
+                            )
+                        }
                         Column(
                             modifier = Modifier.padding(
                                 horizontal = ListSelectableItemContentPadding,
@@ -1164,18 +1172,29 @@ private fun SharedTransitionScope.ChatListNormal(
                                     )
                                 }
                             }
-                            ChatProcessTimeline(
-                                processParts = standaloneProcessParts,
-                                conversationId = conversation.id,
-                                hiddenToolCallIds = emptySet(),
-                                loading = loading && isLast,
-                                model = standaloneModelForMessage ?: modelForMessage,
-                                assistant = standaloneAssistantForMessage ?: assistantForMessage,
-                                reasoningBodyStates = reasoningBodyStates,
-                                onOpenToolPreview = openToolPreview,
-                                streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
-                            )
-                            WorkspaceFileReferenceCards(parts = standaloneProcessParts)
+                            standaloneRenderBlocks.forEach { block ->
+                                when (block) {
+                                    is MessageRenderBlock.ProcessGroup -> {
+                                        ChatProcessTimeline(
+                                            processParts = block.parts,
+                                            conversationId = conversation.id,
+                                            hiddenToolCallIds = emptySet(),
+                                            loading = loading && isLast,
+                                            model = standaloneModelForMessage ?: modelForMessage,
+                                            assistant = standaloneAssistantForMessage ?: assistantForMessage,
+                                            reasoningBodyStates = reasoningBodyStates,
+                                            onOpenToolPreview = openToolPreview,
+                                            streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
+                                        )
+                                    }
+
+                                    is MessageRenderBlock.WorkspaceFileReferenceBlock -> {
+                                        WorkspaceFileReferenceCard(content = block.content)
+                                    }
+
+                                    else -> Unit
+                                }
+                            }
                         }
                     }
 
