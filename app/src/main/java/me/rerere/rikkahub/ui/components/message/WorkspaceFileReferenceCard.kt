@@ -7,6 +7,7 @@ import android.text.format.Formatter
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,15 +39,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -83,6 +90,23 @@ private data class WorkspaceFileReference(
     val mime: String,
     val sizeBytes: Long,
 )
+
+internal class WorkspaceFileReferenceEntryTracker(
+    initiallyEnteredKeys: Set<String> = emptySet(),
+) {
+    private val enteredKeys = mutableStateMapOf<String, Unit>().apply {
+        initiallyEnteredKeys.forEach { key -> this[key] = Unit }
+    }
+
+    fun hasEntered(key: String): Boolean = key in enteredKeys
+
+    fun markEntered(key: String) {
+        enteredKeys[key] = Unit
+    }
+}
+
+internal val LocalWorkspaceFileReferenceEntryTracker =
+    staticCompositionLocalOf<WorkspaceFileReferenceEntryTracker?> { null }
 
 internal fun UIMessagePart.isHiddenWorkspaceFileReferencePart(): Boolean = when (this) {
     is UIMessagePart.ToolCall -> toolName == WORKSPACE_FILE_REFERENCE_TOOL_NAME
@@ -124,34 +148,87 @@ private fun JsonObject.toWorkspaceFileReference(): WorkspaceFileReference? {
     )
 }
 
+internal fun JsonObject.workspaceFileReferenceEntryKey(): String? =
+    toWorkspaceFileReference()?.entryKey()
+
+private fun WorkspaceFileReference.entryKey(): String = listOf(
+    workspaceId,
+    path,
+    name,
+    mime,
+    sizeBytes.toString(),
+).joinToString(separator = "\u0000")
+
 @Composable
-internal fun WorkspaceFileReferenceCards(contents: List<JsonObject>) {
+internal fun WorkspaceFileReferenceCards(
+    contents: List<JsonObject>,
+    followedByProcessTimeline: Boolean = false,
+) {
     val references = remember(contents) {
         contents.mapNotNull { it.toWorkspaceFileReference() }
     }
     if (references.isEmpty()) return
 
     LazyRow(
-        modifier = Modifier.padding(top = 4.dp),
+        modifier = Modifier.padding(
+            top = 4.dp,
+            bottom = if (followedByProcessTimeline) 8.dp else 0.dp,
+        ),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         itemsIndexed(
             items = references,
             key = { index, reference -> "$index:${reference.workspaceId}:${reference.path}" },
         ) { _, reference ->
-            WorkspaceFileReferenceCard(reference = reference)
+            WorkspaceFileReferenceCard(
+                reference = reference,
+            )
         }
     }
 }
 
 @Composable
-private fun WorkspaceFileReferenceCard(reference: WorkspaceFileReference) {
+private fun WorkspaceFileReferenceCard(
+    reference: WorkspaceFileReference,
+) {
     val context = LocalContext.current
     val repository = koinInject<WorkspaceRepository>()
     val scope = rememberCoroutineScope()
     val settings = LocalSettings.current
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     var opening by remember(reference.workspaceId, reference.path) { mutableStateOf(false) }
+    val entryTracker = LocalWorkspaceFileReferenceEntryTracker.current
+    val entryKey = remember(reference) { reference.entryKey() }
+    var entered by remember(entryTracker, entryKey) {
+        mutableStateOf(entryTracker?.hasEntered(entryKey) == true)
+    }
+    val entryScale by animateFloatAsState(
+        targetValue = if (entered) 1f else 0.84f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+        label = "workspace_file_entry_scale",
+    )
+    val entryAlpha by animateFloatAsState(
+        targetValue = if (entered) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = 400f),
+        label = "workspace_file_entry_alpha",
+        finishedListener = { value ->
+            if (value == 1f) {
+                entryTracker?.markEntered(entryKey)
+            }
+        },
+    )
+    val entryOffset by animateDpAsState(
+        targetValue = if (entered) 0.dp else 16.dp,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+        label = "workspace_file_entry_offset",
+    )
+
+    LaunchedEffect(entryTracker, entryKey) {
+        if (!entered) {
+            withFrameNanos { }
+            entered = true
+        }
+    }
 
     val saveLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument(reference.mime),
@@ -202,7 +279,14 @@ private fun WorkspaceFileReferenceCard(reference: WorkspaceFileReference) {
         Surface(
             modifier = Modifier
                 .width(160.dp)
-                .height(64.dp),
+                .height(64.dp)
+                .offset(y = entryOffset)
+                .graphicsLayer {
+                    alpha = entryAlpha
+                    scaleX = entryScale
+                    scaleY = entryScale
+                    transformOrigin = TransformOrigin(0f, 0.5f)
+                },
             shape = AppShapes.CardMedium,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             contentColor = MaterialTheme.colorScheme.onSurface,

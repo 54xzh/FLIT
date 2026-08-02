@@ -59,6 +59,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -120,13 +121,18 @@ import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.ui.components.message.ChatMessage
 import me.rerere.rikkahub.ui.components.message.ChatMessageAssistantAvatar
 import me.rerere.rikkahub.ui.components.message.ChatProcessTimeline
+import me.rerere.rikkahub.ui.components.message.LocalWorkspaceFileReferenceEntryTracker
 import me.rerere.rikkahub.ui.components.message.MessageRenderBlock
 import me.rerere.rikkahub.ui.components.message.ReasoningBodyState
 import me.rerere.rikkahub.ui.components.message.ToolCallPreviewSheet
 import me.rerere.rikkahub.ui.components.message.WorkspaceFileReferenceCards
+import me.rerere.rikkahub.ui.components.message.WorkspaceFileReferenceEntryTracker
 import me.rerere.rikkahub.ui.components.message.buildMessageRenderBlocksFromSegments
 import me.rerere.rikkahub.ui.components.message.findCurrentGenerationNodeIndexes
+import me.rerere.rikkahub.ui.components.message.needsWorkspaceFileTimelineSpacing
 import me.rerere.rikkahub.ui.components.message.planChatProcessDisplay
+import me.rerere.rikkahub.ui.components.message.workspaceFileReferenceContent
+import me.rerere.rikkahub.ui.components.message.workspaceFileReferenceEntryKey
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItemContentPadding
 import me.rerere.rikkahub.ui.components.ui.Tooltip
@@ -490,6 +496,15 @@ private fun SharedTransitionScope.ChatListNormal(
     var sendScrollAnimationRetryCount by remember(conversation.id) { mutableStateOf(0) }
     var loadingIndicatorHeightPx by remember(conversation.id) { mutableStateOf(0) }
     val messageItemHeightsPx = remember(conversation.id) { mutableStateMapOf<Uuid, Int>() }
+    val workspaceFileReferenceEntryTracker = remember(conversation.id) {
+        WorkspaceFileReferenceEntryTracker(
+            initiallyEnteredKeys = conversation.messageNodes
+                .asSequence()
+                .flatMap { it.currentMessage.parts.asSequence() }
+                .mapNotNull { it.workspaceFileReferenceContent()?.workspaceFileReferenceEntryKey() }
+                .toSet(),
+        )
+    }
     val conversationUpdated by rememberUpdatedState(conversation)
     // 上层（ChatPage）每个流式 tick 都会重组，部分回调实例随之重建。条目内改为捕获这些
     // rememberUpdatedState 中转值：捕获的是稳定的 State 实例，未变化消息的 ChatMessage
@@ -1025,7 +1040,10 @@ private fun SharedTransitionScope.ChatListNormal(
                 }
         }
 
-        LazyColumn(
+        CompositionLocalProvider(
+            LocalWorkspaceFileReferenceEntryTracker provides workspaceFileReferenceEntryTracker,
+        ) {
+            LazyColumn(
             state = state,
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 16.dp) + PaddingValues(bottom = 32.dp) + innerPadding + androidx.compose.foundation.layout.WindowInsets.ime.asPaddingValues(),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1152,10 +1170,13 @@ private fun SharedTransitionScope.ChatListNormal(
                             buildMessageRenderBlocksFromSegments(standaloneProcessSegments)
                         }
                         Column(
-                            modifier = Modifier.padding(
-                                horizontal = ListSelectableItemContentPadding,
-                                vertical = ListSelectableItemContentPadding,
-                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    horizontal = ListSelectableItemContentPadding,
+                                    vertical = ListSelectableItemContentPadding,
+                                ),
+                            horizontalAlignment = Alignment.Start,
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             standaloneAssistantOwnerMessage?.takeIf { showStandaloneAssistantHeader }?.let { ownerMessage ->
@@ -1176,7 +1197,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                     )
                                 }
                             }
-                            standaloneRenderBlocks.forEach { block ->
+                            standaloneRenderBlocks.forEachIndexed { blockIndex, block ->
                                 when (block) {
                                     is MessageRenderBlock.ProcessGroup -> {
                                         ChatProcessTimeline(
@@ -1193,7 +1214,12 @@ private fun SharedTransitionScope.ChatListNormal(
                                     }
 
                                     is MessageRenderBlock.WorkspaceFileReferenceGroup -> {
-                                        WorkspaceFileReferenceCards(contents = block.contents)
+                                        WorkspaceFileReferenceCards(
+                                            contents = block.contents,
+                                            followedByProcessTimeline = block.needsWorkspaceFileTimelineSpacing(
+                                                nextBlock = standaloneRenderBlocks.getOrNull(blockIndex + 1),
+                                            ),
+                                        )
                                     }
 
                                     else -> Unit
@@ -1355,6 +1381,7 @@ private fun SharedTransitionScope.ChatListNormal(
                         .fillMaxWidth()
                         .height(ScrollBottomBaseHeight + sendScrollDynamicSpacerHeight)
                 )
+            }
             }
         }
 

@@ -38,6 +38,13 @@ internal sealed interface MessageRenderBlock {
     ) : MessageRenderBlock
 }
 
+internal fun MessageRenderBlock.needsWorkspaceFileTimelineSpacing(
+    nextBlock: MessageRenderBlock?,
+): Boolean {
+    return this is MessageRenderBlock.WorkspaceFileReferenceGroup &&
+        nextBlock is MessageRenderBlock.ProcessGroup
+}
+
 internal fun buildMessageRenderBlocks(
     leadingProcessParts: List<UIMessagePart>,
     parts: List<UIMessagePart>,

@@ -5,6 +5,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonObject
 import me.rerere.ai.ui.UIMessagePart
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -55,6 +56,33 @@ class ChatMessageRenderPlannerTest {
             blocks[2],
         )
         assertEquals(MessageRenderBlock.TextBlock(part = text, textIndex = 0), blocks[3])
+    }
+
+    @Test
+    fun `adds extra space when a file reference is followed by a process timeline`() {
+        val fileReference = MessageRenderBlock.WorkspaceFileReferenceGroup(emptyList())
+
+        assertTrue(
+            fileReference.needsWorkspaceFileTimelineSpacing(
+                nextBlock = MessageRenderBlock.ProcessGroup(emptyList()),
+            )
+        )
+    }
+
+    @Test
+    fun `does not add file timeline space for other adjacent blocks`() {
+        val fileReference = MessageRenderBlock.WorkspaceFileReferenceGroup(emptyList())
+
+        assertFalse(
+            fileReference.needsWorkspaceFileTimelineSpacing(
+                nextBlock = MessageRenderBlock.TextBlock(UIMessagePart.Text("正文"), textIndex = 0),
+            ),
+        )
+        assertFalse(
+            MessageRenderBlock.ProcessGroup(emptyList()).needsWorkspaceFileTimelineSpacing(
+                nextBlock = MessageRenderBlock.ProcessGroup(emptyList()),
+            ),
+        )
     }
 
     @Test

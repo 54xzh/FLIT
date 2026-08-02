@@ -573,7 +573,12 @@ private fun MessagePartsBlock(
 
             is MessageRenderBlock.WorkspaceFileReferenceGroup -> {
                 if (role == MessageRole.ASSISTANT) {
-                    WorkspaceFileReferenceCards(contents = block.contents)
+                    WorkspaceFileReferenceCards(
+                        contents = block.contents,
+                        followedByProcessTimeline = block.needsWorkspaceFileTimelineSpacing(
+                            nextBlock = renderBlocks.getOrNull(blockIndex + 1),
+                        ),
+                    )
                 }
             }
 
