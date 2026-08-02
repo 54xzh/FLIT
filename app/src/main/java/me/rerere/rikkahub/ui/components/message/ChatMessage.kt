@@ -565,6 +565,17 @@ private fun MessagePartsBlock(
             parts = parts,
         )
     }
+    val workspaceFileReferenceGroupIndexes = remember(renderBlocks) {
+        renderBlocks.mapIndexedNotNull { index, block ->
+            index.takeIf { block is MessageRenderBlock.WorkspaceFileReferenceGroup }
+        }
+    }
+    var resolvedWorkspaceFileReferenceGroupIndexes by remember(renderBlocks) {
+        mutableStateOf(emptySet<Int>())
+    }
+    val workspaceFileReferencesReady = resolvedWorkspaceFileReferenceGroupIndexes
+        .containsAll(workspaceFileReferenceGroupIndexes)
+
     renderBlocks.fastForEachIndexed { blockIndex, block ->
         when (block) {
             is MessageRenderBlock.ProcessGroup -> {
@@ -586,6 +597,10 @@ private fun MessagePartsBlock(
                     WorkspaceFileReferenceCards(
                         items = block.items,
                         entryScope = block.entryScope,
+                        onResolved = {
+                            resolvedWorkspaceFileReferenceGroupIndexes =
+                                resolvedWorkspaceFileReferenceGroupIndexes + blockIndex
+                        },
                     )
                 }
             }
@@ -628,15 +643,40 @@ private fun MessagePartsBlock(
         }
     }
 
-    // Token Statistics (shown after all text parts, for assistant messages only)
-    // Just shows immediately when conditions are met - no special delay or animation
+    // Token statistics wait for any workspace file card rows to be resolved, so a late
+    // card insertion cannot move an already visible row.
     val hasTextContent = remember(parts) {
         parts.filterIsInstance<UIMessagePart.Text>()
             .any { it.text.stripInterruptedAppContextForDisplay().isNotBlank() }
     }
     val shouldShowTokenStats = role == MessageRole.ASSISTANT && showTokenUsage && !loading && hasTextContent && usage != null
-    
-    if (shouldShowTokenStats) {
+    // Existing history already has token stats on first composition; only animate when the
+    // stats appear later, which indicates that the current message just finished generating.
+    val animateTokenStatsEntry by remember(messageId) {
+        mutableStateOf(!shouldShowTokenStats)
+    }
+
+    AnimatedVisibility(
+        visible = shouldShowTokenStats && workspaceFileReferencesReady,
+        enter = if (animateTokenStatsEntry) {
+            fadeIn(
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f),
+            ) + expandVertically(
+                animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
+            )
+        } else {
+            EnterTransition.None
+        },
+        exit = if (animateTokenStatsEntry) {
+            fadeOut(
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f),
+            ) + shrinkVertically(
+                animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
+            )
+        } else {
+            ExitTransition.None
+        },
+    ) {
         usage?.let { tokenUsage ->
             // Calculate tokens per second from generation duration
             val tokensPerSecond: Float? = generationDurationMs?.let { durationMs ->

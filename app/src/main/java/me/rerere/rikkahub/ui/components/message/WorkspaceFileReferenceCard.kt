@@ -145,18 +145,34 @@ private fun WorkspaceFileReferenceCandidate.toWorkspaceFileReference(
 internal fun WorkspaceFileReferenceCards(
     items: List<WorkspaceFileReferenceCandidate>,
     entryScope: String? = null,
+    onResolved: () -> Unit = {},
 ) {
     val repository = koinInject<WorkspaceRepository>()
+    val currentOnResolved by rememberUpdatedState(onResolved)
     var references by remember(items, entryScope) { mutableStateOf(emptyList<WorkspaceFileReference>()) }
     LaunchedEffect(items, entryScope, repository) {
-        references = withContext(Dispatchers.IO) {
-            items.distinct().mapNotNull { candidate ->
-                val entry = runCatching {
-                    repository.resolveWorkspaceEntry(candidate.workspaceId, candidate.path)
-                }.getOrNull()
-                candidate.toWorkspaceFileReference(entry, entryScope)
+        val resolvedReferences = try {
+            withContext(Dispatchers.IO) {
+                items.distinct().mapNotNull { candidate ->
+                    val entry = try {
+                        repository.resolveWorkspaceEntry(candidate.workspaceId, candidate.path)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
+                    candidate.toWorkspaceFileReference(entry, entryScope)
+                }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptyList()
         }
+        references = resolvedReferences
+        // Let the card row enter the composition before revealing the following token row.
+        withFrameNanos { }
+        currentOnResolved()
     }
     if (references.isEmpty()) return
 
