@@ -8,7 +8,6 @@ import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
@@ -23,7 +22,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -54,7 +52,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -238,11 +235,6 @@ private fun WorkspaceFileReferenceCard(
     var entered by remember(entryTracker, entryKey) {
         mutableStateOf(entryTracker?.hasEntered(entryKey) == true)
     }
-    val entryScale by animateFloatAsState(
-        targetValue = if (entered) 1f else 0.84f,
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
-        label = "workspace_file_entry_scale",
-    )
     val entryAlpha by animateFloatAsState(
         targetValue = if (entered) 1f else 0f,
         animationSpec = spring(dampingRatio = 0.75f, stiffness = 400f),
@@ -253,12 +245,6 @@ private fun WorkspaceFileReferenceCard(
             }
         },
     )
-    val entryOffset by animateDpAsState(
-        targetValue = if (entered) 0.dp else 16.dp,
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
-        label = "workspace_file_entry_offset",
-    )
-
     LaunchedEffect(entryTracker, entryKey) {
         if (!entered) {
             withFrameNanos { }
@@ -316,12 +302,8 @@ private fun WorkspaceFileReferenceCard(
             modifier = Modifier
                 .width(160.dp)
                 .height(64.dp)
-                .offset(y = entryOffset)
                 .graphicsLayer {
                     alpha = entryAlpha
-                    scaleX = entryScale
-                    scaleY = entryScale
-                    transformOrigin = TransformOrigin(0f, 0.5f)
                 },
             shape = AppShapes.CardMedium,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
