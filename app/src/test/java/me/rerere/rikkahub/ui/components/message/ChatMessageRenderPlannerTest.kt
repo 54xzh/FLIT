@@ -47,7 +47,7 @@ class ChatMessageRenderPlannerTest {
         )
         assertEquals(
             MessageRenderBlock.WorkspaceFileReferenceGroup(
-                contents = listOf(fileResult.content as JsonObject),
+                items = listOf(requireNotNull(fileResult.workspaceFileReferenceRenderItem())),
             ),
             blocks[1],
         )
@@ -237,7 +237,7 @@ class ChatMessageRenderPlannerTest {
         assertEquals(1, fileGroups.size)
         assertEquals(
             listOf(firstResult.content as JsonObject, secondResult.content as JsonObject),
-            fileGroups.single().contents,
+            fileGroups.single().items.map { it.content },
         )
     }
 

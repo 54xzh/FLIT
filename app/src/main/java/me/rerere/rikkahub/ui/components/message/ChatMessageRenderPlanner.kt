@@ -1,6 +1,5 @@
 package me.rerere.rikkahub.ui.components.message
 
-import kotlinx.serialization.json.JsonObject
 import me.rerere.ai.ui.UIMessagePart
 
 internal sealed interface MessageRenderBlock {
@@ -9,7 +8,7 @@ internal sealed interface MessageRenderBlock {
     ) : MessageRenderBlock
 
     data class WorkspaceFileReferenceGroup(
-        val contents: List<JsonObject>,
+        val items: List<WorkspaceFileReferenceRenderItem>,
     ) : MessageRenderBlock
 
     data class TextBlock(
@@ -53,7 +52,7 @@ internal fun buildMessageRenderBlocks(
     val blocks = mutableListOf<MessageRenderBlock>()
     val pendingProcessParts = mutableListOf<UIMessagePart>()
     val pendingMediaParts = mutableListOf<UIMessagePart>()
-    val pendingWorkspaceFileReferences = mutableListOf<JsonObject>()
+    val pendingWorkspaceFileReferences = mutableListOf<WorkspaceFileReferenceRenderItem>()
     var pendingMediaKind: String? = null
     var textIndex = 0
 
@@ -89,7 +88,7 @@ internal fun buildMessageRenderBlocks(
     fun flushWorkspaceFileReferences() {
         if (pendingWorkspaceFileReferences.isEmpty()) return
         blocks += MessageRenderBlock.WorkspaceFileReferenceGroup(
-            contents = pendingWorkspaceFileReferences.toList(),
+            items = pendingWorkspaceFileReferences.toList(),
         )
         pendingWorkspaceFileReferences.clear()
     }
@@ -127,15 +126,15 @@ internal fun buildMessageRenderBlocks(
                 }
 
             is UIMessagePart.ToolResult -> {
-                val fileReferenceContent = part.workspaceFileReferenceContent()
-                if (fileReferenceContent == null) {
+                val fileReferenceItem = part.workspaceFileReferenceRenderItem()
+                if (fileReferenceItem == null) {
                     flushWorkspaceFileReferences()
                     flushMediaParts()
                     pendingProcessParts += part
                 } else {
                     flushMediaParts()
                     flushProcessParts()
-                    pendingWorkspaceFileReferences += fileReferenceContent
+                    pendingWorkspaceFileReferences += fileReferenceItem
                 }
             }
 

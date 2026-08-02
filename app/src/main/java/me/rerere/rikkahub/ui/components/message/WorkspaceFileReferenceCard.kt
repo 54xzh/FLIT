@@ -84,6 +84,7 @@ import java.io.File
 import java.security.MessageDigest
 
 private data class WorkspaceFileReference(
+    val entryKey: String,
     val workspaceId: String,
     val path: String,
     val name: String,
@@ -108,6 +109,11 @@ internal class WorkspaceFileReferenceEntryTracker(
 internal val LocalWorkspaceFileReferenceEntryTracker =
     staticCompositionLocalOf<WorkspaceFileReferenceEntryTracker?> { null }
 
+internal data class WorkspaceFileReferenceRenderItem(
+    val toolCallId: String,
+    val content: JsonObject,
+)
+
 internal fun UIMessagePart.isHiddenWorkspaceFileReferencePart(): Boolean = when (this) {
     is UIMessagePart.ToolCall -> toolName == WORKSPACE_FILE_REFERENCE_TOOL_NAME
     is UIMessagePart.ToolApproval -> toolName == WORKSPACE_FILE_REFERENCE_TOOL_NAME
@@ -115,31 +121,43 @@ internal fun UIMessagePart.isHiddenWorkspaceFileReferencePart(): Boolean = when 
     else -> false
 }
 
-internal fun UIMessagePart.workspaceFileReferenceContent(): JsonObject? {
+internal fun UIMessagePart.workspaceFileReferenceRenderItem(): WorkspaceFileReferenceRenderItem? {
     val result = this as? UIMessagePart.ToolResult ?: return null
     if (result.toolName != WORKSPACE_FILE_REFERENCE_TOOL_NAME) return null
-    return (result.content as? JsonObject)?.takeIf { it.toWorkspaceFileReference() != null }
+    val content = result.content as? JsonObject ?: return null
+    return WorkspaceFileReferenceRenderItem(
+        toolCallId = result.toolCallId,
+        content = content,
+    ).takeIf { it.toWorkspaceFileReference() != null }
 }
 
-private fun JsonObject.toWorkspaceFileReference(): WorkspaceFileReference? {
-    if (this["ok"]?.jsonPrimitiveOrNull?.contentOrNull != "true") return null
-    if (this["type"]?.jsonPrimitiveOrNull?.contentOrNull != "workspace_file_reference") return null
-    val workspaceId = this["workspace_id"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
+private fun WorkspaceFileReferenceRenderItem.toWorkspaceFileReference(): WorkspaceFileReference? {
+    if (content["ok"]?.jsonPrimitiveOrNull?.contentOrNull != "true") return null
+    if (content["type"]?.jsonPrimitiveOrNull?.contentOrNull != "workspace_file_reference") return null
+    val workspaceId = content["workspace_id"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
         ?.takeIf { it.isNotEmpty() }
         ?: return null
-    val path = this["path"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
+    val path = content["path"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
         ?.takeIf { it.isNotEmpty() }
         ?: return null
-    val name = this["name"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
+    val name = content["name"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
         ?.takeIf { it.isNotEmpty() }
         ?: path.substringAfterLast('/').ifBlank { "workspace_file" }
-    val mime = this["mime"]?.jsonPrimitiveOrNull?.contentOrNull
+    val mime = content["mime"]?.jsonPrimitiveOrNull?.contentOrNull
         ?.takeIf { it.contains('/') }
         ?: "application/octet-stream"
-    val sizeBytes = this["size_bytes"]?.jsonPrimitiveOrNull?.contentOrNull?.toLongOrNull()
+    val sizeBytes = content["size_bytes"]?.jsonPrimitiveOrNull?.contentOrNull?.toLongOrNull()
         ?.coerceAtLeast(0L)
         ?: 0L
     return WorkspaceFileReference(
+        entryKey = listOf(
+            toolCallId,
+            workspaceId,
+            path,
+            name,
+            mime,
+            sizeBytes.toString(),
+        ).joinToString(separator = "\u0000"),
         workspaceId = workspaceId,
         path = path,
         name = name,
@@ -148,24 +166,16 @@ private fun JsonObject.toWorkspaceFileReference(): WorkspaceFileReference? {
     )
 }
 
-internal fun JsonObject.workspaceFileReferenceEntryKey(): String? =
-    toWorkspaceFileReference()?.entryKey()
-
-private fun WorkspaceFileReference.entryKey(): String = listOf(
-    workspaceId,
-    path,
-    name,
-    mime,
-    sizeBytes.toString(),
-).joinToString(separator = "\u0000")
+internal fun WorkspaceFileReferenceRenderItem.workspaceFileReferenceEntryKey(): String? =
+    toWorkspaceFileReference()?.entryKey
 
 @Composable
 internal fun WorkspaceFileReferenceCards(
-    contents: List<JsonObject>,
+    items: List<WorkspaceFileReferenceRenderItem>,
     followedByProcessTimeline: Boolean = false,
 ) {
-    val references = remember(contents) {
-        contents.mapNotNull { it.toWorkspaceFileReference() }
+    val references = remember(items) {
+        items.mapNotNull { it.toWorkspaceFileReference() }
     }
     if (references.isEmpty()) return
 
@@ -178,7 +188,7 @@ internal fun WorkspaceFileReferenceCards(
     ) {
         itemsIndexed(
             items = references,
-            key = { index, reference -> "$index:${reference.workspaceId}:${reference.path}" },
+            key = { index, reference -> "$index:${reference.entryKey}" },
         ) { _, reference ->
             WorkspaceFileReferenceCard(
                 reference = reference,
@@ -198,7 +208,7 @@ private fun WorkspaceFileReferenceCard(
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     var opening by remember(reference.workspaceId, reference.path) { mutableStateOf(false) }
     val entryTracker = LocalWorkspaceFileReferenceEntryTracker.current
-    val entryKey = remember(reference) { reference.entryKey() }
+    val entryKey = remember(reference) { reference.entryKey }
     var entered by remember(entryTracker, entryKey) {
         mutableStateOf(entryTracker?.hasEntered(entryKey) == true)
     }

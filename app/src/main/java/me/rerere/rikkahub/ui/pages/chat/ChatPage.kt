@@ -1185,6 +1185,7 @@ private fun ChatPageContent(
                         bottom = chatListBottomPadding,
                     ),
                     conversation = conversation,
+                    conversationInitialized = conversationInitialized,
                     state = chatListState,
                     loading = loadingJob != null,
                     previewMode = previewMode,

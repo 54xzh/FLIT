@@ -131,8 +131,8 @@ import me.rerere.rikkahub.ui.components.message.buildMessageRenderBlocksFromSegm
 import me.rerere.rikkahub.ui.components.message.findCurrentGenerationNodeIndexes
 import me.rerere.rikkahub.ui.components.message.needsWorkspaceFileTimelineSpacing
 import me.rerere.rikkahub.ui.components.message.planChatProcessDisplay
-import me.rerere.rikkahub.ui.components.message.workspaceFileReferenceContent
 import me.rerere.rikkahub.ui.components.message.workspaceFileReferenceEntryKey
+import me.rerere.rikkahub.ui.components.message.workspaceFileReferenceRenderItem
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItemContentPadding
 import me.rerere.rikkahub.ui.components.ui.Tooltip
@@ -220,6 +220,18 @@ private fun resolveStreamingContentUpdateIntervalMs(
     return if (visible) 0L else OffscreenStreamingUpdateIntervalMs
 }
 
+internal fun initialWorkspaceFileReferenceEntryKeys(
+    messageNodes: List<MessageNode>,
+    conversationInitialized: Boolean,
+): Set<String> {
+    if (!conversationInitialized) return emptySet()
+    return messageNodes
+        .asSequence()
+        .flatMap { it.currentMessage.parts.asSequence() }
+        .mapNotNull { it.workspaceFileReferenceRenderItem()?.workspaceFileReferenceEntryKey() }
+        .toSet()
+}
+
 private fun Conversation.findToolPreviewContent(key: String): ToolPreviewContent? {
     val (targetToolName, targetToolCallId) = parseToolPreviewKey(key) ?: return null
     var callToolName = targetToolName
@@ -303,6 +315,7 @@ internal fun ChatList(
     modifier: Modifier = Modifier,
     innerPadding: PaddingValues,
     conversation: Conversation,
+    conversationInitialized: Boolean,
     state: LazyListState,
     loading: Boolean,
     previewMode: Boolean,
@@ -327,49 +340,61 @@ internal fun ChatList(
     onSendScrollRequestHandled: (Long) -> Unit = {},
     onQuoteFollowUp: (String) -> Unit = {},
 ) {
-    SharedTransitionLayout(modifier = modifier) {
-        AnimatedContent(
-            targetState = previewMode,
-            label = "ChatListMode",
-            transitionSpec = {
-                (fadeIn() + scaleIn(initialScale = 0.8f) togetherWith fadeOut() + scaleOut(targetScale = 0.8f))
-            }
-        ) { target ->
-            if (target) {
-                ChatListPreview(
-                    innerPadding = innerPadding,
-                    conversation = conversation,
-                    settings = settings,
-                    onJumpToMessage = onJumpToMessage,
-                    animatedVisibilityScope = this@AnimatedContent,
-                    initialSearchQuery = initialSearchQuery,
-                )
-            } else {
-                ChatListNormal(
-                    innerPadding = innerPadding,
-                    conversation = conversation,
-                    state = state,
-                    loading = loading,
-                    settings = settings,
-                    recentlyRestoredNodeIds = recentlyRestoredNodeIds,
-                    onAssistantAvatarLongPress = onAssistantAvatarLongPress,
-                    onRegenerate = onRegenerate,
-                    onContinue = onContinue,
-                    onEdit = onEdit,
-                    onForkMessage = onForkMessage,
-                    onDelete = onDelete,
-                    onUpdateMessage = onUpdateMessage,
-                    onUpdateConversation = onUpdateConversation,
-                    canLoadOlderHistory = canLoadOlderHistory,
-                    loadingOlderHistory = loadingOlderHistory,
-                    onLoadOlderHistory = onLoadOlderHistory,
-                    onReadPositionSample = onReadPositionSample,
-                    onEditContextSummary = onEditContextSummary,
-                    sendScrollRequest = sendScrollRequest,
-                    onSendScrollRequestHandled = onSendScrollRequestHandled,
-                    onQuoteFollowUp = onQuoteFollowUp,
-                    animatedVisibilityScope = this@AnimatedContent,
-                )
+    val workspaceFileReferenceEntryTracker = remember(conversation.id, conversationInitialized) {
+        WorkspaceFileReferenceEntryTracker(
+            initiallyEnteredKeys = initialWorkspaceFileReferenceEntryKeys(
+                messageNodes = conversation.messageNodes,
+                conversationInitialized = conversationInitialized,
+            ),
+        )
+    }
+    CompositionLocalProvider(
+        LocalWorkspaceFileReferenceEntryTracker provides workspaceFileReferenceEntryTracker,
+    ) {
+        SharedTransitionLayout(modifier = modifier) {
+            AnimatedContent(
+                targetState = previewMode,
+                label = "ChatListMode",
+                transitionSpec = {
+                    (fadeIn() + scaleIn(initialScale = 0.8f) togetherWith fadeOut() + scaleOut(targetScale = 0.8f))
+                }
+            ) { target ->
+                if (target) {
+                    ChatListPreview(
+                        innerPadding = innerPadding,
+                        conversation = conversation,
+                        settings = settings,
+                        onJumpToMessage = onJumpToMessage,
+                        animatedVisibilityScope = this@AnimatedContent,
+                        initialSearchQuery = initialSearchQuery,
+                    )
+                } else {
+                    ChatListNormal(
+                        innerPadding = innerPadding,
+                        conversation = conversation,
+                        state = state,
+                        loading = loading,
+                        settings = settings,
+                        recentlyRestoredNodeIds = recentlyRestoredNodeIds,
+                        onAssistantAvatarLongPress = onAssistantAvatarLongPress,
+                        onRegenerate = onRegenerate,
+                        onContinue = onContinue,
+                        onEdit = onEdit,
+                        onForkMessage = onForkMessage,
+                        onDelete = onDelete,
+                        onUpdateMessage = onUpdateMessage,
+                        onUpdateConversation = onUpdateConversation,
+                        canLoadOlderHistory = canLoadOlderHistory,
+                        loadingOlderHistory = loadingOlderHistory,
+                        onLoadOlderHistory = onLoadOlderHistory,
+                        onReadPositionSample = onReadPositionSample,
+                        onEditContextSummary = onEditContextSummary,
+                        sendScrollRequest = sendScrollRequest,
+                        onSendScrollRequestHandled = onSendScrollRequestHandled,
+                        onQuoteFollowUp = onQuoteFollowUp,
+                        animatedVisibilityScope = this@AnimatedContent,
+                    )
+                }
             }
         }
     }
@@ -496,15 +521,6 @@ private fun SharedTransitionScope.ChatListNormal(
     var sendScrollAnimationRetryCount by remember(conversation.id) { mutableStateOf(0) }
     var loadingIndicatorHeightPx by remember(conversation.id) { mutableStateOf(0) }
     val messageItemHeightsPx = remember(conversation.id) { mutableStateMapOf<Uuid, Int>() }
-    val workspaceFileReferenceEntryTracker = remember(conversation.id) {
-        WorkspaceFileReferenceEntryTracker(
-            initiallyEnteredKeys = conversation.messageNodes
-                .asSequence()
-                .flatMap { it.currentMessage.parts.asSequence() }
-                .mapNotNull { it.workspaceFileReferenceContent()?.workspaceFileReferenceEntryKey() }
-                .toSet(),
-        )
-    }
     val conversationUpdated by rememberUpdatedState(conversation)
     // 上层（ChatPage）每个流式 tick 都会重组，部分回调实例随之重建。条目内改为捕获这些
     // rememberUpdatedState 中转值：捕获的是稳定的 State 实例，未变化消息的 ChatMessage
@@ -1040,10 +1056,7 @@ private fun SharedTransitionScope.ChatListNormal(
                 }
         }
 
-        CompositionLocalProvider(
-            LocalWorkspaceFileReferenceEntryTracker provides workspaceFileReferenceEntryTracker,
-        ) {
-            LazyColumn(
+        LazyColumn(
             state = state,
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 16.dp) + PaddingValues(bottom = 32.dp) + innerPadding + androidx.compose.foundation.layout.WindowInsets.ime.asPaddingValues(),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1215,7 +1228,7 @@ private fun SharedTransitionScope.ChatListNormal(
 
                                     is MessageRenderBlock.WorkspaceFileReferenceGroup -> {
                                         WorkspaceFileReferenceCards(
-                                            contents = block.contents,
+                                            items = block.items,
                                             followedByProcessTimeline = block.needsWorkspaceFileTimelineSpacing(
                                                 nextBlock = standaloneRenderBlocks.getOrNull(blockIndex + 1),
                                             ),
@@ -1381,7 +1394,6 @@ private fun SharedTransitionScope.ChatListNormal(
                         .fillMaxWidth()
                         .height(ScrollBottomBaseHeight + sendScrollDynamicSpacerHeight)
                 )
-            }
             }
         }
 
