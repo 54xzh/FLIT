@@ -5,48 +5,68 @@ import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.model.WORKSPACE_FILE_REFERENCE_WORKSPACE_ID_METADATA_KEY
 import me.rerere.rikkahub.data.model.toMessageNode
+import me.rerere.rikkahub.ui.components.message.WorkspaceFileReferenceCandidate
 import me.rerere.rikkahub.ui.components.message.workspaceFileReferenceEntryKey
-import me.rerere.rikkahub.ui.components.message.workspaceFileReferenceRenderItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WorkspaceFileReferenceHistoryTest {
     @Test
-    fun `collects existing file entries only after conversation initialization`() {
-        val result = UIMessagePart.ToolResult(
-            toolCallId = "call_history",
-            toolName = "workspace_send_file",
-            content = buildJsonObject {
-                put("ok", true)
-                put("type", "workspace_file_reference")
-                put("workspace_id", "workspace-1")
-                put("path", "output/report.pdf")
-                put("name", "report.pdf")
-                put("mime", "application/pdf")
-                put("size_bytes", 1024)
-            },
-            arguments = buildJsonObject { put("path", "output/report.pdf") },
+    fun `collects historical links only after conversation initialization`() {
+        val message = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Text(
+                    text = "[报告](/workspace/output/report.pdf)",
+                    metadata = buildJsonObject {
+                        put(WORKSPACE_FILE_REFERENCE_WORKSPACE_ID_METADATA_KEY, "workspace-original")
+                    },
+                ),
+            ),
         )
-        val nodes = listOf(
-            UIMessage(
-                role = MessageRole.TOOL,
-                parts = listOf(result),
-            ).toMessageNode(),
-        )
+        val nodes = listOf(message.toMessageNode())
+        val expectedKey = WorkspaceFileReferenceCandidate(
+            workspaceId = "workspace-original",
+            path = "output/report.pdf",
+        ).workspaceFileReferenceEntryKey()
 
         assertTrue(
             initialWorkspaceFileReferenceEntryKeys(
                 messageNodes = nodes,
                 conversationInitialized = false,
-            ).isEmpty()
+            ).isEmpty(),
         )
         assertEquals(
-            setOf(requireNotNull(result.workspaceFileReferenceRenderItem()?.workspaceFileReferenceEntryKey())),
+            setOf(expectedKey),
             initialWorkspaceFileReferenceEntryKeys(
                 messageNodes = nodes,
                 conversationInitialized = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `uses current workspace when historical metadata is absent`() {
+        val nodes = listOf(
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(UIMessagePart.Text("[报告](/workspace/output/report.pdf)")),
+            ).toMessageNode(),
+        )
+        val expectedKey = WorkspaceFileReferenceCandidate(
+            workspaceId = "workspace-current",
+            path = "output/report.pdf",
+        ).workspaceFileReferenceEntryKey()
+
+        assertEquals(
+            setOf(expectedKey),
+            initialWorkspaceFileReferenceEntryKeys(
+                messageNodes = nodes,
+                conversationInitialized = true,
+                workspaceIdForMessage = { "workspace-current" },
             ),
         )
     }

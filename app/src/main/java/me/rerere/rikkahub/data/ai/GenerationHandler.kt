@@ -93,6 +93,8 @@ import me.rerere.rikkahub.data.model.SessionMemory
 import me.rerere.rikkahub.data.model.SessionMemoryPlacement
 import me.rerere.rikkahub.data.model.ToolResultHistoryMode
 import me.rerere.rikkahub.data.model.Avatar
+import me.rerere.rikkahub.data.model.WorkspaceFileReferenceContext
+import me.rerere.rikkahub.data.model.withWorkspaceFileReferenceContext
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
@@ -345,7 +347,7 @@ class GenerationHandler(
     private val requestLogManager: AIRequestLogManager,
     private val embeddingService: EmbeddingService,
 ) {
-    fun generateText(
+    internal fun generateText(
         settings: Settings,
         model: Model,
         messages: List<UIMessage>,
@@ -366,6 +368,7 @@ class GenerationHandler(
         source: AIRequestSource = AIRequestSource.OTHER,
         toolApprovalHandler: ToolApprovalHandler? = null,
         askUserHandler: AskUserHandler? = null,
+        workspaceFileReferenceContext: WorkspaceFileReferenceContext? = null,
     ): Flow<GenerationChunk> = flow {
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         val providerImpl = providerManager.getProviderByType(provider)
@@ -460,6 +463,20 @@ class GenerationHandler(
                 model = model,
                 assistant = assistant
             )
+            val completedMessage = messages.lastOrNull()
+            if (
+                workspaceFileReferenceContext != null &&
+                completedMessage?.role == MessageRole.ASSISTANT &&
+                completedMessage.getToolCalls().isEmpty()
+            ) {
+                messages = messages.mapIndexed { index, message ->
+                    if (index == messages.lastIndex) {
+                        message.withWorkspaceFileReferenceContext(workspaceFileReferenceContext)
+                    } else {
+                        message
+                    }
+                }
+            }
             emit(GenerationChunk.Messages(messages))
 
             val toolCalls = messages.last().getToolCalls().filterNot { toolCall ->
@@ -1238,10 +1255,7 @@ class GenerationHandler(
         // all return the identical SANDBOX_PROMPT verbatim, so whole-text dedup collapses those four
         // copies to one without ever parsing the prompt body. We deliberately do NOT split on
         // markdown headers here — that would risk mis-splitting code fences or other structures in
-        // user-customized prompts. The remaining shared-block case (workspace common rules shared
-        // by workspace_list and workspace_send_file) is handled at the source instead:
-        // workspace_send_file is configured with includeCommonRules = false, so only workspace_list
-        // carries the common-rules block and it is injected once.
+        // user-customized prompts.
         //
         // User-customized prompts are unaffected: the dedup key is the final rendered text, so an
         // override that differs from the default is still injected, and identical overrides still

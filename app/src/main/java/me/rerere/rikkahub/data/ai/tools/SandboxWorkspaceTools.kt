@@ -20,7 +20,6 @@ suspend fun createSandboxWorkspaceTools(
     val overrides = workspaceRepository.getById(workspaceId)?.toolApprovalOverrides().orEmpty()
     fun approval(name: String): Boolean = overrides[name] ?: toolDefaultNeedsApproval(name)
     return listOf(
-        createWorkspaceFileReferenceTool(workspaceId, workspaceRepository),
         sandboxReadTool(workspaceId, workspaceRepository, ::approval),
         sandboxWriteTool(workspaceId, workspaceRepository, ::approval),
         sandboxEditTool(workspaceId, workspaceRepository, ::approval),
@@ -152,8 +151,12 @@ You are using a persistent Linux sandbox. Sandbox file tools accept absolute pat
 Use sandbox_shell for commands. The shell can write /workspace, /skills, /upload and /tool_outputs; do not claim that uploads are read-only.
 Mounted phone folders under /workspace are live and writable; changes affect the original phone files.
 
+When the user asks to receive, share, open, or save an existing regular file, use a normal Markdown link in the final answer: [file name](/workspace/relative/path).
+/workspace/ is a logical workspace prefix, not a phone absolute path. Reference only existing regular files, never directories or nonexistent paths.
+Do not output file://, content://, or system absolute paths for workspace files.
+
 ### deliverable versioning
-- `workspace_send_file` does not copy the file into the conversation; it creates a live reference to the file path. When the user later opens or saves a referenced file, the app reads whatever is at that path at that moment.
+- A Markdown workspace link does not copy the file into the conversation; it creates a live reference to the file path. When the user later opens or saves a referenced file, the app reads whatever is at that path at that moment.
 - If you overwrite an existing file, every earlier reference to it silently starts showing the new content, and the user's previous version is gone everywhere at once.
 - So when a change produces a file meant for the user (to send, share, open, or save), keep the existing file and write the changed result to a new file in the same directory.
 - Name the new file after the change the user asked for, keeping the original base name and its language. Example: if the user asks to translate /workspace/report.pdf into English, write /workspace/report-english.pdf; if they ask to shorten /workspace/notes.docx, write /workspace/notes-shortened.docx.

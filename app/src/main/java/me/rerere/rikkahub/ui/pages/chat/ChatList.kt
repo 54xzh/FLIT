@@ -117,6 +117,7 @@ import me.rerere.rikkahub.data.datastore.getEffectiveDisplaySetting
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.WorkspaceFileReferenceContext
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.ui.components.message.ChatMessage
 import me.rerere.rikkahub.ui.components.message.ChatMessageAssistantAvatar
@@ -125,14 +126,14 @@ import me.rerere.rikkahub.ui.components.message.LocalWorkspaceFileReferenceEntry
 import me.rerere.rikkahub.ui.components.message.MessageRenderBlock
 import me.rerere.rikkahub.ui.components.message.ReasoningBodyState
 import me.rerere.rikkahub.ui.components.message.ToolCallPreviewSheet
-import me.rerere.rikkahub.ui.components.message.WorkspaceFileReferenceCards
+import me.rerere.rikkahub.ui.components.message.WorkspaceFileReferenceCandidate
 import me.rerere.rikkahub.ui.components.message.WorkspaceFileReferenceEntryTracker
 import me.rerere.rikkahub.ui.components.message.buildMessageRenderBlocksFromSegments
 import me.rerere.rikkahub.ui.components.message.findCurrentGenerationNodeIndexes
-import me.rerere.rikkahub.ui.components.message.needsWorkspaceFileTimelineSpacing
 import me.rerere.rikkahub.ui.components.message.planChatProcessDisplay
 import me.rerere.rikkahub.ui.components.message.workspaceFileReferenceEntryKey
-import me.rerere.rikkahub.ui.components.message.workspaceFileReferenceRenderItem
+import me.rerere.rikkahub.data.model.workspaceFileReferenceContextOrNull
+import me.rerere.rikkahub.ui.components.richtext.extractWorkspaceFileReferencePaths
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItemContentPadding
 import me.rerere.rikkahub.ui.components.ui.Tooltip
@@ -202,6 +203,26 @@ private fun parseToolPreviewKey(key: String): Pair<String, String>? {
     return key.substring(0, separatorIndex) to key.substring(separatorIndex + 1)
 }
 
+private fun resolveWorkspaceFileReferenceFallbackWorkspaceId(
+    message: UIMessage,
+    conversation: Conversation,
+    settings: Settings,
+): String? {
+    val groupTemplate = settings.groupChatTemplates.firstOrNull { it.id == conversation.assistantId }
+    val seatAssistant = message.speakerSeatId
+        ?.let { seatId -> groupTemplate?.seats?.firstOrNull { it.id == seatId } }
+        ?.let { seat -> settings.getAssistantById(seat.assistantId) }
+    val assistant = seatAssistant
+        ?: message.speakerAssistantId?.let(settings::getAssistantById)
+        ?: settings.getAssistantById(conversation.assistantId)
+    val overrideWorkspaceId = if (groupTemplate == null && assistant?.allowConversationWorkspaceOverride == true) {
+        conversation.workspaceOverrideId
+    } else {
+        null
+    }
+    return overrideWorkspaceId ?: assistant?.workspaceId
+}
+
 private fun resolveStreamingContentUpdateIntervalMs(
     index: Int,
     messageCount: Int,
@@ -223,12 +244,34 @@ private fun resolveStreamingContentUpdateIntervalMs(
 internal fun initialWorkspaceFileReferenceEntryKeys(
     messageNodes: List<MessageNode>,
     conversationInitialized: Boolean,
+    workspaceIdForMessage: (UIMessage) -> String? = { null },
 ): Set<String> {
     if (!conversationInitialized) return emptySet()
     return messageNodes
         .asSequence()
-        .flatMap { it.currentMessage.parts.asSequence() }
-        .mapNotNull { it.workspaceFileReferenceRenderItem()?.workspaceFileReferenceEntryKey() }
+        .filter { it.currentMessage.role == MessageRole.ASSISTANT }
+        .flatMap { node ->
+            val fallbackWorkspaceId = workspaceIdForMessage(node.currentMessage)
+            node.currentMessage.parts
+                .asSequence()
+                .filterIsInstance<UIMessagePart.Text>()
+                .flatMap { part ->
+                    val workspaceId = part.workspaceFileReferenceContextOrNull()?.workspaceId
+                        ?: fallbackWorkspaceId
+                    if (workspaceId.isNullOrBlank()) {
+                        emptySequence()
+                    } else {
+                        extractWorkspaceFileReferencePaths(part.text)
+                            .asSequence()
+                            .map { path ->
+                                WorkspaceFileReferenceCandidate(
+                                    workspaceId = workspaceId,
+                                    path = path,
+                                ).workspaceFileReferenceEntryKey()
+                            }
+                    }
+                }
+        }
         .toSet()
 }
 
@@ -340,12 +383,29 @@ internal fun ChatList(
     onSendScrollRequestHandled: (Long) -> Unit = {},
     onQuoteFollowUp: (String) -> Unit = {},
 ) {
+    val initialWorkspaceFileReferenceEntryKeys = remember(
+        conversation.id,
+        conversationInitialized,
+        conversation.messageNodes,
+        conversation.workspaceOverrideId,
+        settings.assistants,
+        settings.groupChatTemplates,
+    ) {
+        initialWorkspaceFileReferenceEntryKeys(
+            messageNodes = conversation.messageNodes,
+            conversationInitialized = conversationInitialized,
+            workspaceIdForMessage = { message ->
+                resolveWorkspaceFileReferenceFallbackWorkspaceId(
+                    message = message,
+                    conversation = conversation,
+                    settings = settings,
+                )
+            },
+        )
+    }
     val workspaceFileReferenceEntryTracker = remember(conversation.id, conversationInitialized) {
         WorkspaceFileReferenceEntryTracker(
-            initiallyEnteredKeys = initialWorkspaceFileReferenceEntryKeys(
-                messageNodes = conversation.messageNodes,
-                conversationInitialized = conversationInitialized,
-            ),
+            initiallyEnteredKeys = initialWorkspaceFileReferenceEntryKeys,
         )
     }
     CompositionLocalProvider(
@@ -649,6 +709,21 @@ private fun SharedTransitionScope.ChatListNormal(
             ?: message.speakerAssistantId
                 ?.let { speakerId -> settings.getAssistantById(speakerId) }
             ?: settings.getAssistantById(conversation.assistantId)
+    }
+
+    fun resolveWorkspaceFileReferenceContextForMessage(
+        assistant: Assistant?,
+    ): WorkspaceFileReferenceContext? {
+        val overrideWorkspaceId = if (groupChatTemplateForConversation == null &&
+            assistant?.allowConversationWorkspaceOverride == true
+        ) {
+            conversation.workspaceOverrideId
+        } else {
+            null
+        }
+        return (overrideWorkspaceId ?: assistant?.workspaceId)
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::WorkspaceFileReferenceContext)
     }
 
     fun buildAssistantDisplayIdentity(
@@ -1210,7 +1285,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                     )
                                 }
                             }
-                            standaloneRenderBlocks.forEachIndexed { blockIndex, block ->
+                            standaloneRenderBlocks.forEach { block ->
                                 when (block) {
                                     is MessageRenderBlock.ProcessGroup -> {
                                         ChatProcessTimeline(
@@ -1223,15 +1298,6 @@ private fun SharedTransitionScope.ChatListNormal(
                                             reasoningBodyStates = reasoningBodyStates,
                                             onOpenToolPreview = openToolPreview,
                                             streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
-                                        )
-                                    }
-
-                                    is MessageRenderBlock.WorkspaceFileReferenceGroup -> {
-                                        WorkspaceFileReferenceCards(
-                                            items = block.items,
-                                            followedByProcessTimeline = block.needsWorkspaceFileTimelineSpacing(
-                                                nextBlock = standaloneRenderBlocks.getOrNull(blockIndex + 1),
-                                            ),
                                         )
                                     }
 
@@ -1264,6 +1330,9 @@ private fun SharedTransitionScope.ChatListNormal(
                                 reasoningBodyStates = reasoningBodyStates,
                                 onOpenToolPreview = openToolPreview,
                                 conversationId = conversation.id,
+                                workspaceFileReferenceContext = resolveWorkspaceFileReferenceContextForMessage(
+                                    assistant = assistantForMessage,
+                                ),
                                 onCitationClick = onCitationClick,
                                 model = modelForMessage,
                                 assistant = assistantForMessage,

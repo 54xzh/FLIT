@@ -74,6 +74,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.LinkInteractionListener
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
@@ -109,6 +110,7 @@ import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.RpStyleRule
 import me.rerere.rikkahub.data.datastore.getEffectiveDisplaySetting
+import me.rerere.rikkahub.data.repository.normalizeWorkspaceFileReferencePath
 import me.rerere.rikkahub.ui.components.table.DataTable
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionReadExternalStorage
@@ -186,6 +188,29 @@ private val lazyBlockHeightsCache = object : android.util.LruCache<String, LazyB
  * CompositionLocal for RP style rules - enables color customization throughout the markdown tree
  */
 val LocalRpStyleRules = compositionLocalOf<List<RpStyleRule>> { emptyList() }
+
+private const val WORKSPACE_MARKDOWN_PATH_PREFIX = "/workspace/"
+
+private val LocalWorkspaceFileLinkClick = compositionLocalOf<(String) -> Unit> { {} }
+
+internal fun workspaceMarkdownLinkPath(destination: String): String? {
+    if (!destination.startsWith(WORKSPACE_MARKDOWN_PATH_PREFIX)) return null
+    val rawPath = destination.removePrefix(WORKSPACE_MARKDOWN_PATH_PREFIX)
+    if (rawPath.split('/').any { it.isBlank() }) return null
+    return normalizeWorkspaceFileReferencePath(rawPath)
+}
+
+private fun workspaceMarkdownLinkAnnotation(
+    destination: String,
+    onClickWorkspaceFile: (String) -> Unit,
+): LinkAnnotation.Url = LinkAnnotation.Url(
+    url = destination,
+    linkInteractionListener = object : LinkInteractionListener {
+        override fun onClick(link: LinkAnnotation) {
+            workspaceMarkdownLinkPath(destination)?.let(onClickWorkspaceFile)
+        }
+    },
+)
 
 /**
  * Safely get color from RP style rule for a given pattern.
@@ -364,6 +389,7 @@ private fun AnnotatedString.Builder.appendInlineChildrenWithFallback(
     density: Density,
     style: TextStyle,
     onClickCitation: (String) -> Unit,
+    onClickWorkspaceFile: (String) -> Unit = {},
     rpStyleRules: List<RpStyleRule>,
 ) {
     val textBuffer = StringBuilder()
@@ -392,6 +418,7 @@ private fun AnnotatedString.Builder.appendInlineChildrenWithFallback(
                 density = density,
                 style = style,
                 onClickCitation = onClickCitation,
+                onClickWorkspaceFile = onClickWorkspaceFile,
                 rpStyleRules = rpStyleRules
             )
         }
@@ -486,6 +513,32 @@ private fun parseMarkdown(content: String, previous: MarkdownRenderData?): Markd
         preprocessed = preprocessed,
         snapshots = buildBlockSnapshots(previous?.snapshots, preprocessed, astTree),
     )
+}
+
+/** Extract valid workspace file links from the Markdown AST in source order. */
+internal fun extractWorkspaceFileReferencePaths(content: String): List<String> {
+    val preprocessed = preProcess(content)
+    val astTree = runCatching {
+        parser.buildMarkdownTreeFromString(preprocessed)
+    }.getOrNull() ?: return emptyList()
+    val paths = linkedSetOf<String>()
+
+    fun visit(node: ASTNode) {
+        if (node.type == MarkdownElementTypes.IMAGE) return
+        if (node.type == MarkdownElementTypes.CODE_BLOCK || node.type == MarkdownElementTypes.CODE_FENCE) return
+        if (node.type == MarkdownElementTypes.INLINE_LINK) {
+            val destination = node
+                .findChildOfTypeRecursive(MarkdownElementTypes.LINK_DESTINATION)
+                ?.getTextInNode(preprocessed)
+                ?: return
+            workspaceMarkdownLinkPath(destination)?.let(paths::add)
+            return
+        }
+        node.children.fastForEach(::visit)
+    }
+
+    visit(astTree)
+    return paths.toList()
 }
 
 // 与上一版快照逐位比对：源文本与"是否有后继"都没变的块直接复用旧快照，
@@ -668,6 +721,7 @@ fun MarkdownBlock(
     modifier: Modifier = Modifier,
     style: TextStyle = LocalTextStyle.current,
     onClickCitation: (String) -> Unit = {},
+    onClickWorkspaceFile: (String) -> Unit = {},
     exportAssets: MermaidExportAssets? = null,
     lazyRenderOffscreen: Boolean = false,
     lazyBlockHeightsCacheKey: String? = null,
@@ -705,6 +759,10 @@ fun MarkdownBlock(
     // 引用点击回调收敛为常驻实例：上层重组产生新 lambda 时不再连带使所有块作用域失效
     val currentOnClickCitation by rememberUpdatedState(onClickCitation)
     val stableOnClickCitation = remember { { citationId: String -> currentOnClickCitation(citationId) } }
+    val currentOnClickWorkspaceFile by rememberUpdatedState(onClickWorkspaceFile)
+    val stableOnClickWorkspaceFile = remember {
+        { path: String -> currentOnClickWorkspaceFile(path) }
+    }
 
     // 监听内容变化，重新解析AST树
     // 这里在后台线程解析AST树, 防止频繁更新的时候掉帧
@@ -756,7 +814,10 @@ fun MarkdownBlock(
         data.preprocessed.length >= MARKDOWN_LAZY_RENDER_MIN_CHARS &&
         data.snapshots.size >= MARKDOWN_LAZY_RENDER_MIN_BLOCKS
     // Provide rpStyleRules to entire tree via CompositionLocal
-    CompositionLocalProvider(LocalRpStyleRules provides rpStyleRules) {
+    CompositionLocalProvider(
+        LocalRpStyleRules provides rpStyleRules,
+        LocalWorkspaceFileLinkClick provides stableOnClickWorkspaceFile,
+    ) {
         ProvideTextStyle(style) {
             Column(
                 modifier = modifier.padding(start = 4.dp)
@@ -1258,15 +1319,37 @@ private fun MarkdownNode(
                 ?: ""
             val linkDest =
                 node.findChildOfTypeRecursive(MarkdownElementTypes.LINK_DESTINATION)?.getTextInNode(content) ?: ""
-            val context = LocalContext.current
-            Text(
-                text = linkText,
-                color = MaterialTheme.colorScheme.primary,
-                textDecoration = TextDecoration.Underline,
-                modifier = modifier.clickable {
-                    val intent = Intent(Intent.ACTION_VIEW, linkDest.toUri())
-                    context.startActivity(intent)
-                })
+            if (linkDest.startsWith(WORKSPACE_MARKDOWN_PATH_PREFIX)) {
+                val onClickWorkspaceFile = LocalWorkspaceFileLinkClick.current
+                val annotatedLink = buildAnnotatedString {
+                    withLink(
+                        workspaceMarkdownLinkAnnotation(
+                            destination = linkDest,
+                            onClickWorkspaceFile = onClickWorkspaceFile,
+                        )
+                    ) {
+                        withStyle(
+                            SpanStyle(
+                                color = MaterialTheme.colorScheme.primary,
+                                textDecoration = TextDecoration.Underline,
+                            )
+                        ) {
+                            append(linkText)
+                        }
+                    }
+                }
+                Text(text = annotatedLink, modifier = modifier)
+            } else {
+                val context = LocalContext.current
+                Text(
+                    text = linkText,
+                    color = MaterialTheme.colorScheme.primary,
+                    textDecoration = TextDecoration.Underline,
+                    modifier = modifier.clickable {
+                        val intent = Intent(Intent.ACTION_VIEW, linkDest.toUri())
+                        context.startActivity(intent)
+                    })
+            }
         }
 
         // 加粗和斜体
@@ -1865,6 +1948,7 @@ private fun Paragraph(
     val textStyle = LocalTextStyle.current
     val density = LocalDensity.current
     val rpStyleRules = LocalSettings.current.displaySetting.rpStyleRules
+    val onClickWorkspaceFile = LocalWorkspaceFileLinkClick.current
     FlowRow(
         modifier = modifier.then(
             if (node.nextSibling() != null) Modifier.padding(bottom = 4.dp)
@@ -1884,6 +1968,7 @@ private fun Paragraph(
                     density = density,
                     style = textStyle,
                     onClickCitation = onClickCitation,
+                    onClickWorkspaceFile = onClickWorkspaceFile,
                     rpStyleRules = rpStyleRules,
                 )
             }
@@ -1917,6 +2002,7 @@ private fun TableNode(node: ASTNode, content: String, modifier: Modifier = Modif
     val headerCells =
         headerNode?.children?.filter { it.type == GFMTokenTypes.CELL }?.map { it.getTextInNode(content).trim() }
             ?: emptyList()
+    val onClickWorkspaceFile = LocalWorkspaceFileLinkClick.current
 
     // 提取所有行的数据
     val rows = rowNodes.map { rowNode ->
@@ -1928,6 +2014,7 @@ private fun TableNode(node: ASTNode, content: String, modifier: Modifier = Modif
         @Composable {
             MarkdownBlock(
                 content = if (columnIndex < headerCells.size) headerCells[columnIndex] else "",
+                onClickWorkspaceFile = onClickWorkspaceFile,
             )
         }
     }
@@ -1938,6 +2025,7 @@ private fun TableNode(node: ASTNode, content: String, modifier: Modifier = Modif
             @Composable {
                 MarkdownBlock(
                     content = if (columnIndex < rowData.size) rowData[columnIndex] else "",
+                    onClickWorkspaceFile = onClickWorkspaceFile,
                 )
             }
         }
@@ -1961,6 +2049,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
     density: Density,
     style: TextStyle,
     onClickCitation: (String) -> Unit = {},
+    onClickWorkspaceFile: (String) -> Unit = {},
     rpStyleRules: List<RpStyleRule> = emptyList(),
 ) {
     when {
@@ -2001,6 +2090,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                         density = density,
                         style = style,
                         onClickCitation = onClickCitation,
+                        onClickWorkspaceFile = onClickWorkspaceFile,
                         rpStyleRules = rpStyleRules
                     )
                 }
@@ -2021,6 +2111,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                         density = density,
                         style = style,
                         onClickCitation = onClickCitation,
+                        onClickWorkspaceFile = onClickWorkspaceFile,
                         rpStyleRules = rpStyleRules
                     )
                 }
@@ -2041,6 +2132,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                         density = density,
                         style = style,
                         onClickCitation = onClickCitation,
+                        onClickWorkspaceFile = onClickWorkspaceFile,
                         rpStyleRules = rpStyleRules
                     )
                 }
@@ -2090,7 +2182,15 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                     appendInlineContent("citation:$linkDest")
                 }
             } else {
-                withLink(LinkAnnotation.Url(linkDest)) {
+                val linkAnnotation = if (linkDest.startsWith(WORKSPACE_MARKDOWN_PATH_PREFIX)) {
+                    workspaceMarkdownLinkAnnotation(
+                        destination = linkDest,
+                        onClickWorkspaceFile = onClickWorkspaceFile,
+                    )
+                } else {
+                    LinkAnnotation.Url(linkDest)
+                }
+                withLink(linkAnnotation) {
                     withStyle(
                         SpanStyle(
                             color = colorScheme.primary, textDecoration = TextDecoration.Underline
@@ -2163,6 +2263,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                     density = density,
                     style = style,
                     onClickCitation = onClickCitation,
+                    onClickWorkspaceFile = onClickWorkspaceFile,
                     rpStyleRules = rpStyleRules
                 )
             }

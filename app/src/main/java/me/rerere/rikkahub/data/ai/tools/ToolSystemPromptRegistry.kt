@@ -176,22 +176,6 @@ object ToolSystemPromptRegistry {
             variables = listOf(ToolSystemPromptVariable(WORKSPACE_COMMON_RULES_VARIABLE)),
         ),
         ToolSystemPromptDefinition(
-            toolName = WORKSPACE_FILE_REFERENCE_TOOL_NAME,
-            group = ToolSystemPromptGroup.Workspace,
-            // includeCommonRules = false: the common-rules block is already carried by
-            // workspace_list, and the tool-prompt dedup in GenerationHandler is whole-text only
-            // (it deliberately does not parse markdown). Carrying the shared block here too would
-            // inject it twice, since this tool's own `## tool:` block differs from workspace_list's
-            // and so the two rendered prompts are not equal as whole strings. The tool's own
-            // description, parameter schema, and examples below are enough to guide usage when
-            // workspace_list is not present in the same turn.
-            defaultTemplate = workspaceToolSystemPromptTemplate(
-                toolName = WORKSPACE_FILE_REFERENCE_TOOL_NAME,
-                includeCommonRules = false,
-            ),
-            variables = listOf(ToolSystemPromptVariable(WORKSPACE_COMMON_RULES_VARIABLE)),
-        ),
-        ToolSystemPromptDefinition(
             toolName = SCHEDULED_TASKS_MANAGEMENT_TOOL_NAME,
             group = ToolSystemPromptGroup.ScheduledTasks,
             defaultTemplate = SCHEDULED_TASK_SYSTEM_PROMPT_TEMPLATE,
@@ -453,6 +437,12 @@ val WORKSPACE_COMMON_RULES_PROMPT = """
     - Do NOT use absolute paths (no leading `/`) and do NOT use `..`.
     - Root directory is represented by an empty string "" when allowed by the tool (e.g. `workspace_list`).
 
+    ### file references in the final answer
+    - When the user asks to receive, share, open, or save an existing regular file, use a normal Markdown link: `[file name](/workspace/relative/path)`.
+    - `/workspace/` is a logical prefix for the conversation workspace; it is not a phone absolute path.
+    - Reference only an existing regular file. Do not reference directories or nonexistent paths.
+    - Do not output `file://`, `content://`, or system absolute paths for workspace files.
+
     ### parameter naming
     - Use the exact parameter keys from the schema (usually snake_case, e.g. `max_entries`, `max_chars`).
 
@@ -462,13 +452,13 @@ val WORKSPACE_COMMON_RULES_PROMPT = """
 
 /**
  * 交付物版本化完整规则。
- * 只注入到真正决定文件名的写入工具（workspace_write_file）；delete / rename / send_file
+ * 只注入到真正决定文件名的写入工具（workspace_write_file）；delete / rename
  * 各自只保留与自身操作相关的一行提醒，避免同一段话在一次请求里重复多遍。
  * 沙盒侧在 SANDBOX_PROMPT 中维护自己的副本。
  */
 val WORKSPACE_DELIVERABLE_VERSIONING_PROMPT = """
     ### deliverable versioning
-    - `workspace_send_file` does not copy the file into the conversation; it creates a live reference to the file path. When the user later opens or saves a referenced file, the app reads whatever is at that path at that moment.
+    - A Markdown workspace link does not copy the file into the conversation; it creates a live reference to the file path. When the user later opens or saves a referenced file, the app reads whatever is at that path at that moment.
     - If you overwrite an existing file, every earlier reference to it silently starts showing the new content, and the user's previous version is gone everywhere at once.
     - So when a change produces a file meant for the user (to send, share, open, or save), keep the existing file and write the changed result to a new file in the same directory.
     - Name the new file after the change the user asked for, keeping the original base name and its language. Example: if the user asks to translate `report.pdf` into English, write `report-english.pdf`; if they ask to shorten `notes.docx`, write `notes-shortened.docx`.
@@ -531,16 +521,6 @@ fun workspaceToolSystemPromptTemplate(
 
             ### examples
             - Rename/move: {"from":"a.txt","to":"archive/a.txt","create_parents":true}
-        """.trimIndent()
-
-        WORKSPACE_FILE_REFERENCE_TOOL_NAME -> """
-            ### rules
-            - Use only after the requested file already exists and the user asks to receive, share, open, or save it.
-            - Create a reference to the existing workspace file; do not copy or upload its contents in this tool.
-            - If the change produced a new deliverable file, reference that new file so earlier versions remain available.
-
-            ### examples
-            - Reference a file for the user: {"path":"output/report.pdf"}
         """.trimIndent()
 
         else -> ""

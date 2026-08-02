@@ -907,8 +907,8 @@ class WorkspaceRepository(
         DocumentFile.fromTreeUri(context, Uri.parse(treeUri))
     }.getOrNull()?.takeIf { it.isDirectory }
 
-    /** Resolve a regular file from either workspace implementation without reading its contents. */
-    suspend fun resolveWorkspaceFile(id: String, path: String): WorkspaceFileEntry? = withContext(Dispatchers.IO) {
+    /** Resolve a workspace path without reading its contents. */
+    suspend fun resolveWorkspaceEntry(id: String, path: String): WorkspaceFileEntry? = withContext(Dispatchers.IO) {
         val workspace = getById(id) ?: return@withContext null
         val normalized = runCatching { normalizeWorkspaceRelativePath(path) }.getOrNull()
             ?.takeIf { it.isNotBlank() }
@@ -917,20 +917,19 @@ class WorkspaceRepository(
             WorkspaceType.LIGHTWEIGHT -> {
                 val root = workspace.treeUri?.let(::resolveRoot) ?: return@withContext null
                 val target = safRepository.resolve(root, normalized)
-                    ?.takeIf { it.isFile }
                     ?: return@withContext null
                 WorkspaceFileEntry(
                     path = normalized,
                     name = target.name ?: normalized.substringAfterLast('/'),
-                    isDirectory = false,
-                    sizeBytes = target.length(),
+                    isDirectory = target.isDirectory,
+                    sizeBytes = target.length().coerceAtLeast(0L),
                     updatedAt = target.lastModified(),
                 )
             }
 
             WorkspaceType.SANDBOX -> try {
                 val parent = normalized.substringBeforeLast('/', "")
-                listSandboxFiles(id, parent).firstOrNull { it.path == normalized && !it.isDirectory }
+                listSandboxFiles(id, parent).firstOrNull { it.path == normalized }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -938,6 +937,10 @@ class WorkspaceRepository(
             }
         }
     }
+
+    /** Resolve a regular file from either workspace implementation without reading its contents. */
+    suspend fun resolveWorkspaceFile(id: String, path: String): WorkspaceFileEntry? =
+        resolveWorkspaceEntry(id, path)?.takeIf { !it.isDirectory }
 
     /** Return a direct URI when the file is SAF-backed; sandbox files need a temporary export. */
     suspend fun resolveWorkspaceFileUri(id: String, path: String): Uri? = withContext(Dispatchers.IO) {
@@ -1216,6 +1219,15 @@ internal fun sandboxMountTargetIsDescendantOf(targetPath: String, workspaceRelat
 
 private fun pathsOverlap(first: String, second: String): Boolean =
     first == second || first.startsWith("$second/") || second.startsWith("$first/")
+
+internal fun normalizeWorkspaceFileReferencePath(rawPath: String): String? {
+    val normalized = runCatching { normalizeWorkspaceRelativePath(rawPath) }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }
+        ?: return null
+    if (normalized.split('/').any { it.isBlank() }) return null
+    return normalized
+}
 
 private fun normalizeWorkspaceRelativePath(rawPath: String): String {
     val normalized = rawPath.replace('\\', '/').trim().trim('/')

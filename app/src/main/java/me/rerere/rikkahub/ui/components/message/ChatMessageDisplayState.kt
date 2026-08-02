@@ -2,6 +2,7 @@ package me.rerere.rikkahub.ui.components.message
 
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.model.WorkspaceFileReferenceContext
 
 internal class ChatMessageDisplayState(
     val message: UIMessage,
@@ -39,9 +40,13 @@ internal class ChatMessageDisplayState(
 internal fun buildChatMessageDisplayState(
     message: UIMessage,
     leadingDisplaySegments: List<List<UIMessagePart>>,
+    workspaceFileReferenceContext: WorkspaceFileReferenceContext? = null,
 ): ChatMessageDisplayState {
     val displaySegments = leadingDisplaySegments.filter { it.isNotEmpty() } + listOf(message.parts)
-    val renderBlocks = buildMessageRenderBlocksFromSegments(displaySegments)
+    val renderBlocks = buildMessageRenderBlocksFromSegments(
+        segments = displaySegments,
+        workspaceFileReferenceContext = workspaceFileReferenceContext,
+    )
     val displayMessage = if (leadingDisplaySegments.isEmpty()) {
         message
     } else {
@@ -54,13 +59,17 @@ internal fun buildChatMessageDisplayState(
     )
 }
 
-internal fun buildMessageRenderBlocksFromSegments(segments: List<List<UIMessagePart>>): List<MessageRenderBlock> {
+internal fun buildMessageRenderBlocksFromSegments(
+    segments: List<List<UIMessagePart>>,
+    workspaceFileReferenceContext: WorkspaceFileReferenceContext? = null,
+): List<MessageRenderBlock> {
     val blocks = mutableListOf<MessageRenderBlock>()
 
     segments.forEach { segment ->
         buildMessageRenderBlocks(
             leadingProcessParts = emptyList(),
             parts = segment,
+            workspaceFileReferenceContext = workspaceFileReferenceContext,
         ).forEach { block ->
             val lastBlock = blocks.lastOrNull()
             when {
@@ -91,6 +100,13 @@ internal fun buildMessageRenderBlocksFromSegments(segments: List<List<UIMessageP
                 lastBlock is MessageRenderBlock.DocumentGroup && block is MessageRenderBlock.DocumentGroup -> {
                     blocks[blocks.lastIndex] = MessageRenderBlock.DocumentGroup(
                         parts = lastBlock.parts + block.parts,
+                    )
+                }
+
+                lastBlock is MessageRenderBlock.WorkspaceFileReferenceGroup &&
+                    block is MessageRenderBlock.WorkspaceFileReferenceGroup -> {
+                    blocks[blocks.lastIndex] = MessageRenderBlock.WorkspaceFileReferenceGroup(
+                        items = (lastBlock.items + block.items).distinct(),
                     )
                 }
 

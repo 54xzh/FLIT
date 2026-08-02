@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.text.format.Formatter
+import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,6 +46,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
@@ -68,20 +70,22 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.contentOrNull
-import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.R
-import me.rerere.rikkahub.data.ai.tools.WORKSPACE_FILE_REFERENCE_TOOL_NAME
+import me.rerere.rikkahub.data.model.WorkspaceFileReferenceContext
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.repository.WorkspaceFileEntry
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
-import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import org.koin.compose.koinInject
 import java.io.File
 import java.security.MessageDigest
+
+internal data class WorkspaceFileReferenceCandidate(
+    val workspaceId: String,
+    val path: String,
+)
 
 private data class WorkspaceFileReference(
     val entryKey: String,
@@ -109,90 +113,102 @@ internal class WorkspaceFileReferenceEntryTracker(
 internal val LocalWorkspaceFileReferenceEntryTracker =
     staticCompositionLocalOf<WorkspaceFileReferenceEntryTracker?> { null }
 
-internal data class WorkspaceFileReferenceRenderItem(
-    val toolCallId: String,
-    val content: JsonObject,
-)
+internal fun WorkspaceFileReferenceCandidate.workspaceFileReferenceEntryKey(): String =
+    "$workspaceId\u0000$path"
 
-internal fun UIMessagePart.isHiddenWorkspaceFileReferencePart(): Boolean = when (this) {
-    is UIMessagePart.ToolCall -> toolName == WORKSPACE_FILE_REFERENCE_TOOL_NAME
-    is UIMessagePart.ToolApproval -> toolName == WORKSPACE_FILE_REFERENCE_TOOL_NAME
-    is UIMessagePart.ToolResult -> toolName == WORKSPACE_FILE_REFERENCE_TOOL_NAME
-    else -> false
-}
-
-internal fun UIMessagePart.workspaceFileReferenceRenderItem(): WorkspaceFileReferenceRenderItem? {
-    val result = this as? UIMessagePart.ToolResult ?: return null
-    if (result.toolName != WORKSPACE_FILE_REFERENCE_TOOL_NAME) return null
-    val content = result.content as? JsonObject ?: return null
-    return WorkspaceFileReferenceRenderItem(
-        toolCallId = result.toolCallId,
-        content = content,
-    ).takeIf { it.toWorkspaceFileReference() != null }
-}
-
-private fun WorkspaceFileReferenceRenderItem.toWorkspaceFileReference(): WorkspaceFileReference? {
-    if (content["ok"]?.jsonPrimitiveOrNull?.contentOrNull != "true") return null
-    if (content["type"]?.jsonPrimitiveOrNull?.contentOrNull != "workspace_file_reference") return null
-    val workspaceId = content["workspace_id"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
-        ?.takeIf { it.isNotEmpty() }
-        ?: return null
-    val path = content["path"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
-        ?.takeIf { it.isNotEmpty() }
-        ?: return null
-    val name = content["name"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
-        ?.takeIf { it.isNotEmpty() }
+private fun WorkspaceFileReferenceCandidate.toWorkspaceFileReference(
+    entry: WorkspaceFileEntry?,
+): WorkspaceFileReference? {
+    if (entry?.isDirectory == true) return null
+    val name = entry?.name?.trim()?.takeIf { it.isNotEmpty() }
         ?: path.substringAfterLast('/').ifBlank { "workspace_file" }
-    val mime = content["mime"]?.jsonPrimitiveOrNull?.contentOrNull
-        ?.takeIf { it.contains('/') }
+    val mime = MimeTypeMap.getSingleton()
+        .getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase())
         ?: "application/octet-stream"
-    val sizeBytes = content["size_bytes"]?.jsonPrimitiveOrNull?.contentOrNull?.toLongOrNull()
-        ?.coerceAtLeast(0L)
-        ?: 0L
     return WorkspaceFileReference(
-        entryKey = listOf(
-            toolCallId,
-            workspaceId,
-            path,
-            name,
-            mime,
-            sizeBytes.toString(),
-        ).joinToString(separator = "\u0000"),
-        workspaceId = workspaceId,
-        path = path,
+        entryKey = workspaceFileReferenceEntryKey(),
+        workspaceId = workspaceId.trim(),
+        path = path.trim(),
         name = name,
         mime = mime,
-        sizeBytes = sizeBytes,
+        sizeBytes = entry?.sizeBytes?.coerceAtLeast(0L) ?: 0L,
     )
 }
 
-internal fun WorkspaceFileReferenceRenderItem.workspaceFileReferenceEntryKey(): String? =
-    toWorkspaceFileReference()?.entryKey
-
 @Composable
 internal fun WorkspaceFileReferenceCards(
-    items: List<WorkspaceFileReferenceRenderItem>,
-    followedByProcessTimeline: Boolean = false,
+    items: List<WorkspaceFileReferenceCandidate>,
 ) {
-    val references = remember(items) {
-        items.mapNotNull { it.toWorkspaceFileReference() }
+    val repository = koinInject<WorkspaceRepository>()
+    var references by remember(items) { mutableStateOf(emptyList<WorkspaceFileReference>()) }
+    LaunchedEffect(items, repository) {
+        references = withContext(Dispatchers.IO) {
+            items.distinct().mapNotNull { candidate ->
+                val entry = runCatching {
+                    repository.resolveWorkspaceEntry(candidate.workspaceId, candidate.path)
+                }.getOrNull()
+                candidate.toWorkspaceFileReference(entry)
+            }
+        }
     }
     if (references.isEmpty()) return
 
     LazyRow(
-        modifier = Modifier.padding(
-            top = 4.dp,
-            bottom = if (followedByProcessTimeline) 8.dp else 0.dp,
-        ),
+        modifier = Modifier.padding(top = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         itemsIndexed(
             items = references,
-            key = { index, reference -> "$index:${reference.entryKey}" },
+            key = { _, reference -> reference.entryKey },
         ) { _, reference ->
             WorkspaceFileReferenceCard(
                 reference = reference,
             )
+        }
+    }
+}
+
+@Composable
+internal fun rememberWorkspaceFileReferenceClickHandler(
+    workspaceContext: WorkspaceFileReferenceContext?,
+): (String) -> Unit {
+    val context = LocalContext.current
+    val repository = koinInject<WorkspaceRepository>()
+    val scope = rememberCoroutineScope()
+    val settings = LocalSettings.current
+    val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
+    val currentWorkspaceContext = rememberUpdatedState(workspaceContext)
+    val currentHaptics = rememberUpdatedState(haptics)
+
+    return remember(context, repository, scope, haptics) {
+        { path ->
+            val workspaceId = currentWorkspaceContext.value?.workspaceId
+            if (!workspaceId.isNullOrBlank()) {
+                currentHaptics.value.perform(HapticPattern.Pop)
+                scope.launch {
+                    try {
+                        openWorkspaceFileReference(
+                            context = context,
+                            repository = repository,
+                            candidate = WorkspaceFileReferenceCandidate(
+                                workspaceId = workspaceId,
+                                path = path,
+                            ),
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: FileUnavailableException) {
+                        currentHaptics.value.perform(HapticPattern.Error)
+                        showWorkspaceFileToast(context, R.string.workspace_file_reference_unavailable)
+                    } catch (_: ActivityNotFoundException) {
+                        currentHaptics.value.perform(HapticPattern.Error)
+                        showWorkspaceFileToast(context, R.string.workspace_file_reference_open_failed)
+                    } catch (_: Exception) {
+                        currentHaptics.value.perform(HapticPattern.Error)
+                        showWorkspaceFileToast(context, R.string.workspace_file_reference_open_failed)
+                    }
+                }
+            }
         }
     }
 }
@@ -467,6 +483,21 @@ internal fun calculateWorkspaceFileTooltipPosition(
 }
 
 private class FileUnavailableException : Exception()
+
+internal suspend fun openWorkspaceFileReference(
+    context: Context,
+    repository: WorkspaceRepository,
+    candidate: WorkspaceFileReferenceCandidate,
+) {
+    val (reference, uri) = withContext(Dispatchers.IO) {
+        val entry = repository.resolveWorkspaceFile(candidate.workspaceId, candidate.path)
+            ?: throw FileUnavailableException()
+        val reference = candidate.toWorkspaceFileReference(entry)
+            ?: throw FileUnavailableException()
+        reference to resolveWorkspaceFileUri(context, repository, reference)
+    }
+    openWorkspaceFile(context, uri, reference.mime)
+}
 
 private suspend fun resolveWorkspaceFileUri(
     context: Context,

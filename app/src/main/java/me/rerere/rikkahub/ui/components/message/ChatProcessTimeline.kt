@@ -161,9 +161,7 @@ internal fun ChatProcessTimeline(
         intervalMs = streamingContentUpdateIntervalMs,
         key = conversationId,
     )
-    val processPartsForTimeline = remember(displayedProcessParts) {
-        displayedProcessParts.filterNot { it.isHiddenWorkspaceFileReferencePart() }
-    }
+    val processPartsForTimeline = displayedProcessParts
     if (processPartsForTimeline.isEmpty()) return
 
     val localReasoningBodyStates = remember { mutableStateMapOf<String, ReasoningBodyState>() }

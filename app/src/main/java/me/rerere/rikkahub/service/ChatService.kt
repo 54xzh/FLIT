@@ -102,7 +102,6 @@ import me.rerere.rikkahub.data.ai.tools.LocalTools
 import me.rerere.rikkahub.data.ai.tools.SearchAgentProgressStore
 import me.rerere.rikkahub.data.ai.tools.SearchAgentTools
 import me.rerere.rikkahub.data.ai.tools.createSandboxWorkspaceTools
-import me.rerere.rikkahub.data.ai.tools.createWorkspaceFileReferenceTool
 import me.rerere.rikkahub.data.ai.tools.WORKSPACE_COMMON_RULES_PROMPT
 import me.rerere.rikkahub.data.ai.tools.WORKSPACE_COMMON_RULES_VARIABLE
 import me.rerere.rikkahub.data.ai.tools.renderToolSystemPromptTemplate
@@ -138,6 +137,7 @@ import me.rerere.rikkahub.data.model.GroupChatSeat
 import me.rerere.rikkahub.data.model.GroupChatSeatOverrides
 import me.rerere.rikkahub.data.model.GroupChatTemplate
 import me.rerere.rikkahub.data.model.Skill
+import me.rerere.rikkahub.data.model.WorkspaceFileReferenceContext
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.data.model.id
 import me.rerere.rikkahub.data.model.toMessageNode
@@ -2257,6 +2257,26 @@ class ChatService(
                         lorebook.enabled && assistant.enabledLorebookIds.contains(lorebook.id)
                     }
 
+            val overrideWorkspaceId = if (assistant.allowConversationWorkspaceOverride) {
+                conversation.workspaceOverrideId
+            } else {
+                null
+            }
+            var effectiveWorkspaceId = overrideWorkspaceId ?: assistant.workspaceId
+            var boundWorkspace = effectiveWorkspaceId?.let { workspaceRepository.getById(it) }
+            if (boundWorkspace == null && effectiveWorkspaceId != assistant.workspaceId) {
+                effectiveWorkspaceId = assistant.workspaceId
+                boundWorkspace = effectiveWorkspaceId?.let { workspaceRepository.getById(it) }
+            }
+            val hasWorkspaceFiles = assistant.localTools.contains(LocalToolOption.WorkspaceFiles)
+            val workspaceFileReferenceContext = if (hasWorkspaceFiles && boundWorkspace != null) {
+                effectiveWorkspaceId
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let(::WorkspaceFileReferenceContext)
+            } else {
+                null
+            }
+
             // start generating
             generationHandler.generateText(
                 settings = settings,
@@ -2264,6 +2284,7 @@ class ChatService(
                 messages = baseMessages,
                 conversationId = persistentConversationId,
                 assistant = assistant,
+                workspaceFileReferenceContext = workspaceFileReferenceContext,
                 memories = if (assistant.enableMemory && persistentConversationId != null) {
                     val assistantId = assistant.id.toString()
                     val memoryCacheKey = buildMemoryCacheKey(persistentConversationId, assistantId)
@@ -2467,22 +2488,6 @@ class ChatService(
                             )
                         )
                     }
-                    // 会话级工作区覆写：仅当助手允许时生效。覆写仅用于工具装配的内存副本，
-                    // 不写回设置；群聊不走此分支（群聊座位各自用各自助手的工作区）。
-                    // 覆写指向的工作区若已删除/丢失，回退到助手绑定，避免工具被静默丢弃。
-                    val overrideWorkspaceId = if (assistant.allowConversationWorkspaceOverride) {
-                        conversation.workspaceOverrideId
-                    } else {
-                        null
-                    }
-                    var effectiveWorkspaceId = overrideWorkspaceId ?: assistant.workspaceId
-                    var boundWorkspace = effectiveWorkspaceId?.let { workspaceRepository.getById(it) }
-                    if (boundWorkspace == null && effectiveWorkspaceId != assistant.workspaceId) {
-                        // 覆写目标失效：回退到助手绑定的工作区。
-                        effectiveWorkspaceId = assistant.workspaceId
-                        boundWorkspace = effectiveWorkspaceId?.let { workspaceRepository.getById(it) }
-                    }
-                    val hasWorkspaceFiles = assistant.localTools.contains(LocalToolOption.WorkspaceFiles)
                     if (hasWorkspaceFiles) {
                         // 用覆写后的工作区 id 构造内存副本，使工作区工具与审批都走覆写目标。
                         val workspaceAssistant = if (effectiveWorkspaceId != assistant.workspaceId) {
@@ -3198,6 +3203,9 @@ class ChatService(
                 messages = promptMessages,
                 conversationId = conversationId,
                 assistant = seatAssistant,
+                workspaceFileReferenceContext = seatAssistant.workspaceId
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let(::WorkspaceFileReferenceContext),
                 memories = seatMemories,
                 enableMemoryTools = false,
                 sessionMemories = if (seatAssistant.enableSessionMemory) {
@@ -4165,10 +4173,6 @@ class ChatService(
             createWorkspaceMkdirTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
             createWorkspaceDeleteTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
             createWorkspaceRenameTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
-            createWorkspaceFileReferenceTool(
-                workspaceId = assistant.workspaceId ?: error("Assistant has no workspace bound"),
-                workspaceRepository = workspaceRepository,
-            ),
         )
     }
 

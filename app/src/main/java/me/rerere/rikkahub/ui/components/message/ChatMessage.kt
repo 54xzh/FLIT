@@ -106,7 +106,9 @@ import me.rerere.rikkahub.data.model.AssistantAffectScope
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.data.model.SessionMemory
+import me.rerere.rikkahub.data.model.WorkspaceFileReferenceContext
 import me.rerere.rikkahub.data.model.replaceRegexes
+import me.rerere.rikkahub.data.model.workspaceFileReferenceContextOrNull
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.components.richtext.ZoomableAsyncImage
 import me.rerere.rikkahub.ui.components.richtext.buildMarkdownPreviewHtml
@@ -244,7 +246,7 @@ private fun MarkdownFontDebugInfo(role: MessageRole) {
 }
 
 @Composable
-fun ChatMessage(
+internal fun ChatMessage(
     node: MessageNode,
     previousRole: MessageRole?,
     isLast: Boolean,
@@ -255,6 +257,7 @@ fun ChatMessage(
     reasoningBodyStates: SnapshotStateMap<String, ReasoningBodyState>? = null,
     onOpenToolPreview: (toolCallId: String, toolName: String, hasResult: Boolean) -> Unit = { _, _, _ -> },
     conversationId: Uuid? = null,
+    workspaceFileReferenceContext: WorkspaceFileReferenceContext? = null,
     onCitationClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     loading: Boolean = false,
@@ -289,10 +292,15 @@ fun ChatMessage(
         intervalMs = streamingContentUpdateIntervalMs,
         key = rawMessage.id,
     )
-    val displayState = remember(displayInput.message, displayInput.leadingProcessParts) {
+    val displayState = remember(
+        displayInput.message,
+        displayInput.leadingProcessParts,
+        workspaceFileReferenceContext,
+    ) {
         buildChatMessageDisplayState(
             message = displayInput.message,
             leadingDisplaySegments = displayInput.leadingProcessParts,
+            workspaceFileReferenceContext = workspaceFileReferenceContext,
         )
     }
     val message = displayState.message
@@ -376,6 +384,7 @@ fun ChatMessage(
                 onOpenToolPreview = onOpenToolPreview,
                 renderBlocksOverride = displayState.renderBlocks,
                 conversationId = conversationId,
+                workspaceFileReferenceContext = workspaceFileReferenceContext,
                 onCitationClick = onCitationClick,
                 loading = loading,
                 model = model,
@@ -521,6 +530,7 @@ private fun MessagePartsBlock(
     onOpenToolPreview: (toolCallId: String, toolName: String, hasResult: Boolean) -> Unit = { _, _, _ -> },
     renderBlocksOverride: List<MessageRenderBlock>? = null,
     conversationId: Uuid?,
+    workspaceFileReferenceContext: WorkspaceFileReferenceContext?,
     onCitationClick: (String) -> Unit,
     loading: Boolean,
     usage: me.rerere.ai.core.TokenUsage? = null,
@@ -572,12 +582,9 @@ private fun MessagePartsBlock(
             }
 
             is MessageRenderBlock.WorkspaceFileReferenceGroup -> {
-                if (role == MessageRole.ASSISTANT) {
+                if (role == MessageRole.ASSISTANT && !loading) {
                     WorkspaceFileReferenceCards(
                         items = block.items,
-                        followedByProcessTimeline = block.needsWorkspaceFileTimelineSpacing(
-                            nextBlock = renderBlocks.getOrNull(blockIndex + 1),
-                        ),
                     )
                 }
             }
@@ -591,6 +598,7 @@ private fun MessagePartsBlock(
                     lazyBlockHeightsCacheKey = messageId?.let { "$it:$blockIndex" },
                     part = block.part,
                     textIndex = block.textIndex,
+                    workspaceFileReferenceContext = workspaceFileReferenceContext,
                     onCitationClick = handleClickCitation,
                     loading = loading,
                     onQuoteFollowUp = onQuoteFollowUp,
@@ -739,10 +747,16 @@ private fun MessageTextPart(
     lazyBlockHeightsCacheKey: String?,
     part: UIMessagePart.Text,
     textIndex: Int,
+    workspaceFileReferenceContext: WorkspaceFileReferenceContext?,
     onCitationClick: (String) -> Unit,
     loading: Boolean,
     onQuoteFollowUp: (String) -> Unit = {},
 ) {
+    val textWorkspaceFileReferenceContext =
+        part.workspaceFileReferenceContextOrNull() ?: workspaceFileReferenceContext
+    val onClickWorkspaceFile = rememberWorkspaceFileReferenceClickHandler(
+        workspaceContext = textWorkspaceFileReferenceContext,
+    )
     // 历史长消息滚回屏幕也走惰性分块渲染，避免整篇 Markdown 树在一帧内组合造成滑动顿挫；
     // 共享分块实测高度，滚出再滚回时占位高度精确，不会引起滚动跳动。
     // 完成态（非流式）渲染过的块不退回占位，保证选择态稳定
@@ -767,6 +781,7 @@ private fun MessageTextPart(
                     MarkdownBlock(
                         content = displayText,
                         onClickCitation = onCitationClick,
+                        onClickWorkspaceFile = onClickWorkspaceFile,
                         lazyRenderOffscreen = true,
                         lazyBlockHeightsCacheKey = lazyBlockHeightsCacheKey,
                     )
@@ -774,6 +789,7 @@ private fun MessageTextPart(
                     SelectableMessageMarkdown(
                         content = displayText,
                         onClickCitation = onCitationClick,
+                        onClickWorkspaceFile = onClickWorkspaceFile,
                         lazyBlockHeightsCacheKey = lazyBlockHeightsCacheKey,
                     )
                 }
@@ -797,6 +813,7 @@ private fun MessageTextPart(
             MarkdownBlock(
                 content = displayText,
                 onClickCitation = onCitationClick,
+                onClickWorkspaceFile = onClickWorkspaceFile,
                 modifier = Modifier.limitedTextGrowthAnimation(contentLength = displayText.length),
                 lazyRenderOffscreen = true,
                 lazyBlockHeightsCacheKey = lazyBlockHeightsCacheKey,
@@ -807,6 +824,7 @@ private fun MessageTextPart(
             SelectableMessageMarkdown(
                 content = displayText,
                 onClickCitation = onCitationClick,
+                onClickWorkspaceFile = onClickWorkspaceFile,
                 lazyBlockHeightsCacheKey = lazyBlockHeightsCacheKey,
                 modifier = Modifier
                     .limitedTextGrowthAnimation(contentLength = displayText.length),
@@ -824,6 +842,7 @@ private fun MessageTextPart(
 private fun SelectableMessageMarkdown(
     content: String,
     onClickCitation: (String) -> Unit,
+    onClickWorkspaceFile: (String) -> Unit,
     lazyBlockHeightsCacheKey: String?,
     modifier: Modifier = Modifier,
     quoteFollowUpLabel: String? = null,
@@ -876,6 +895,7 @@ private fun SelectableMessageMarkdown(
         MarkdownBlock(
             content = content,
             onClickCitation = onClickCitation,
+            onClickWorkspaceFile = onClickWorkspaceFile,
             lazyRenderOffscreen = !renderAllForSelection,
             lazyBlockHeightsCacheKey = lazyBlockHeightsCacheKey,
             lazyKeepRenderedBlocks = true,

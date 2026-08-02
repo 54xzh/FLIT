@@ -1,6 +1,9 @@
 package me.rerere.rikkahub.ui.components.message
 
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.model.WorkspaceFileReferenceContext
+import me.rerere.rikkahub.data.model.workspaceFileReferenceContextOrNull
+import me.rerere.rikkahub.ui.components.richtext.extractWorkspaceFileReferencePaths
 
 internal sealed interface MessageRenderBlock {
     data class ProcessGroup(
@@ -8,7 +11,7 @@ internal sealed interface MessageRenderBlock {
     ) : MessageRenderBlock
 
     data class WorkspaceFileReferenceGroup(
-        val items: List<WorkspaceFileReferenceRenderItem>,
+        val items: List<WorkspaceFileReferenceCandidate>,
     ) : MessageRenderBlock
 
     data class TextBlock(
@@ -37,22 +40,16 @@ internal sealed interface MessageRenderBlock {
     ) : MessageRenderBlock
 }
 
-internal fun MessageRenderBlock.needsWorkspaceFileTimelineSpacing(
-    nextBlock: MessageRenderBlock?,
-): Boolean {
-    return this is MessageRenderBlock.WorkspaceFileReferenceGroup &&
-        nextBlock is MessageRenderBlock.ProcessGroup
-}
-
 internal fun buildMessageRenderBlocks(
     leadingProcessParts: List<UIMessagePart>,
     parts: List<UIMessagePart>,
+    workspaceFileReferenceContext: WorkspaceFileReferenceContext? = null,
 ): List<MessageRenderBlock> {
     val orderedParts = parts.normalizeMessagePartsForDisplay()
     val blocks = mutableListOf<MessageRenderBlock>()
     val pendingProcessParts = mutableListOf<UIMessagePart>()
     val pendingMediaParts = mutableListOf<UIMessagePart>()
-    val pendingWorkspaceFileReferences = mutableListOf<WorkspaceFileReferenceRenderItem>()
+    val workspaceFileReferences = linkedSetOf<WorkspaceFileReferenceCandidate>()
     var pendingMediaKind: String? = null
     var textIndex = 0
 
@@ -85,14 +82,6 @@ internal fun buildMessageRenderBlocks(
         pendingMediaParts.clear()
     }
 
-    fun flushWorkspaceFileReferences() {
-        if (pendingWorkspaceFileReferences.isEmpty()) return
-        blocks += MessageRenderBlock.WorkspaceFileReferenceGroup(
-            items = pendingWorkspaceFileReferences.toList(),
-        )
-        pendingWorkspaceFileReferences.clear()
-    }
-
     fun appendMediaPart(kind: String, part: UIMessagePart) {
         if (pendingMediaKind != null && pendingMediaKind != kind) {
             flushMediaParts()
@@ -106,12 +95,6 @@ internal fun buildMessageRenderBlocks(
             is UIMessagePart.ToolCall,
             is UIMessagePart.ToolApproval,
                 -> {
-                    // File-send lifecycle entries are hidden from the timeline, so they should
-                    // not split a visible row of consecutively sent files.
-                    if (part.isHiddenWorkspaceFileReferencePart() && pendingWorkspaceFileReferences.isNotEmpty()) {
-                        return@forEach
-                    }
-                    flushWorkspaceFileReferences()
                     flushMediaParts()
                     pendingProcessParts += part
                 }
@@ -120,28 +103,27 @@ internal fun buildMessageRenderBlocks(
             is UIMessagePart.Thinking,
             is UIMessagePart.AskUser,
                 -> {
-                    flushWorkspaceFileReferences()
                     flushMediaParts()
                     pendingProcessParts += part
                 }
 
             is UIMessagePart.ToolResult -> {
-                val fileReferenceItem = part.workspaceFileReferenceRenderItem()
-                if (fileReferenceItem == null) {
-                    flushWorkspaceFileReferences()
-                    flushMediaParts()
-                    pendingProcessParts += part
-                } else {
-                    flushMediaParts()
-                    flushProcessParts()
-                    pendingWorkspaceFileReferences += fileReferenceItem
-                }
+                flushMediaParts()
+                pendingProcessParts += part
             }
 
             is UIMessagePart.Text -> {
-                flushWorkspaceFileReferences()
                 flushMediaParts()
                 flushProcessParts()
+                val context = part.workspaceFileReferenceContextOrNull() ?: workspaceFileReferenceContext
+                if (context != null) {
+                    extractWorkspaceFileReferencePaths(part.text).forEach { path ->
+                        workspaceFileReferences += WorkspaceFileReferenceCandidate(
+                            workspaceId = context.workspaceId,
+                            path = path,
+                        )
+                    }
+                }
                 blocks += MessageRenderBlock.TextBlock(
                     part = part,
                     textIndex = textIndex++,
@@ -149,31 +131,26 @@ internal fun buildMessageRenderBlocks(
             }
 
             is UIMessagePart.Image -> {
-                flushWorkspaceFileReferences()
                 flushProcessParts()
                 appendMediaPart(kind = "image", part = part)
             }
 
             is UIMessagePart.Video -> {
-                flushWorkspaceFileReferences()
                 flushProcessParts()
                 appendMediaPart(kind = "video", part = part)
             }
 
             is UIMessagePart.Audio -> {
-                flushWorkspaceFileReferences()
                 flushProcessParts()
                 appendMediaPart(kind = "audio", part = part)
             }
 
             is UIMessagePart.Document -> {
-                flushWorkspaceFileReferences()
                 flushProcessParts()
                 appendMediaPart(kind = "document", part = part)
             }
 
             is UIMessagePart.QuotedFollowUp -> {
-                flushWorkspaceFileReferences()
                 flushProcessParts()
                 flushMediaParts()
                 blocks += MessageRenderBlock.QuotedFollowUpBlock(part = part)
@@ -184,8 +161,12 @@ internal fun buildMessageRenderBlocks(
     }
 
     flushMediaParts()
-    flushWorkspaceFileReferences()
     flushProcessParts()
+    if (workspaceFileReferences.isNotEmpty()) {
+        blocks += MessageRenderBlock.WorkspaceFileReferenceGroup(
+            items = workspaceFileReferences.toList(),
+        )
+    }
 
     return blocks
 }
