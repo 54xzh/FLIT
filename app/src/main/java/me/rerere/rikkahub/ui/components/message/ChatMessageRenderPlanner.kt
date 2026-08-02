@@ -12,6 +12,7 @@ internal sealed interface MessageRenderBlock {
 
     data class WorkspaceFileReferenceGroup(
         val items: List<WorkspaceFileReferenceCandidate>,
+        val entryScope: String? = null,
     ) : MessageRenderBlock
 
     data class TextBlock(
@@ -44,6 +45,7 @@ internal fun buildMessageRenderBlocks(
     leadingProcessParts: List<UIMessagePart>,
     parts: List<UIMessagePart>,
     workspaceFileReferenceContext: WorkspaceFileReferenceContext? = null,
+    workspaceFileReferenceEntryScope: String? = null,
 ): List<MessageRenderBlock> {
     val orderedParts = parts.normalizeMessagePartsForDisplay()
     val blocks = mutableListOf<MessageRenderBlock>()
@@ -165,6 +167,7 @@ internal fun buildMessageRenderBlocks(
     if (workspaceFileReferences.isNotEmpty()) {
         blocks += MessageRenderBlock.WorkspaceFileReferenceGroup(
             items = workspaceFileReferences.toList(),
+            entryScope = workspaceFileReferenceEntryScope,
         )
     }
 

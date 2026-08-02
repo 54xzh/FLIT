@@ -267,7 +267,9 @@ internal fun initialWorkspaceFileReferenceEntryKeys(
                                 WorkspaceFileReferenceCandidate(
                                     workspaceId = workspaceId,
                                     path = path,
-                                ).workspaceFileReferenceEntryKey()
+                                ).workspaceFileReferenceEntryKey(
+                                    entryScope = node.currentMessage.id.toString(),
+                                )
                             }
                     }
                 }

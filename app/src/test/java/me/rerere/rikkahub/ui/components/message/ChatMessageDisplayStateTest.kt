@@ -4,12 +4,29 @@ import kotlinx.serialization.json.JsonPrimitive
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.model.WorkspaceFileReferenceContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatMessageDisplayStateTest {
+    @Test
+    fun `scopes workspace file cards by assistant message`() {
+        val message = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(UIMessagePart.Text("[报告](/workspace/output/report.pdf)")),
+        )
+
+        val group = buildChatMessageDisplayState(
+            message = message,
+            leadingDisplaySegments = emptyList(),
+            workspaceFileReferenceContext = WorkspaceFileReferenceContext("workspace-1"),
+        ).renderBlocks.filterIsInstance<MessageRenderBlock.WorkspaceFileReferenceGroup>().single()
+
+        assertEquals(message.id.toString(), group.entryScope)
+    }
+
     @Test
     fun `build display state merges prefixed process parts into visible copy text`() {
         val reasoning = UIMessagePart.Reasoning("先思考")

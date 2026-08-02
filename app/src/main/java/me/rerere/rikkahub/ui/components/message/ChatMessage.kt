@@ -585,6 +585,7 @@ private fun MessagePartsBlock(
                 if (role == MessageRole.ASSISTANT && !loading) {
                     WorkspaceFileReferenceCards(
                         items = block.items,
+                        entryScope = block.entryScope,
                     )
                 }
             }

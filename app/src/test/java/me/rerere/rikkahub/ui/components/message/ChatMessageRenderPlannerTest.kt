@@ -27,6 +27,7 @@ class ChatMessageRenderPlannerTest {
             leadingProcessParts = emptyList(),
             parts = listOf(reasoning, text, trailingTool),
             workspaceFileReferenceContext = WorkspaceFileReferenceContext("workspace-1"),
+            workspaceFileReferenceEntryScope = "message-1",
         )
 
         assertEquals(MessageRenderBlock.ProcessGroup(listOf(reasoning)), blocks[0])
@@ -38,6 +39,7 @@ class ChatMessageRenderPlannerTest {
                     WorkspaceFileReferenceCandidate("workspace-1", "output/report.pdf"),
                     WorkspaceFileReferenceCandidate("workspace-1", "output/data.csv"),
                 ),
+                entryScope = "message-1",
             ),
             blocks[3],
         )

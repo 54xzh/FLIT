@@ -17,21 +17,40 @@ class WorkspaceFileReferenceEntryTrackerTest {
     }
 
     @Test
-    fun `same workspace path uses one entry key`() {
+    fun `same message path uses one entry key`() {
         val first = WorkspaceFileReferenceCandidate("workspace-1", "output/report.pdf")
         val second = WorkspaceFileReferenceCandidate("workspace-1", "output/report.pdf")
 
         assertTrue(first == second)
-        assertTrue(first.workspaceFileReferenceEntryKey() == second.workspaceFileReferenceEntryKey())
+        assertTrue(
+            first.workspaceFileReferenceEntryKey("message-1") ==
+                second.workspaceFileReferenceEntryKey("message-1")
+        )
+    }
+
+    @Test
+    fun `same path in different messages animates independently`() {
+        val candidate = WorkspaceFileReferenceCandidate("workspace-1", "output/report.pdf")
+        val firstKey = candidate.workspaceFileReferenceEntryKey("message-1")
+        val secondKey = candidate.workspaceFileReferenceEntryKey("message-2")
+        val tracker = WorkspaceFileReferenceEntryTracker(setOf(firstKey))
+
+        assertNotEquals(firstKey, secondKey)
+        assertFalse(tracker.hasEntered(secondKey))
     }
 
     @Test
     fun `different workspace paths animate independently`() {
         val first = WorkspaceFileReferenceCandidate("workspace-1", "output/report.pdf")
         val second = WorkspaceFileReferenceCandidate("workspace-1", "output/data.csv")
-        val tracker = WorkspaceFileReferenceEntryTracker(setOf(first.workspaceFileReferenceEntryKey()))
+        val tracker = WorkspaceFileReferenceEntryTracker(
+            setOf(first.workspaceFileReferenceEntryKey("message-1"))
+        )
 
-        assertNotEquals(first.workspaceFileReferenceEntryKey(), second.workspaceFileReferenceEntryKey())
-        assertFalse(tracker.hasEntered(second.workspaceFileReferenceEntryKey()))
+        assertNotEquals(
+            first.workspaceFileReferenceEntryKey("message-1"),
+            second.workspaceFileReferenceEntryKey("message-1"),
+        )
+        assertFalse(tracker.hasEntered(second.workspaceFileReferenceEntryKey("message-1")))
     }
 }

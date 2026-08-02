@@ -31,7 +31,7 @@ class WorkspaceFileReferenceHistoryTest {
         val expectedKey = WorkspaceFileReferenceCandidate(
             workspaceId = "workspace-original",
             path = "output/report.pdf",
-        ).workspaceFileReferenceEntryKey()
+        ).workspaceFileReferenceEntryKey(message.id.toString())
 
         assertTrue(
             initialWorkspaceFileReferenceEntryKeys(
@@ -59,7 +59,7 @@ class WorkspaceFileReferenceHistoryTest {
         val expectedKey = WorkspaceFileReferenceCandidate(
             workspaceId = "workspace-current",
             path = "output/report.pdf",
-        ).workspaceFileReferenceEntryKey()
+        ).workspaceFileReferenceEntryKey(nodes.single().currentMessage.id.toString())
 
         assertEquals(
             setOf(expectedKey),

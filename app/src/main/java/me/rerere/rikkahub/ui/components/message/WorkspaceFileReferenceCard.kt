@@ -113,11 +113,20 @@ internal class WorkspaceFileReferenceEntryTracker(
 internal val LocalWorkspaceFileReferenceEntryTracker =
     staticCompositionLocalOf<WorkspaceFileReferenceEntryTracker?> { null }
 
-internal fun WorkspaceFileReferenceCandidate.workspaceFileReferenceEntryKey(): String =
-    "$workspaceId\u0000$path"
+internal fun WorkspaceFileReferenceCandidate.workspaceFileReferenceEntryKey(
+    entryScope: String? = null,
+): String {
+    val scope = entryScope?.takeIf { it.isNotBlank() }
+    return if (scope == null) {
+        "$workspaceId\u0000$path"
+    } else {
+        "$scope\u0000$workspaceId\u0000$path"
+    }
+}
 
 private fun WorkspaceFileReferenceCandidate.toWorkspaceFileReference(
     entry: WorkspaceFileEntry?,
+    entryScope: String? = null,
 ): WorkspaceFileReference? {
     if (entry?.isDirectory == true) return null
     val name = entry?.name?.trim()?.takeIf { it.isNotEmpty() }
@@ -126,7 +135,7 @@ private fun WorkspaceFileReferenceCandidate.toWorkspaceFileReference(
         .getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase())
         ?: "application/octet-stream"
     return WorkspaceFileReference(
-        entryKey = workspaceFileReferenceEntryKey(),
+        entryKey = workspaceFileReferenceEntryKey(entryScope),
         workspaceId = workspaceId.trim(),
         path = path.trim(),
         name = name,
@@ -138,16 +147,17 @@ private fun WorkspaceFileReferenceCandidate.toWorkspaceFileReference(
 @Composable
 internal fun WorkspaceFileReferenceCards(
     items: List<WorkspaceFileReferenceCandidate>,
+    entryScope: String? = null,
 ) {
     val repository = koinInject<WorkspaceRepository>()
-    var references by remember(items) { mutableStateOf(emptyList<WorkspaceFileReference>()) }
-    LaunchedEffect(items, repository) {
+    var references by remember(items, entryScope) { mutableStateOf(emptyList<WorkspaceFileReference>()) }
+    LaunchedEffect(items, entryScope, repository) {
         references = withContext(Dispatchers.IO) {
             items.distinct().mapNotNull { candidate ->
                 val entry = runCatching {
                     repository.resolveWorkspaceEntry(candidate.workspaceId, candidate.path)
                 }.getOrNull()
-                candidate.toWorkspaceFileReference(entry)
+                candidate.toWorkspaceFileReference(entry, entryScope)
             }
         }
     }

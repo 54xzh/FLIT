@@ -46,6 +46,7 @@ internal fun buildChatMessageDisplayState(
     val renderBlocks = buildMessageRenderBlocksFromSegments(
         segments = displaySegments,
         workspaceFileReferenceContext = workspaceFileReferenceContext,
+        workspaceFileReferenceEntryScope = message.id.toString(),
     )
     val displayMessage = if (leadingDisplaySegments.isEmpty()) {
         message
@@ -62,6 +63,7 @@ internal fun buildChatMessageDisplayState(
 internal fun buildMessageRenderBlocksFromSegments(
     segments: List<List<UIMessagePart>>,
     workspaceFileReferenceContext: WorkspaceFileReferenceContext? = null,
+    workspaceFileReferenceEntryScope: String? = null,
 ): List<MessageRenderBlock> {
     val blocks = mutableListOf<MessageRenderBlock>()
 
@@ -70,6 +72,7 @@ internal fun buildMessageRenderBlocksFromSegments(
             leadingProcessParts = emptyList(),
             parts = segment,
             workspaceFileReferenceContext = workspaceFileReferenceContext,
+            workspaceFileReferenceEntryScope = workspaceFileReferenceEntryScope,
         ).forEach { block ->
             val lastBlock = blocks.lastOrNull()
             when {
@@ -107,6 +110,7 @@ internal fun buildMessageRenderBlocksFromSegments(
                     block is MessageRenderBlock.WorkspaceFileReferenceGroup -> {
                     blocks[blocks.lastIndex] = MessageRenderBlock.WorkspaceFileReferenceGroup(
                         items = (lastBlock.items + block.items).distinct(),
+                        entryScope = lastBlock.entryScope ?: block.entryScope,
                     )
                 }
 
