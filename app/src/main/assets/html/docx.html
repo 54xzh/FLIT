@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DOCX Preview</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            margin: 0;
+            padding: 12px;
+            background: {{BACKGROUND_COLOR}};
+            color: {{ON_BACKGROUND_COLOR}};
+        }
+
+        /* docx-preview 渲染出的文档容器 */
+        #container > .docx-wrapper {
+            background: transparent;
+            padding: 0;
+        }
+
+        /* 渲染失败时显示的错误提示 */
+        #error {
+            color: {{ERROR_COLOR}};
+            padding: 16px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        /* 主题色由 Android 端替换 */
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div id="error" style="display:none"></div>
+
+    <script type="module">
+        import { renderAsync } from 'https://esm.sh/docx-preview@0.4.0';
+
+        // 把 base64 字符串解码成 Uint8Array（二进制安全，不依赖额外库）
+        function base64ToUint8Array(b64) {
+            const binary = atob(b64);
+            const len = binary.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+        }
+
+        async function renderDocx() {
+            const b64 = `{{DOCX_BASE64}}`;
+            if (!b64) {
+                showError('No document data');
+                return;
+            }
+            try {
+                const data = base64ToUint8Array(b64);
+                await renderAsync(
+                    data,
+                    document.getElementById('container'),
+                    null,
+                    {
+                        inWrapper: true,
+                        breakPages: true,
+                        ignoreLastRenderedPageBreak: false,
+                        useBase64URL: true, // 图片/字体内联为 base64，避免 loadDataWithBaseURL 下 blob URL 失效
+                        ignoreFonts: false,
+                        renderHeaders: true,
+                        renderFooters: true,
+                        renderFootnotes: true,
+                        renderEndnotes: true,
+                    }
+                );
+            } catch (error) {
+                console.error('docx render error:', error);
+                showError('Failed to render document: ' + (error && error.message ? error.message : error));
+            }
+        }
+
+        function showError(message) {
+            const err = document.getElementById('error');
+            if (err) {
+                err.textContent = message;
+                err.style.display = 'block';
+            }
+        }
+
+        renderDocx();
+    </script>
+    <script nomodule>
+        alert('您的系统WebView不支持 ES Modules，请升级WebView或者系统!');
+    </script>
+</body>
+</html>

@@ -62,6 +62,9 @@ import me.rerere.rikkahub.data.repository.WorkspaceFileEntry
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.ui.components.richtext.HighlightCodeBlock
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
+import me.rerere.rikkahub.ui.components.richtext.buildDocxPreviewHtml
+import me.rerere.rikkahub.ui.components.webview.WebView
+import me.rerere.rikkahub.ui.components.webview.rememberWebViewState
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.HapticPattern
@@ -73,6 +76,8 @@ import me.rerere.rikkahub.utils.WorkspaceFileClassifier
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import java.io.File
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 /**
  * 工作区文件查看器的状态：记录当前要查看的文件，以及工作区 id（用于读文本与安装技能）。
@@ -158,6 +163,13 @@ fun WorkspaceFileViewerSheet(
         }
         WorkspaceFileClassifier.Category.SKILL_PACKAGE -> {
             SkillInstallDialog(
+                target = target,
+                resolveFileUri = resolveFileUri,
+                onDismiss = state::dismiss,
+            )
+        }
+        WorkspaceFileClassifier.Category.DOCX -> {
+            DocxViewerSheet(
                 target = target,
                 resolveFileUri = resolveFileUri,
                 onDismiss = state::dismiss,
@@ -267,6 +279,124 @@ private fun TextFileViewerSheet(
                             truncated = s.truncated,
                             encodingSuspect = s.encodingSuspect,
                             classification = classification,
+                        )
+                    }
+                }
+            }
+
+            // 底部三按钮
+            FileViewerActions(
+                target = target,
+                resolveFileUri = resolveFileUri,
+            )
+        }
+    }
+}
+
+// --------------------------------------------------------------------------------
+// DOCX 查看器
+// --------------------------------------------------------------------------------
+
+private sealed interface DocxLoadState {
+    data object Loading : DocxLoadState
+    data object Error : DocxLoadState
+    data class Success(val html: String) : DocxLoadState
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalEncodingApi::class)
+@Composable
+private fun DocxViewerSheet(
+    target: ViewerTarget,
+    resolveFileUri: suspend (ViewerTarget) -> android.net.Uri?,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val repository = koinInject<WorkspaceRepository>()
+    val colorScheme = MaterialTheme.colorScheme
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    var loadState by remember(target) {
+        mutableStateOf<DocxLoadState>(DocxLoadState.Loading)
+    }
+
+    LaunchedEffect(target) {
+        loadState = DocxLoadState.Loading
+        loadState = runCatching {
+            val bytes = withContext(Dispatchers.IO) {
+                when (target) {
+                    is ViewerTarget.WorkspaceEntry -> {
+                        if (target.entry.isDirectory) null
+                        else repository.readWorkspaceFileBytes(target.workspaceId, target.entry.path, target.area)
+                    }
+                    is ViewerTarget.Reference -> {
+                        repository.readWorkspaceFileBytes(target.workspaceId, target.path)
+                    }
+                }
+            }
+            if (bytes == null) return@runCatching DocxLoadState.Error
+            val html = buildDocxPreviewHtml(
+                context = context,
+                docxBase64 = Base64.encode(bytes),
+                colorScheme = colorScheme,
+            )
+            DocxLoadState.Success(html)
+        }.getOrElse { DocxLoadState.Error }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 640.dp)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // 标题行：文件名
+            Text(
+                text = target.fileName,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+
+            // 内容区：WebView 渲染 docx。WebView 无可靠固有高度，需给最小高度避免被量成 0；
+            // weight(fill=false) 让内容多时封顶滚动、少时保持最小高度。
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 360.dp)
+                    .weight(1f, fill = false),
+            ) {
+                when (val s = loadState) {
+                    DocxLoadState.Loading -> {
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        }
+                    }
+                    DocxLoadState.Error -> {
+                        Text(
+                            text = stringResource(R.string.workspace_viewer_load_failed),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    is DocxLoadState.Success -> {
+                        val webState = rememberWebViewState(
+                            data = s.html,
+                            baseUrl = "about:blank",
+                            mimeType = "text/html",
+                            encoding = "utf-8",
+                        )
+                        WebView(
+                            state = webState,
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }

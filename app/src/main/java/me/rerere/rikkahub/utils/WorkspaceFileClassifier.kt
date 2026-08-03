@@ -20,6 +20,9 @@ object WorkspaceFileClassifier {
         /** 技能包（zip 压缩格式），点击后询问安装。 */
         SKILL_PACKAGE,
 
+        /** DOCX 文档，用 docx-preview 在 WebView 内保留排版预览。 */
+        DOCX,
+
         /** 其他类型，保留原有的"用其他应用打开"行为。 */
         OTHER,
     }
@@ -183,6 +186,8 @@ object WorkspaceFileClassifier {
 
         val extension = name.substringAfterLast('.', "").lowercase()
         if (extension == SKILL_PACKAGE_EXTENSION) return Classification(Category.SKILL_PACKAGE)
+
+        if (extension == "docx") return Classification(Category.DOCX)
 
         if (name.lowercase() in SPECIAL_TEXT_FILE_NAMES) return Classification(Category.TEXT)
 

@@ -53,6 +53,7 @@ import me.rerere.rikkahub.workspace.WorkspaceTransferProgress
 import me.rerere.rikkahub.workspace.WorkspaceTransferStage
 import me.rerere.rikkahub.workspace.estimateWorkspaceImportBytes
 import me.rerere.rikkahub.service.ChatService
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -1088,6 +1089,64 @@ class WorkspaceRepository(
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             ReadTextResult.Unavailable
+        } finally {
+            runCatching { input.close() }
+            tempFile?.let { runCatching { it.delete() } }
+        }
+    }
+
+    /**
+     * 读取工作区文件的原始字节，用于二进制文件（如 docx）的应用内预览。
+     *
+     * 与 [readWorkspaceFileText] 不同：不做文本/二进制嗅探，原样返回文件字节（最多 [maxBytes]）。
+     * 文件不可用、读取失败、或超过 [maxBytes] 上限（避免大文件整文件入内存导致 OOM）时返回 null，
+     * 调用方应回退到"用其他应用打开"。
+     */
+    suspend fun readWorkspaceFileBytes(
+        id: String,
+        path: String,
+        area: SandboxStorageArea = SandboxStorageArea.FILES,
+        maxBytes: Int = 20 * 1024 * 1024, // 20MB：docx 预览的合理上限，超出视为不适合应用内渲染
+    ): ByteArray? = withContext(Dispatchers.IO) {
+        val workspace = getById(id) ?: return@withContext null
+        val normalized = runCatching { normalizeWorkspaceRelativePath(path) }.getOrNull()
+            ?.takeIf { it.isNotBlank() } ?: return@withContext null
+
+        var tempFile: File? = null
+        val input: InputStream? = when (workspace.type) {
+            WorkspaceType.LIGHTWEIGHT -> {
+                val root = workspace.treeUri?.let(::resolveRoot)
+                root?.let { safRepository.resolve(it, normalized)?.takeIf { it.isFile }?.uri }
+                    ?.let { context.contentResolver.openInputStream(it) }
+            }
+            WorkspaceType.SANDBOX -> {
+                val tempDir = File(context.cacheDir, "workspace_readbytes/${id}").apply { mkdirs() }
+                runCatching {
+                    val temp = File.createTempFile("read_", ".tmp", tempDir)
+                    temp.outputStream().use { out -> exportSandboxFile(id, normalized, out, area) }
+                    tempFile = temp
+                    temp.inputStream()
+                }.getOrNull()
+            }
+        }
+
+        if (input == null) return@withContext null
+        try {
+            // 限量读取：读到上限后再多读 1 字节判断是否超限，超限返回 null。
+            val buffer = ByteArrayOutputStream()
+            val chunk = ByteArray(8 * 1024)
+            var total = 0
+            while (total <= maxBytes) {
+                val read = input.read(chunk, 0, minOf(chunk.size, maxBytes + 1 - total))
+                if (read <= 0) break
+                buffer.write(chunk, 0, read)
+                total += read
+            }
+            if (total > maxBytes) return@withContext null
+            buffer.toByteArray()
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            null
         } finally {
             runCatching { input.close() }
             tempFile?.let { runCatching { it.delete() } }
