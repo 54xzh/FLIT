@@ -179,6 +179,29 @@ class McpManager(
         }
     }
 
+    /**
+     * 按 ID 强制重载一个 MCP 服务器的工具列表。
+     *
+     * 与 [addClient] 的区别：addClient 在已连接且参数未变时会短路返回 Success、不重新拉工具；
+     * 而 reload 始终重新 listTools（远程）或重新 testAndSync（STDIO）。
+     * 供「mcp_reload 按 ID 重载」语义使用。
+     */
+    suspend fun reloadClient(config: McpServerConfig) {
+        when (config) {
+            is McpServerConfig.StdioServer -> {
+                if (config.commonOptions.enable) {
+                    stdioSessionRegistry.remove(config.id)
+                    stdioSessionRegistry.testAndSync(config)
+                } else {
+                    stdioSessionRegistry.remove(config.id)
+                }
+            }
+            else -> {
+                sessionRegistry.syncSessionById(config.id)
+            }
+        }
+    }
+
     suspend fun removeClient(config: McpServerConfig) {
         sessionRegistry.removeClient(config)
         stdioSessionRegistry.remove(config.id)

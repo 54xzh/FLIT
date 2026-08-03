@@ -44,11 +44,12 @@ fun createMcpManagerTools(
     settingsStore: SettingsStore,
     mcpManager: McpManager,
     workspaceRepository: WorkspaceRepository,
+    scheduledTaskDao: me.rerere.rikkahub.data.db.dao.ScheduledTaskDao,
 ): List<Tool> = listOf(
     buildListTool(assistantId, settingsStore, mcpManager),
     buildCreateTool(assistantId, settingsStore, mcpManager, workspaceRepository),
     buildEditTool(assistantId, settingsStore, mcpManager),
-    buildDeleteTool(assistantId, settingsStore, mcpManager),
+    buildDeleteTool(assistantId, settingsStore, mcpManager, scheduledTaskDao),
     buildStatusTool(assistantId, settingsStore, mcpManager),
     buildReloadTool(assistantId, settingsStore, mcpManager),
 )
@@ -236,7 +237,7 @@ private fun buildCreateTool(
         }
 
         // 触发连接 + 工具同步（STDIO testAndSync 回写 tools；HTTP/SSE 同步工具）
-        val syncError = runCatching { mcpManager.addClient(newConfig) }.exceptionOrNull()
+        val syncError = runCatchingCancelSafe { mcpManager.addClient(newConfig) }.exceptionOrNull()
         if (syncError != null) {
             return@Tool buildJsonObject {
                 put("ok", false)
@@ -317,11 +318,11 @@ private fun buildEditTool(
         val id = runCatching { Uuid.parse(idStr) }.getOrNull()
             ?: return@Tool buildJsonObject { put("error", "invalid id: $idStr") }
 
-        val settings = settingsStore.settingsFlow.value
-        val old = settings.mcpServers.firstOrNull { it.id == id }
-            ?: return@Tool buildJsonObject { put("error", "server not found: $idStr") }
+        // 仅做存在性预检；真正的 patch 在 update 闭包内基于 latest 完成，避免覆盖并发更新
+        val exists = settingsStore.settingsFlow.value.mcpServers.any { it.id == id }
+        if (!exists) return@Tool buildJsonObject { put("error", "server not found: $idStr") }
 
-        // 解析可选字段
+        // 解析可选字段（不依赖 settings，闭包外解析即可）
         val newName = obj["name"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
         val newEnable = obj["enable"]?.jsonPrimitiveOrNull?.booleanOrNull
         val newUrl = obj["url"]?.jsonPrimitiveOrNull?.contentOrNull
@@ -344,27 +345,24 @@ private fun buildEditTool(
             }
         }
 
-        val updated: McpServerConfig = when (old) {
-            is McpServerConfig.StreamableHTTPServer -> {
-                old.copy(
-                    url = newUrl ?: old.url,
-                    commonOptions = old.commonOptions.copy(
-                        name = newName ?: old.commonOptions.name,
-                        enable = newEnable ?: old.commonOptions.enable,
-                        headers = newHeaders ?: old.commonOptions.headers,
-                    ),
-                )
-            }
-            is McpServerConfig.SseTransportServer -> {
-                old.copy(
-                    url = newUrl ?: old.url,
-                    commonOptions = old.commonOptions.copy(
-                        name = newName ?: old.commonOptions.name,
-                        enable = newEnable ?: old.commonOptions.enable,
-                        headers = newHeaders ?: old.commonOptions.headers,
-                    ),
-                )
-            }
+        // 基于「当前最新」的 old 计算新配置，避免覆盖别处的并发写入（如 OAuth 令牌刷新、工具缓存回写）
+        fun patch(old: McpServerConfig): McpServerConfig = when (old) {
+            is McpServerConfig.StreamableHTTPServer -> old.copy(
+                url = newUrl ?: old.url,
+                commonOptions = old.commonOptions.copy(
+                    name = newName ?: old.commonOptions.name,
+                    enable = newEnable ?: old.commonOptions.enable,
+                    headers = newHeaders ?: old.commonOptions.headers,
+                ),
+            )
+            is McpServerConfig.SseTransportServer -> old.copy(
+                url = newUrl ?: old.url,
+                commonOptions = old.commonOptions.copy(
+                    name = newName ?: old.commonOptions.name,
+                    enable = newEnable ?: old.commonOptions.enable,
+                    headers = newHeaders ?: old.commonOptions.headers,
+                ),
+            )
             is McpServerConfig.StdioServer -> {
                 val draft = old.copy(
                     command = newCommand ?: old.command,
@@ -385,11 +383,22 @@ private fun buildEditTool(
             }
         }
 
+        // update 闭包内基于 latest 取 old 并就地 patch；若并发删除了该 id 则保留 latest 不动
+        var updatedOrNull: McpServerConfig? = null
         settingsStore.update { latest ->
-            latest.copy(mcpServers = latest.mcpServers.map { if (it.id == id) updated else it })
+            val old = latest.mcpServers.firstOrNull { it.id == id }
+            if (old == null) {
+                latest
+            } else {
+                val patched = patch(old)
+                updatedOrNull = patched
+                latest.copy(mcpServers = latest.mcpServers.map { if (it.id == id) patched else it })
+            }
         }
+        val updated = updatedOrNull
+            ?: return@Tool buildJsonObject { put("error", "server not found: $idStr") }
 
-        runCatching { mcpManager.addClient(updated) }
+        runCatchingCancelSafe { mcpManager.addClient(updated) }
         val statusMap = mcpManager.syncingStatus.value
         buildJsonObject {
             put("ok", true)
@@ -404,6 +413,7 @@ private fun buildDeleteTool(
     assistantId: Uuid,
     settingsStore: SettingsStore,
     mcpManager: McpManager,
+    scheduledTaskDao: me.rerere.rikkahub.data.db.dao.ScheduledTaskDao,
 ) = Tool(
     name = "mcp_delete",
     description = "Delete an MCP server by id. Removes it from all assistants' selections.",
@@ -433,7 +443,9 @@ private fun buildDeleteTool(
             latest.copy(mcpServers = latest.mcpServers.filter { it.id != id })
                 .withMcpSelectionRemoved(id)
         }
-        runCatching { mcpManager.removeClient(existing) }
+        // 清理定时任务里对该服务器的覆盖配置（对齐 SettingVM.deleteMcpConfig）
+        withContext(Dispatchers.IO) { scheduledTaskDao.removeMcpServerOverride(id.toString()) }
+        runCatchingCancelSafe { mcpManager.removeClient(existing) }
 
         buildJsonObject {
             put("ok", true)
@@ -509,18 +521,30 @@ private fun buildReloadTool(
             val settings = settingsStore.settingsFlow.value
             val server = settings.mcpServers.firstOrNull { it.id == id }
                 ?: return@Tool buildJsonObject { put("error", "server not found: $idStr") }
-            runCatching { mcpManager.addClient(server) }
+            runCatchingCancelSafe { mcpManager.reloadClient(server) }
             return@Tool buildJsonObject {
                 put("ok", true)
                 put("id", id.toString())
             }
         }
-        runCatching { mcpManager.syncAll() }
+        runCatchingCancelSafe { mcpManager.syncAll() }
         buildJsonObject { put("ok", true) }
     }
 )
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * 捕获挂起操作的非取消异常。CancellationException 一律重新抛出，避免用户停止生成后
+ * 工具仍返回成功/警告而非随协程正确终止。返回结果以 Result 形式供调用方判断。
+ */
+private inline fun <T> runCatchingCancelSafe(block: () -> T): Result<T> = try {
+    Result.success(block())
+} catch (e: kotlinx.coroutines.CancellationException) {
+    throw e
+} catch (e: Throwable) {
+    Result.failure(e)
+}
 
 private fun transportString(server: McpServerConfig): String = when (server) {
     is McpServerConfig.StreamableHTTPServer -> "http"

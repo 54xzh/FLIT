@@ -207,6 +207,21 @@ internal class McpSessionRegistry(
         sessions.values.toList().forEach { session -> syncSession(session) }
     }
 
+    /**
+     * 按 id 刷新单个远程服务器的工具列表。已连接则重拉工具，未连接则发起连接。
+     * 用于「按 ID 重载」语义：参数未变时也强制重新 listTools，而非短路返回 Success。
+     */
+    suspend fun syncSessionById(configId: Uuid) {
+        val session = sessions[configId] ?: run { addClientById(configId); return }
+        syncSession(session)
+    }
+
+    /** 配置存在但未建立 session 时，按最新配置发起连接。 */
+    private suspend fun addClientById(configId: Uuid) {
+        val config = settingsStore.settingsFlow.value.mcpServers.firstOrNull { it.id == configId }
+        if (config != null && config.isRemote) addClient(config)
+    }
+
     private suspend fun connectSession(
         session: McpSession,
         requestedConfig: McpServerConfig,

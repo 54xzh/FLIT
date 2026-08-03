@@ -548,6 +548,7 @@ class LocalTools(
                     settingsStore = settingsStore,
                     mcpManager = mcpManager,
                     workspaceRepository = workspaceRepository,
+                    scheduledTaskDao = scheduledTaskDao,
                 )
             )
         }
