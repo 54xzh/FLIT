@@ -11,13 +11,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
@@ -219,7 +219,7 @@ private fun TextFileViewerSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.8f)
+                .heightIn(max = 640.dp)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -232,11 +232,11 @@ private fun TextFileViewerSheet(
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
 
-            // 内容区：占满剩余空间，独立滚动
+            // 内容区：内容少时按自然高度，多时封顶滚动
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .weight(1f, fill = false),
             ) {
                 when (val s = loadState) {
                     ContentLoadState.Loading -> {
@@ -461,9 +461,13 @@ private fun ContentView(
 
         when (classification.category) {
             WorkspaceFileClassifier.Category.MARKDOWN -> {
-                MarkdownBlock(content = content)
+                // 与聊天界面一致：SelectionContainer 包裹 MarkdownBlock 启用部分复制
+                SelectionContainer {
+                    MarkdownBlock(content = content)
+                }
             }
             WorkspaceFileClassifier.Category.CODE -> {
+                // HighlightCodeBlock 内部已自带 SelectionContainer，无需再包一层
                 HighlightCodeBlock(
                     code = content,
                     language = classification.prismLanguage ?: "text",
@@ -471,12 +475,14 @@ private fun ContentView(
                 )
             }
             else -> {
-                // 纯文本：等宽只读
-                Text(
-                    text = content,
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                    softWrap = true,
-                )
+                // 纯文本：等宽只读，SelectionContainer 启用部分复制
+                SelectionContainer {
+                    Text(
+                        text = content,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        softWrap = true,
+                    )
+                }
             }
         }
     }
