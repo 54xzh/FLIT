@@ -273,6 +273,7 @@ private fun TextFileViewerSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight(0.8f)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -285,11 +286,11 @@ private fun TextFileViewerSheet(
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
 
-            // 内容区：独立滚动，限制最大高度
+            // 内容区：占满剩余空间，独立滚动
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 420.dp),
+                    .weight(1f),
             ) {
                 when (val s = loadState) {
                     ContentLoadState.Loading -> {
@@ -562,23 +563,8 @@ private fun SkillInstallDialog(
 
     when (val s = previewState) {
         SkillPreviewState.Loading -> {
-            AlertDialog(
-                onDismissRequest = onDismiss,
-                title = { Text(stringResource(R.string.workspace_skill_install_title)) },
-                text = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                        Text(stringResource(R.string.workspace_skill_install_reading))
-                    }
-                },
-                confirmButton = {},
-                dismissButton = {
-                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-                },
-            )
+            // 扫描很快，期间不显示任何弹窗，避免"闪一下 Loading 再出安装弹窗"的跳变。
+            // 扫描完成直接进入 Error/Success，用户只看到最终结果。
         }
         is SkillPreviewState.Error -> {
             AlertDialog(
