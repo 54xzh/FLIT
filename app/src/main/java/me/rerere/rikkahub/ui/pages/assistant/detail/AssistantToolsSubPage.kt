@@ -272,6 +272,25 @@ fun AssistantToolsSubPage(
                 }
             )
 
+            // MCP Manager
+            SettingGroupItem(
+                title = stringResource(R.string.assistant_page_local_tools_mcp_manager_title),
+                subtitle = stringResource(R.string.assistant_page_local_tools_mcp_manager_desc),
+                trailing = {
+                    HapticSwitch(
+                        checked = assistant.localTools.contains(LocalToolOption.McpManager),
+                        onCheckedChange = { enabled ->
+                            val newLocalTools = if (enabled) {
+                                assistant.localTools + LocalToolOption.McpManager
+                            } else {
+                                assistant.localTools - LocalToolOption.McpManager
+                            }
+                            onUpdate(assistant.copy(localTools = newLocalTools))
+                        }
+                    )
+                }
+            )
+
             // Device Control
             SettingGroupItem(
                 title = stringResource(R.string.assistant_page_local_tools_device_control_title),

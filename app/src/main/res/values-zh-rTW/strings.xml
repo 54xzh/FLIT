@@ -1676,6 +1676,8 @@
   <string name="assistant_page_local_tools_ask_user_desc">允許助手在不確定時向你提問</string>
   <string name="assistant_page_local_tools_get_time_title">取得目前時間</string>
   <string name="assistant_page_local_tools_get_time_desc">允許助手呼叫工具取得目前的日期、時間和星期</string>
+  <string name="assistant_page_local_tools_mcp_manager_title">MCP 管理</string>
+  <string name="assistant_page_local_tools_mcp_manager_desc">允許助手管理 MCP 伺服器（建立/編輯/刪除/查狀態/重新載入）。新建的 MCP 會對目前助手自動開啟。</string>
   <string name="assistant_page_memory_settings_title">記憶設置</string>
   <string name="assistant_page_temperature_level_value_format">%1$s（%2$s）</string>
   <string name="assistant_page_mcp_servers_desc">啟用外部工具服務器</string>

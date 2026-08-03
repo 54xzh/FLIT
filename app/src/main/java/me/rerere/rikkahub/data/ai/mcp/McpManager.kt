@@ -206,7 +206,7 @@ class McpManager(
         sessionRegistry.addClient(freshConfig)
     }
 
-    private suspend fun resolveRunnableSandboxId(workspaceId: String?): String? {
+    suspend fun resolveRunnableSandboxId(workspaceId: String?): String? {
         val workspace = workspaceId?.let { workspaceRepository.getById(it) } ?: return null
         val rootfsAvailable = withContext(Dispatchers.IO) {
             sandboxWorkspaceManager.hasRootfs(workspace.id)

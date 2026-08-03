@@ -194,6 +194,8 @@
   <string name="assistant_page_local_tools_device_control_title">设备控制</string>
     <string name="assistant_page_local_tools_get_time_desc">允许助手调用工具获取当前的日期、时间和星期</string>
     <string name="assistant_page_local_tools_get_time_title">获取当前时间</string>
+    <string name="assistant_page_local_tools_mcp_manager_title">MCP 管理</string>
+    <string name="assistant_page_local_tools_mcp_manager_desc">允许助手管理 MCP 服务器（创建/编辑/删除/查状态/重载）。新建的 MCP 会对当前助手自动开启。</string>
     <string name="assistant_page_local_tools_group_code_files">代码执行与文件操作</string>
     <string name="assistant_page_local_tools_group_memory_search">记忆与会话检索</string>
     <string name="assistant_page_local_tools_group_other">其他</string>

@@ -69,10 +69,17 @@ sealed class LocalToolOption {
     @Serializable
     @SerialName("get_current_time")
     data object GetCurrentTime : LocalToolOption()
+
+    @Serializable
+    @SerialName("mcp_manager")
+    data object McpManager : LocalToolOption()
 }
 
 class LocalTools(
     private val context: Context,
+    private val settingsStore: me.rerere.rikkahub.data.datastore.SettingsStore,
+    private val mcpManager: me.rerere.rikkahub.data.ai.mcp.McpManager,
+    private val workspaceRepository: me.rerere.rikkahub.data.repository.WorkspaceRepository,
     private val scheduledTaskDao: ScheduledTaskDao,
     private val scheduledTaskScheduler: ScheduledTaskScheduler,
 ) {
@@ -533,6 +540,16 @@ class LocalTools(
         }
         if (options.contains(LocalToolOption.ScheduledTaskManager)) {
             tools.addAll(createScheduledTaskTools(assistantId, scheduledTaskDao, scheduledTaskScheduler))
+        }
+        if (options.contains(LocalToolOption.McpManager)) {
+            tools.addAll(
+                createMcpManagerTools(
+                    assistantId = assistantId,
+                    settingsStore = settingsStore,
+                    mcpManager = mcpManager,
+                    workspaceRepository = workspaceRepository,
+                )
+            )
         }
         if (options.contains(LocalToolOption.GetCurrentTime)) {
             tools.add(currentTimeTool)

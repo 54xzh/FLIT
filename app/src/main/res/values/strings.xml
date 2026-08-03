@@ -227,6 +227,8 @@
     <string name="assistant_page_local_tools_ask_user_desc">Allow assistant to ask you questions when uncertain</string>
     <string name="assistant_page_local_tools_get_time_title">Get Current Time</string>
     <string name="assistant_page_local_tools_get_time_desc">Allow assistant to call a tool to get the current date, time and weekday</string>
+    <string name="assistant_page_local_tools_mcp_manager_title">MCP Manager</string>
+    <string name="assistant_page_local_tools_mcp_manager_desc">Allow assistant to manage MCP servers (create/edit/delete/status/reload). Newly created servers are auto-enabled for the current assistant.</string>
     <string name="assistant_page_manage_memory">Manage Memory (%d)</string>
     <string name="assistant_page_manage_memory_title">Manage Memory</string>
     <string name="assistant_page_recent_memories_title">Recent Memories</string>
