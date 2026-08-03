@@ -140,6 +140,21 @@ class WorkspaceTransferArchiveTest {
     }
 
     @Test
+    fun scanRejectsSymlinkedWorkspaceRoot() {
+        val manager = manager()
+        val archive = WorkspaceTransferArchive(SandboxRootfsInstaller(manager))
+        val outside = temporaryFolder.newFolder("outside-scan")
+        val workspace = manager.workspaceDir("linked-workspace")
+        Files.createSymbolicLink(workspace.toPath(), outside.toPath())
+
+        try {
+            archive.scan(workspace)
+            fail("Expected symlinked workspace root to be rejected")
+        } catch (_: IllegalArgumentException) {
+        }
+    }
+
+    @Test
     fun importRejectsDataAfterTarEnding() {
         val manifest = manifest(WorkspaceArchiveSummary(bytes = 1, entries = 1))
         val bytes = packageWithPayload(manifest) { zip ->

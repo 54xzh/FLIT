@@ -243,13 +243,20 @@ class WorkspaceTransferArchive(
     }
 
     private fun includedRoots(workspaceDir: File): List<File> {
+        require(Files.isDirectory(workspaceDir.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+            "Workspace directory is missing or invalid"
+        }
         val files = File(workspaceDir, "files")
-        require(files.isDirectory) { "Workspace files directory is missing" }
+        require(Files.isDirectory(files.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+            "Workspace files directory is missing or invalid"
+        }
         val linux = File(workspaceDir, "linux")
         return buildList {
             add(files)
-            if (linux.exists()) {
-                require(linux.isDirectory) { "Workspace Linux path is not a directory" }
+            if (Files.exists(linux.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                require(Files.isDirectory(linux.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                    "Workspace Linux path is not a directory"
+                }
                 add(linux)
             }
         }

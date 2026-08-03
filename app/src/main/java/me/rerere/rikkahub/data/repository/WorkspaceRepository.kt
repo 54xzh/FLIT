@@ -164,6 +164,7 @@ class WorkspaceRepository(
 ) : KoinComponent {
     private val sandboxLocks = ConcurrentHashMap<String, Mutex>()
     private val workspaceImportMutex = Mutex()
+    private val workspaceStorageMutex = Mutex()
 
     fun listFlow(): Flow<List<Workspace>> = dao.listFlow().map { records ->
         val resolved = mutableListOf<Workspace>()
@@ -213,22 +214,24 @@ class WorkspaceRepository(
         }
     }
 
-    suspend fun createSandbox(name: String): Workspace = withContext(Dispatchers.IO) {
-        db.withTransaction {
-            // 新建时自动避重：默认 Sandbox 被占用则变成 Sandbox 2…
-            val finalName = nextAvailableName(name, blankFallback = "Sandbox")
-            val now = System.currentTimeMillis()
-            val record = WorkspaceEntity(
-                id = Uuid.random().toString(),
-                name = finalName,
-                type = WorkspaceType.SANDBOX,
-                createdAt = now,
-                updatedAt = now,
-            )
-            sandboxManager.ensureWorkspace(record.id)
-            dao.upsert(record)
-            dao.upsertSandboxDetail(SandboxWorkspaceEntity(workspaceId = record.id))
-            resolve(record) ?: error("Failed to create sandbox")
+    suspend fun createSandbox(name: String): Workspace = workspaceStorageMutex.withLock {
+        withContext(Dispatchers.IO) {
+            db.withTransaction {
+                // 新建时自动避重：默认 Sandbox 被占用则变成 Sandbox 2…
+                val finalName = nextAvailableName(name, blankFallback = "Sandbox")
+                val now = System.currentTimeMillis()
+                val record = WorkspaceEntity(
+                    id = Uuid.random().toString(),
+                    name = finalName,
+                    type = WorkspaceType.SANDBOX,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+                sandboxManager.ensureWorkspace(record.id)
+                dao.upsert(record)
+                dao.upsertSandboxDetail(SandboxWorkspaceEntity(workspaceId = record.id))
+                resolve(record) ?: error("Failed to create sandbox")
+            }
         }
     }
 
@@ -248,7 +251,7 @@ class WorkspaceRepository(
             )
         }
         runInterruptible(Dispatchers.IO) {
-            val workspaceDir = sandboxManager.workspaceDir(id)
+            val workspaceDir = sandboxManager.workspaceDirForAccess(id)
             val summary = workspaceTransferArchive.scan(workspaceDir, onProgress)
             val manifest = WorkspaceTransferManifest(
                 sourceWorkspaceId = workspace.id,
@@ -281,8 +284,9 @@ class WorkspaceRepository(
     suspend fun importSandboxWorkspace(
         input: InputStream,
         onProgress: (WorkspaceTransferProgress) -> Unit = {},
-    ): Workspace = workspaceImportMutex.withLock {
-        sandboxProcessCoordinator.withGlobalMaintenance {
+    ): Workspace = workspaceStorageMutex.withLock {
+        workspaceImportMutex.withLock {
+            sandboxProcessCoordinator.withGlobalMaintenance {
         val newId = Uuid.random().toString()
         val staging = withContext(Dispatchers.IO) { sandboxManager.prepareImportStaging(newId) }
         var movedToFinal = false
@@ -351,6 +355,7 @@ class WorkspaceRepository(
                 if (movedToFinal && !databaseCommitted) sandboxManager.deleteWorkspace(newId)
             }
         }
+            }
         }
     }
 
@@ -438,8 +443,8 @@ class WorkspaceRepository(
         }
     }
 
-    suspend fun delete(id: String): Boolean {
-        val workspace = getById(id) ?: return false
+    suspend fun delete(id: String): Boolean = workspaceStorageMutex.withLock {
+        val workspace = getById(id) ?: return@withLock false
         if (workspace.type == WorkspaceType.SANDBOX) {
             sandboxLock(id).withLock {
                 sandboxProcessCoordinator.withWorkspaceMaintenance(id) {
@@ -449,7 +454,7 @@ class WorkspaceRepository(
         } else {
             deleteInternal(workspace)
         }
-        return true
+        true
     }
 
     private suspend fun deleteInternal(workspace: Workspace) {
@@ -466,8 +471,9 @@ class WorkspaceRepository(
         cleanupAssistantReferences(workspace.id)
     }
 
-    suspend fun checkIntegrity() = withContext(Dispatchers.IO) {
-        sandboxProcessCoordinator.withGlobalMaintenance {
+    suspend fun checkIntegrity() = workspaceStorageMutex.withLock {
+        withContext(Dispatchers.IO) {
+            sandboxProcessCoordinator.withGlobalMaintenance {
         sandboxManager.cleanupImportStagingDirectories()
         val workspaceRecords = dao.getAll()
         sandboxManager.cleanupOrphanedWorkspaceDirectories(
@@ -482,7 +488,7 @@ class WorkspaceRepository(
             Log.i(TAG, "checkIntegrity: 检测到沙盒恢复 sentinel，开始清理旧 rootfs 残留")
         }
         workspaceRecords.forEach { record ->
-            val workspace = resolve(record) ?: return@forEach
+            val workspace = resolve(dao.getById(record.id) ?: return@forEach) ?: return@forEach
             when (workspace.type) {
                 WorkspaceType.LIGHTWEIGHT -> {
                     if (workspace.treeUri == null || !isTreeUriAccessible(workspace.treeUri)) {
@@ -493,51 +499,54 @@ class WorkspaceRepository(
                         migrateDefaultToolApprovals(workspace)
                     }
                 }
-                WorkspaceType.SANDBOX -> {
-                    val detail = workspace.sandbox ?: return@forEach
-                    if (!sandboxManager.workspaceDir(workspace.id).exists()) {
-                        dao.deleteSandboxDetail(workspace.id)
-                        dao.deleteById(workspace.id)
-                        cleanupAssistantReferences(workspace.id)
+                WorkspaceType.SANDBOX -> sandboxLock(workspace.id).withLock {
+                    val currentRecord = dao.getById(workspace.id) ?: return@withLock
+                    val current = resolve(currentRecord) ?: return@withLock
+                    val detail = current.sandbox ?: return@withLock
+                    if (!sandboxManager.workspaceDirAvailable(current.id)) {
+                        sandboxManager.deleteWorkspace(current.id)
+                        dao.deleteSandboxDetail(current.id)
+                        dao.deleteById(current.id)
+                        cleanupAssistantReferences(current.id)
                     } else if (pendingSandboxClean) {
                         // 恢复后清理：删掉本机残留的旧 rootfs，状态降级为未安装，由用户重装。
                         // 无论 DB 状态是 READY/INSTALLING/DISABLED 都清，避免旧 linux/ 让 hasRootfs 误判。
-                        val cleaned = sandboxManager.cleanRootfsResidue(workspace.id)
+                        val cleaned = sandboxManager.cleanRootfsResidue(current.id)
                         if (!cleaned) {
-                            Log.w(TAG, "checkIntegrity: 工作区 ${workspace.id} 的旧 rootfs 未完全删除，下次启动会重试")
+                            Log.w(TAG, "checkIntegrity: 工作区 ${current.id} 的旧 rootfs 未完全删除，下次启动会重试")
                         }
-                        updateSandboxStatus(workspace.id, SandboxRootfsStatus.DISABLED, detail.rootfsSourceUrl, detail.rootfsVersion, null)
+                        updateSandboxStatus(current.id, SandboxRootfsStatus.DISABLED, detail.rootfsSourceUrl, detail.rootfsVersion, null)
                     } else if (detail.rootfsStatus == SandboxRootfsStatus.INSTALLING) {
                         // 安装中进程被杀会残留 INSTALLING。rootfs 实际是否落盘决定回收还是降级，
                         // 同时清掉强杀时 finally 来不及清理的 tmp/ 残留（下载包与解压 staging）。
-                        val hasRootfs = sandboxManager.hasRootfs(workspace.id)
+                        val hasRootfs = sandboxManager.hasRootfs(current.id)
                         val recovered: SandboxRootfsStatus
                         val cleaned: Boolean
                         if (hasRootfs) {
                             // rootfs 完整：上次安装已成功、只是收尾前被杀。只清 tmp/，保留 linux/。
                             recovered = SandboxRootfsStatus.READY
-                            cleaned = sandboxManager.cleanTempResidue(workspace.id)
+                            cleaned = sandboxManager.cleanTempResidue(current.id)
                         } else {
                             // rootfs 不完整：清 linux/（可能半写残骸或不存在）与 tmp/。
                             recovered = SandboxRootfsStatus.DISABLED
-                            cleaned = sandboxManager.cleanRootfsResidue(workspace.id)
+                            cleaned = sandboxManager.cleanRootfsResidue(current.id)
                         }
                         if (!cleaned) {
-                            Log.w(TAG, "checkIntegrity: 工作区 ${workspace.id} 的 INSTALLING 残留未完全清理，下次启动会重试")
+                            Log.w(TAG, "checkIntegrity: 工作区 ${current.id} 的 INSTALLING 残留未完全清理，下次启动会重试")
                         }
                         updateSandboxStatus(
-                            workspace.id,
+                            current.id,
                             recovered,
                             detail.rootfsSourceUrl,
                             detail.rootfsVersion,
                             if (recovered == SandboxRootfsStatus.READY) detail.rootfsInstalledAt else null,
                         )
                     } else if (detail.rootfsStatus == SandboxRootfsStatus.READY
-                        && !sandboxManager.hasRootfs(workspace.id)
+                        && !sandboxManager.hasRootfs(current.id)
                     ) {
-                        updateSandboxStatus(workspace.id, SandboxRootfsStatus.DISABLED, detail.rootfsSourceUrl, detail.rootfsVersion, null)
-                    } else if (workspace.toolApprovalOverrides().isEmpty()) {
-                        migrateDefaultToolApprovals(workspace)
+                        updateSandboxStatus(current.id, SandboxRootfsStatus.DISABLED, detail.rootfsSourceUrl, detail.rootfsVersion, null)
+                    } else if (current.toolApprovalOverrides().isEmpty()) {
+                        migrateDefaultToolApprovals(current)
                     }
                 }
             }
@@ -550,30 +559,33 @@ class WorkspaceRepository(
 
         val currentRecords = dao.getAll().associateBy { it.id }
         dao.getAllSandboxMounts().forEach { mount ->
-            val owner = currentRecords[mount.workspaceId]
-            val structurallyValid = owner?.type == WorkspaceType.SANDBOX && runCatching {
-                check(normalizeSandboxMountTarget(
-                    mount.targetPath.substringBeforeLast('/', "/workspace"),
-                    mount.targetPath.substringAfterLast('/'),
-                ) == mount.targetPath)
-                sandboxMountRelativePath(mount.targetPath)
-            }.isSuccess
-            if (!structurallyValid) {
-                dao.deleteSandboxMount(mount.id)
-                releaseTreePermissionIfUnused(mount.treeUri)
-            } else {
-                sandboxManager.ensureFilesDirectory(
-                    mount.workspaceId,
-                    sandboxMountRelativePath(mount.targetPath.substringBeforeLast('/', "/workspace")),
-                )
-                if (!mountPathResolver.hasPersistedReadWritePermission(mount.treeUri) ||
-                    !mountPathResolver.sourceMarkerMatches(mount.treeUri, mount.sourcePath)
-                ) {
-                    Log.w(TAG, "checkIntegrity: 保留暂时不可用的沙盒挂载 ${mount.workspaceId}:${mount.targetPath}")
+            sandboxLock(mount.workspaceId).withLock {
+                val owner = currentRecords[mount.workspaceId]
+                val structurallyValid = owner?.type == WorkspaceType.SANDBOX && runCatching {
+                    check(normalizeSandboxMountTarget(
+                        mount.targetPath.substringBeforeLast('/', "/workspace"),
+                        mount.targetPath.substringAfterLast('/'),
+                    ) == mount.targetPath)
+                    sandboxMountRelativePath(mount.targetPath)
+                }.isSuccess
+                if (!structurallyValid) {
+                    dao.deleteSandboxMount(mount.id)
+                    releaseTreePermissionIfUnused(mount.treeUri)
+                } else {
+                    sandboxManager.ensureFilesDirectory(
+                        mount.workspaceId,
+                        sandboxMountRelativePath(mount.targetPath.substringBeforeLast('/', "/workspace")),
+                    )
+                    if (!mountPathResolver.hasPersistedReadWritePermission(mount.treeUri) ||
+                        !mountPathResolver.sourceMarkerMatches(mount.treeUri, mount.sourcePath)
+                    ) {
+                        Log.w(TAG, "checkIntegrity: 保留暂时不可用的沙盒挂载 ${mount.workspaceId}:${mount.targetPath}")
+                    }
                 }
             }
         }
         cleanupOrphanedMountPermissions()
+            }
         }
     }
 
@@ -932,8 +944,13 @@ class WorkspaceRepository(
             }
 
             WorkspaceType.SANDBOX -> try {
-                val parent = normalized.substringBeforeLast('/', "")
-                listSandboxFiles(id, parent).firstOrNull { it.path == normalized }
+                resolveSandboxWorkspaceEntry(
+                    manager = sandboxManager,
+                    workspaceId = id,
+                    mounts = dao.getSandboxMounts(id),
+                    normalizedPath = normalized,
+                    sourceForMount = { mount -> mountSourceFile(mount) },
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -1194,6 +1211,22 @@ internal data class ResolvedSandboxMount(
     val targetRelative: String,
     val relativePath: String,
 )
+
+internal fun resolveSandboxWorkspaceEntry(
+    manager: SandboxWorkspaceManager,
+    workspaceId: String,
+    mounts: List<SandboxWorkspaceMountEntity>,
+    normalizedPath: String,
+    sourceForMount: (SandboxWorkspaceMountEntity) -> File,
+): WorkspaceFileEntry? {
+    val resolved = resolveSandboxMount(mounts, normalizedPath)
+    return if (resolved == null) {
+        manager.resolveEntry(workspaceId, normalizedPath)?.toWorkspaceEntry()
+    } else {
+        manager.resolveExternalEntry(sourceForMount(resolved.mount), resolved.relativePath)
+            ?.toWorkspaceEntry(resolved.mount, normalizedPath)
+    }
+}
 
 internal fun resolveSandboxMount(
     mounts: List<SandboxWorkspaceMountEntity>,

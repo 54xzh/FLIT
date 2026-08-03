@@ -10,11 +10,8 @@ import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
-import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.SimpleFileVisitor
-import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.PosixFilePermission
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -124,15 +121,31 @@ class SandboxWorkspaceManager(
     init { baseDir.mkdirs() }
 
     fun ensureWorkspace(id: String) {
-        filesDir(id).mkdirs()
-        tempDir(id).mkdirs()
+        ensureDirectory(workspaceDir(id), "Workspace directory")
+        ensureDirectory(filesDir(id), "Workspace files directory")
+        ensureDirectory(tempDir(id), "Workspace temp directory")
     }
 
     fun workspaceDir(id: String): File = File(baseDir, requireWorkspaceId(id))
-    fun filesDir(id: String): File = File(workspaceDir(id), "files")
-    fun linuxDir(id: String): File = File(workspaceDir(id), "linux")
-    fun tempDir(id: String): File = File(workspaceDir(id), "tmp")
-    fun hasRootfs(id: String): Boolean = File(linuxDir(id), "bin/sh").isFile
+    fun workspaceDirAvailable(id: String): Boolean =
+        Files.isDirectory(workspaceDir(id).toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)
+
+    fun workspaceDirForAccess(id: String): File = workspaceDir(id).also {
+        require(Files.isDirectory(it.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            "Workspace directory is unavailable"
+        }
+    }
+
+    fun filesDir(id: String): File = storageDirectory(id, "files")
+    fun linuxDir(id: String): File = storageDirectory(id, "linux")
+    fun tempDir(id: String): File = storageDirectory(id, "tmp")
+    fun hasRootfs(id: String): Boolean {
+        val workspace = workspaceDir(id)
+        if (Files.isSymbolicLink(workspace.toPath())) return false
+        val rootfs = File(workspace, "linux")
+        if (Files.isSymbolicLink(rootfs.toPath())) return false
+        return File(rootfs, "bin/sh").isFile
+    }
 
     fun deleteWorkspace(id: String): Boolean = workspaceDir(id).deleteRecursivelyNoFollow()
 
@@ -181,10 +194,14 @@ class SandboxWorkspaceManager(
      */
     fun cleanRootfsResidue(id: String): Boolean {
         requireWorkspaceId(id)
+        val workspace = workspaceDir(id)
+        if (!Files.isDirectory(workspace.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            return !workspace.toPath().existsNoFollow()
+        }
         var allCleaned = true
         for (name in listOf("linux", "tmp")) {
-            val target = File(workspaceDir(id), name)
-            if (!target.exists()) continue
+            val target = File(workspace, name)
+            if (!target.toPath().existsNoFollow()) continue
             // 存在但删失败（返回 false）才算未清干净；抛异常按未清干净处理。
             val deleted = runCatching { target.deleteRecursivelyNoFollow() }.getOrDefault(false)
             if (!deleted) {
@@ -206,8 +223,12 @@ class SandboxWorkspaceManager(
      */
     fun cleanTempResidue(id: String): Boolean {
         requireWorkspaceId(id)
-        val target = File(workspaceDir(id), "tmp")
-        if (!target.exists()) return true
+        val workspace = workspaceDir(id)
+        if (!Files.isDirectory(workspace.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            return !workspace.toPath().existsNoFollow()
+        }
+        val target = File(workspace, "tmp")
+        if (!target.toPath().existsNoFollow()) return true
         val deleted = runCatching { target.deleteRecursivelyNoFollow() }.getOrDefault(false)
         if (!deleted) {
             Log.w(TAG, "cleanTempResidue: $id/tmp 未完全删除")
@@ -219,9 +240,27 @@ class SandboxWorkspaceManager(
         id: String,
         path: String = "",
         area: SandboxStorageArea = SandboxStorageArea.FILES,
-    ): List<SandboxFileEntry> = listFilesAtRoot(storageRoot(id, area), path)
+    ): List<SandboxFileEntry> {
+        val root = storageRoot(id, area)
+        if (area == SandboxStorageArea.FILES) {
+            restorePrivatePathPermissions(root, path)
+        }
+        return listFilesAtRoot(root, path)
+    }
 
     fun listExternalFiles(root: File, path: String = ""): List<SandboxFileEntry> = listFilesAtRoot(root, path)
+
+    fun resolveEntry(
+        id: String,
+        path: String,
+        area: SandboxStorageArea = SandboxStorageArea.FILES,
+    ): SandboxFileEntry? = resolveEntryAtRoot(
+        root = storageRoot(id, area),
+        path = path,
+        repairOwnerPermissions = area == SandboxStorageArea.FILES,
+    )
+
+    fun resolveExternalEntry(root: File, path: String = ""): SandboxFileEntry? = resolveEntryAtRoot(root, path)
 
     private fun listFilesAtRoot(root: File, path: String): List<SandboxFileEntry> {
         val canonicalRoot = root.canonicalFile
@@ -235,7 +274,36 @@ class SandboxWorkspaceManager(
             .map { it.toEntry(canonicalRoot) }
     }
 
-    fun readText(id: String, path: String): String = readTextAtRoot(filesDir(id).also { it.mkdirs() }, path)
+    private fun resolveEntryAtRoot(
+        root: File,
+        path: String,
+        repairOwnerPermissions: Boolean = false,
+    ): SandboxFileEntry? {
+        if (repairOwnerPermissions && !restorePrivatePathPermissions(root, path)) return null
+        val canonicalRoot = root.canonicalFile
+        require(canonicalRoot.isDirectory) { "Mounted folder is unavailable" }
+        val target = resolve(canonicalRoot, path)
+        val displayTarget = resolveDisplayPath(canonicalRoot, path)
+        val targetPath = target.toPath()
+        if (!targetPath.existsNoFollow()) return null
+        if (Files.isSymbolicLink(targetPath) && !Files.exists(targetPath)) return null
+        return displayTarget.toEntry(canonicalRoot)
+    }
+
+    private fun resolveDisplayPath(root: File, path: String): File {
+        val normalized = normalizeRelativePath(path)
+        return if (normalized == ".") root else File(root, normalized)
+    }
+
+    private fun restorePrivatePathPermissions(root: File, path: String): Boolean {
+        val rootPath = root.toPath().toAbsolutePath().normalize()
+        if (Files.isSymbolicLink(rootPath)) return false
+        val canonicalRoot = root.canonicalFile
+        val target = runCatching { resolve(canonicalRoot, path).toPath() }.getOrNull() ?: return false
+        return target.makeOwnerAccessibleAlong(canonicalRoot.toPath())
+    }
+
+    fun readText(id: String, path: String): String = readTextAtRoot(storageRoot(id, SandboxStorageArea.FILES), path)
 
     fun readExternalText(root: File, path: String): String = readTextAtRoot(root, path)
 
@@ -247,7 +315,7 @@ class SandboxWorkspaceManager(
     }
 
     fun writeText(id: String, path: String, text: String, overwrite: Boolean): SandboxFileEntry =
-        writeTextAtRoot(filesDir(id).also { it.mkdirs() }, path, text, overwrite)
+        writeTextAtRoot(storageRoot(id, SandboxStorageArea.FILES), path, text, overwrite)
 
     fun writeExternalText(root: File, path: String, text: String, overwrite: Boolean): SandboxFileEntry =
         writeTextAtRoot(root, path, text, overwrite)
@@ -352,12 +420,12 @@ class SandboxWorkspaceManager(
     }
 
     fun ensureFilesDirectory(id: String, path: String) {
-        val dir = resolve(filesDir(id), path)
+        val dir = resolve(storageRoot(id, SandboxStorageArea.FILES), path)
         require(dir.mkdirs() || dir.isDirectory) { "Cannot create mount parent folder" }
     }
 
     fun filesPathExists(id: String, path: String): Boolean {
-        val target = resolveWithoutFollowingFinalLink(filesDir(id), path)
+        val target = resolveWithoutFollowingFinalLink(storageRoot(id, SandboxStorageArea.FILES), path)
         return Files.exists(target.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)
     }
 
@@ -393,10 +461,27 @@ class SandboxWorkspaceManager(
     }
 
     private fun storageRoot(id: String, area: SandboxStorageArea): File = when (area) {
-        SandboxStorageArea.FILES -> filesDir(id).also { it.mkdirs() }
+        SandboxStorageArea.FILES -> filesDir(id).also { ensureDirectory(it, "Workspace files directory") }
         SandboxStorageArea.ROOTFS -> linuxDir(id).also {
+            require(!Files.isSymbolicLink(it.toPath())) { "Rootfs directory cannot be a symbolic link" }
             require(it.isDirectory) { "Rootfs is not installed" }
         }
+    }
+
+    private fun storageDirectory(id: String, name: String): File {
+        val workspace = workspaceDir(id)
+        require(!Files.isSymbolicLink(workspace.toPath())) { "Workspace directory cannot be a symbolic link" }
+        val directory = File(workspace, name)
+        require(!Files.isSymbolicLink(directory.toPath())) {
+            "Workspace storage directory cannot be a symbolic link: $name"
+        }
+        return directory
+    }
+
+    private fun ensureDirectory(directory: File, description: String) {
+        require(!Files.isSymbolicLink(directory.toPath())) { "$description cannot be a symbolic link" }
+        require(directory.mkdirs() || directory.isDirectory) { "Cannot create $description" }
+        require(!Files.isSymbolicLink(directory.toPath())) { "$description cannot be a symbolic link" }
     }
 
     private fun File.toEntry(root: File) = SandboxFileEntry(
@@ -660,6 +745,9 @@ class SandboxRootfsInstaller(
         val pendingDirectories = mutableListOf<Triple<File, Int, Long>>()
         var metadataBytes = 0L
         var metadataEntries = 0L
+        require(Files.isDirectory(targetDir.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            "TAR extraction target is not a directory"
+        }
 
         fun readMetadata(header: TarHeader): ByteArray {
             require(header.size in 0..MAX_TAR_METADATA_ENTRY_BYTES) { "TAR metadata entry is too large" }
@@ -671,6 +759,9 @@ class SandboxRootfsInstaller(
         }
         while (true) {
             checkInterrupted()
+            require(Files.isDirectory(targetDir.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                "TAR extraction root was replaced"
+            }
             val rawHeader = input.readTarHeader() ?: break
             val header = rawHeader.copy(
                 name = pendingName ?: rawHeader.name,
@@ -701,6 +792,11 @@ class SandboxRootfsInstaller(
             }
             onEntry(header.name, header.size, header.type != TarEntryType.OTHER)
             val target = targetDir.safeResolve(header.name)
+            val rawRootPath = targetDir.absoluteFile.toPath().toAbsolutePath().normalize()
+            val targetPath = target.toPath().toAbsolutePath().normalize()
+            require(targetPath != rawRootPath || header.type == TarEntryType.DIRECTORY) {
+                "TAR entry cannot replace extraction root"
+            }
             target.parentFile?.mkdirs()
             when (header.type) {
                 TarEntryType.DIRECTORY -> {
@@ -723,6 +819,9 @@ class SandboxRootfsInstaller(
             if (header.modTime > 0 && header.type != TarEntryType.SYMLINK && header.type != TarEntryType.DIRECTORY) {
                 target.setLastModified(header.modTime * 1000)
             }
+        }
+        require(Files.isDirectory(targetDir.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            "TAR extraction root was replaced"
         }
         pendingDirectories.asReversed().forEach { (directory, mode, modifiedSeconds) ->
             require(Files.isDirectory(directory.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
@@ -950,32 +1049,64 @@ class SandboxRootfsInstaller(
 
 /** 删除目录树时不跟随符号链接，避免清理导入内容时越过工作区边界。 */
 private fun File.deleteRecursivelyNoFollow(): Boolean {
-    val root = toPath()
-    if (!Files.exists(root, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return true
+    return toPath().deleteRecursivelyNoFollow()
+}
+
+private fun Path.existsNoFollow(): Boolean = Files.exists(this, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+
+private fun Path.makeOwnerAccessible(): Boolean {
+    if (Files.isSymbolicLink(this)) return true
+    val permissions = runCatching {
+        Files.getPosixFilePermissions(this, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+    }.getOrDefault(emptySet()) + setOf(
+        PosixFilePermission.OWNER_READ,
+        PosixFilePermission.OWNER_WRITE,
+        PosixFilePermission.OWNER_EXECUTE,
+    )
+    if (runCatching { Files.setPosixFilePermissions(this, permissions) }.isSuccess) return true
+
+    val file = toFile()
+    return file.setReadable(true, true) &&
+        file.setWritable(true, true) &&
+        file.setExecutable(true, true)
+}
+
+private fun Path.makeOwnerAccessibleAlong(root: Path): Boolean {
+    val normalizedRoot = root.toAbsolutePath().normalize()
+    val normalizedTarget = toAbsolutePath().normalize()
+    if (normalizedTarget != normalizedRoot && !normalizedTarget.startsWith(normalizedRoot)) return false
+
+    var current = normalizedRoot
+    if (!current.makeOwnerAccessible()) return false
+    for (part in normalizedRoot.relativize(normalizedTarget)) {
+        current = current.resolve(part)
+        if (Files.isSymbolicLink(current) || !current.existsNoFollow()) return false
+        if (Files.isDirectory(current, java.nio.file.LinkOption.NOFOLLOW_LINKS) && !current.makeOwnerAccessible()) {
+            return false
+        }
+    }
+    return true
+}
+
+private fun Path.deleteRecursivelyNoFollow(): Boolean {
+    if (!existsNoFollow()) return true
+    if (Files.isSymbolicLink(this)) {
+        return runCatching { Files.deleteIfExists(this) }.getOrDefault(false)
+    }
+    if (!Files.isDirectory(this, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+        return runCatching { Files.deleteIfExists(this) }.getOrDefault(false)
+    }
+    if (!makeOwnerAccessible()) return false
+
+    val children = runCatching {
+        Files.newDirectoryStream(this).use { stream -> stream.toList() }
+    }.getOrElse { return false }
     var success = true
-    runCatching {
-        Files.walkFileTree(
-            root,
-            object : SimpleFileVisitor<Path>() {
-                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-                    if (!runCatching { Files.deleteIfExists(file); true }.getOrDefault(false)) success = false
-                    return FileVisitResult.CONTINUE
-                }
-
-                override fun visitFileFailed(file: Path, error: IOException): FileVisitResult {
-                    if (!runCatching { Files.deleteIfExists(file); true }.getOrDefault(false)) success = false
-                    return FileVisitResult.CONTINUE
-                }
-
-                override fun postVisitDirectory(dir: Path, error: IOException?): FileVisitResult {
-                    if (error != null) success = false
-                    if (!runCatching { Files.deleteIfExists(dir); true }.getOrDefault(false)) success = false
-                    return FileVisitResult.CONTINUE
-                }
-            }
-        )
-    }.onFailure { success = false }
-    return success && !Files.exists(root, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+    children.forEach { child ->
+        if (!child.deleteRecursivelyNoFollow()) success = false
+    }
+    val deleted = runCatching { Files.deleteIfExists(this) }.getOrDefault(false)
+    return success && deleted && !existsNoFollow()
 }
 
 private fun Process.readResult(timeoutMillis: Long, stdin: ByteArray?): SandboxCommandResult {

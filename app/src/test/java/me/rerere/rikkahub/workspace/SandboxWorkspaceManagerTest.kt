@@ -97,6 +97,91 @@ class SandboxWorkspaceManagerTest {
     }
 
     @Test
+    fun resolvesAnExternalEntryWithoutListingItsParent() {
+        val manager = manager()
+        val source = temporaryFolder.newFolder("phone-folder-resolve")
+        File(source, "nested/hello.txt").apply {
+            parentFile?.mkdirs()
+            writeText("hello")
+        }
+
+        val entry = manager.resolveExternalEntry(source, "nested/hello.txt")
+
+        assertEquals("nested/hello.txt", entry?.path)
+        assertEquals("hello.txt", entry?.name)
+    }
+
+    @Test
+    fun deletesDirectoryAfterOwnerPermissionsWereRemoved() {
+        val manager = manager()
+        val directory = File(manager.filesDir("sandbox-locked"), "stale-mount").apply { mkdirs() }
+        val nested = File(directory, "nested").apply { mkdirs() }
+        File(nested, "hello.txt").writeText("hello")
+        Files.setPosixFilePermissions(nested.toPath(), emptySet())
+        Files.setPosixFilePermissions(directory.toPath(), emptySet())
+
+        assertTrue(manager.deleteFile("sandbox-locked", "stale-mount", recursive = true))
+        assertTrue(!directory.exists())
+    }
+
+    @Test
+    fun resolvesFileAfterOwnerPermissionsWereRemoved() {
+        val manager = manager()
+        val directory = File(manager.filesDir("sandbox-locked-resolve"), "stale-mount").apply { mkdirs() }
+        val nested = File(directory, "nested").apply { mkdirs() }
+        val file = File(nested, "hello.txt").apply { writeText("hello") }
+        val originalFilePermissions = Files.getPosixFilePermissions(file.toPath())
+        Files.setPosixFilePermissions(nested.toPath(), emptySet())
+        Files.setPosixFilePermissions(directory.toPath(), emptySet())
+
+        val entry = manager.resolveEntry("sandbox-locked-resolve", "stale-mount/nested/hello.txt")
+
+        assertEquals("stale-mount/nested/hello.txt", entry?.path)
+        assertEquals("hello.txt", entry?.name)
+        assertEquals(originalFilePermissions, Files.getPosixFilePermissions(file.toPath()))
+    }
+
+    @Test
+    fun resolvesSymlinkWithItsOriginalPathAndName() {
+        val manager = manager()
+        val id = "sandbox-link-entry"
+        manager.ensureWorkspace(id)
+        val root = manager.filesDir(id)
+        File(root, "real.txt").writeText("hello")
+        Files.createSymbolicLink(File(root, "link.txt").toPath(), File("real.txt").toPath())
+
+        val entry = manager.resolveEntry(id, "link.txt")
+
+        assertEquals("link.txt", entry?.path)
+        assertEquals("link.txt", entry?.name)
+        assertEquals(false, entry?.isDirectory)
+
+        File(root, "real-dir/nested/report.txt").apply {
+            parentFile?.mkdirs()
+            writeText("report")
+        }
+        Files.createSymbolicLink(File(root, "link-dir").toPath(), File("real-dir").toPath())
+
+        val nestedEntry = manager.resolveEntry(id, "link-dir/nested/report.txt")
+
+        assertEquals("link-dir/nested/report.txt", nestedEntry?.path)
+        assertEquals("report.txt", nestedEntry?.name)
+    }
+
+    @Test
+    fun listsDirectoryAfterOwnerPermissionsWereRemoved() {
+        val manager = manager()
+        val directory = File(manager.filesDir("sandbox-locked-list"), "stale-mount").apply { mkdirs() }
+        File(directory, "hello.txt").writeText("hello")
+        Files.setPosixFilePermissions(directory.toPath(), emptySet())
+
+        assertEquals(
+            listOf("hello.txt"),
+            manager.listFiles("sandbox-locked-list", "stale-mount").map { it.name },
+        )
+    }
+
+    @Test
     fun shellReceivesWorkspaceBindMountsWithoutRequiringHostTargetFolder() {
         lateinit var captured: SandboxShellContext
         val manager = SandboxWorkspaceManager(
@@ -256,6 +341,62 @@ class SandboxWorkspaceManagerTest {
     }
 
     @Test
+    fun cleanRootfsResidueRemovesDanglingTopLevelLink() {
+        val manager = manager()
+        val id = "sandbox-dangling-rootfs"
+        manager.ensureWorkspace(id)
+        val linux = manager.linuxDir(id)
+        Files.createSymbolicLink(linux.toPath(), File("missing-rootfs").toPath())
+
+        assertTrue(manager.cleanRootfsResidue(id))
+        assertTrue(!Files.exists(linux.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS))
+    }
+
+    @Test
+    fun rejectsSymlinkedStorageRoots() {
+        val manager = manager()
+        val id = "sandbox-storage-link"
+        val workspace = manager.workspaceDir(id).apply { mkdirs() }
+        val outside = temporaryFolder.newFolder("outside-storage")
+        Files.createSymbolicLink(File(workspace, "files").toPath(), outside.toPath())
+        Files.createSymbolicLink(File(workspace, "linux").toPath(), outside.toPath())
+
+        try {
+            manager.listFiles(id)
+            fail("Expected symlinked files root to be rejected")
+        } catch (_: IllegalArgumentException) {
+        }
+        try {
+            manager.listFiles(id, area = SandboxStorageArea.ROOTFS)
+            fail("Expected symlinked rootfs to be rejected")
+        } catch (_: IllegalArgumentException) {
+        }
+    }
+
+    @Test
+    fun cleaningSymlinkedWorkspaceRootDoesNotTouchItsTarget() {
+        val manager = manager()
+        val id = "sandbox-workspace-link"
+        val outside = temporaryFolder.newFolder("outside-workspace").apply {
+            File(this, "linux/keep.txt").apply {
+                parentFile?.mkdirs()
+                writeText("keep")
+            }
+            File(this, "tmp/scratch").apply {
+                parentFile?.mkdirs()
+                writeText("keep")
+            }
+        }
+        val workspace = manager.workspaceDir(id)
+        Files.createSymbolicLink(workspace.toPath(), outside.toPath())
+
+        assertTrue(!manager.cleanRootfsResidue(id))
+        assertTrue(File(outside, "linux/keep.txt").exists())
+        assertTrue(File(outside, "tmp/scratch").exists())
+        assertTrue(Files.isSymbolicLink(workspace.toPath()))
+    }
+
+    @Test
     fun sandboxAndLightweightExposeDifferentToolProtocols() {
         val sandboxTools = workspaceToolNames(WorkspaceType.SANDBOX)
         val lightweightTools = workspaceToolNames(WorkspaceType.LIGHTWEIGHT)
@@ -292,6 +433,28 @@ class SandboxWorkspaceManagerTest {
         assertEquals("hello", Files.readSymbolicLink(File(target, "bin/sh").toPath()).toString())
         assertEquals("/usr/bin/hello", Files.readSymbolicLink(File(target, "bin/absolute-link").toPath()).toString())
         assertEquals(".", Files.readSymbolicLink(File(target, "usr/bin/X11").toPath()).toString())
+    }
+
+    @Test
+    fun rootfsTarRejectsSymlinkReplacingExtractionRoot() {
+        val manager = manager()
+        val installer = SandboxRootfsInstaller(manager)
+        val archive = temporaryFolder.newFile("rootfs-root-link.tar.gz")
+        val outside = temporaryFolder.newFolder("rootfs-root-link-outside")
+        GZIPOutputStream(archive.outputStream()).use { output ->
+            output.writeTarEntry(name = ".", type = '2', linkName = outside.absolutePath)
+            output.writeTarEntry(name = "escaped.txt", type = '0', content = "escaped".toByteArray())
+            output.write(ByteArray(1024))
+        }
+        val target = temporaryFolder.newFolder("rootfs-root-link-target")
+
+        try {
+            installer.extractTar(archive, target)
+            fail("Expected extraction root replacement to be rejected")
+        } catch (_: IllegalArgumentException) {
+        }
+        assertTrue(Files.isDirectory(target.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS))
+        assertTrue(!File(outside, "escaped.txt").exists())
     }
 
     @Test
