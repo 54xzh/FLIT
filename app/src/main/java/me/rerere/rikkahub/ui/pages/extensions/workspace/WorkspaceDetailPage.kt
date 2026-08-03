@@ -57,7 +57,6 @@ import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
-import me.rerere.rikkahub.utils.WorkspaceFileClassifier
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 import java.time.LocalDateTime
@@ -186,40 +185,15 @@ fun WorkspaceDetailPage(
         }
     }
 
-    // 原有"用其他应用打开"逻辑，作为非内置查看类型的兜底。
-    val openFileExternal: (WorkspaceFileEntry) -> Unit = { entry ->
-        scope.launch {
-            val uri = vm.resolveFileUri(entry)
-            if (uri == null) {
-                toaster.show(context.getString(R.string.workspace_detail_open_failed))
-                return@launch
-            }
-            val mime = runCatching {
-                context.contentResolver.getType(uri)
-            }.getOrNull() ?: "*/*"
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mime)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            runCatching {
-                context.startActivity(Intent.createChooser(intent, null))
-            }.onFailure {
-                toaster.show(context.getString(R.string.workspace_detail_open_failed))
-            }
-        }
-    }
-
-    // 文件页打开文件：先按类型分流，文本/.skill 走应用内查看器，其他回退到外部打开。
+    // 文件页打开文件：所有类型都走应用内查看器（文本预览 / .skill 安装 / 通用三按钮弹窗）。
     val openFile: (WorkspaceFileEntry) -> Unit = { entry ->
-        if (WorkspaceFileClassifier.shouldUseBuiltInViewer(entry.name) && workspace?.id != null) {
+        if (workspace?.id != null) {
             haptics.perform(HapticPattern.Pop)
             fileViewerState.showWorkspaceEntry(
                 workspaceId = workspace!!.id,
                 entry = entry,
                 area = filesState.area,
             )
-        } else {
-            openFileExternal(entry)
         }
     }
 
@@ -556,8 +530,7 @@ fun WorkspaceDetailPage(
 
     WorkspaceTransferDialog(state = transferState, onCancel = vm::cancelTransfer)
 
-    // 工作区文件查看器：处理非 OTHER 分类的文件；OTHER 回退到 openFileExternal。
-    val wsId = workspace?.id
+    // 工作区文件查看器：所有文件类型都走应用内弹窗（文本预览 / .skill 安装 / 通用三按钮）。
     WorkspaceFileViewerSheet(
         state = fileViewerState,
         resolveFileUri = { target ->
@@ -567,13 +540,6 @@ fun WorkspaceDetailPage(
                     // 工作区详情页只处理 entry 形式；reference 不应在此出现。
                     null
                 }
-            }
-        },
-        onNotHandled = {
-            // 分类为 OTHER 的文件：走原外部打开逻辑。
-            val t = fileViewerState.current
-            if (t is ViewerTarget.WorkspaceEntry && wsId != null) {
-                openFileExternal(t.entry)
             }
         },
     )

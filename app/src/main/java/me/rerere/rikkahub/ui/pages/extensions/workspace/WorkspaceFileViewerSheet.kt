@@ -126,19 +126,17 @@ sealed interface ViewerTarget {
  * 工作区文件查看器弹窗 + 技能安装对话框。
  *
  * 根据 [WorkspaceFileClassifier] 分流：
- * - 文本类（Markdown/代码/纯文本）→ 应用内底部弹窗预览，底部三按钮（其他应用打开 / 分享 / 导出）。
+ * - 文本类（Markdown/代码/纯文本）→ 应用内底部弹窗预览，底部三按钮（打开 / 分享 / 导出）。
  * - .skill 技能包 → 预解析后弹安装确认对话框。
- * - 其他 → 不在此组件处理，调用方应保留原行为。
+ * - 其他 → 通用底部弹窗，只显示文件名 + 三按钮。
  *
- * 用法：在页面根部挂一个实例，点击文件时 state.showXxx(...)，组件自行决定是否显示。
- * 非文本且非 .skill 的文件，[shouldHandle] 返回 false，调用方走原逻辑。
+ * 用法：在页面根部挂一个实例，点击文件时 state.showXxx(...)，组件自行决定显示哪种弹窗。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkspaceFileViewerSheet(
     state: WorkspaceFileViewerState,
     resolveFileUri: suspend (ViewerTarget) -> android.net.Uri?,
-    onNotHandled: () -> Unit,
 ) {
     val target = state.current
     if (target == null) return
@@ -166,11 +164,11 @@ fun WorkspaceFileViewerSheet(
             )
         }
         WorkspaceFileClassifier.Category.OTHER -> {
-            // 不由查看器处理；交给调用方原逻辑，并清空 state 避免重入。
-            LaunchedEffect(target) {
-                state.dismiss()
-                onNotHandled()
-            }
+            GenericFileViewerSheet(
+                target = target,
+                resolveFileUri = resolveFileUri,
+                onDismiss = state::dismiss,
+            )
         }
     }
 }
@@ -189,9 +187,6 @@ private fun TextFileViewerSheet(
 ) {
     val context = LocalContext.current
     val repository = koinInject<WorkspaceRepository>()
-    val toaster = LocalToaster.current
-    val haptics = rememberPremiumHaptics()
-    val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var loadState by remember(target) {
@@ -215,55 +210,6 @@ private fun TextFileViewerSheet(
             }
             ContentLoadState.fromResult(result)
         }.getOrElse { ContentLoadState.Error }
-    }
-
-    // 导出：SAF CreateDocument
-    var exportTarget by remember(target) { mutableStateOf<ViewerTarget?>(null) }
-    val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/octet-stream"),
-    ) { uri ->
-        val t = exportTarget
-        exportTarget = null
-        if (uri == null || t == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            runCatching {
-                val output = withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri) }
-                    ?: error("Unable to open save destination")
-                withContext(Dispatchers.IO) {
-                    output.use { out ->
-                        when (t) {
-                            is ViewerTarget.WorkspaceEntry ->
-                                repository.exportWorkspaceFile(t.workspaceId, t.entry.path, out, t.area)
-                            is ViewerTarget.Reference ->
-                                repository.exportWorkspaceFile(t.workspaceId, t.path, out)
-                        }
-                    }
-                }
-                haptics.perform(HapticPattern.Success)
-                toaster.show(context.getString(R.string.workspace_viewer_export_success))
-            }.onFailure {
-                if (it is CancellationException) throw it
-                haptics.perform(HapticPattern.Error)
-                toaster.show(context.getString(R.string.workspace_viewer_export_failed))
-            }
-        }
-    }
-
-    // 打开 / 分享：需要先解析出一个可外部访问的 Uri
-    val launchExternal: (android.net.Uri.() -> Unit) -> Unit = { action ->
-        scope.launch {
-            val uri = withContext(Dispatchers.IO) { resolveFileUri(target) }
-            if (uri == null) {
-                haptics.perform(HapticPattern.Error)
-                toaster.show(context.getString(R.string.workspace_detail_open_failed))
-                return@launch
-            }
-            runCatching { uri.action() }.onFailure {
-                if (it is CancellationException) throw it
-                haptics.perform(HapticPattern.Error)
-                toaster.show(context.getString(R.string.workspace_detail_open_failed))
-            }
-        }
     }
 
     ModalBottomSheet(
@@ -327,40 +273,151 @@ private fun TextFileViewerSheet(
             }
 
             // 底部三按钮
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ViewerActionButton(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.AutoMirrored.Rounded.OpenInNew,
-                    label = stringResource(R.string.workspace_viewer_open_external),
-                    onClick = {
-                        haptics.perform(HapticPattern.Pop)
-                        launchExternal { openExternal(context, this, guessMime(target.fileName)) }
-                    },
-                )
-                ViewerActionButton(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Rounded.IosShare,
-                    label = stringResource(R.string.workspace_viewer_share),
-                    onClick = {
-                        haptics.perform(HapticPattern.Pop)
-                        launchExternal { shareFile(context, this, guessMime(target.fileName)) }
-                    },
-                )
-                ViewerActionButton(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Rounded.Download,
-                    label = stringResource(R.string.workspace_viewer_export),
-                    onClick = {
-                        haptics.perform(HapticPattern.Pop)
-                        exportTarget = target
-                        exportLauncher.launch(target.fileName)
-                    },
-                )
+            FileViewerActions(
+                target = target,
+                resolveFileUri = resolveFileUri,
+            )
+        }
+    }
+}
+
+/**
+ * 通用文件查看器：不预览内容，只显示文件名 + 三按钮（打开/分享/导出）。
+ * 用于图片、压缩包等非文本、非 .skill 类型。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GenericFileViewerSheet(
+    target: ViewerTarget,
+    resolveFileUri: suspend (ViewerTarget) -> android.net.Uri?,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // 标题行：文件名
+            Text(
+                text = target.fileName,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+
+            // 三按钮
+            FileViewerActions(
+                target = target,
+                resolveFileUri = resolveFileUri,
+            )
+        }
+    }
+}
+
+/**
+ * 文件查看器的三按钮操作区：其他应用打开 / 分享 / 导出。
+ * 封装 SAF 导出选择器与外部打开/分享的 Uri 解析，供文本查看器和通用查看器共用。
+ */
+@Composable
+private fun FileViewerActions(
+    target: ViewerTarget,
+    resolveFileUri: suspend (ViewerTarget) -> android.net.Uri?,
+) {
+    val context = LocalContext.current
+    val repository = koinInject<WorkspaceRepository>()
+    val toaster = LocalToaster.current
+    val haptics = rememberPremiumHaptics()
+    val scope = rememberCoroutineScope()
+
+    // 导出：SAF CreateDocument
+    var exportTarget by remember(target) { mutableStateOf<ViewerTarget?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        val t = exportTarget
+        exportTarget = null
+        if (uri == null || t == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                val output = withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri) }
+                    ?: error("Unable to open save destination")
+                withContext(Dispatchers.IO) {
+                    output.use { out ->
+                        when (t) {
+                            is ViewerTarget.WorkspaceEntry ->
+                                repository.exportWorkspaceFile(t.workspaceId, t.entry.path, out, t.area)
+                            is ViewerTarget.Reference ->
+                                repository.exportWorkspaceFile(t.workspaceId, t.path, out)
+                        }
+                    }
+                }
+                haptics.perform(HapticPattern.Success)
+                toaster.show(context.getString(R.string.workspace_viewer_export_success))
+            }.onFailure {
+                if (it is CancellationException) throw it
+                haptics.perform(HapticPattern.Error)
+                toaster.show(context.getString(R.string.workspace_viewer_export_failed))
             }
         }
+    }
+
+    // 打开 / 分享：需要先解析出一个可外部访问的 Uri
+    val launchExternal: (android.net.Uri.() -> Unit) -> Unit = { action ->
+        scope.launch {
+            val uri = withContext(Dispatchers.IO) { resolveFileUri(target) }
+            if (uri == null) {
+                haptics.perform(HapticPattern.Error)
+                toaster.show(context.getString(R.string.workspace_detail_open_failed))
+                return@launch
+            }
+            runCatching { uri.action() }.onFailure {
+                if (it is CancellationException) throw it
+                haptics.perform(HapticPattern.Error)
+                toaster.show(context.getString(R.string.workspace_detail_open_failed))
+            }
+        }
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ViewerActionButton(
+            modifier = Modifier.weight(1f),
+            icon = Icons.AutoMirrored.Rounded.OpenInNew,
+            label = stringResource(R.string.workspace_viewer_open_external),
+            onClick = {
+                haptics.perform(HapticPattern.Pop)
+                launchExternal { openExternal(context, this, guessMime(target.fileName)) }
+            },
+        )
+        ViewerActionButton(
+            modifier = Modifier.weight(1f),
+            icon = Icons.Rounded.IosShare,
+            label = stringResource(R.string.workspace_viewer_share),
+            onClick = {
+                haptics.perform(HapticPattern.Pop)
+                launchExternal { shareFile(context, this, guessMime(target.fileName)) }
+            },
+        )
+        ViewerActionButton(
+            modifier = Modifier.weight(1f),
+            icon = Icons.Rounded.Download,
+            label = stringResource(R.string.workspace_viewer_export),
+            onClick = {
+                haptics.perform(HapticPattern.Pop)
+                exportTarget = target
+                exportLauncher.launch(target.fileName)
+            },
+        )
     }
 }
 

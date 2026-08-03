@@ -78,7 +78,6 @@ import me.rerere.rikkahub.ui.pages.extensions.workspace.ViewerTarget
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceFileViewerSheet
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceFileViewerState
 import me.rerere.rikkahub.ui.theme.AppShapes
-import me.rerere.rikkahub.utils.WorkspaceFileClassifier
 import org.koin.compose.koinInject
 import java.io.File
 import java.security.MessageDigest
@@ -181,9 +180,8 @@ internal fun WorkspaceFileReferenceCards(
     }
     if (references.isEmpty()) return
 
-    // 文件卡片查看器：文本/.skill 在应用内打开，其他回退原外部打开逻辑。
+    // 文件卡片查看器：所有类型都走应用内弹窗（文本预览 / .skill 安装 / 通用三按钮）。
     val fileViewerState = remember { WorkspaceFileViewerState() }
-    val scope = rememberCoroutineScope()
     WorkspaceFileViewerSheet(
         state = fileViewerState,
         resolveFileUri = { target ->
@@ -196,33 +194,6 @@ internal fun WorkspaceFileReferenceCards(
                     fileName = target.fileName,
                 )
                 is ViewerTarget.WorkspaceEntry -> null
-            }
-        },
-        onNotHandled = {
-            val t = fileViewerState.current
-            if (t is ViewerTarget.Reference) {
-                scope.launch {
-                    runCatching {
-                        openWorkspaceFileReference(
-                            context = context,
-                            repository = repository,
-                            candidate = WorkspaceFileReferenceCandidate(
-                                workspaceId = t.workspaceId,
-                                path = t.path,
-                            ),
-                        )
-                    }.onFailure { error ->
-                        if (error is CancellationException) throw error
-                        showWorkspaceFileToast(
-                            context,
-                            if (error is FileUnavailableException) {
-                                R.string.workspace_file_reference_unavailable
-                            } else {
-                                R.string.workspace_file_reference_open_failed
-                            },
-                        )
-                    }
-                }
             }
         },
     )
@@ -238,34 +209,11 @@ internal fun WorkspaceFileReferenceCards(
             WorkspaceFileReferenceCard(
                 reference = reference,
                 onOpen = { ref ->
-                    if (WorkspaceFileClassifier.shouldUseBuiltInViewer(ref.name)) {
-                        fileViewerState.showReference(
-                            workspaceId = ref.workspaceId,
-                            path = ref.path,
-                            fileName = ref.name,
-                        )
-                    } else {
-                        runCatching {
-                            openWorkspaceFileReference(
-                                context = context,
-                                repository = repository,
-                                candidate = WorkspaceFileReferenceCandidate(
-                                    workspaceId = ref.workspaceId,
-                                    path = ref.path,
-                                ),
-                            )
-                        }.onFailure { error ->
-                            if (error is CancellationException) throw error
-                            showWorkspaceFileToast(
-                                context,
-                                if (error is FileUnavailableException) {
-                                    R.string.workspace_file_reference_unavailable
-                                } else {
-                                    R.string.workspace_file_reference_open_failed
-                                },
-                            )
-                        }
-                    }
+                    fileViewerState.showReference(
+                        workspaceId = ref.workspaceId,
+                        path = ref.path,
+                        fileName = ref.name,
+                    )
                 },
             )
         }
@@ -284,7 +232,7 @@ internal fun rememberWorkspaceFileReferenceClickHandler(
     val currentWorkspaceContext = rememberUpdatedState(workspaceContext)
     val currentHaptics = rememberUpdatedState(haptics)
 
-    // 聊天侧工作区文件查看器：文本/.skill 在应用内打开，其他回退原外部打开逻辑。
+    // 聊天侧工作区文件查看器：所有类型都走应用内弹窗（文本预览 / .skill 安装 / 通用三按钮）。
     val fileViewerState = remember { WorkspaceFileViewerState() }
     WorkspaceFileViewerSheet(
         state = fileViewerState,
@@ -303,34 +251,6 @@ internal fun rememberWorkspaceFileReferenceClickHandler(
                 }
             }
         },
-        onNotHandled = {
-            val t = fileViewerState.current
-            if (t is ViewerTarget.Reference) {
-                scope.launch {
-                    try {
-                        openWorkspaceFileReference(
-                            context = context,
-                            repository = repository,
-                            candidate = WorkspaceFileReferenceCandidate(
-                                workspaceId = t.workspaceId,
-                                path = t.path,
-                            ),
-                        )
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: FileUnavailableException) {
-                        currentHaptics.value.perform(HapticPattern.Error)
-                        showWorkspaceFileToast(context, R.string.workspace_file_reference_unavailable)
-                    } catch (_: ActivityNotFoundException) {
-                        currentHaptics.value.perform(HapticPattern.Error)
-                        showWorkspaceFileToast(context, R.string.workspace_file_reference_open_failed)
-                    } catch (_: Exception) {
-                        currentHaptics.value.perform(HapticPattern.Error)
-                        showWorkspaceFileToast(context, R.string.workspace_file_reference_open_failed)
-                    }
-                }
-            }
-        },
     )
 
     return remember(context, repository, scope, haptics) {
@@ -339,37 +259,11 @@ internal fun rememberWorkspaceFileReferenceClickHandler(
             if (!workspaceId.isNullOrBlank()) {
                 currentHaptics.value.perform(HapticPattern.Pop)
                 val fileName = path.substringAfterLast('/').ifBlank { path }
-                if (WorkspaceFileClassifier.shouldUseBuiltInViewer(fileName)) {
-                    fileViewerState.showReference(
-                        workspaceId = workspaceId,
-                        path = path,
-                        fileName = fileName,
-                    )
-                } else {
-                    scope.launch {
-                        try {
-                            openWorkspaceFileReference(
-                                context = context,
-                                repository = repository,
-                                candidate = WorkspaceFileReferenceCandidate(
-                                    workspaceId = workspaceId,
-                                    path = path,
-                                ),
-                            )
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (_: FileUnavailableException) {
-                            currentHaptics.value.perform(HapticPattern.Error)
-                            showWorkspaceFileToast(context, R.string.workspace_file_reference_unavailable)
-                        } catch (_: ActivityNotFoundException) {
-                            currentHaptics.value.perform(HapticPattern.Error)
-                            showWorkspaceFileToast(context, R.string.workspace_file_reference_open_failed)
-                        } catch (_: Exception) {
-                            currentHaptics.value.perform(HapticPattern.Error)
-                            showWorkspaceFileToast(context, R.string.workspace_file_reference_open_failed)
-                        }
-                    }
-                }
+                fileViewerState.showReference(
+                    workspaceId = workspaceId,
+                    path = path,
+                    fileName = fileName,
+                )
             }
         }
     }
