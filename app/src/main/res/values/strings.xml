@@ -2310,6 +2310,23 @@
     <string name="workspace_detail_will_delete">Will delete: %1$s</string>
     <string name="workspace_detail_open">Open</string>
     <string name="workspace_detail_open_failed">No app available to open this file</string>
+    <!-- Workspace file viewer (in-app text/code/markdown preview + skill install) -->
+    <string name="workspace_viewer_open_external">Open</string>
+    <string name="workspace_viewer_share">Share</string>
+    <string name="workspace_viewer_export">Export</string>
+    <string name="workspace_viewer_export_success">Exported</string>
+    <string name="workspace_viewer_export_failed">Export failed</string>
+    <string name="workspace_viewer_load_failed">Unable to load file content</string>
+    <string name="workspace_viewer_binary_fallback">This looks like a binary file. Use \"Open with app\" to view it.</string>
+    <string name="workspace_viewer_truncated">File is large; only the first part is shown.</string>
+    <string name="workspace_viewer_encoding_suspect">Encoding may not match; some characters may be incorrect.</string>
+    <string name="workspace_skill_install_title">Install skill</string>
+    <string name="workspace_skill_install_reading">Reading skill package…</string>
+    <string name="workspace_skill_install_contains">This package contains %1$d skill(s):</string>
+    <string name="workspace_skill_install_action">Install</string>
+    <string name="workspace_skill_install_already_installed">Already installed</string>
+    <string name="workspace_skill_install_conflict">A skill named \"%1$s\" is already installed. Remove or rename it first.</string>
+    <string name="workspace_skill_install_failed">Failed to install skill</string>
     <string name="workspace_detail_import_failed">Import failed: %1$s</string>
     <string name="workspace_detail_error_generic">Error</string>
     <string name="workspace_detail_path_bar_root">/</string>

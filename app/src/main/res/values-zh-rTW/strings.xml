@@ -2300,6 +2300,23 @@
     <string name="workspace_detail_will_delete">將刪除：%1$s</string>
     <string name="workspace_detail_open">開啟</string>
     <string name="workspace_detail_open_failed">沒有應用程式可開啟此檔案</string>
+    <!-- 工作區檔案檢視器（應用內文字/程式碼/Markdown 預覽 + 技能安裝） -->
+    <string name="workspace_viewer_open_external">開啟</string>
+    <string name="workspace_viewer_share">分享</string>
+    <string name="workspace_viewer_export">匯出</string>
+    <string name="workspace_viewer_export_success">已匯出</string>
+    <string name="workspace_viewer_export_failed">匯出失敗</string>
+    <string name="workspace_viewer_load_failed">無法載入檔案內容</string>
+    <string name="workspace_viewer_binary_fallback">這似乎是二進位檔案，請用「用其他應用程式開啟」檢視。</string>
+    <string name="workspace_viewer_truncated">檔案較大，僅顯示前面一部分。</string>
+    <string name="workspace_viewer_encoding_suspect">編碼可能不匹配，部分字元可能顯示有誤。</string>
+    <string name="workspace_skill_install_title">安裝技能</string>
+    <string name="workspace_skill_install_reading">正在讀取技能包…</string>
+    <string name="workspace_skill_install_contains">此技能包包含 %1$d 個技能：</string>
+    <string name="workspace_skill_install_action">安裝</string>
+    <string name="workspace_skill_install_already_installed">已安裝</string>
+    <string name="workspace_skill_install_conflict">名為「%1$s」的技能已安裝，請先刪除或重新命名。</string>
+    <string name="workspace_skill_install_failed">安裝技能失敗</string>
     <string name="workspace_detail_import_failed">匯入失敗：%1$s</string>
     <string name="workspace_detail_error_generic">錯誤</string>
     <string name="workspace_detail_path_bar_root">/</string>

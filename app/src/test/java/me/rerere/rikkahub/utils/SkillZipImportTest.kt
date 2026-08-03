@@ -244,6 +244,172 @@ class SkillZipImportTest {
         assertFalse(Skill.isValidName(""))
     }
 
+    // ---- preview（预解析，不安装）----
+
+    @Test
+    fun `previewExtracted reads single skill without installing`() {
+        val (_, unzipped) = newLayout()
+        unzipInto(unzipped, "translator" to skillMd("translator", "A translator skill"))
+
+        val result = SkillZipImport.previewExtracted(unzipped)
+
+        assertTrue("expected Success, got $result", result is SkillZipImport.PreviewResult.Success)
+        val skills = (result as SkillZipImport.PreviewResult.Success).skills
+        assertEquals(1, skills.size)
+        assertEquals("translator", skills[0].name)
+        assertEquals("A translator skill", skills[0].description)
+    }
+
+    @Test
+    fun `previewExtracted reads multiple skills`() {
+        val (_, unzipped) = newLayout()
+        unzipInto(
+            unzipped,
+            "a" to skillMd("translator", "t"),
+            "b" to skillMd("pdf-reader", "p"),
+        )
+
+        val result = SkillZipImport.previewExtracted(unzipped)
+
+        assertTrue(result is SkillZipImport.PreviewResult.Success)
+        val skills = (result as SkillZipImport.PreviewResult.Success).skills
+        assertEquals(2, skills.size)
+        val names = skills.map { it.name }.toSet()
+        assertTrue("translator" in names)
+        assertTrue("pdf-reader" in names)
+    }
+
+    @Test
+    fun `previewExtracted does not check installed conflicts`() {
+        // 预解析阶段不应因与已安装重名而失败（UI 自行标注冲突）。
+        val (_, unzipped) = newLayout()
+        unzipInto(unzipped, "translator" to skillMd("translator", "new"))
+
+        val result = SkillZipImport.previewExtracted(unzipped)
+        // previewExtracted 不传 existingSkillNames，因此即使已安装同名也应成功。
+        assertTrue(result is SkillZipImport.PreviewResult.Success)
+    }
+
+    @Test
+    fun `previewExtracted rejects missing SKILL_MD`() {
+        val (_, unzipped) = newLayout()
+        // 空目录，无 SKILL.md
+        File(unzipped, "empty").mkdirs()
+
+        val result = SkillZipImport.previewExtracted(unzipped)
+        assertTrue(result is SkillZipImport.PreviewResult.Error)
+    }
+
+    @Test
+    fun `previewExtracted rejects invalid name`() {
+        val (_, unzipped) = newLayout()
+        unzipInto(unzipped, "dir" to skillMd("Bad Name", "bad"))
+
+        val result = SkillZipImport.previewExtracted(unzipped)
+        assertTrue(result is SkillZipImport.PreviewResult.Error)
+    }
+
+    @Test
+    fun `previewExtracted rejects duplicate names in zip`() {
+        val (_, unzipped) = newLayout()
+        unzipInto(
+            unzipped,
+            "a" to skillMd("translator", "first"),
+            "b" to skillMd("translator", "second"),
+        )
+
+        val result = SkillZipImport.previewExtracted(unzipped)
+        assertTrue(result is SkillZipImport.PreviewResult.Error)
+    }
+
+    @Test
+    fun `previewExtracted leaves no files behind`() {
+        // 预解析不应在任何位置写入技能目录。
+        val (skillsRoot, unzipped) = newLayout()
+        unzipInto(unzipped, "translator" to skillMd("translator", "t"))
+
+        SkillZipImport.previewExtracted(unzipped)
+
+        // skillsRoot 应保持为空（预解析不安装）。
+        assertFalse(skillsRoot.exists() && skillsRoot.listFiles().orEmpty().isNotEmpty())
+    }
+
+    @Test
+    fun `previewFromStream reads a real zip and returns previews`() {
+        val zipBytes = makeZipBytes("translator" to skillMd("translator", "A translator skill"))
+
+        val result = kotlinx.coroutines.runBlocking {
+            SkillZipImport.previewFromStream(
+                inputStream = java.io.ByteArrayInputStream(zipBytes),
+            )
+        }
+
+        assertTrue("expected Success, got $result", result is SkillZipImport.PreviewResult.Success)
+        val skills = (result as SkillZipImport.PreviewResult.Success).skills
+        assertEquals(1, skills.size)
+        assertEquals("translator", skills[0].name)
+        assertEquals("A translator skill", skills[0].description)
+    }
+
+    @Test
+    fun `previewFromStream skips path traversal entries without error`() {
+        // 含恶意路径的 zip：只有 ../escape.txt，没有合法 SKILL.md → 应返回 Error（找不到 SKILL.md），
+        // 但绝不应在磁盘上创建任何越界文件。
+        val baos = java.io.ByteArrayOutputStream()
+        ZipOutputStream(baos).use { zos ->
+            zos.putNextEntry(ZipEntry("../escape.txt"))
+            zos.write("evil".toByteArray(Charsets.UTF_8))
+            zos.closeEntry()
+        }
+        val zipBytes = baos.toByteArray()
+
+        val result = kotlinx.coroutines.runBlocking {
+            SkillZipImport.previewFromStream(
+                inputStream = java.io.ByteArrayInputStream(zipBytes),
+            )
+        }
+
+        // 没有 SKILL.md → Error；恶意路径被跳过而非解压。
+        assertTrue("expected Error, got $result", result is SkillZipImport.PreviewResult.Error)
+    }
+
+    @Test
+    fun `previewFromStream reads multiple skills from nested dirs`() {
+        val zipBytes = makeZipBytes(
+            "a" to skillMd("translator", "t"),
+            "b" to skillMd("pdf-reader", "p"),
+        )
+
+        val result = kotlinx.coroutines.runBlocking {
+            SkillZipImport.previewFromStream(
+                inputStream = java.io.ByteArrayInputStream(zipBytes),
+            )
+        }
+
+        assertTrue(result is SkillZipImport.PreviewResult.Success)
+        val skills = (result as SkillZipImport.PreviewResult.Success).skills
+        assertEquals(2, skills.size)
+        val names = skills.map { it.name }.toSet()
+        assertTrue("translator" in names)
+        assertTrue("pdf-reader" in names)
+    }
+
+    @Test
+    fun `previewFromStream rejects duplicate skill names`() {
+        val zipBytes = makeZipBytes(
+            "a" to skillMd("translator", "first"),
+            "b" to skillMd("translator", "second"),
+        )
+
+        val result = kotlinx.coroutines.runBlocking {
+            SkillZipImport.previewFromStream(
+                inputStream = java.io.ByteArrayInputStream(zipBytes),
+            )
+        }
+
+        assertTrue(result is SkillZipImport.PreviewResult.Error)
+    }
+
     // ---- helpers ----
 
     private fun newLayout(): Pair<File, File> {
@@ -256,6 +422,19 @@ class SkillZipImportTest {
 
     private fun skillMd(name: String, description: String): String =
         "---\nname: $name\ndescription: $description\n---\nbody"
+
+    /** 构造一个 zip 的字节数组，每个 entry 是 <dir>/SKILL.md。 */
+    private fun makeZipBytes(vararg entries: Pair<String, String>): ByteArray {
+        val baos = java.io.ByteArrayOutputStream()
+        ZipOutputStream(baos).use { zos ->
+            entries.forEach { (dir, content) ->
+                zos.putNextEntry(ZipEntry("$dir/SKILL.md"))
+                zos.write(content.toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+            }
+        }
+        return baos.toByteArray()
+    }
 
     private fun unzipInto(target: File, vararg entries: Pair<String, String>) {
         val zip = tempFolder.newFile()

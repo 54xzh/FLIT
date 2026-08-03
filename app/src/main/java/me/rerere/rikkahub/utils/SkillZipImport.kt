@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.files.SkillPaths
 import me.rerere.rikkahub.data.model.Skill
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.zip.ZipInputStream
 import kotlin.random.Random
@@ -16,6 +17,18 @@ object SkillZipImport {
         data class Success(val skills: List<Skill>, val archiveName: String?) : ImportResult()
         data class Error(val message: String) : ImportResult()
     }
+
+    /** 预解析结果：只读取压缩包内容，不写入任何文件。 */
+    sealed class PreviewResult {
+        data class Success(val skills: List<SkillPreview>) : PreviewResult()
+        data class Error(val message: String) : PreviewResult()
+    }
+
+    /** 压缩包内单个技能的预览信息。 */
+    data class SkillPreview(
+        val name: String,
+        val description: String,
+    )
 
     /**
      * 导入技能压缩包。
@@ -100,49 +113,103 @@ object SkillZipImport {
     }
 
     /**
-     * 对已解压到 [tempSkillRoot] 的技能目录做全量校验 + 原子落地。
-     * 任一校验失败或落地失败则整体不导入并回滚已落地的目录。
+     * 预解析压缩包：流式读取 SKILL.md front matter 并校验，不写入任何文件。
+     * 用于安装前向用户展示包内技能信息。
+     *
+     * 注意：这里不做"与已安装重名"的硬校验（只在 [importFromStream] 阶段拒绝），
+     * 预解析阶段即使存在重名也返回成功，调用方可在 UI 上自行标注。
      */
-    internal fun importExtracted(
-        tempSkillRoot: File,
-        skillsRoot: File,
-        existingSkillNames: Set<String>,
-        archiveName: String?,
-    ): ImportResult {
-        // 2. 找出所有 SKILL.md。
-        val skillFiles = tempSkillRoot
-            .walkTopDown()
-            .filter { it.isFile && it.name.equals("SKILL.md", ignoreCase = true) }
-            .toList()
+    suspend fun previewFromUri(context: Context, uri: Uri): PreviewResult = withContext(Dispatchers.IO) {
+        val inputStream = context.contentResolver.openInputStream(uri)
+            ?: return@withContext PreviewResult.Error("Could not open file")
+        inputStream.use { previewFromStream(it) }
+    }
 
-        if (skillFiles.isEmpty()) {
-            return ImportResult.Error("No SKILL.md found in zip")
+    /**
+     * 从 [inputStream] 流式读取 zip 并预解析：只把名为 `SKILL.md` 的 entry 读进内存
+     * （每个限制 [MAX_SKILL_MD_PREVIEW_BYTES]），不解压其他文件、不写磁盘。
+     *
+     * 相比全量解压，避免 zip 炸弹风险并显著降低预览开销。
+     * [cacheDir] 参数保留以兼容旧调用方，当前实现不再使用。
+     */
+    suspend fun previewFromStream(
+        inputStream: java.io.InputStream,
+        @Suppress("UNUSED_PARAMETER") cacheDir: File? = null,
+    ): PreviewResult = withContext(Dispatchers.IO) {
+        try {
+            inputStream.use { input ->
+                ZipInputStream(input).use { zip ->
+                    // 收集所有 SKILL.md 的（目录名, 内容）。
+                    val skillMdContents = mutableListOf<Pair<String, String>>()
+
+                    while (true) {
+                        val entry = zip.nextEntry ?: break
+                        val name = entry.name.replace('\\', '/')
+                        // zip-slip 防御：拒绝绝对路径与越界路径，但预览只读 SKILL.md，
+                        // 不会落地文件，这里仍做基本校验避免读取恶意路径名。
+                        if (name.startsWith("/") || name.contains("../")) {
+                            zip.closeEntry()
+                            continue
+                        }
+                        if (!entry.isDirectory && name.substringAfterLast('/').equals("SKILL.md", ignoreCase = true)) {
+                            val dirName = name.substringBeforeLast('/').substringAfterLast('/')
+                            val content = zip.readLimitedText(MAX_SKILL_MD_PREVIEW_BYTES)
+                            skillMdContents += dirName to content
+                        }
+                        zip.closeEntry()
+                    }
+
+                    previewFromContents(skillMdContents)
+                }
+            }
+        } catch (e: Exception) {
+            PreviewResult.Error("Failed to read skill package: ${e.message}")
+        }
+    }
+
+    /** 单个 SKILL.md 预览读取的最大字节数，防止超大 SKILL.md 占用内存。 */
+    private const val MAX_SKILL_MD_PREVIEW_BYTES = 256 * 1024
+
+    /** 从 ZipInputStream 当前 entry 读取文本，最多 [maxBytes] 字节。 */
+    private fun ZipInputStream.readLimitedText(maxBytes: Int): String {
+        val buffer = ByteArrayOutputStream(maxBytes.coerceAtMost(8192))
+        val chunk = ByteArray(8192)
+        var total = 0
+        while (total < maxBytes) {
+            val toRead = minOf(chunk.size, maxBytes - total)
+            val read = read(chunk, 0, toRead)
+            if (read <= 0) break
+            buffer.write(chunk, 0, read)
+            total += read
+        }
+        return buffer.toString(Charsets.UTF_8.name())
+    }
+
+    /**
+     * 基于内存中的 SKILL.md（dirName → 内容）列表做预解析校验。
+     * 校验项与 [parseSkillFiles] 一致，但不检查与已安装重名。
+     */
+    internal fun previewFromContents(skillMdContents: List<Pair<String, String>>): PreviewResult {
+        if (skillMdContents.isEmpty()) {
+            return PreviewResult.Error("No SKILL.md found in zip")
         }
 
-        // 3. 全量校验：每个 SKILL.md 必须有非空、合法、唯一的 name；且不与已安装重名。
-        //    解析阶段就把所有问题收集起来，任一失败则整体不导入。
-        data class ParsedSkill(val skillDir: File, val name: String, val description: String)
-
         val seenNamesInZip = mutableSetOf<String>()
-        val parsed = mutableListOf<ParsedSkill>()
+        val previews = mutableListOf<SkillPreview>()
 
-        for (skillFile in skillFiles) {
-            val skillDir = skillFile.parentFile
-                ?: return ImportResult.Error("Invalid skill folder structure")
-
-            val raw = runCatching { skillFile.readText(Charsets.UTF_8) }.getOrNull().orEmpty()
+        for ((_, raw) in skillMdContents) {
             val frontMatter = parseFrontMatter(raw)
             val name = frontMatter.name?.trim().orEmpty()
 
             if (name.isBlank()) {
-                return ImportResult.Error(
+                return PreviewResult.Error(
                     "A SKILL.md is missing a 'name' field. " +
                         "Every skill must declare a name in its front matter.",
                 )
             }
 
             if (!Skill.isValidName(name)) {
-                return ImportResult.Error(
+                return PreviewResult.Error(
                     "Invalid skill name \"$name\". " +
                         "Names must be lowercase letters, digits, and hyphens " +
                         "(e.g. \"translator\", \"pdf-reader\"). " +
@@ -150,21 +217,113 @@ object SkillZipImport {
                 )
             }
 
-            // name 来自文档内容，必须拒绝路径分隔符 / `..`（SkillPaths 会再兜一次，这里给更友好的报错）。
             if (name.contains('/') || name.contains('\\') || name == "." || name == "..") {
-                return ImportResult.Error(
+                return PreviewResult.Error(
                     "Invalid skill name \"$name\": path separators and traversal segments are not allowed.",
                 )
             }
 
             if (!seenNamesInZip.add(name)) {
-                return ImportResult.Error(
+                return PreviewResult.Error(
+                    "Duplicate skill name \"$name\" inside the zip. Each skill must have a unique name.",
+                )
+            }
+
+            previews += SkillPreview(name = name, description = frontMatter.description?.trim().orEmpty())
+        }
+
+        return PreviewResult.Success(skills = previews)
+    }
+
+    /**
+     * 对已解压到 [tempSkillRoot] 的技能目录做全量校验（不安装）。
+     * 校验项与 [importExtracted] 的解析阶段一致，但不检查与已安装重名。
+     */
+    internal fun previewExtracted(tempSkillRoot: File): PreviewResult {
+        val parsed = parseSkillFiles(tempSkillRoot).fold(
+            ifLeft = { message -> return PreviewResult.Error(message) },
+            ifRight = { it -> it },
+        )
+        return PreviewResult.Success(
+            skills = parsed.map { SkillPreview(name = it.name, description = it.description) },
+        )
+    }
+
+    /** 解析后的技能信息（内部用，安装阶段还需要 skillDir）。 */
+    private data class ParsedSkill(val skillDir: File, val name: String, val description: String)
+
+    /** 简单的二选一类型，避免引入额外依赖。 */
+    private sealed class Either<out L, out R> {
+        data class Left<L>(val value: L) : Either<L, Nothing>()
+        data class Right<R>(val value: R) : Either<Nothing, R>()
+
+        inline fun <T> fold(ifLeft: (L) -> T, ifRight: (R) -> T): T = when (this) {
+            is Left -> ifLeft(value)
+            is Right -> ifRight(value)
+        }
+    }
+
+    /**
+     * 解析 [tempSkillRoot] 下所有 SKILL.md，做技能名合法性、zip 内唯一性校验。
+     * 成功返回技能列表，失败返回错误信息。
+     *
+     * 预解析（[previewExtracted]）与安装（[importExtracted]）共用此方法，
+     * 唯一区别是安装阶段额外检查"与已安装重名"。
+     */
+    private fun parseSkillFiles(
+        tempSkillRoot: File,
+        existingSkillNames: Set<String> = emptySet(),
+    ): Either<String, List<ParsedSkill>> {
+        val skillFiles = tempSkillRoot
+            .walkTopDown()
+            .filter { it.isFile && it.name.equals("SKILL.md", ignoreCase = true) }
+            .toList()
+
+        if (skillFiles.isEmpty()) {
+            return Either.Left("No SKILL.md found in zip")
+        }
+
+        val seenNamesInZip = mutableSetOf<String>()
+        val parsed = mutableListOf<ParsedSkill>()
+
+        for (skillFile in skillFiles) {
+            val skillDir = skillFile.parentFile
+                ?: return Either.Left("Invalid skill folder structure")
+
+            val raw = runCatching { skillFile.readText(Charsets.UTF_8) }.getOrNull().orEmpty()
+            val frontMatter = parseFrontMatter(raw)
+            val name = frontMatter.name?.trim().orEmpty()
+
+            if (name.isBlank()) {
+                return Either.Left(
+                    "A SKILL.md is missing a 'name' field. " +
+                        "Every skill must declare a name in its front matter.",
+                )
+            }
+
+            if (!Skill.isValidName(name)) {
+                return Either.Left(
+                    "Invalid skill name \"$name\". " +
+                        "Names must be lowercase letters, digits, and hyphens " +
+                        "(e.g. \"translator\", \"pdf-reader\"). " +
+                        "No spaces, slashes, leading/trailing hyphens.",
+                )
+            }
+
+            if (name.contains('/') || name.contains('\\') || name == "." || name == "..") {
+                return Either.Left(
+                    "Invalid skill name \"$name\": path separators and traversal segments are not allowed.",
+                )
+            }
+
+            if (!seenNamesInZip.add(name)) {
+                return Either.Left(
                     "Duplicate skill name \"$name\" inside the zip. Each skill must have a unique name.",
                 )
             }
 
             if (name in existingSkillNames) {
-                return ImportResult.Error(
+                return Either.Left(
                     "A skill named \"$name\" is already installed. " +
                         "Rename it in the zip's SKILL.md or remove the existing one first.",
                 )
@@ -177,8 +336,26 @@ object SkillZipImport {
             )
         }
 
-        // 4. 校验通过：改写每个 SKILL.md 的 front matter name（与目录名一致），再把技能目录
-        //    原子地改名为正式技能名目录。任一落地失败则回滚已落地的目录。
+        return Either.Right(parsed)
+    }
+
+    /**
+     * 对已解压到 [tempSkillRoot] 的技能目录做全量校验 + 原子落地。
+     * 任一校验失败或落地失败则整体不导入并回滚已落地的目录。
+     */
+    internal fun importExtracted(
+        tempSkillRoot: File,
+        skillsRoot: File,
+        existingSkillNames: Set<String>,
+        archiveName: String?,
+    ): ImportResult {
+        val parsed = parseSkillFiles(tempSkillRoot, existingSkillNames).fold(
+            ifLeft = { message -> return ImportResult.Error(message) },
+            ifRight = { it -> it },
+        )
+
+        // 校验通过：改写每个 SKILL.md 的 front matter name（与目录名一致），再把技能目录
+        // 原子地改名为正式技能名目录。任一落地失败则回滚已落地的目录。
         val landed = mutableListOf<File>()
         val installed = mutableListOf<Skill>()
 
@@ -275,12 +452,12 @@ object SkillZipImport {
         if (name.isBlank()) return null
 
         val trimmed = name.trim()
-        val withoutZip = if (trimmed.endsWith(".zip", ignoreCase = true)) {
-            trimmed.dropLast(4).trim()
-        } else {
-            trimmed
+        val withoutArchive = when {
+            trimmed.endsWith(".zip", ignoreCase = true) -> trimmed.dropLast(4).trim()
+            trimmed.endsWith(".skill", ignoreCase = true) -> trimmed.dropLast(6).trim()
+            else -> trimmed
         }
-        return withoutZip.ifBlank { null }
+        return withoutArchive.ifBlank { null }
     }
 
     internal data class SkillFrontMatter(

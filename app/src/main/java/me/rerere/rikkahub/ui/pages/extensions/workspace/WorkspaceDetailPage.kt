@@ -57,6 +57,7 @@ import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
+import me.rerere.rikkahub.utils.WorkspaceFileClassifier
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 import java.time.LocalDateTime
@@ -90,6 +91,9 @@ fun WorkspaceDetailPage(
     var showMountPermissionDialog by remember { mutableStateOf(false) }
     var mountDraft by remember { mutableStateOf<SandboxMountDraft?>(null) }
     var mountSubmitting by remember { mutableStateOf(false) }
+
+    // 工作区文件查看器：文本类与 .skill 文件在应用内打开，其他类型回退到原逻辑。
+    val fileViewerState = remember { WorkspaceFileViewerState() }
 
     val ws = workspace
 
@@ -182,8 +186,8 @@ fun WorkspaceDetailPage(
         }
     }
 
-    // 文件页打开文件：解析 uri -> ACTION_VIEW
-    val openFile: (WorkspaceFileEntry) -> Unit = { entry ->
+    // 原有"用其他应用打开"逻辑，作为非内置查看类型的兜底。
+    val openFileExternal: (WorkspaceFileEntry) -> Unit = { entry ->
         scope.launch {
             val uri = vm.resolveFileUri(entry)
             if (uri == null) {
@@ -202,6 +206,20 @@ fun WorkspaceDetailPage(
             }.onFailure {
                 toaster.show(context.getString(R.string.workspace_detail_open_failed))
             }
+        }
+    }
+
+    // 文件页打开文件：先按类型分流，文本/.skill 走应用内查看器，其他回退到外部打开。
+    val openFile: (WorkspaceFileEntry) -> Unit = { entry ->
+        if (WorkspaceFileClassifier.shouldUseBuiltInViewer(entry.name) && workspace?.id != null) {
+            haptics.perform(HapticPattern.Pop)
+            fileViewerState.showWorkspaceEntry(
+                workspaceId = workspace!!.id,
+                entry = entry,
+                area = filesState.area,
+            )
+        } else {
+            openFileExternal(entry)
         }
     }
 
@@ -537,4 +555,26 @@ fun WorkspaceDetailPage(
     }
 
     WorkspaceTransferDialog(state = transferState, onCancel = vm::cancelTransfer)
+
+    // 工作区文件查看器：处理非 OTHER 分类的文件；OTHER 回退到 openFileExternal。
+    val wsId = workspace?.id
+    WorkspaceFileViewerSheet(
+        state = fileViewerState,
+        resolveFileUri = { target ->
+            when (target) {
+                is ViewerTarget.WorkspaceEntry -> vm.resolveFileUri(target.entry)
+                is ViewerTarget.Reference -> {
+                    // 工作区详情页只处理 entry 形式；reference 不应在此出现。
+                    null
+                }
+            }
+        },
+        onNotHandled = {
+            // 分类为 OTHER 的文件：走原外部打开逻辑。
+            val t = fileViewerState.current
+            if (t is ViewerTarget.WorkspaceEntry && wsId != null) {
+                openFileExternal(t.entry)
+            }
+        },
+    )
 }

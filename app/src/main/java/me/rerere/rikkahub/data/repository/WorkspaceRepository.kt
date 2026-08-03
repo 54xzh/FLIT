@@ -975,7 +975,12 @@ class WorkspaceRepository(
     }
 
     /** Stream the current file into [output], rechecking the workspace path at click time. */
-    suspend fun exportWorkspaceFile(id: String, path: String, output: OutputStream) = withContext(Dispatchers.IO) {
+    suspend fun exportWorkspaceFile(
+        id: String,
+        path: String,
+        output: OutputStream,
+        area: SandboxStorageArea = SandboxStorageArea.FILES,
+    ) = withContext(Dispatchers.IO) {
         val workspace = getById(id) ?: error("Workspace is unavailable")
         val normalized = runCatching { normalizeWorkspaceRelativePath(path) }.getOrNull()
             ?.takeIf { it.isNotBlank() }
@@ -990,8 +995,118 @@ class WorkspaceRepository(
                 } ?: error("Unable to read file")
             }
 
-            WorkspaceType.SANDBOX -> exportSandboxFile(id, normalized, output)
+            WorkspaceType.SANDBOX -> exportSandboxFile(id, normalized, output, area)
         }
+    }
+
+    /**
+     * 读取工作区文件的文本内容，用于应用内查看器预览。沙盒与 SAF 工作区统一走此入口。
+     *
+     * - 流式读取，最多读 [maxChars] 个字符后截断，避免大文件整文件入内存。
+     * - 读取前先嗅探前 [binarySniffBytes] 字节，含 NUL 字节则判定为二进制并返回 [ReadTextResult.Binary]。
+     * - 按 UTF-8 宽容模式解码；检测到替换字符时标记 [ReadTextResult.encodingSuspect]。
+     */
+    suspend fun readWorkspaceFileText(
+        id: String,
+        path: String,
+        maxChars: Int = 200_000,
+        binarySniffBytes: Int = 8_192,
+        area: SandboxStorageArea = SandboxStorageArea.FILES,
+    ): ReadTextResult = withContext(Dispatchers.IO) {
+        val workspace = getById(id) ?: return@withContext ReadTextResult.Unavailable
+        val normalized = runCatching { normalizeWorkspaceRelativePath(path) }.getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: return@withContext ReadTextResult.Unavailable
+
+        // 沙盒工作区需要先导出临时副本再读；tempFile 用于读完即删，避免缓存累积。
+        var tempFile: File? = null
+        val input: InputStream? = when (workspace.type) {
+            WorkspaceType.LIGHTWEIGHT -> {
+                val root = workspace.treeUri?.let(::resolveRoot)
+                root?.let { safRepository.resolve(it, normalized)?.takeIf { it.isFile }?.uri }
+                    ?.let { context.contentResolver.openInputStream(it) }
+            }
+            WorkspaceType.SANDBOX -> {
+                val tempDir = File(context.cacheDir, "workspace_readtext/${id}").apply { mkdirs() }
+                runCatching {
+                    val temp = File.createTempFile("read_", ".tmp", tempDir)
+                    temp.outputStream().use { out -> exportSandboxFile(id, normalized, out, area) }
+                    tempFile = temp
+                    temp.inputStream()
+                }.getOrNull()
+            }
+        }
+
+        if (input == null) return@withContext ReadTextResult.Unavailable
+        try {
+            val reader = input.buffered().bufferedReader(Charsets.UTF_8)
+            val buffer = CharArray(8192)
+            val sniffBuf = StringBuilder(minOf(binarySniffBytes, 8192))
+            var totalChars = 0
+            var truncated = false
+
+            // 先读一小段做二进制嗅探。
+            val sniffRead = reader.read(buffer, 0, minOf(buffer.size, binarySniffBytes))
+            if (sniffRead <= 0) {
+                return@withContext ReadTextResult.Success(
+                    content = "",
+                    truncated = false,
+                    encodingSuspect = false,
+                )
+            }
+            sniffBuf.append(buffer, 0, sniffRead)
+            // NUL 字节（U+0000）经 UTF-8 解码后为 ' '，判定为二进制。
+            if (sniffBuf.indexOf(' ') >= 0) {
+                return@withContext ReadTextResult.Binary
+            }
+            totalChars = sniffRead
+            val builder = StringBuilder().append(sniffBuf)
+
+            while (totalChars < maxChars) {
+                val toRead = minOf(buffer.size, maxChars - totalChars)
+                val read = reader.read(buffer, 0, toRead)
+                if (read <= 0) break
+                builder.append(buffer, 0, read)
+                totalChars += read
+            }
+            if (totalChars >= maxChars) {
+                // 再尝试读一个字符判断是否真的还有更多内容。
+                val extra = reader.read()
+                if (extra >= 0) {
+                    truncated = true
+                }
+            }
+
+            val content = builder.toString()
+            val encodingSuspect = content.contains('�')
+
+            ReadTextResult.Success(
+                content = content,
+                truncated = truncated,
+                encodingSuspect = encodingSuspect,
+            )
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            ReadTextResult.Unavailable
+        } finally {
+            runCatching { input.close() }
+            tempFile?.let { runCatching { it.delete() } }
+        }
+    }
+
+    /** [readWorkspaceFileText] 的结果。 */
+    sealed class ReadTextResult {
+        data class Success(
+            val content: String,
+            val truncated: Boolean,
+            val encodingSuspect: Boolean,
+        ) : ReadTextResult()
+
+        /** 文件内容疑似二进制（检测到 NUL 字节），不适合文本查看器。 */
+        data object Binary : ReadTextResult()
+
+        /** 文件不可用或读取失败。 */
+        data object Unavailable : ReadTextResult()
     }
 
     private suspend fun resolve(record: WorkspaceEntity): Workspace? = when (record.type) {

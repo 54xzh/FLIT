@@ -2208,6 +2208,23 @@
     <string name="workspace_detail_import_file">导入文件</string>
     <string name="workspace_detail_open">打开</string>
     <string name="workspace_detail_open_failed">没有应用可打开此文件</string>
+    <!-- 工作区文件查看器（应用内文本/代码/Markdown 预览 + 技能安装） -->
+    <string name="workspace_viewer_open_external">打开</string>
+    <string name="workspace_viewer_share">分享</string>
+    <string name="workspace_viewer_export">导出</string>
+    <string name="workspace_viewer_export_success">已导出</string>
+    <string name="workspace_viewer_export_failed">导出失败</string>
+    <string name="workspace_viewer_load_failed">无法加载文件内容</string>
+    <string name="workspace_viewer_binary_fallback">这似乎是二进制文件，请用“用其他应用打开”查看。</string>
+    <string name="workspace_viewer_truncated">文件较大，仅显示前面一部分。</string>
+    <string name="workspace_viewer_encoding_suspect">编码可能不匹配，部分字符可能显示有误。</string>
+    <string name="workspace_skill_install_title">安装技能</string>
+    <string name="workspace_skill_install_reading">正在读取技能包…</string>
+    <string name="workspace_skill_install_contains">此技能包包含 %1$d 个技能：</string>
+    <string name="workspace_skill_install_action">安装</string>
+    <string name="workspace_skill_install_already_installed">已安装</string>
+    <string name="workspace_skill_install_conflict">名为“%1$s”的技能已安装，请先删除或重命名。</string>
+    <string name="workspace_skill_install_failed">安装技能失败</string>
     <string name="workspace_detail_path_bar_root">/</string>
     <string name="workspace_detail_tab_basic">设置</string>
     <string name="workspace_detail_tab_files">文件</string>
