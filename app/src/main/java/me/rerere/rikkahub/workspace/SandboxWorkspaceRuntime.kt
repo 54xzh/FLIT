@@ -229,7 +229,7 @@ class SandboxWorkspaceManager(
         val dir = resolve(canonicalRoot, path)
         require(dir.exists()) { "Path does not exist: $path" }
         require(dir.isDirectory) { "Path is not a directory: $path" }
-        return dir.listFiles().orEmpty()
+        return (dir.listFiles() ?: error("Unable to list directory: $path"))
             .sortedWith(compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() })
             .take(MAX_LIST_ENTRIES)
             .map { it.toEntry(canonicalRoot) }
