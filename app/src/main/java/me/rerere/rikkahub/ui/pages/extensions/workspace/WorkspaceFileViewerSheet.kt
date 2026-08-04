@@ -322,8 +322,9 @@ private fun DocxViewerSheet(
     LaunchedEffect(target) {
         loadState = DocxLoadState.Loading
         loadState = runCatching {
-            val bytes = withContext(Dispatchers.IO) {
-                when (target) {
+            // 读字节 + base64 编码 + 构建 HTML 都在 IO 线程，避免大文档阻塞主线程导致 ANR。
+            withContext(Dispatchers.IO) {
+                val bytes = when (target) {
                     is ViewerTarget.WorkspaceEntry -> {
                         if (target.entry.isDirectory) null
                         else repository.readWorkspaceFileBytes(target.workspaceId, target.entry.path, target.area)
@@ -331,15 +332,14 @@ private fun DocxViewerSheet(
                     is ViewerTarget.Reference -> {
                         repository.readWorkspaceFileBytes(target.workspaceId, target.path)
                     }
-                }
+                } ?: return@withContext DocxLoadState.Error
+                val html = buildDocxPreviewHtml(
+                    context = context,
+                    docxBase64 = Base64.encode(bytes),
+                    colorScheme = colorScheme,
+                )
+                DocxLoadState.Success(html)
             }
-            if (bytes == null) return@runCatching DocxLoadState.Error
-            val html = buildDocxPreviewHtml(
-                context = context,
-                docxBase64 = Base64.encode(bytes),
-                colorScheme = colorScheme,
-            )
-            DocxLoadState.Success(html)
         }.getOrElse { DocxLoadState.Error }
     }
 

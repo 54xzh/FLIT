@@ -13,10 +13,29 @@
             color: {{ON_BACKGROUND_COLOR}};
         }
 
-        /* docx-preview 渲染出的文档容器 */
+        /* docx-preview 渲染出的文档容器：Web 视图强制按容器宽度收缩，消除横向滚动 */
         #container > .docx-wrapper {
             background: transparent;
             padding: 0;
+            width: 100% !important;
+            max-width: 100% !important;
+            display: block !important;
+        }
+
+        /* 文档 section 也按容器宽度，不再按纸张宽度撑开 */
+        #container > .docx-wrapper > section {
+            width: 100% !important;
+            max-width: 100% !important;
+            box-shadow: none !important;
+            margin: 0 !important;
+            padding: 12px !important;
+        }
+
+        /* 兜底：任何内部元素超出容器就换行/隐藏，不让横向滚动条出现 */
+        #container {
+            overflow-x: hidden;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
         }
 
         /* 渲染失败时显示的错误提示 */
