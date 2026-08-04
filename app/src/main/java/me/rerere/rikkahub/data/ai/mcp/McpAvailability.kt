@@ -55,6 +55,17 @@ data class McpRuntimeScope(
     val workspaceId: String? = null,
 )
 
+private val generationReservedToolNames = setOf(
+    "create_memory",
+    "edit_memory",
+    "delete_memory",
+    "create_session_memory",
+    "edit_session_memory",
+    "delete_session_memory",
+    "web_search",
+    "x_search",
+)
+
 fun McpServerConfig.runtimeScope(): McpRuntimeScope = when (this) {
     is McpServerConfig.StdioServer -> McpRuntimeScope("stdio", workspaceId)
     is McpServerConfig.SseTransportServer -> McpRuntimeScope("sse")
@@ -65,6 +76,7 @@ internal fun resolveMcpTools(
     servers: List<McpServerConfig>,
     selectedServerIds: Set<Uuid>,
     effectiveWorkspaceId: String?,
+    reservedToolNames: Set<String> = emptySet(),
 ): List<McpResolvedTool> {
     val available = servers.flatMap { server ->
         server.commonOptions.tools.mapNotNull { tool ->
@@ -76,9 +88,10 @@ internal fun resolveMcpTools(
         }
     }
     val duplicateNames = available.groupingBy { it.second.name }.eachCount().filterValues { it > 1 }.keys
-    val usedNames = mutableSetOf<String>()
+    val allReservedToolNames = reservedToolNames + generationReservedToolNames
+    val usedNames = allReservedToolNames.toMutableSet()
     return available.map { (server, tool) ->
-        val preferredName = if (tool.name in duplicateNames) {
+        val preferredName = if (tool.name in duplicateNames || tool.name in allReservedToolNames) {
             "${server.commonOptions.name.toToolPrefix()}_${tool.name}"
         } else {
             tool.name
@@ -86,7 +99,14 @@ internal fun resolveMcpTools(
         val exposedName = if (usedNames.add(preferredName)) {
             preferredName
         } else {
-            "${preferredName}_${server.id.toString().take(8)}".also(usedNames::add)
+            val idSuffix = "${preferredName}_${server.id.toString().take(8)}"
+            if (usedNames.add(idSuffix)) {
+                idSuffix
+            } else {
+                generateSequence(2) { it + 1 }
+                    .map { suffix -> "${idSuffix}_$suffix" }
+                    .first { usedNames.add(it) }
+            }
         }
         McpResolvedTool(
             serverId = server.id,

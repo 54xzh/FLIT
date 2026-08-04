@@ -15,6 +15,7 @@ import me.rerere.rikkahub.data.backup.BackupTaskMutex
 import me.rerere.rikkahub.data.backup.CompatExporter
 import me.rerere.rikkahub.data.ai.tools.LocalTools
 import me.rerere.rikkahub.data.ai.tools.SearchAgentProgressStore
+import me.rerere.rikkahub.data.ai.tools.WorkspaceToolFactory
 import me.rerere.rikkahub.data.migration.WorkspaceMigration
 import me.rerere.rikkahub.data.migration.SkillUuidMigration
 import me.rerere.rikkahub.service.ChatService
@@ -39,6 +40,15 @@ val appModule = module {
 
     single {
         LocalTools(get(), get(), get(), get(), get(), get())
+    }
+
+    single {
+        WorkspaceToolFactory(
+            context = get(),
+            workspaceRepository = get(),
+            safRepository = get(),
+            sandboxWorkspaceManager = get(),
+        )
     }
 
     single {
@@ -172,7 +182,7 @@ val appModule = module {
             modelQuotaRepo = get(),
             searchAgentProgressStore = get(),
             workspaceRepository = get(),
-            safRepository = get(),
+            workspaceToolFactory = get(),
         )
     }
 

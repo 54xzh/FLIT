@@ -92,6 +92,32 @@ class McpAvailabilityTest {
     }
 
     @Test
+    fun `mcp tool names avoid names reserved by built in tools`() {
+        val tools = resolveMcpTools(
+            servers = listOf(remote),
+            selectedServerIds = setOf(remote.id),
+            effectiveWorkspaceId = null,
+            reservedToolNames = setOf("search"),
+        )
+
+        assertEquals(1, tools.size)
+        assertTrue(tools.single().exposedName != "search")
+
+        val generationTools = resolveMcpTools(
+            servers = listOf(
+                remote.copy(
+                    commonOptions = remote.commonOptions.copy(
+                        tools = listOf(McpTool(name = "create_memory")),
+                    ),
+                )
+            ),
+            selectedServerIds = setOf(remote.id),
+            effectiveWorkspaceId = null,
+        )
+        assertTrue(generationTools.single().exposedName != "create_memory")
+    }
+
+    @Test
     fun `transport or bound workspace change requires fresh selection`() {
         assertTrue(hasMcpRuntimeScopeChanged(stdioA, stdioA.copy(workspaceId = "b")))
         assertTrue(

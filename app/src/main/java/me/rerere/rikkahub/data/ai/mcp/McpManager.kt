@@ -109,10 +109,16 @@ class McpManager(
     suspend fun getAvailableToolsForAssistant(
         assistant: Assistant,
         effectiveWorkspaceId: String?,
+        reservedToolNames: Set<String> = emptySet(),
     ): List<McpResolvedTool> {
         val settings = settingsStore.settingsFlow.value
         val validWorkspaceId = resolveRunnableSandboxId(effectiveWorkspaceId)
-        return resolveMcpTools(settings.mcpServers, assistant.mcpServers, validWorkspaceId)
+        return resolveMcpTools(
+            servers = settings.mcpServers,
+            selectedServerIds = assistant.mcpServers,
+            effectiveWorkspaceId = validWorkspaceId,
+            reservedToolNames = reservedToolNames,
+        )
     }
 
     suspend fun callToolForAssistant(

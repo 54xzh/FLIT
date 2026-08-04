@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.service
 
+import me.rerere.rikkahub.data.ai.tools.normalizeWorkspaceListToolPath
+import me.rerere.rikkahub.data.ai.tools.normalizeWorkspaceToolPath
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

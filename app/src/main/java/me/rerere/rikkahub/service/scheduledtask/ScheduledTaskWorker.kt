@@ -33,6 +33,9 @@ import me.rerere.rikkahub.data.ai.tools.LocalTools
 import me.rerere.rikkahub.data.ai.tools.SearchAgentProgressStore
 import me.rerere.rikkahub.data.ai.tools.SearchAgentTools
 import me.rerere.rikkahub.data.ai.tools.SearchTools
+import me.rerere.rikkahub.data.ai.tools.WorkspaceToolExecutionMode
+import me.rerere.rikkahub.data.ai.tools.WorkspaceToolFactory
+import me.rerere.rikkahub.data.ai.tools.filterToolsForExecutionMode
 import me.rerere.rikkahub.data.ai.transformers.Base64ImageToLocalFileTransformer
 import me.rerere.rikkahub.data.ai.transformers.DocumentAsPromptTransformer
 import me.rerere.rikkahub.data.ai.transformers.OcrTransformer
@@ -86,6 +89,7 @@ class ScheduledTaskWorker(
     private val searchAgentProgressStore: SearchAgentProgressStore by inject()
     private val providerManager: ProviderManager by inject()
     private val requestLogManager: AIRequestLogManager by inject()
+    private val workspaceToolFactory: WorkspaceToolFactory by inject()
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val taskId = inputData.getString(ScheduledTaskWorkKeys.TASK_ID) ?: return@withContext Result.success()
@@ -220,12 +224,18 @@ class ScheduledTaskWorker(
             null
         }
 
+        val workspaceToolSet = workspaceToolFactory.createForAssistant(
+            assistant = assistantForRun,
+            settingsSnapshot = settings,
+            mode = WorkspaceToolExecutionMode.SCHEDULED,
+        )
         val tools = buildTools(
             taskId = task.id,
             assistantForRun = assistantForRun,
             model = runtimeModel,
             conversationId = conversationId,
             settings = settings,
+            workspaceTools = workspaceToolSet.tools,
         )
 
         val inputTransformers = listOf(
@@ -248,6 +258,7 @@ class ScheduledTaskWorker(
                 messages = listOf(userMessage),
                 conversationId = conversationId,
                 assistant = assistantForRun,
+                workspaceFileReferenceContext = workspaceToolSet.referenceContext,
                 memories = memories,
                 inputTransformers = inputTransformers,
                 outputTransformers = outputTransformers,
@@ -451,21 +462,16 @@ class ScheduledTaskWorker(
         model: me.rerere.ai.provider.Model,
         conversationId: Uuid,
         settings: me.rerere.rikkahub.data.datastore.Settings,
+        workspaceTools: List<Tool>,
     ): List<Tool> {
-        val mcpTools = mcpManager.getAvailableToolsForAssistant(
-            assistantForRun,
-            assistantForRun.workspaceId,
-        )
-        val hasExternalTools = assistantForRun.searchMode !is AssistantSearchMode.Off || mcpTools.isNotEmpty()
+        val modelProvider = model.findProvider(settings.providers)
+        val modelSupportsBuiltIn = model.supportsBuiltInSearch(modelProvider)
+        val useBuiltInSearch = modelSupportsBuiltIn && !assistantForRun.enableSearchAgent && (
+            assistantForRun.searchMode is AssistantSearchMode.BuiltIn ||
+                (assistantForRun.preferBuiltInSearch && assistantForRun.searchMode !is AssistantSearchMode.Off)
+            )
 
-        return buildList {
-            val modelProvider = model.findProvider(settings.providers)
-            val modelSupportsBuiltIn = model.supportsBuiltInSearch(modelProvider)
-            val useBuiltInSearch = modelSupportsBuiltIn && !assistantForRun.enableSearchAgent && (
-                assistantForRun.searchMode is AssistantSearchMode.BuiltIn ||
-                    (assistantForRun.preferBuiltInSearch && assistantForRun.searchMode !is AssistantSearchMode.Off)
-                )
-
+        val baseTools = buildList {
             when (val sm = assistantForRun.searchMode) {
                 is AssistantSearchMode.Provider,
                 is AssistantSearchMode.MultiProvider -> {
@@ -485,6 +491,21 @@ class ScheduledTaskWorker(
             }
 
             addAll(localTools.getTools(assistantForRun.localTools, assistantForRun.id, conversationId))
+            addAll(workspaceTools)
+        }
+        val executableBaseTools = filterToolsForExecutionMode(
+            tools = baseTools,
+            mode = WorkspaceToolExecutionMode.SCHEDULED,
+        )
+        val mcpTools = mcpManager.getAvailableToolsForAssistant(
+            assistant = assistantForRun,
+            effectiveWorkspaceId = assistantForRun.workspaceId,
+            reservedToolNames = executableBaseTools.map { it.name }.toSet(),
+        ).filterNot { it.requireApproval }
+        val hasExternalTools = assistantForRun.searchMode !is AssistantSearchMode.Off || mcpTools.isNotEmpty()
+
+        return buildList {
+            addAll(executableBaseTools)
 
             mcpTools.forEach { tool ->
                 add(
