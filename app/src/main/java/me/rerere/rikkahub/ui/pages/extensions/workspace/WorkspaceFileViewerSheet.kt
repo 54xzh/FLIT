@@ -40,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
@@ -84,6 +87,7 @@ import me.rerere.rikkahub.ui.pages.setting.SettingVM
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.SkillZipImport
 import me.rerere.rikkahub.utils.WorkspaceFileClassifier
+import org.jsoup.Jsoup
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import java.io.File
@@ -232,12 +236,21 @@ private fun HtmlViewerSheet(
     var loadState by remember(target) {
         mutableStateOf<ContentLoadState>(ContentLoadState.Loading)
     }
+    var previewHtml by remember(target) { mutableStateOf<String?>(null) }
     var mode by remember(target) { mutableStateOf(HtmlViewerMode.PREVIEW) }
     var openingFullscreen by remember(target) { mutableStateOf(false) }
+    var webViewReady by remember(target) { mutableStateOf(false) }
+
+    LaunchedEffect(sheetState, target) {
+        snapshotFlow { sheetState.currentValue }
+            .first { it == SheetValue.Expanded }
+        webViewReady = true
+    }
 
     LaunchedEffect(target) {
         loadState = ContentLoadState.Loading
-        loadState = runCatching {
+        previewHtml = null
+        val nextState = runCatching {
             val result = when (target) {
                 is ViewerTarget.WorkspaceEntry -> {
                     if (target.entry.isDirectory) {
@@ -252,12 +265,17 @@ private fun HtmlViewerSheet(
             }
             ContentLoadState.fromResult(result)
         }.getOrElse { ContentLoadState.Error }
+        if (nextState is ContentLoadState.Content) {
+            previewHtml = withContext(Dispatchers.Default) {
+                buildHtmlPreviewContent(nextState.content)
+            }
+        }
+        loadState = nextState
     }
 
-    val html = (loadState as? ContentLoadState.Content)?.content.orEmpty()
     // Keep the WebView state alive while switching between preview and source mode.
     val webState = rememberWebViewState(
-        data = html,
+        data = previewHtml.orEmpty(),
         baseUrl = "about:blank",
         mimeType = "text/html",
         encoding = "utf-8",
@@ -273,12 +291,13 @@ private fun HtmlViewerSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = 640.dp)
-                .padding(horizontal = 16.dp)
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -365,6 +384,7 @@ private fun HtmlViewerSheet(
                     ContentLoadState.Error, ContentLoadState.Unavailable -> {
                         Text(
                             text = stringResource(R.string.workspace_viewer_load_failed),
+                            modifier = Modifier.padding(horizontal = 16.dp),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -372,6 +392,7 @@ private fun HtmlViewerSheet(
                     is ContentLoadState.Binary -> {
                         Text(
                             text = stringResource(R.string.workspace_viewer_binary_fallback),
+                            modifier = Modifier.padding(horizontal = 16.dp),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -386,21 +407,34 @@ private fun HtmlViewerSheet(
                                     InfoChip(
                                         text = stringResource(R.string.workspace_viewer_truncated),
                                         warning = true,
+                                        modifier = Modifier.padding(horizontal = 16.dp),
                                     )
                                 }
                                 if (s.encodingSuspect) {
                                     InfoChip(
                                         text = stringResource(R.string.workspace_viewer_encoding_suspect),
                                         warning = true,
+                                        modifier = Modifier.padding(horizontal = 16.dp),
                                     )
                                 }
-                                WebView(
-                                    state = webState,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .weight(1f),
-                                    fillParent = true,
-                                )
+                                if (webViewReady) {
+                                    WebView(
+                                        state = webState,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f),
+                                        fillParent = true,
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                    }
+                                }
                             }
                         } else {
                             ContentView(
@@ -408,6 +442,7 @@ private fun HtmlViewerSheet(
                                 truncated = s.truncated,
                                 encodingSuspect = s.encodingSuspect,
                                 classification = classification,
+                                modifier = Modifier.padding(horizontal = 16.dp),
                                 alwaysExpandCode = true,
                                 codeAutoWrapOverride = false,
                             )
@@ -419,6 +454,7 @@ private fun HtmlViewerSheet(
             FileViewerActions(
                 target = target,
                 resolveFileUri = resolveFileUri,
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
         }
     }
@@ -617,6 +653,13 @@ private fun DocxViewerSheet(
     var loadState by remember(target) {
         mutableStateOf<DocxLoadState>(DocxLoadState.Loading)
     }
+    var webViewReady by remember(target) { mutableStateOf(false) }
+
+    LaunchedEffect(sheetState, target) {
+        snapshotFlow { sheetState.currentValue }
+            .first { it == SheetValue.Expanded }
+        webViewReady = true
+    }
 
     LaunchedEffect(target) {
         loadState = DocxLoadState.Loading
@@ -651,13 +694,13 @@ private fun DocxViewerSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = 640.dp)
-                .padding(horizontal = 16.dp)
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // 标题行：文件名
             Text(
                 text = target.fileName,
+                modifier = Modifier.padding(horizontal = 16.dp),
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -683,21 +726,31 @@ private fun DocxViewerSheet(
                     DocxLoadState.Error -> {
                         Text(
                             text = stringResource(R.string.workspace_viewer_load_failed),
+                            modifier = Modifier.padding(horizontal = 16.dp),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     is DocxLoadState.Success -> {
-                        val webState = rememberWebViewState(
-                            data = s.html,
-                            baseUrl = "about:blank",
-                            mimeType = "text/html",
-                            encoding = "utf-8",
-                        )
-                        WebView(
-                            state = webState,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        if (webViewReady) {
+                            val webState = rememberWebViewState(
+                                data = s.html,
+                                baseUrl = "about:blank",
+                                mimeType = "text/html",
+                                encoding = "utf-8",
+                            )
+                            WebView(
+                                state = webState,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            }
+                        }
                     }
                 }
             }
@@ -706,6 +759,7 @@ private fun DocxViewerSheet(
             FileViewerActions(
                 target = target,
                 resolveFileUri = resolveFileUri,
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
         }
     }
@@ -760,6 +814,7 @@ private fun GenericFileViewerSheet(
 private fun FileViewerActions(
     target: ViewerTarget,
     resolveFileUri: suspend (ViewerTarget) -> android.net.Uri?,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val repository = koinInject<WorkspaceRepository>()
@@ -817,7 +872,7 @@ private fun FileViewerActions(
     }
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ViewerActionButton(
@@ -875,11 +930,12 @@ private fun ContentView(
     truncated: Boolean,
     encodingSuspect: Boolean,
     classification: WorkspaceFileClassifier.Classification,
+    modifier: Modifier = Modifier,
     alwaysExpandCode: Boolean = false,
     codeAutoWrapOverride: Boolean? = null,
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -924,8 +980,13 @@ private fun ContentView(
 }
 
 @Composable
-private fun InfoChip(text: String, warning: Boolean) {
+private fun InfoChip(
+    text: String,
+    warning: Boolean,
+    modifier: Modifier = Modifier,
+) {
     Surface(
+        modifier = modifier,
         color = if (warning) MaterialTheme.colorScheme.errorContainer
         else MaterialTheme.colorScheme.surfaceContainerHighest,
         shape = AppShapes.Indicator,
@@ -938,6 +999,23 @@ private fun InfoChip(text: String, warning: Boolean) {
             else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+private fun buildHtmlPreviewContent(html: String): String {
+    val document = Jsoup.parse(html)
+    document.outputSettings().prettyPrint(false)
+    document.head()
+        .appendElement("style")
+        .attr("data-flit-preview-reset", "true")
+        .appendText(
+            """
+            html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            """.trimIndent()
+        )
+    return document.outerHtml()
 }
 
 private sealed interface ContentLoadState {
