@@ -6,6 +6,8 @@ import android.util.Log
 import android.view.ViewGroup.LayoutParams
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -51,6 +53,7 @@ internal class MyWebViewClient(private val state: WebViewState) : WebViewClient(
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
         state.isLoading = true
+        state.loadError = null
         state.currentUrl = url // Update current URL
     }
 
@@ -61,6 +64,28 @@ internal class MyWebViewClient(private val state: WebViewState) : WebViewClient(
         state.pageTitle = view?.title // Update title
         state.canGoBack = view?.canGoBack() == true
         state.canGoForward = view?.canGoForward() == true
+    }
+
+    override fun onReceivedError(
+        view: WebView?,
+        request: WebResourceRequest?,
+        error: WebResourceError?,
+    ) {
+        if (request?.isForMainFrame != false) {
+            state.loadError = error?.description?.toString()
+        }
+        super.onReceivedError(view, request, error)
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onReceivedError(
+        view: WebView?,
+        errorCode: Int,
+        description: String?,
+        failingUrl: String?,
+    ) {
+        state.loadError = description
+        super.onReceivedError(view, errorCode, description, failingUrl)
     }
 }
 
@@ -219,6 +244,8 @@ class WebViewState(
     // --- Loading State ---
     var isLoading: Boolean by mutableStateOf(false)
         internal set // Only WebViewClients should modify this
+    var loadError: String? by mutableStateOf(null)
+        internal set
     var loadingProgress: Float by mutableFloatStateOf(0f)
         internal set
 

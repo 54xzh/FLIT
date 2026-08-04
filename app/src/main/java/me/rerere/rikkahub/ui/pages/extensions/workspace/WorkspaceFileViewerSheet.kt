@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
@@ -64,6 +65,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.model.Skill
 import me.rerere.rikkahub.data.repository.WorkspaceFileEntry
@@ -73,6 +75,7 @@ import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.components.richtext.buildDocxPreviewHtml
 import me.rerere.rikkahub.ui.components.webview.WebView
 import me.rerere.rikkahub.ui.components.webview.rememberWebViewState
+import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.HapticPattern
@@ -218,14 +221,19 @@ private fun HtmlViewerSheet(
     resolveFileUri: suspend (ViewerTarget) -> android.net.Uri?,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
     val repository = koinInject<WorkspaceRepository>()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val haptics = rememberPremiumHaptics()
+    val navController = LocalNavController.current
+    val toaster = LocalToaster.current
+    val scope = rememberCoroutineScope()
 
     var loadState by remember(target) {
         mutableStateOf<ContentLoadState>(ContentLoadState.Loading)
     }
     var mode by remember(target) { mutableStateOf(HtmlViewerMode.PREVIEW) }
+    var openingFullscreen by remember(target) { mutableStateOf(false) }
 
     LaunchedEffect(target) {
         loadState = ContentLoadState.Loading
@@ -280,6 +288,38 @@ private fun HtmlViewerSheet(
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+                HtmlViewerModeButton(
+                    enabled = loadState is ContentLoadState.Content && !openingFullscreen,
+                    selected = false,
+                    loading = openingFullscreen,
+                    icon = Icons.Rounded.Fullscreen,
+                    contentDescription = stringResource(R.string.workspace_viewer_html_fullscreen),
+                    onClick = {
+                        if (!openingFullscreen) {
+                            haptics.perform(HapticPattern.Pop)
+                            openingFullscreen = true
+                            scope.launch {
+                                try {
+                                    val uri = withContext(Dispatchers.IO) { resolveFileUri(target) }
+                                    if (uri == null) {
+                                        haptics.perform(HapticPattern.Error)
+                                        toaster.show(context.getString(R.string.workspace_detail_open_failed))
+                                    } else {
+                                        onDismiss()
+                                        navController.navigate(Screen.WebView(url = uri.toString()))
+                                    }
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    haptics.perform(HapticPattern.Error)
+                                    toaster.show(context.getString(R.string.workspace_detail_open_failed))
+                                } finally {
+                                    openingFullscreen = false
+                                }
+                            }
+                        }
+                    },
                 )
                 HtmlViewerModeButton(
                     enabled = loadState is ContentLoadState.Content,
@@ -388,6 +428,7 @@ private fun HtmlViewerSheet(
 private fun HtmlViewerModeButton(
     enabled: Boolean,
     selected: Boolean,
+    loading: Boolean = false,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
@@ -420,16 +461,23 @@ private fun HtmlViewerModeButton(
             modifier = Modifier.size(36.dp),
             interactionSource = interactionSource,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                modifier = Modifier.size(18.dp),
-                tint = if (selected) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = contentDescription,
+                    modifier = Modifier.size(18.dp),
+                    tint = if (selected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
         }
     }
 }

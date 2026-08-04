@@ -1684,6 +1684,7 @@
     <string name="unknown_error">Unknown error</string>
     <string name="webview_page_console_logs">Console Logs</string>
     <string name="webview_page_no_console_messages">No console messages</string>
+    <string name="webview_page_load_failed">Unable to load this page. Try refreshing or going back.</string>
     <string name="webview_page_open_in_browser">Open in Browser</string>
     <string name="mcp_status_idle">Idle</string>
     <string name="mcp_status_connecting">Connecting</string>
@@ -2313,6 +2314,7 @@
     <!-- Workspace file viewer (in-app text/code/markdown preview + skill install) -->
     <string name="workspace_viewer_html_preview">HTML preview</string>
     <string name="workspace_viewer_html_code">HTML source</string>
+    <string name="workspace_viewer_html_fullscreen">Open full screen</string>
     <string name="workspace_viewer_open_external">Open</string>
     <string name="workspace_viewer_share">Share</string>
     <string name="workspace_viewer_export">Export</string>

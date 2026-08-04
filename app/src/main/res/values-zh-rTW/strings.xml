@@ -1515,6 +1515,7 @@
   <string name="unknown_error">未知錯誤</string>
   <string name="webview_page_console_logs">控制臺日志</string>
   <string name="webview_page_no_console_messages">暫無控制臺消息</string>
+  <string name="webview_page_load_failed">網頁載入失敗，請嘗試重新整理或返回。</string>
   <string name="webview_page_open_in_browser">在瀏覽器中打開</string>
   <string name="mcp_status_idle">空閑</string>
   <string name="mcp_status_connecting">連接中</string>
@@ -2303,6 +2304,7 @@
     <!-- 工作區檔案檢視器（應用內文字/程式碼/Markdown 預覽 + 技能安裝） -->
     <string name="workspace_viewer_html_preview">HTML 預覽</string>
     <string name="workspace_viewer_html_code">HTML 原始碼</string>
+    <string name="workspace_viewer_html_fullscreen">全螢幕開啟</string>
     <string name="workspace_viewer_open_external">開啟</string>
     <string name="workspace_viewer_share">分享</string>
     <string name="workspace_viewer_export">匯出</string>

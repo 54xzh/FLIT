@@ -2155,6 +2155,7 @@
   <string name="web_search_enabled">已启用网页搜索</string>
     <string name="webview_page_console_logs">控制台日志</string>
     <string name="webview_page_no_console_messages">暂无控制台消息</string>
+    <string name="webview_page_load_failed">网页加载失败，请尝试刷新或返回。</string>
     <string name="webview_page_open_in_browser">在浏览器中打开</string>
     <string name="welcome_phrases_fallback">你好呀，想聊点什么？</string>
     <string name="widget_assistant_description">快速进入与助手的对话</string>
@@ -2211,6 +2212,7 @@
     <!-- 工作区文件查看器（应用内文本/代码/Markdown 预览 + 技能安装） -->
     <string name="workspace_viewer_html_preview">HTML 预览</string>
     <string name="workspace_viewer_html_code">HTML 代码</string>
+    <string name="workspace_viewer_html_fullscreen">全屏打开</string>
     <string name="workspace_viewer_open_external">打开</string>
     <string name="workspace_viewer_share">分享</string>
     <string name="workspace_viewer_export">导出</string>
