@@ -8,7 +8,8 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
             margin: 0;
-            padding: 0;
+            /* WebView 横向铺满，文档内容保留一层可读内边距。 */
+            padding: 12px 20px;
             background: {{BACKGROUND_COLOR}};
             color: {{ON_BACKGROUND_COLOR}};
         }
@@ -22,13 +23,14 @@
             display: block !important;
         }
 
-        /* 文档 section 也按容器宽度，不再按纸张宽度撑开 */
+        /* 文档 section 也按容器宽度，不再按纸张宽度撑开；内边距由 body 统一提供 */
         #container > .docx-wrapper > section {
             width: 100% !important;
             max-width: 100% !important;
             box-shadow: none !important;
             margin: 0 !important;
             padding: 0 !important;
+            background: {{BACKGROUND_COLOR}} !important;
         }
 
         /* 兜底：任何内部元素超出容器就换行/隐藏，不让横向滚动条出现 */
