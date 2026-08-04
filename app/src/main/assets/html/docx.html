@@ -62,12 +62,14 @@
                     null,
                     {
                         inWrapper: true,
-                        breakPages: true,
-                        ignoreLastRenderedPageBreak: false,
+                        // Web 视图模式：不分页、忽略纸张宽度按容器自适应，内容连续流动便于滚动。
+                        breakPages: false,
+                        ignoreWidth: true,
                         useBase64URL: true, // 图片/字体内联为 base64，避免 loadDataWithBaseURL 下 blob URL 失效
                         ignoreFonts: false,
-                        renderHeaders: true,
-                        renderFooters: true,
+                        // 连续流里页眉页脚会突兀，关掉
+                        renderHeaders: false,
+                        renderFooters: false,
                         renderFootnotes: true,
                         renderEndnotes: true,
                     }
