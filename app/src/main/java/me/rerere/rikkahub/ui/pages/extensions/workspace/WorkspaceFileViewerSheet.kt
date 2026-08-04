@@ -313,6 +313,8 @@ private fun DocxViewerSheet(
     val context = LocalContext.current
     val repository = koinInject<WorkspaceRepository>()
     val colorScheme = MaterialTheme.colorScheme
+    // sheetGesturesEnabled=false 关掉弹窗拖拽手势，让 WebView 独占上下滑动避免抢手势。
+    // 做法对齐模型选择页（ModelList）。弹窗靠点遮罩/返回键关闭。
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var loadState by remember(target) {
@@ -346,6 +348,7 @@ private fun DocxViewerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        sheetGesturesEnabled = false,
     ) {
         Column(
             modifier = Modifier
