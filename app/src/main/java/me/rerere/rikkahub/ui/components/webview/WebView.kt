@@ -10,6 +10,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
@@ -68,6 +69,7 @@ internal class MyWebViewClient(private val state: WebViewState) : WebViewClient(
 fun WebView(
     state: WebViewState,
     modifier: Modifier = Modifier,
+    fillParent: Boolean = false,
     onCreated: (WebView) -> Unit = {},
     onUpdated: (WebView) -> Unit = {},
 ) {
@@ -90,6 +92,8 @@ fun WebView(
 
                     onCreated(this)
 
+                    state.lastLoadedData = null
+
                     settings.javaScriptEnabled = true // Enable JavaScript
                     settings.domStorageEnabled = true
                     settings.allowContentAccess = true
@@ -104,12 +108,24 @@ fun WebView(
                     }
                 }
             },
-            modifier = Modifier.fillMaxWidth(), // Make WebView fill the width
+            modifier = if (fillParent) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
             onReset = {
                 state.interfaces.forEach { (name, _) ->
                     it.removeJavascriptInterface(name)
                 }
+                if (state.webView === it) {
+                    state.webView = null
+                }
+                state.lastLoadedData = null
                 Log.d(TAG, "AndroidView: Resetting WebView")
+            },
+            onRelease = {
+                if (state.webView === it) {
+                    state.webView = null
+                }
+                state.lastLoadedData = null
+                it.stopLoading()
+                it.destroy()
             },
             update = { webView ->
                 state.webView = webView
@@ -137,16 +153,18 @@ fun WebView(
                     }
 
                     is WebContent.Data -> {
-                        // Check if the data needs to be reloaded (e.g., if different from last loaded data)
-                        // For simplicity, we might just reload it every time the update block runs with Data content.
-                        // A more complex check could involve comparing `content.data` with a previously stored value.
-                        webView.loadDataWithBaseURL(
-                            content.baseUrl,
-                            content.data,
-                            content.mimeType,
-                            content.encoding,
-                            content.historyUrl
-                        )
+                        // Loading a data page changes loading state and triggers recomposition. Only
+                        // load a new content object, otherwise the page would reload continuously.
+                        if (state.lastLoadedData !== content) {
+                            state.lastLoadedData = content
+                            webView.loadDataWithBaseURL(
+                                content.baseUrl,
+                                content.data,
+                                content.mimeType,
+                                content.encoding,
+                                content.historyUrl
+                            )
+                        }
                         // Assuming data loading is fast, but let's reflect the state more accurately
                         // state.isLoading = false // This might be too soon, let WebViewClient handle it
                     }
@@ -227,6 +245,7 @@ class WebViewState(
     // Hold the WebView instance internally to perform actions.
     // Be cautious with this reference, ensure it doesn't leak context.
     internal var webView: WebView? by mutableStateOf(null)
+    internal var lastLoadedData: WebContent.Data? = null
 
     // --- Public Actions ---
 

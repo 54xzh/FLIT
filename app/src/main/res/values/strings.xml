@@ -2311,6 +2311,8 @@
     <string name="workspace_detail_open">Open</string>
     <string name="workspace_detail_open_failed">No app available to open this file</string>
     <!-- Workspace file viewer (in-app text/code/markdown preview + skill install) -->
+    <string name="workspace_viewer_html_preview">HTML preview</string>
+    <string name="workspace_viewer_html_code">HTML source</string>
     <string name="workspace_viewer_open_external">Open</string>
     <string name="workspace_viewer_share">Share</string>
     <string name="workspace_viewer_export">Export</string>

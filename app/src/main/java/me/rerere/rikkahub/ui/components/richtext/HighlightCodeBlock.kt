@@ -115,6 +115,8 @@ fun HighlightCodeBlock(
     language: String,
     modifier: Modifier = Modifier,
     completeCodeBlock: Boolean = true,
+    alwaysExpanded: Boolean = false,
+    autoWrapOverride: Boolean? = null,
     style: TextStyle? = TextStyle(
         fontSize = 12.sp,
         lineHeight = 16.sp,
@@ -137,16 +139,17 @@ fun HighlightCodeBlock(
     // Determine initial state based on generation status
     // When generating (!completeCodeBlock): Preview (show code with fade)
     // When complete: Collapsed (banner) or Expanded (auto-collapse setting)
-    var expandState by remember(effectiveDisplay.codeBlockAutoCollapse, completeCodeBlock) {
+    var expandState by remember(effectiveDisplay.codeBlockAutoCollapse, completeCodeBlock, alwaysExpanded) {
         mutableStateOf(
             when {
+                alwaysExpanded -> CodeBlockState.Expanded
                 !completeCodeBlock -> CodeBlockState.Preview // Still generating - show preview
                 effectiveDisplay.codeBlockAutoCollapse -> CodeBlockState.Collapsed
                 else -> CodeBlockState.Expanded
             }
         )
     }
-    val autoWrap = effectiveDisplay.codeBlockAutoWrap
+    val autoWrap = autoWrapOverride ?: effectiveDisplay.codeBlockAutoWrap
 
     // Auto-scroll to bottom when generating (like reasoning card)
     // 用滚动范围变化驱动跟底，避免把 code 全文当 key 导致每个流式分块都重启动画
@@ -182,6 +185,7 @@ fun HighlightCodeBlock(
     }
 
     fun toggle() {
+        if (alwaysExpanded) return
         expandState = when {
             // When generating: toggle between Preview and Expanded
             !completeCodeBlock -> {

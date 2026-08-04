@@ -5,12 +5,17 @@ import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -21,9 +26,11 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.IosShare
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -175,11 +183,252 @@ fun WorkspaceFileViewerSheet(
                 onDismiss = state::dismiss,
             )
         }
+        WorkspaceFileClassifier.Category.HTML -> {
+            HtmlViewerSheet(
+                target = target,
+                classification = classification,
+                resolveFileUri = resolveFileUri,
+                onDismiss = state::dismiss,
+            )
+        }
         WorkspaceFileClassifier.Category.OTHER -> {
             GenericFileViewerSheet(
                 target = target,
                 resolveFileUri = resolveFileUri,
                 onDismiss = state::dismiss,
+            )
+        }
+    }
+}
+
+// --------------------------------------------------------------------------------
+// HTML 查看器
+// --------------------------------------------------------------------------------
+
+private enum class HtmlViewerMode {
+    PREVIEW,
+    CODE,
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HtmlViewerSheet(
+    target: ViewerTarget,
+    classification: WorkspaceFileClassifier.Classification,
+    resolveFileUri: suspend (ViewerTarget) -> android.net.Uri?,
+    onDismiss: () -> Unit,
+) {
+    val repository = koinInject<WorkspaceRepository>()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val haptics = rememberPremiumHaptics()
+
+    var loadState by remember(target) {
+        mutableStateOf<ContentLoadState>(ContentLoadState.Loading)
+    }
+    var mode by remember(target) { mutableStateOf(HtmlViewerMode.PREVIEW) }
+
+    LaunchedEffect(target) {
+        loadState = ContentLoadState.Loading
+        loadState = runCatching {
+            val result = when (target) {
+                is ViewerTarget.WorkspaceEntry -> {
+                    if (target.entry.isDirectory) {
+                        WorkspaceRepository.ReadTextResult.Unavailable
+                    } else {
+                        repository.readWorkspaceFileText(target.workspaceId, target.entry.path, area = target.area)
+                    }
+                }
+                is ViewerTarget.Reference -> {
+                    repository.readWorkspaceFileText(target.workspaceId, target.path)
+                }
+            }
+            ContentLoadState.fromResult(result)
+        }.getOrElse { ContentLoadState.Error }
+    }
+
+    val html = (loadState as? ContentLoadState.Content)?.content.orEmpty()
+    // Keep the WebView state alive while switching between preview and source mode.
+    val webState = rememberWebViewState(
+        data = html,
+        baseUrl = "about:blank",
+        mimeType = "text/html",
+        encoding = "utf-8",
+    )
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        // Let the source view and WebView own vertical scrolling inside the sheet.
+        sheetGesturesEnabled = false,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 640.dp)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = target.fileName,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+                HtmlViewerModeButton(
+                    enabled = loadState is ContentLoadState.Content,
+                    selected = mode == HtmlViewerMode.PREVIEW,
+                    icon = Icons.Rounded.Visibility,
+                    contentDescription = stringResource(R.string.workspace_viewer_html_preview),
+                    onClick = {
+                        if (mode != HtmlViewerMode.PREVIEW) {
+                            haptics.perform(HapticPattern.Pop)
+                            mode = HtmlViewerMode.PREVIEW
+                        }
+                    },
+                )
+                HtmlViewerModeButton(
+                    enabled = loadState is ContentLoadState.Content,
+                    selected = mode == HtmlViewerMode.CODE,
+                    icon = Icons.Rounded.Code,
+                    contentDescription = stringResource(R.string.workspace_viewer_html_code),
+                    onClick = {
+                        if (mode != HtmlViewerMode.CODE) {
+                            haptics.perform(HapticPattern.Pop)
+                            mode = HtmlViewerMode.CODE
+                        }
+                    },
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 360.dp)
+                    .weight(1f, fill = false),
+            ) {
+                when (val s = loadState) {
+                    ContentLoadState.Loading -> {
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        }
+                    }
+                    ContentLoadState.Error, ContentLoadState.Unavailable -> {
+                        Text(
+                            text = stringResource(R.string.workspace_viewer_load_failed),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    is ContentLoadState.Binary -> {
+                        Text(
+                            text = stringResource(R.string.workspace_viewer_binary_fallback),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    is ContentLoadState.Content -> {
+                        if (mode == HtmlViewerMode.PREVIEW) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                if (s.truncated) {
+                                    InfoChip(
+                                        text = stringResource(R.string.workspace_viewer_truncated),
+                                        warning = true,
+                                    )
+                                }
+                                if (s.encodingSuspect) {
+                                    InfoChip(
+                                        text = stringResource(R.string.workspace_viewer_encoding_suspect),
+                                        warning = true,
+                                    )
+                                }
+                                WebView(
+                                    state = webState,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    fillParent = true,
+                                )
+                            }
+                        } else {
+                            ContentView(
+                                content = s.content,
+                                truncated = s.truncated,
+                                encodingSuspect = s.encodingSuspect,
+                                classification = classification,
+                                alwaysExpandCode = true,
+                                codeAutoWrapOverride = false,
+                            )
+                        }
+                    }
+                }
+            }
+
+            FileViewerActions(
+                target = target,
+                resolveFileUri = resolveFileUri,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HtmlViewerModeButton(
+    enabled: Boolean,
+    selected: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.85f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+        label = "html_viewer_mode_button_scale",
+    )
+
+    Surface(
+        modifier = Modifier
+            .size(36.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            },
+        shape = AppShapes.ButtonSquared,
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+    ) {
+        IconButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.size(36.dp),
+            interactionSource = interactionSource,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(18.dp),
+                tint = if (selected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
             )
         }
     }
@@ -578,6 +827,8 @@ private fun ContentView(
     truncated: Boolean,
     encodingSuspect: Boolean,
     classification: WorkspaceFileClassifier.Classification,
+    alwaysExpandCode: Boolean = false,
+    codeAutoWrapOverride: Boolean? = null,
 ) {
     Column(
         modifier = Modifier
@@ -599,12 +850,15 @@ private fun ContentView(
                     MarkdownBlock(content = content)
                 }
             }
-            WorkspaceFileClassifier.Category.CODE -> {
+            WorkspaceFileClassifier.Category.CODE,
+            WorkspaceFileClassifier.Category.HTML -> {
                 // HighlightCodeBlock 内部已自带 SelectionContainer，无需再包一层
                 HighlightCodeBlock(
                     code = content,
                     language = classification.prismLanguage ?: "text",
                     completeCodeBlock = true,
+                    alwaysExpanded = alwaysExpandCode,
+                    autoWrapOverride = codeAutoWrapOverride,
                 )
             }
             else -> {

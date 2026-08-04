@@ -14,6 +14,9 @@ object WorkspaceFileClassifier {
         /** 代码/配置类文本，用等宽 + 语法高亮预览（[prismLanguage] 为 prism.js 语言名）。 */
         CODE,
 
+        /** HTML 文档，用 WebView 渲染预览，同时保留源码查看。 */
+        HTML,
+
         /** 普通文本，等宽纯文本预览。 */
         TEXT,
 
@@ -29,7 +32,7 @@ object WorkspaceFileClassifier {
 
     data class Classification(
         val category: Category,
-        /** 仅 [Category.CODE] 有值：prism.js 语言名；为 null 表示不做语法高亮。 */
+        /** [Category.CODE] 和 [Category.HTML] 使用的 prism.js 语言名；为 null 表示不做语法高亮。 */
         val prismLanguage: String? = null,
     )
 
@@ -133,8 +136,6 @@ object WorkspaceFileClassifier {
         "yaml" to "yaml",
         "toml" to "toml",
         "xml" to "xml",
-        "html" to "html",
-        "htm" to "html",
         "svg" to "svg",
         "css" to "css",
         "scss" to "scss",
@@ -189,6 +190,10 @@ object WorkspaceFileClassifier {
 
         if (extension == "docx") return Classification(Category.DOCX)
 
+        if (extension == "html" || extension == "htm") {
+            return Classification(Category.HTML, prismLanguage = "html")
+        }
+
         if (name.lowercase() in SPECIAL_TEXT_FILE_NAMES) return Classification(Category.TEXT)
 
         if (extension in TEXT_EXTENSIONS) return Classification(Category.TEXT)
@@ -200,7 +205,7 @@ object WorkspaceFileClassifier {
         return Classification(Category.OTHER)
     }
 
-    /** 该文件名是否应当尝试用应用内查看器打开（文本或技能包）。 */
+    /** 该文件名是否应当尝试用应用内查看器打开。 */
     fun shouldUseBuiltInViewer(fileName: String): Boolean =
         classify(fileName).category != Category.OTHER
 }

@@ -2301,6 +2301,8 @@
     <string name="workspace_detail_open">開啟</string>
     <string name="workspace_detail_open_failed">沒有應用程式可開啟此檔案</string>
     <!-- 工作區檔案檢視器（應用內文字/程式碼/Markdown 預覽 + 技能安裝） -->
+    <string name="workspace_viewer_html_preview">HTML 預覽</string>
+    <string name="workspace_viewer_html_code">HTML 原始碼</string>
     <string name="workspace_viewer_open_external">開啟</string>
     <string name="workspace_viewer_share">分享</string>
     <string name="workspace_viewer_export">匯出</string>

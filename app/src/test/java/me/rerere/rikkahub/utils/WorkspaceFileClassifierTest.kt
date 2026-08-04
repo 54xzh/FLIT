@@ -39,7 +39,6 @@ class WorkspaceFileClassifierTest {
             "App.kts" to "kotlin",
             "config.json" to "json",
             "data.yml" to "yaml",
-            "page.html" to "html",
             "style.css" to "css",
             "query.sql" to "sql",
             "main.py" to "python",
@@ -51,6 +50,15 @@ class WorkspaceFileClassifierTest {
             val c = WorkspaceFileClassifier.classify(name)
             assertEquals("$name -> CODE", WorkspaceFileClassifier.Category.CODE, c.category)
             assertEquals("$name prism lang", lang, c.prismLanguage)
+        }
+    }
+
+    @Test
+    fun `html extensions classify as HTML with html prism language`() {
+        for (name in listOf("page.html", "PAGE.HTML", "page.htm", "dir/page.HTM")) {
+            val c = WorkspaceFileClassifier.classify(name)
+            assertEquals("$name -> HTML", WorkspaceFileClassifier.Category.HTML, c.category)
+            assertEquals("$name prism lang", "html", c.prismLanguage)
         }
     }
 
@@ -96,6 +104,7 @@ class WorkspaceFileClassifierTest {
     @Test
     fun `shouldUseBuiltInViewer flags text and skill files`() {
         assertTrue(WorkspaceFileClassifier.shouldUseBuiltInViewer("readme.md"))
+        assertTrue(WorkspaceFileClassifier.shouldUseBuiltInViewer("page.html"))
         assertTrue(WorkspaceFileClassifier.shouldUseBuiltInViewer("script.sh"))
         assertTrue(WorkspaceFileClassifier.shouldUseBuiltInViewer("notes.txt"))
         assertTrue(WorkspaceFileClassifier.shouldUseBuiltInViewer("my-tool.skill"))
