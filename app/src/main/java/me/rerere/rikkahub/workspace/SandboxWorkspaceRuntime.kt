@@ -515,7 +515,7 @@ class SandboxWorkspaceManager(
         private const val TAG = "SandboxWorkspace"
         private val WORKSPACE_ID = Regex("[A-Za-z0-9._-]+")
         const val DEFAULT_COMMAND_TIMEOUT_MS = 30_000L
-        private const val MAX_READ_BYTES = 8L * 1024L * 1024L
+        private const val MAX_READ_BYTES = SANDBOX_MAX_READ_BYTES
         private const val MAX_WRITE_BYTES = 2L * 1024L * 1024L
         private const val MAX_LIST_ENTRIES = 500
     }
@@ -549,6 +549,8 @@ class ProotSandboxProcessLauncher(
 
     internal fun buildCommand(context: SandboxProcessContext, proot: File): List<String> = buildList {
         addAll(listOf(proot.absolutePath, "--root-id", "--link2symlink", "--kill-on-exit", "-r", context.linuxDir.absolutePath, "-w", context.workingDirectory, "-b", "${context.filesDir.absolutePath}:/workspace"))
+        // proot 没有只读 bind 挂载能力（-R 是 rootfs 别名而非只读），会话上传目录也只能用 -b；
+        // /upload 的只读约束在工具层落实（写工具不允许 /upload 路径）并由提示词辅助
         (extraBindMounts + context.workspaceBindMounts)
             .filter { it.source.exists() }
             .forEach { mount -> addAll(listOf("-b", "${mount.source.absolutePath}:${mount.target.trimEnd('/')}")) }

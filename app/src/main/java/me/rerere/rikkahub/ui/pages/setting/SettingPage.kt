@@ -91,6 +91,7 @@ import me.rerere.rikkahub.ui.hooks.rememberColorMode
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.ColorMode
 import me.rerere.rikkahub.utils.countChatFiles
+import me.rerere.rikkahub.utils.countChatUploadFiles
 import me.rerere.rikkahub.utils.openUrl
 import me.rerere.rikkahub.utils.plus
 import me.rerere.rikkahub.ui.pages.setting.components.SettingsGroup
@@ -273,7 +274,10 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                     )
                     val context = LocalContext.current
                     val storageState by produceState(-1 to 0L) {
-                        value = context.countChatFiles()
+                        // 旧 upload 目录与会话上传目录（chat_uploads）合并统计
+                        val legacy = context.countChatFiles()
+                        val uploads = context.countChatUploadFiles()
+                        value = Pair(legacy.first + uploads.first, legacy.second + uploads.second)
                     }
                     SettingGroupItem(
                         title = stringResource(R.string.setting_page_chat_storage),

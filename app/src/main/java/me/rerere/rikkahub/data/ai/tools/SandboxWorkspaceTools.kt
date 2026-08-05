@@ -16,30 +16,47 @@ private const val SANDBOX_MAX_TIMEOUT_SECONDS = 600L
 suspend fun createSandboxWorkspaceTools(
     workspaceId: String,
     workspaceRepository: WorkspaceRepository,
+    conversationId: String? = null,
 ): List<Tool> {
     val overrides = workspaceRepository.getById(workspaceId)?.toolApprovalOverrides().orEmpty()
     fun approval(name: String): Boolean = overrides[name] ?: toolDefaultNeedsApproval(name)
+    // 无会话上下文（如定时任务）时不会挂载 /upload，描述里不宣传它，避免模型调用后报错
+    val hasUploads = !conversationId.isNullOrBlank()
     return listOf(
-        sandboxReadTool(workspaceId, workspaceRepository, ::approval),
+        sandboxReadTool(workspaceId, workspaceRepository, conversationId, hasUploads, ::approval),
         sandboxWriteTool(workspaceId, workspaceRepository, ::approval),
         sandboxEditTool(workspaceId, workspaceRepository, ::approval),
-        sandboxShellTool(workspaceId, workspaceRepository, ::approval),
+        sandboxShellTool(workspaceId, workspaceRepository, conversationId, ::approval),
     )
 }
 
-private fun sandboxReadTool(id: String, repository: WorkspaceRepository, approval: (String) -> Boolean) = Tool(
+private fun sandboxReadTool(
+    id: String,
+    repository: WorkspaceRepository,
+    conversationId: String?,
+    hasUploads: Boolean,
+    approval: (String) -> Boolean,
+) = Tool(
     name = "sandbox_read_file",
-    description = "Read a UTF-8 file in the persistent sandbox. The path must be absolute under /workspace.",
+    description = "Read a UTF-8 file in the persistent sandbox. The path must be absolute under /workspace" +
+        if (hasUploads) ", or under /upload for files the user uploaded in this conversation." else ".",
     parameters = {
         InputSchema.Obj(properties = buildJsonObject { putSandboxPath(required = true) }, required = listOf("path"))
     },
     requiresUserApproval = approval("sandbox_read_file"),
     systemPrompt = { _, _ -> SANDBOX_PROMPT },
     execute = { args ->
-        val path = args.jsonObject.sandboxPath("path")
+        val path = args.jsonObject.sandboxReadPath("path")
         buildJsonObject {
             put("path", path)
-            put("text", repository.readSandboxText(id, path.removePrefix("/workspace/").removePrefix("/workspace")))
+            put(
+                "text",
+                if (path.startsWith("/upload")) {
+                    repository.readSandboxText(id, path, conversationId)
+                } else {
+                    repository.readSandboxText(id, path.removePrefix("/workspace/").removePrefix("/workspace"))
+                }
+            )
         }
     },
 )
@@ -103,9 +120,21 @@ private fun sandboxEditTool(id: String, repository: WorkspaceRepository, approva
     },
 )
 
-private fun sandboxShellTool(id: String, repository: WorkspaceRepository, approval: (String) -> Boolean) = Tool(
+private fun sandboxShellTool(
+    id: String,
+    repository: WorkspaceRepository,
+    conversationId: String?,
+    approval: (String) -> Boolean,
+): Tool {
+    val hasUploads = !conversationId.isNullOrBlank()
+    val uploadNote = if (hasUploads) {
+        "; /upload holds files the user uploaded in this conversation and must be treated as read-only input — never modify or delete files under it"
+    } else {
+        ""
+    }
+    return Tool(
     name = "sandbox_shell",
-    description = "Run a shell command in the sandbox Rootfs. /workspace, /skills, /upload and /tool_outputs are mounted and writable. Folders mounted from the phone under /workspace modify the original phone files. Always inspect the command before approving it.",
+    description = "Run a shell command in the sandbox Rootfs. /workspace, /skills and /tool_outputs are mounted and writable$uploadNote. Folders mounted from the phone under /workspace modify the original phone files. Always inspect the command before approving it.",
     parameters = {
         InputSchema.Obj(
             properties = buildJsonObject {
@@ -125,7 +154,13 @@ private fun sandboxShellTool(id: String, repository: WorkspaceRepository, approv
         require(cwd == "/workspace" || cwd.startsWith("/workspace/")) { "cwd must be inside /workspace" }
         val timeout = params["timeout"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()?.coerceIn(1, SANDBOX_MAX_TIMEOUT_SECONDS)?.times(1_000)
             ?: 30_000L
-        val result = repository.executeSandboxCommand(id, command, cwd.relativeSandboxPath(), timeout)
+        val result = repository.executeSandboxCommand(
+            id,
+            command,
+            cwd.relativeSandboxPath(),
+            timeout,
+            conversationId = conversationId,
+        )
         buildJsonObject {
             put("exit_code", result.exitCode)
             put("stdout", result.stdout)
@@ -134,7 +169,8 @@ private fun sandboxShellTool(id: String, repository: WorkspaceRepository, approv
             if (result.truncated) put("truncated", true)
         }
     },
-)
+    )
+}
 
 private fun JsonObject.sandboxPath(name: String): String {
     val path = string(name)?.trim() ?: error("$name is required")
@@ -143,12 +179,23 @@ private fun JsonObject.sandboxPath(name: String): String {
     return path
 }
 
+/** 读文件工具专用：除 /workspace 外还接受会话上传目录 /upload（写工具仍只允许 /workspace）。 */
+private fun JsonObject.sandboxReadPath(name: String): String {
+    val path = string(name)?.trim() ?: error("$name is required")
+    val allowed = path == "/workspace" || path.startsWith("/workspace/") ||
+        path == "/upload" || path.startsWith("/upload/")
+    require(allowed) { "$name must be inside /workspace or /upload" }
+    require(!path.contains('\u0000')) { "$name contains an invalid character" }
+    return path
+}
+
 private fun String.relativeSandboxPath(): String = removePrefix("/workspace/").removePrefix("/workspace")
 private fun JsonObject.string(name: String): String? = this[name]?.jsonPrimitive?.contentOrNull
 
 private const val SANDBOX_PROMPT = """
-You are using a persistent Linux sandbox. Sandbox file tools accept absolute paths under /workspace only.
-Use sandbox_shell for commands. The shell can write /workspace, /skills, /upload and /tool_outputs; do not claim that uploads are read-only.
+You are using a persistent Linux sandbox. Sandbox file tools accept absolute paths under /workspace, and sandbox_read_file also accepts /upload paths.
+/upload contains the files the user uploaded in this conversation. It is read-only input: read files from it, but never modify or delete them, and put any outputs under /workspace.
+Use sandbox_shell for commands. The shell can write /workspace, /skills and /tool_outputs; treat /upload as read-only even though the shell can see it.
 Mounted phone folders under /workspace are live and writable; changes affect the original phone files.
 
 When the user asks to receive, share, open, or save an existing regular file, use a normal Markdown link in the final answer: [file name](/workspace/relative/path).

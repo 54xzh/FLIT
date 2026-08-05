@@ -13,6 +13,9 @@ import kotlin.uuid.Uuid
 
 private const val CHAT_UPLOAD_SEGMENT = "/upload/"
 
+// 会话专属上传目录段：filesDir/chat_uploads/<会话ID>/…，与旧的 /upload/ 一并纳入托管文件识别
+private const val CHAT_UPLOADS_SEGMENT = "/chat_uploads/"
+
 internal fun collectChatUploadFileUrls(messageNodes: List<MessageNode>): List<String> {
     return messageNodes
         .asSequence()
@@ -27,7 +30,10 @@ internal fun collectChatUploadFileUrls(messageNodes: List<MessageNode>): List<St
                 else -> null
             }
         }
-        .filter { url -> url.startsWith("file://") && url.contains(CHAT_UPLOAD_SEGMENT) }
+        .filter { url ->
+            url.startsWith("file://") &&
+                (url.contains(CHAT_UPLOAD_SEGMENT) || url.contains(CHAT_UPLOADS_SEGMENT))
+        }
         .toList()
 }
 

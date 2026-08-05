@@ -1620,6 +1620,12 @@ private fun FilesPicker(
         ?.let { id -> workspaces.firstOrNull { it.id == id } }
     val assistantWorkspaceId = assistant.workspaceId?.takeIf { id -> workspaces.any { it.id == id } }
     val effectiveWorkspaceId = overrideWorkspace?.id ?: assistantWorkspaceId
+    // 当前会话生效的沙盒能否按需读取 /upload 附件，否则附件选择只接受可直接解析的文档
+    val sandboxWorkspaceManager = org.koin.compose.koinInject<me.rerere.rikkahub.workspace.SandboxWorkspaceManager>()
+    val effectiveWorkspace = workspaces.firstOrNull { it.id == effectiveWorkspaceId }
+    val sandboxReady = isSandboxUploadReady(assistant, effectiveWorkspace) { workspaceId ->
+        runCatching { sandboxWorkspaceManager.hasRootfs(workspaceId) }.getOrDefault(false)
+    }
     val workspaceOverrideSubtitle = overrideWorkspace?.name
         ?: stringResource(R.string.chat_input_workspace_override_follow_assistant)
     val visibleMcpServers = remember(mcpServers, effectiveWorkspaceId) {
@@ -1692,6 +1698,8 @@ private fun FilesPicker(
                 FilePickButton(
                     shape = topRightShape,
                     showGeminiAttachmentMenu = showGeminiAttachmentMenu,
+                    conversationId = conversation.id.toString(),
+                    allowNonParseableFiles = sandboxReady,
                     onAddVideos = {
                         state.addVideos(it)
                         onDismiss()
@@ -2515,6 +2523,8 @@ fun VideoPickButton(
 fun FilePickButton(
     shape: Shape = me.rerere.rikkahub.ui.theme.AppShapes.CardLarge,
     showGeminiAttachmentMenu: Boolean = false,
+    conversationId: String = "",
+    allowNonParseableFiles: Boolean = false,
     onAddVideos: (List<Uri>) -> Unit = {},
     onAddAudios: (List<Uri>) -> Unit = {},
     onAddFiles: (List<UIMessagePart.Document>) -> Unit = {}
@@ -2556,13 +2566,18 @@ fun FilePickButton(
         rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
             if (uris.isNotEmpty()) {
                 scope.launch {
+                    val parseableOnly = !allowNonParseableFiles
                     val documents = withContext(Dispatchers.IO) {
-                        context.toSupportedChatDocuments(uris)
+                        context.toChatDocuments(conversationId, uris) { mime ->
+                            // 助手未绑定沙盒工作区时无法按需读取文件，仅接受可直接解析的文档
+                            !parseableOnly || isParseableChatDocument(mime)
+                        }
                     }
 
                     if (documents.isNotEmpty()) {
                         onAddFiles(documents)
-                    } else {
+                    }
+                    if (documents.size < uris.size) {
                         val fileName = uris.firstOrNull()?.let(context::getFileNameFromUri) ?: "file"
                         toaster.show(
                             context.getString(R.string.assistant_importer_unsupported_file_type, fileName),

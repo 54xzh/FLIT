@@ -60,6 +60,7 @@ import me.rerere.rikkahub.ui.hooks.writeStringPreference
 import me.rerere.rikkahub.utils.UiState
 import me.rerere.rikkahub.utils.UpdateChecker
 import me.rerere.rikkahub.utils.createChatFilesByContents
+import me.rerere.rikkahub.utils.createChatUploadFile
 import me.rerere.rikkahub.utils.deleteChatFiles
 import me.rerere.rikkahub.utils.toLocalString
 import java.time.LocalDate
@@ -568,6 +569,8 @@ class ChatVM(
 
     suspend fun forkMessage(message: UIMessage): Conversation {
         val sourceConversation = conversation.value
+        // 提前生成新会话 id：分叉的文档要复制进新会话专属上传目录，id 必须先确定
+        val forkConversationId = Uuid.random()
         val forkEndIndex = sourceConversation.messageNodes
             .indexOfFirst { node -> node.messages.any { it.id == message.id } }
             .takeIf { it >= 0 }
@@ -599,10 +602,18 @@ class ChatVM(
                                     is UIMessagePart.Document -> {
                                         val url = part.url
                                         if (url.startsWith("file:")) {
-                                            val copied = context.createChatFilesByContents(
-                                                listOf(url.toUri())
-                                            ).firstOrNull()
-                                            if (copied != null) part.copy(url = copied.toString()) else part
+                                            // 分叉的文档进新会话专属上传目录（保留原名），
+                                            // 才能挂进沙盒 /upload 并随新会话删除清理
+                                            val copied = context.createChatUploadFile(
+                                                forkConversationId.toString(),
+                                                url.toUri(),
+                                                desiredName = part.fileName,
+                                            )
+                                            if (copied != null) {
+                                                part.copy(url = copied.uri.toString(), fileName = copied.fileName)
+                                            } else {
+                                                part
+                                            }
                                         } else part
                                     }
 
@@ -648,7 +659,7 @@ class ChatVM(
                 context.getString(R.string.chat_page_fork_title_numbered, branchNumber, sourceTitle)
             }
             Conversation(
-                id = Uuid.random(),
+                id = forkConversationId,
                 assistantId = sourceConversation.assistantId,
                 title = forkTitle,
                 messageNodes = nodes,

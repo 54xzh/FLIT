@@ -145,6 +145,7 @@ import me.rerere.rikkahub.utils.WorkspaceSync
 import me.rerere.rikkahub.utils.WorkspaceSyncLimits
 import me.rerere.rikkahub.utils.applyPlaceholders
 import me.rerere.rikkahub.utils.deleteChatFiles
+import me.rerere.rikkahub.utils.deleteChatUploadDir
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import me.rerere.search.SearchService
 import me.rerere.search.SearchServiceOptions
@@ -2232,6 +2233,7 @@ class ChatService(
             val workspaceToolSet = workspaceToolFactory.createForAssistant(
                 assistant = workspaceAssistant,
                 settingsSnapshot = settings,
+                conversationId = conversationId.toString(),
             )
             val workspaceFileReferenceContext = workspaceToolSet.referenceContext
 
@@ -2946,6 +2948,7 @@ class ChatService(
             val seatWorkspaceToolSet = workspaceToolFactory.createForAssistant(
                 assistant = seatAssistant,
                 settingsSnapshot = settings,
+                conversationId = conversationId.toString(),
             )
             val seatTools = buildList seatToolList@ {
                 // Search tools (external), if enabled and not using built-in.
@@ -4533,6 +4536,9 @@ class ChatService(
             val job = appScope.launch {
                 kotlinx.coroutines.delay(4000)
                 context.deleteChatFiles(conversationFull?.files ?: emptyList())
+                // 会话专属上传目录整目录清理（覆盖已加入输入框但未发送的附件，与
+                // deleteConversationById/deleteConversationsOfAssistant 的清理粒度对齐）
+                context.deleteChatUploadDir(conversation.id.toString())
                 settingsStore.update { current ->
                     current.clearConversationWorkspace(conversation.id)
                 }
@@ -4575,6 +4581,8 @@ class ChatService(
                 settingsStore.update { current ->
                     current.clearConversationWorkspace(conversationId)
                 }
+                // 会话专属上传目录（chat_uploads/<id>）一并清理
+                context.deleteChatUploadDir(conversationId.toString())
             }
             // 无论是否删文件, 该会话对应的阅读位置记录都一并清掉
             readPositionStore.remove(conversationId)
@@ -4608,6 +4616,7 @@ class ChatService(
                     settingsStore.update { current ->
                         current.clearConversationWorkspace(conversation.id)
                     }
+                    context.deleteChatUploadDir(conversation.id.toString())
                 }
                 readPositionStore.remove(conversation.id)
             }

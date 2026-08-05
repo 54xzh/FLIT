@@ -36,8 +36,12 @@ import me.rerere.rikkahub.data.sync.SANDBOX_RESTORE_SENTINEL
 import me.rerere.rikkahub.data.db.entity.toolDefaultNeedsApproval
 import me.rerere.rikkahub.data.db.entity.workspaceToolNames
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.rikkahub.workspace.SANDBOX_MAX_READ_BYTES
+import me.rerere.rikkahub.workspace.SANDBOX_UPLOAD_MOUNT_TARGET
 import me.rerere.rikkahub.workspace.SandboxCommandResult
 import me.rerere.rikkahub.workspace.SandboxBindMount
+import me.rerere.rikkahub.workspace.chatSessionBindMounts
+import me.rerere.rikkahub.workspace.chatUploadDir
 import me.rerere.rikkahub.workspace.SandboxFileEntry
 import me.rerere.rikkahub.workspace.SandboxRootfsInstallProgress
 import me.rerere.rikkahub.workspace.SandboxRootfsInstaller
@@ -677,8 +681,22 @@ class WorkspaceRepository(
         localEntries.sortedWith(compareBy<WorkspaceFileEntry> { !it.isDirectory }.thenBy { it.name.lowercase() })
     }
 
-    suspend fun readSandboxText(id: String, path: String): String = withContext(Dispatchers.IO) {
+    suspend fun readSandboxText(
+        id: String,
+        path: String,
+        conversationId: String? = null,
+    ): String = withContext(Dispatchers.IO) {
         requireSandbox(id)
+        // /upload 指向当前会话的上传目录（只读），与工作区自身的挂载解析分开处理
+        if (path == SANDBOX_UPLOAD_MOUNT_TARGET || path.startsWith("$SANDBOX_UPLOAD_MOUNT_TARGET/")) {
+            check(!conversationId.isNullOrBlank()) { "No conversation upload directory is mounted" }
+            val uploadRelative = path.removePrefix(SANDBOX_UPLOAD_MOUNT_TARGET).removePrefix("/")
+            val file = context.chatUploadDir(conversationId).resolve(normalizeWorkspaceRelativePath(uploadRelative))
+            check(file.isFile) { "File not found: $path" }
+            // 上限与沙盒工作区读文件一致，避免超大附件整体进工具结果
+            check(file.length() <= SANDBOX_MAX_READ_BYTES) { "File is too large to read: $path" }
+            return@withContext file.readText()
+        }
         val normalized = normalizeWorkspaceRelativePath(path)
         val resolved = resolveSandboxMount(dao.getSandboxMounts(id), normalized)
         if (resolved == null) sandboxManager.readText(id, normalized)
@@ -785,19 +803,21 @@ class WorkspaceRepository(
         cwd: String,
         timeoutMillis: Long,
         stdin: ByteArray? = null,
+        conversationId: String? = null,
     ): SandboxCommandResult = sandboxLock(id).withLock {
         val workspace = requireSandbox(id)
         check(workspace.sandboxStatus == SandboxRootfsStatus.READY) { "Rootfs is not ready" }
-        val bindMounts = loadSandboxBindMounts(id)
+        val bindMounts = loadSandboxBindMounts(id, conversationId)
         runInterruptible(Dispatchers.IO) {
             sandboxManager.executeCommand(id, command, cwd, timeoutMillis, stdin, bindMounts)
         }
     }
 
-    suspend fun getSandboxBindMounts(id: String): List<SandboxBindMount> = withContext(Dispatchers.IO) {
-        requireSandbox(id)
-        loadSandboxBindMounts(id)
-    }
+    suspend fun getSandboxBindMounts(id: String, conversationId: String? = null): List<SandboxBindMount> =
+        withContext(Dispatchers.IO) {
+            requireSandbox(id)
+            loadSandboxBindMounts(id, conversationId)
+        }
 
     /**
      * 统计所有沙盒工作区在存储管理里展示的占用：每个工作区按 `files/`、`linux/`、`tmp/`
@@ -1304,13 +1324,13 @@ class WorkspaceRepository(
         return stored
     }
 
-    private suspend fun loadSandboxBindMounts(id: String): List<SandboxBindMount> {
+    private suspend fun loadSandboxBindMounts(id: String, conversationId: String? = null): List<SandboxBindMount> {
         val mounts = dao.getSandboxMounts(id)
         if (mounts.isNotEmpty()) check(hasAllFilesAccess()) { "All files access is required for mounted folders" }
         return mounts.map { mount ->
             sandboxManager.ensureFilesDirectory(id, mountParentRelative(mount))
             SandboxBindMount(mountSourceFile(mount), mount.targetPath)
-        }
+        } + chatSessionBindMounts(context, conversationId)
     }
 
     private suspend fun updateSandboxStatus(id: String, status: SandboxRootfsStatus, sourceUrl: String?, version: String?, installedAt: Long?) {

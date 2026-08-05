@@ -20,7 +20,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.uuid.Uuid
 
 private const val TAG = "ChatUtil"
-private val MANAGED_CHAT_DIR_NAMES = setOf("upload", "avatars", "images", "custom_icons")
+private val MANAGED_CHAT_DIR_NAMES = setOf("upload", "avatars", "images", "custom_icons", "chat_uploads")
 
 internal fun isManagedChatFile(filesDir: File, file: File): Boolean {
     val canonicalFilesDir = runCatching { filesDir.canonicalFile }.getOrNull() ?: return false
@@ -158,6 +158,114 @@ fun Context.createChatFilesByByteArrays(byteArrays: List<ByteArray>): List<Uri> 
     return newUris
 }
 
+/**
+ * 单个会话的附件上传结果：本地 URI 与最终落盘文件名。
+ *
+ * `fileName` 是会话目录内去重后的真实文件名（同名自动追加 ` (1)`、` (2)`…序号），
+ * 与沙盒内 `/upload/<fileName>` 一一对应，UI 芯片直接展示该名称。
+ */
+data class ChatFileUploadResult(val uri: Uri, val fileName: String)
+
+/** 原始文件名中不适合作为落盘文件名的字符（路径分隔符、控制字符等）替换为下划线。 */
+fun sanitizeChatUploadFileName(rawName: String): String {
+    val cleaned = rawName
+        .replace('/', '_')
+        .replace('\\', '_')
+        .replace(':', '_')
+        .replace(Regex("[\\u0000-\\u001f]"), "")
+        .trim()
+        .take(200)
+    return cleaned.ifBlank { "file" }
+}
+
+
+/**
+ * 会话目录内按原名去重：已存在同名文件时在扩展名前追加序号（`report.pdf` → `report (1).pdf`），
+ * 无扩展名文件直接追加（`data` → `data (1)`）；隐藏文件（`.hidden`）整体当作主名处理。
+ */
+internal fun dedupeUploadFileName(dir: File, desiredName: String): String {
+    if (!File(dir, desiredName).exists()) return desiredName
+    val dotIndex = desiredName.lastIndexOf('.')
+    val baseName = if (dotIndex <= 0) desiredName else desiredName.substring(0, dotIndex)
+    val extension = if (dotIndex <= 0) "" else desiredName.substring(dotIndex + 1)
+    var index = 1
+    while (true) {
+        val candidate = if (extension.isEmpty()) "$baseName ($index)" else "$baseName ($index).$extension"
+        if (!File(dir, candidate).exists()) return candidate
+        index++
+    }
+}
+
+/**
+ * 把选中的文件复制进会话专属上传目录 `filesDir/chat_uploads/<conversationId>/`，
+ * 保留原始文件名并去重。会话目录后续会挂载进沙盒的 `/upload`。
+ */
+fun Context.createChatUploadFiles(conversationId: String, uris: List<Uri>): List<ChatFileUploadResult> =
+    uris.mapNotNull { uri -> createChatUploadFile(conversationId, uri) }
+
+/**
+ * 复制单个文件进会话上传目录。[desiredName] 优先作为落盘文件名
+ * （file:// 来源查不到 SAF 元数据时用它保住原名，如消息分叉场景）。
+ * 复制失败返回 null 并清掉半截文件。
+ */
+fun Context.createChatUploadFile(
+    conversationId: String,
+    sourceUri: Uri,
+    desiredName: String? = null,
+): ChatFileUploadResult? {
+    // 会话 id 必须是合法 UUID，防止借 `../` 等做路径穿越
+    val safeId = runCatching { Uuid.parse(conversationId) }.getOrNull()?.toString() ?: return null
+    val dir = File(filesDir.resolve("chat_uploads"), safeId)
+    if (!dir.exists()) {
+        dir.mkdirs()
+    }
+    val fileName = dedupeUploadFileName(
+        dir,
+        sanitizeChatUploadFileName(desiredName?.takeIf { it.isNotBlank() } ?: getFileNameFromUri(sourceUri) ?: "file"),
+    )
+    val file = dir.resolve(fileName)
+    return runCatching {
+        contentResolver.openInputStream(sourceUri)?.use { inputStream ->
+            file.outputStream().use { outputStream ->
+                inputStream.copyTo(outputStream)
+            }
+        } ?: error("Unable to open input stream for $sourceUri")
+        ChatFileUploadResult(file.toUri(), fileName)
+    }.onFailure {
+        it.printStackTrace()
+        Log.e(TAG, "createChatUploadFile: Failed to save file from $sourceUri", it)
+        runCatching { if (file.exists()) file.delete() }
+    }.getOrNull()
+}
+
+/** 删除某个会话的全部上传文件（删除会话时调用）。 */
+fun Context.deleteChatUploadDir(conversationId: String) {
+    val safeId = runCatching { Uuid.parse(conversationId) }.getOrNull()?.toString() ?: return
+    val dir = File(filesDir.resolve("chat_uploads"), safeId)
+    if (dir.exists()) {
+        dir.deleteRecursively()
+    }
+}
+
+/** 统计所有会话上传文件的数量与总大小（存储管理展示用）。 */
+fun Context.countChatUploadFiles(): Pair<Int, Long> {
+    val root = filesDir.resolve("chat_uploads")
+    if (!root.exists()) return Pair(0, 0)
+    var count = 0
+    var size = 0L
+    root.listFiles()?.forEach { conversationDir ->
+        if (conversationDir.isDirectory) {
+            conversationDir.listFiles()?.forEach { file ->
+                if (file.isFile) {
+                    count++
+                    size += file.length()
+                }
+            }
+        }
+    }
+    return Pair(count, size)
+}
+
 fun Context.getFileNameFromUri(uri: Uri): String? {
     var fileName: String? = null
     val projection = arrayOf(
@@ -251,6 +359,11 @@ fun Context.deleteAllChatFiles() {
     val dir = this.filesDir.resolve("upload")
     if (dir.exists()) {
         dir.deleteRecursively()
+    }
+    // 会话上传目录（chat_uploads）一并清理
+    val uploadsRoot = this.filesDir.resolve("chat_uploads")
+    if (uploadsRoot.exists()) {
+        uploadsRoot.deleteRecursively()
     }
 }
 

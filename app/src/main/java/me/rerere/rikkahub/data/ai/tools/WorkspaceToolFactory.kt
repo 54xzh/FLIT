@@ -94,6 +94,7 @@ class WorkspaceToolFactory(
         assistant: Assistant,
         settingsSnapshot: Settings,
         mode: WorkspaceToolExecutionMode = WorkspaceToolExecutionMode.INTERACTIVE,
+        conversationId: String? = null,
     ): WorkspaceToolSet {
         if (!shouldAttachWorkspaceTools(assistant)) {
             return WorkspaceToolSet.EMPTY
@@ -126,7 +127,7 @@ class WorkspaceToolFactory(
                     assistant = workspaceAssistant,
                     settingsSnapshot = settingsSnapshot,
                 )
-                WorkspaceType.SANDBOX -> createSandboxWorkspaceTools(workspace.id, workspaceRepository)
+                WorkspaceType.SANDBOX -> createSandboxWorkspaceTools(workspace.id, workspaceRepository, conversationId)
             }
         }
         val tools = filterToolsForExecutionMode(allTools, mode)

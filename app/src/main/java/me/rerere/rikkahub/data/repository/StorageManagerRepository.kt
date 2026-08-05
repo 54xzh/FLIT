@@ -260,6 +260,7 @@ class StorageManagerRepository(
         val referencedFilePaths = buildReferencedFilePathSet(settings = settings)
 
         val uploadDir = File(context.filesDir, "upload")
+        val chatUploadsDir = File(context.filesDir, "chat_uploads")
         val imagesDir = File(context.filesDir, "images")
         val avatarsDir = File(context.filesDir, "avatars")
         val customIconsDir = File(context.filesDir, "custom_icons")
@@ -274,6 +275,9 @@ class StorageManagerRepository(
         val cacheUsage = async { countDirUsage(context.cacheDir) }
         val uploadUsage = async {
             countManagedFilesInDir(uploadDir, referencedFilePaths, treatAllAsImages = false)
+        }
+        val chatUploadsUsage = async {
+            countManagedFilesInDir(chatUploadsDir, referencedFilePaths, treatAllAsImages = false)
         }
         val imagesUsage = async {
             countManagedFilesInDir(imagesDir, referencedFilePaths, treatAllAsImages = true)
@@ -298,6 +302,7 @@ class StorageManagerRepository(
         val dbUsageVal = dbUsage.await()
         val cacheUsageVal = cacheUsage.await()
         val uploadUsageVal = uploadUsage.await()
+        val chatUploadsUsageVal = chatUploadsUsage.await()
         val imagesUsageVal = imagesUsage.await()
         val avatarsUsageVal = avatarsUsage.await()
         val customIconsUsageVal = customIconsUsage.await()
@@ -308,10 +313,12 @@ class StorageManagerRepository(
         val sandboxFileCount = sandboxUsageVal.sumOf { it.totalFileCount }
 
         val imagesBytes = uploadUsageVal.images.bytes +
+            chatUploadsUsageVal.images.bytes +
             imagesUsageVal.images.bytes +
             avatarsUsageVal.images.bytes +
             customIconsUsageVal.images.bytes
         val imagesCount = uploadUsageVal.images.count +
+            chatUploadsUsageVal.images.count +
             imagesUsageVal.images.count +
             avatarsUsageVal.images.count +
             customIconsUsageVal.images.count
@@ -321,15 +328,17 @@ class StorageManagerRepository(
         // countManagedFilesInDir already classifies as non-image referenced files, so we reuse it
         // instead of triggering a second full-table conversation scan via getAllFileEntries().
         // Skills packages are managed elsewhere and should not be surfaced here.
-        val filesBytes = uploadUsageVal.files.bytes + imagesUsageVal.files.bytes
-        val filesCount = uploadUsageVal.files.count + imagesUsageVal.files.count
+        val filesBytes = uploadUsageVal.files.bytes + chatUploadsUsageVal.files.bytes + imagesUsageVal.files.bytes
+        val filesCount = uploadUsageVal.files.count + chatUploadsUsageVal.files.count + imagesUsageVal.files.count
 
         val historyBytes = uploadUsageVal.history.bytes +
+            chatUploadsUsageVal.history.bytes +
             imagesUsageVal.history.bytes +
             avatarsUsageVal.history.bytes +
             customIconsUsageVal.history.bytes +
             skillsUsageVal.history.bytes
         val historyCount = uploadUsageVal.history.count +
+            chatUploadsUsageVal.history.count +
             imagesUsageVal.history.count +
             avatarsUsageVal.history.count +
             customIconsUsageVal.history.count +
@@ -1003,6 +1012,7 @@ class StorageManagerRepository(
 
         val roots = listOf(
             File(context.filesDir, "upload"),
+            File(context.filesDir, "chat_uploads"),
             File(context.filesDir, "images"),
             File(context.filesDir, "avatars"),
             File(context.filesDir, "custom_icons"),
@@ -1060,6 +1070,7 @@ class StorageManagerRepository(
 
         val roots = listOf(
             File(context.filesDir, "upload"),
+            File(context.filesDir, "chat_uploads"),
             File(context.filesDir, "images"),
             File(context.filesDir, "avatars"),
             File(context.filesDir, "custom_icons"),
