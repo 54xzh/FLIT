@@ -111,6 +111,7 @@ private const val TAG = "GenerationHandler"
 private class ToolCallInputException(message: String) : IllegalStateException(message)
 private const val SEARCH_WEB_TOOL_NAME = "search_web"
 private const val SEARCH_AGENT_TOOL_NAME = "search_agent"
+private val CHAT_UPLOAD_TOOL_NAMES = setOf("sandbox_read_file", "sandbox_shell")
 private val MEMORY_TOOL_NAMES = setOf("create_memory", "edit_memory", "delete_memory")
 private val SESSION_MEMORY_TOOL_NAMES = setOf(
     "create_session_memory",
@@ -1630,7 +1631,15 @@ class GenerationHandler(
             explicitSkillContexts = explicitSkillContexts,
         )
         val internalMessages = buildResult.messages
-            .transforms(transformers, context, model, assistant)
+            .transforms(
+                transformers = transformers,
+                context = context,
+                model = model,
+                assistant = assistant,
+                chatUploadsAccessible = tools.any { tool ->
+                    tool.name in CHAT_UPLOAD_TOOL_NAMES && "/upload" in tool.description
+                },
+            )
             .repairToolCallMessageSequence { toolCall ->
                 toolCall.requiresLocalToolResult(model)
             }

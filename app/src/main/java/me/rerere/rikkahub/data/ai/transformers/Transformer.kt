@@ -9,6 +9,7 @@ class TransformerContext(
     val context: Context,
     val model: Model,
     val assistant: Assistant,
+    val chatUploadsAccessible: Boolean = false,
 )
 
 interface MessageTransformer {
@@ -58,8 +59,9 @@ suspend fun List<UIMessage>.transforms(
     context: Context,
     model: Model,
     assistant: Assistant,
+    chatUploadsAccessible: Boolean = false,
 ): List<UIMessage> {
-    val ctx = TransformerContext(context, model, assistant)
+    val ctx = TransformerContext(context, model, assistant, chatUploadsAccessible)
     return transformers.fold(this) { acc, transformer ->
         transformer.transform(ctx, acc)
     }

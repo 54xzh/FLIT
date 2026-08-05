@@ -35,7 +35,7 @@ object DocumentAsPromptTransformer : InputMessageTransformer {
                         val documents = filterIsInstance<UIMessagePart.Document>()
                         if (documents.isNotEmpty()) {
                             documents.forEach { document ->
-                                add(0, UIMessagePart.Text(buildDocumentPrompt(document)))
+                                add(0, UIMessagePart.Text(buildDocumentPrompt(document, ctx.chatUploadsAccessible)))
                             }
                         }
                     }
@@ -44,14 +44,17 @@ object DocumentAsPromptTransformer : InputMessageTransformer {
         }
     }
 
-    private fun buildDocumentPrompt(document: UIMessagePart.Document): String {
+    private fun buildDocumentPrompt(
+        document: UIMessagePart.Document,
+        chatUploadsAccessible: Boolean,
+    ): String {
         val file = runCatching { document.url.toUri().toFile() }.getOrNull()
         if (file == null || !file.isFile) {
             return """<UploadFile name="${escapeXmlAttr(document.fileName)}" unavailable="true">The uploaded file is no longer available on this device.</UploadFile>"""
         }
-        val sandboxPath = sessionUploadRelativePath(file)
+        val sandboxPath = sessionUploadRelativePath(file, chatUploadsAccessible)
 
-        // 非会话上传目录的文件（旧版共享 upload 目录、无沙盒助手沿用的原有通道）：
+        // 非会话上传目录，或本次请求没有可读取 /upload 的沙盒工具：
         // 沿用升级前的原有行为——内容全量内联进 prompt，不设大小上限、也不承诺沙盒路径。
         if (sandboxPath == null) {
             return buildLegacyDocumentPrompt(document, file)
@@ -73,8 +76,7 @@ object DocumentAsPromptTransformer : InputMessageTransformer {
             """.trimMargin()
         }
 
-        // 过大或无法解析：不内联内容。是否真有沙盒工具可用此处无法确知（工作区可被会话覆写、
-        // 定时任务无会话），因此只描述事实、不承诺工具存在，避免模型调用不存在的工具。
+        // 过大或无法解析：本次请求已确认可以通过沙盒工具读取，因此只发送路径与元信息。
         val hint = "The file content is not inlined because it is too large or not directly readable."
         return """<UploadFile name="${escapeXmlAttr(document.fileName)}"$pathAttr size="$size" inline="false">$hint</UploadFile>"""
     }
@@ -130,8 +132,9 @@ object DocumentAsPromptTransformer : InputMessageTransformer {
         }.getOrNull()
     }
 
-    /** 会话上传文件（filesDir/chat_uploads/<会话>/原名）对应的 /upload 内相对路径；非会话上传文件返回 null。 */
-    private fun sessionUploadRelativePath(file: File): String? {
+    /** 本次请求可访问时，返回会话上传文件对应的 /upload 内相对路径。 */
+    internal fun sessionUploadRelativePath(file: File, chatUploadsAccessible: Boolean): String? {
+        if (!chatUploadsAccessible) return null
         val rootName = "chat_uploads"
         val segments = file.absolutePath.split(File.separatorChar)
         val rootIndex = segments.lastIndexOf(rootName)

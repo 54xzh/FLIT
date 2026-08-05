@@ -151,6 +151,7 @@ internal fun restoreDirectorySnapshots(
 const val SANDBOX_RESTORE_SENTINEL = ".sandbox_restore_pending"
 private val FILES_DIR_BACKUP_PATHS = listOf(
     "upload",
+    "chat_uploads",
     "avatars",
     "images",
     "skills",
