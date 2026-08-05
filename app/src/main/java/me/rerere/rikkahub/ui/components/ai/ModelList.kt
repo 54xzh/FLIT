@@ -499,6 +499,7 @@ internal fun ColumnScope.ModelList(
                                 .animateItem(),
                             providerSetting = provider,
                             select = model.id == currentModel,
+                            showProviderNote = true,
                             onDismiss = {
                                 onDismiss()
                             },
@@ -849,7 +850,8 @@ private fun ModelItem(
     tail: @Composable RowScope.() -> Unit = {},
     dragHandle: @Composable (RowScope.() -> Unit)? = null,
     inGroup: Boolean = false,
-    position: ModelItemPosition = ModelItemPosition.SINGLE
+    position: ModelItemPosition = ModelItemPosition.SINGLE,
+    showProviderNote: Boolean = false
 ) {
     val navController = LocalNavController.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -915,13 +917,33 @@ private fun ModelItem(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    Text(
-                        text = model.displayName,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = if (select) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = model.displayName,
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = if (select) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                        )
+
+                        if (showProviderNote) {
+                            Text(
+                                text = "· ${providerSetting.name}",
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = if (select) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                                } else {
+                                    MaterialTheme.extendColors.gray6
+                                },
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                        }
+                    }
 
                     FlowRow(
                         modifier = Modifier
@@ -987,12 +1009,32 @@ private fun ModelItem(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        Text(
-                            text = model.displayName,
-                            style = MaterialTheme.typography.titleSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                text = model.displayName,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            if (showProviderNote) {
+                                Text(
+                                    text = "· ${providerSetting.name}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = if (select) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                                    } else {
+                                        MaterialTheme.extendColors.gray6
+                                    },
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                            }
+                        }
 
                         FlowRow(
                             modifier = Modifier
