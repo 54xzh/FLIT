@@ -154,6 +154,21 @@ class StorageManagerRepository(
         private const val OVERVIEW_CACHE_MAX_AGE_MS = 30 * 60_000L
     }
 
+    /**
+     * 聊天附件的两个落盘目录：旧版共享 `upload`（UUID 文件名、内容全量内联）
+     * 与新版会话专属 `chat_uploads/<会话ID>/`（挂载进沙盒 /upload）。
+     * 存储管理的明细统计、列出与清理都必须同时覆盖两者，避免总览与明细不一致。
+     */
+    private val chatAttachmentDirs: List<File> by lazy {
+        listOf(
+            File(context.filesDir, "upload"),
+            File(context.filesDir, "chat_uploads"),
+        )
+    }
+
+    private fun isChatAttachmentFile(file: File): Boolean =
+        chatAttachmentDirs.any { StorageScanUtils.isInChildOf(file, it) }
+
     private val overviewCache = TimedSuspendCache<StorageOverview>(
         maxAgeMs = OVERVIEW_CACHE_MAX_AGE_MS,
     )
@@ -560,15 +575,13 @@ class StorageManagerRepository(
             }
         }
 
-        val uploadDir = File(context.filesDir, "upload")
-
         val images = imageUrls
             .asSequence()
             .mapNotNull { StorageScanUtils.toExistingLocalFileOrNull(it, context.filesDir) }
             .distinctBy { StorageScanUtils.normalizePath(it) }
             .filter { file ->
-                // Safety: only delete chat attachments in upload/, avoid touching avatars/images dirs.
-                StorageScanUtils.isInChildOf(file, uploadDir)
+                // Safety: only delete chat attachments, avoid touching avatars/images dirs.
+                isChatAttachmentFile(file)
             }
             .toList()
 
@@ -577,7 +590,7 @@ class StorageManagerRepository(
             .mapNotNull { StorageScanUtils.toExistingLocalFileOrNull(it, context.filesDir) }
             .distinctBy { StorageScanUtils.normalizePath(it) }
             .filter { file ->
-                StorageScanUtils.isInChildOf(file, uploadDir)
+                isChatAttachmentFile(file)
             }
             .toList()
 
@@ -614,13 +627,12 @@ class StorageManagerRepository(
             }
         }
 
-        val uploadDir = File(context.filesDir, "upload")
         val targetFiles = (imageUrls + fileUrls)
             .asSequence()
             .mapNotNull { StorageScanUtils.toExistingLocalFileOrNull(it, context.filesDir) }
             .distinctBy { StorageScanUtils.normalizePath(it) }
             .filter { file ->
-                StorageScanUtils.isInChildOf(file, uploadDir)
+                isChatAttachmentFile(file)
             }
             .toList()
 
@@ -701,13 +713,12 @@ class StorageManagerRepository(
             }
         }
 
-        val uploadDir = File(context.filesDir, "upload")
         imageUrls
             .asSequence()
             .mapNotNull { StorageScanUtils.toExistingLocalFileOrNull(it, context.filesDir) }
             .distinctBy { StorageScanUtils.normalizePath(it) }
             .filter { file ->
-                StorageScanUtils.isInChildOf(file, uploadDir)
+                isChatAttachmentFile(file)
             }
             .map { file ->
                 val path = StorageScanUtils.normalizePath(file)
@@ -744,13 +755,12 @@ class StorageManagerRepository(
             }
         }
 
-        val uploadDir = File(context.filesDir, "upload")
         imageUrls
             .asSequence()
             .mapNotNull { StorageScanUtils.toExistingLocalFileOrNull(it, context.filesDir) }
             .distinctBy { StorageScanUtils.normalizePath(it) }
             .filter { file ->
-                StorageScanUtils.isInChildOf(file, uploadDir)
+                isChatAttachmentFile(file)
             }
             .map { file ->
                 val path = StorageScanUtils.normalizePath(file)
@@ -823,12 +833,11 @@ class StorageManagerRepository(
             }
         }
 
-        val uploadDir = File(context.filesDir, "upload")
         val byPath = LinkedHashMap<String, AssistantFileEntry>()
 
         candidates.forEach { candidate ->
             val file = StorageScanUtils.toExistingLocalFileOrNull(candidate.url, context.filesDir) ?: return@forEach
-            if (!StorageScanUtils.isInChildOf(file, uploadDir)) return@forEach
+            if (!isChatAttachmentFile(file)) return@forEach
 
             val normalizedPath = StorageScanUtils.normalizePath(file)
             val bytes = file.lengthSafe()
@@ -918,12 +927,11 @@ class StorageManagerRepository(
             }
         }
 
-        val uploadDir = File(context.filesDir, "upload")
         val byPath = LinkedHashMap<String, AssistantFileEntry>()
 
         candidates.forEach { candidate ->
             val file = StorageScanUtils.toExistingLocalFileOrNull(candidate.url, context.filesDir) ?: return@forEach
-            if (!StorageScanUtils.isInChildOf(file, uploadDir)) return@forEach
+            if (!isChatAttachmentFile(file)) return@forEach
 
             val normalizedPath = StorageScanUtils.normalizePath(file)
             val bytes = file.lengthSafe()
@@ -966,11 +974,10 @@ class StorageManagerRepository(
     }
 
     suspend fun deleteAssistantImageEntries(absolutePaths: List<String>): DeleteResult = withContext(Dispatchers.IO) {
-        val uploadDir = File(context.filesDir, "upload")
         val files = absolutePaths
             .asSequence()
             .map { File(it) }
-            .filter { file -> StorageScanUtils.isInChildOf(file, uploadDir) }
+            .filter { file -> isChatAttachmentFile(file) }
             .distinctBy { StorageScanUtils.normalizePath(it) }
             .toList()
         val result = deleteFiles(files)
@@ -980,11 +987,10 @@ class StorageManagerRepository(
     }
 
     suspend fun deleteAssistantFileEntries(absolutePaths: List<String>): DeleteResult = withContext(Dispatchers.IO) {
-        val uploadDir = File(context.filesDir, "upload")
         val files = absolutePaths
             .asSequence()
             .map { File(it) }
-            .filter { file -> StorageScanUtils.isInChildOf(file, uploadDir) }
+            .filter { file -> isChatAttachmentFile(file) }
             .distinctBy { StorageScanUtils.normalizePath(it) }
             .toList()
         val result = deleteFiles(files)

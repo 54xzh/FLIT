@@ -691,8 +691,15 @@ class WorkspaceRepository(
         if (path == SANDBOX_UPLOAD_MOUNT_TARGET || path.startsWith("$SANDBOX_UPLOAD_MOUNT_TARGET/")) {
             check(!conversationId.isNullOrBlank()) { "No conversation upload directory is mounted" }
             val uploadRelative = path.removePrefix(SANDBOX_UPLOAD_MOUNT_TARGET).removePrefix("/")
-            val file = context.chatUploadDir(conversationId).resolve(normalizeWorkspaceRelativePath(uploadRelative))
+            val uploadDir = context.chatUploadDir(conversationId)
+            val file = uploadDir.resolve(normalizeWorkspaceRelativePath(uploadRelative))
             check(file.isFile) { "File not found: $path" }
+            // 防软链接越界：解析真实路径后仍必须位于会话上传目录内
+            val canonicalFile = file.canonicalFile
+            val canonicalRoot = uploadDir.canonicalFile
+            check(canonicalFile.path.startsWith("${canonicalRoot.path}${File.separator}")) {
+                "File escapes the upload directory: $path"
+            }
             // 上限与沙盒工作区读文件一致，避免超大附件整体进工具结果
             check(file.length() <= SANDBOX_MAX_READ_BYTES) { "File is too large to read: $path" }
             return@withContext file.readText()

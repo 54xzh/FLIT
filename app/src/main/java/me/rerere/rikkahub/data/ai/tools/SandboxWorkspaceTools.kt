@@ -195,6 +195,7 @@ private fun JsonObject.string(name: String): String? = this[name]?.jsonPrimitive
 private const val SANDBOX_PROMPT = """
 You are using a persistent Linux sandbox. Sandbox file tools accept absolute paths under /workspace, and sandbox_read_file also accepts /upload paths.
 /upload contains the files the user uploaded in this conversation. It is read-only input: read files from it, but never modify or delete them, and put any outputs under /workspace.
+If a task requires editing an uploaded file, first copy it into /workspace (e.g. cp /upload/report.docx /workspace/report.docx) and edit the copy there.
 Use sandbox_shell for commands. The shell can write /workspace, /skills and /tool_outputs; treat /upload as read-only even though the shell can see it.
 Mounted phone folders under /workspace are live and writable; changes affect the original phone files.
 

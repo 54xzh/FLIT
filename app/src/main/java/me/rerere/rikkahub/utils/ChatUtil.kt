@@ -109,15 +109,19 @@ suspend fun Context.saveMessageImage(image: String) = withContext(Dispatchers.IO
     }
 }
 
-fun Context.createChatFilesByContents(uris: List<Uri>): List<Uri> {
+fun Context.createChatFilesByContents(uris: List<Uri>, desiredNames: List<String?>? = null): List<Uri> {
     val newUris = mutableListOf<Uri>()
     val dir = this.filesDir.resolve("upload")
     if (!dir.exists()) {
         dir.mkdirs()
     }
-    uris.forEach { uri ->
-        val fileName = Uuid.random()
-        val file = dir.resolve("$fileName")
+    uris.forEachIndexed { index, uri ->
+        // desiredNames 提供合法文件名时按原名落盘（净化非法字符并去重），否则用随机 UUID
+        val requestedName = desiredNames?.getOrNull(index)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { sanitizeChatUploadFileName(it) }
+        val fileName = requestedName?.let { dedupeUploadFileName(dir, it) } ?: Uuid.random().toString()
+        val file = dir.resolve(fileName)
         if (!file.exists()) {
             file.createNewFile()
         }

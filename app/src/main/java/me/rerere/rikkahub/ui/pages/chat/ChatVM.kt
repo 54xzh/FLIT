@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.core.net.toFile
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -602,17 +603,29 @@ class ChatVM(
                                     is UIMessagePart.Document -> {
                                         val url = part.url
                                         if (url.startsWith("file:")) {
-                                            // 分叉的文档进新会话专属上传目录（保留原名），
-                                            // 才能挂进沙盒 /upload 并随新会话删除清理
-                                            val copied = context.createChatUploadFile(
-                                                forkConversationId.toString(),
-                                                url.toUri(),
-                                                desiredName = part.fileName,
-                                            )
-                                            if (copied != null) {
-                                                part.copy(url = copied.uri.toString(), fileName = copied.fileName)
+                                            val sourceFile = runCatching { url.toUri().toFile() }.getOrNull()
+                                            if (sourceFile?.absolutePath?.contains("/chat_uploads/") == true) {
+                                                // 沙盒通道的文档进新会话专属上传目录（保留原名），
+                                                // 才能挂进沙盒 /upload 并随新会话删除清理
+                                                val copied = context.createChatUploadFile(
+                                                    forkConversationId.toString(),
+                                                    url.toUri(),
+                                                    desiredName = part.fileName,
+                                                )
+                                                if (copied != null) {
+                                                    part.copy(url = copied.uri.toString(), fileName = copied.fileName)
+                                                } else {
+                                                    part
+                                                }
                                             } else {
-                                                part
+                                                // 原有通道的文档同样要复制一份：fork 与源会话共享同一文件，
+                                                // 任一会话删除都会删掉共享文件破坏另一方附件（与升级前行为一致：各自复制）
+                                                val copied = context.createChatFilesByContents(
+                                                    listOf(url.toUri()),
+                                                    // 带原名落盘：分支里编辑这条消息重发时，芯片不会退化成 UUID 名
+                                                    desiredNames = listOf(part.fileName),
+                                                ).firstOrNull()
+                                                if (copied != null) part.copy(url = copied.toString()) else part
                                             }
                                         } else part
                                     }

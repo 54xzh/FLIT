@@ -2566,11 +2566,13 @@ fun FilePickButton(
         rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
             if (uris.isNotEmpty()) {
                 scope.launch {
-                    val parseableOnly = !allowNonParseableFiles
                     val documents = withContext(Dispatchers.IO) {
-                        context.toChatDocuments(conversationId, uris) { mime ->
-                            // 助手未绑定沙盒工作区时无法按需读取文件，仅接受可直接解析的文档
-                            !parseableOnly || isParseableChatDocument(mime)
+                        if (allowNonParseableFiles) {
+                            // 有沙盒工作区：任意类型文件挂载进沙盒按需读取
+                            context.toChatUploadDocuments(conversationId, uris)
+                        } else {
+                            // 无沙盒工作区：沿用原有白名单，内容发送时全量内联进 prompt
+                            context.toSupportedChatDocuments(uris)
                         }
                     }
 

@@ -50,15 +50,17 @@ object DocumentAsPromptTransformer : InputMessageTransformer {
             return """<UploadFile name="${escapeXmlAttr(document.fileName)}" unavailable="true">The uploaded file is no longer available on this device.</UploadFile>"""
         }
         val sandboxPath = sessionUploadRelativePath(file)
-        val size = formatUploadSize(file.length())
+
+        // 非会话上传目录的文件（旧版共享 upload 目录、无沙盒助手沿用的原有通道）：
+        // 沿用升级前的原有行为——内容全量内联进 prompt，不设大小上限、也不承诺沙盒路径。
+        if (sandboxPath == null) {
+            return buildLegacyDocumentPrompt(document, file)
+        }
 
         // 会话上传目录里的文件会挂载进沙盒 /upload，可告知助手按路径读取；
         // 文件名可包含引号等字符，路径同样需要属性转义
-        val pathAttr = if (sandboxPath != null) {
-            """ path="${escapeXmlAttr("$SANDBOX_UPLOAD_MOUNT_TARGET/$sandboxPath")}""""
-        } else {
-            ""
-        }
+        val pathAttr = """ path="${escapeXmlAttr("$SANDBOX_UPLOAD_MOUNT_TARGET/$sandboxPath")}""""
+        val size = formatUploadSize(file.length())
 
         val parsedContent = parseDocumentContent(document, file)
         if (parsedContent != null && parsedContent.length <= INLINE_CONTENT_LIMIT) {
@@ -75,6 +77,32 @@ object DocumentAsPromptTransformer : InputMessageTransformer {
         // 定时任务无会话），因此只描述事实、不承诺工具存在，避免模型调用不存在的工具。
         val hint = "The file content is not inlined because it is too large or not directly readable."
         return """<UploadFile name="${escapeXmlAttr(document.fileName)}"$pathAttr size="$size" inline="false">$hint</UploadFile>"""
+    }
+
+    /**
+     * 旧版共享 `upload` 目录里的文档（含无沙盒助手发送的附件）：与升级前行为一致，
+     * 内容全量内联进 prompt。超大二进制文件（PDF/DOCX 超限）返回 null 时退化为元信息，
+     * 避免整个请求因单个附件失败。
+     */
+    private fun buildLegacyDocumentPrompt(document: UIMessagePart.Document, file: File): String {
+        val content = runCatching {
+            when (document.mime) {
+                "application/pdf" -> PdfParser.parserPdf(file)
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> DocxParser.parse(file)
+                else -> file.readText()
+            }
+        }.getOrNull()
+        if (content == null) {
+            // 原有通道没有 /upload 路径可读：明确告知内容不可得，避免模型幻觉调用读取工具
+            return """<UploadFile name="${escapeXmlAttr(document.fileName)}" size="${formatUploadSize(file.length())}" inline="false">The file content could not be read (it may be corrupted, in an unsupported format, or too large).</UploadFile>"""
+        }
+        return """
+            |<UploadFile name="${escapeXmlAttr(document.fileName)}" size="${formatUploadSize(file.length())}">
+            |```
+            |$content
+            |```
+            |</UploadFile>
+        """.trimMargin()
     }
 
     /** 文件名来自用户选择，拼进标签属性前转义，防止破坏标签结构或注入属性。 */

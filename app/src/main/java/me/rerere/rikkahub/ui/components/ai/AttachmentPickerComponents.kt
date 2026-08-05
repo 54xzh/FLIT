@@ -28,6 +28,7 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.utils.createChatFilesByContents
 import me.rerere.rikkahub.utils.createChatUploadFiles
 import me.rerere.rikkahub.utils.getFileMimeType
 import me.rerere.rikkahub.utils.getFileNameFromUri
@@ -52,39 +53,79 @@ internal fun isSandboxUploadReady(
         workspace.sandboxStatus == me.rerere.rikkahub.data.db.entity.SandboxRootfsStatus.READY &&
         hasRootfs(workspace.id)
 
-/** 有专门文本解析器的文档类型：内容可直接内联进 prompt（仍受大小阈值约束）。 */
-internal fun isParseableChatDocument(mime: String): Boolean {
+/**
+ * 附件发送的原有类型白名单（MIME + 常见文本扩展名）。
+ * 无沙盒的助手沿用该白名单：文件内容发送时全量内联进 prompt，不受大小限制，
+ * 与升级前行为一致。
+ */
+internal fun isSupportedChatDocument(
+    fileName: String,
+    mime: String,
+): Boolean {
     return mime.startsWith("text/") ||
         mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-        mime == "application/pdf"
+        mime == "application/pdf" ||
+        fileName.endsWith(".txt", ignoreCase = true) ||
+        fileName.endsWith(".md", ignoreCase = true) ||
+        fileName.endsWith(".csv", ignoreCase = true) ||
+        fileName.endsWith(".json", ignoreCase = true) ||
+        fileName.endsWith(".js", ignoreCase = true) ||
+        fileName.endsWith(".html", ignoreCase = true) ||
+        fileName.endsWith(".css", ignoreCase = true) ||
+        fileName.endsWith(".xml", ignoreCase = true) ||
+        fileName.endsWith(".py", ignoreCase = true) ||
+        fileName.endsWith(".java", ignoreCase = true) ||
+        fileName.endsWith(".kt", ignoreCase = true) ||
+        fileName.endsWith(".ts", ignoreCase = true) ||
+        fileName.endsWith(".tsx", ignoreCase = true) ||
+        fileName.endsWith(".markdown", ignoreCase = true) ||
+        fileName.endsWith(".mdx", ignoreCase = true) ||
+        fileName.endsWith(".yml", ignoreCase = true) ||
+        fileName.endsWith(".yaml", ignoreCase = true)
 }
 
 /**
- * 把选中的文件落盘到会话上传目录并构造 Document part。
- *
- * 不再按类型白名单过滤：任何文件都可发送。可解析的小文件由
- * [me.rerere.rikkahub.data.ai.transformers.DocumentAsPromptTransformer] 内联进 prompt，
- * 其余文件只挂载进沙盒 `/upload`，由助手通过工作区工具按需读取。
- *
- * `accept` 用于落盘前的类型预检（如助手没有沙盒时只收可解析文档），
- * 避免先复制大文件再删除的浪费；为 null 时接受全部文件。
+ * 有沙盒工作区的助手：任意类型文件落盘到会话上传目录（挂载进沙盒 `/upload`）。
+ * 可解析的小文件仍会被 [me.rerere.rikkahub.data.ai.transformers.DocumentAsPromptTransformer]
+ * 内联进 prompt，其余文件由助手通过工作区工具按需读取。
  */
-internal fun Context.toChatDocuments(
+internal fun Context.toChatUploadDocuments(
     conversationId: String,
     uris: List<Uri>,
-    accept: ((mime: String) -> Boolean)? = null,
 ): List<UIMessagePart.Document> {
     if (conversationId.isBlank()) return emptyList()
     return uris.mapNotNull { uri ->
         val mime = getFileMimeType(uri) ?: "text/plain"
-        if (accept != null && !accept(mime)) {
-            return@mapNotNull null
-        }
         val upload = createChatUploadFiles(conversationId, listOf(uri)).firstOrNull()
             ?: return@mapNotNull null
         UIMessagePart.Document(
             url = upload.uri.toString(),
             fileName = upload.fileName,
+            mime = mime,
+        )
+    }
+}
+
+/**
+ * 无沙盒工作区的助手：恢复原有行为——按 [isSupportedChatDocument] 白名单过滤，
+ * 文件存进共享 `upload` 目录（UUID 文件名），发送时内容全量内联进 prompt。
+ */
+internal fun Context.toSupportedChatDocuments(
+    uris: List<Uri>,
+): List<UIMessagePart.Document> {
+    return uris.mapNotNull { uri ->
+        val fileName = getFileNameFromUri(uri) ?: "file"
+        val mime = getFileMimeType(uri) ?: "text/plain"
+        if (!isSupportedChatDocument(fileName = fileName, mime = mime)) {
+            return@mapNotNull null
+        }
+
+        val localUri = createChatFilesByContents(listOf(uri)).firstOrNull()
+            ?: return@mapNotNull null
+
+        UIMessagePart.Document(
+            url = localUri.toString(),
+            fileName = fileName,
             mime = mime,
         )
     }
