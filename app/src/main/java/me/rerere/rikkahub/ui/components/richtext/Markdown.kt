@@ -133,6 +133,8 @@ import org.intellij.markdown.flavours.gfm.GFMElementTypes
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 import org.intellij.markdown.parser.MarkdownParser
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -196,15 +198,19 @@ private val LocalWorkspaceFileLinkClick = compositionLocalOf<(String) -> Unit> {
 internal fun workspaceMarkdownLinkPath(destination: String): String? {
     if (!destination.startsWith(WORKSPACE_MARKDOWN_PATH_PREFIX)) return null
     val rawPath = destination.removePrefix(WORKSPACE_MARKDOWN_PATH_PREFIX)
-    if (rawPath.split('/').any { it.isBlank() }) return null
-    return normalizeWorkspaceFileReferencePath(rawPath)
+    val decodedPath = runCatching {
+        // URLDecoder treats '+' as a space, but '+' is a valid filename character.
+        URLDecoder.decode(rawPath.replace("+", "%2B"), StandardCharsets.UTF_8.name())
+    }.getOrNull() ?: return null
+    if (decodedPath.split('/').any { it.isBlank() }) return null
+    return normalizeWorkspaceFileReferencePath(decodedPath)
 }
 
 private fun workspaceMarkdownLinkAnnotation(
     destination: String,
     onClickWorkspaceFile: (String) -> Unit,
-): LinkAnnotation.Url = LinkAnnotation.Url(
-    url = destination,
+): LinkAnnotation.Clickable = LinkAnnotation.Clickable(
+    tag = destination,
     linkInteractionListener = object : LinkInteractionListener {
         override fun onClick(link: LinkAnnotation) {
             workspaceMarkdownLinkPath(destination)?.let(onClickWorkspaceFile)
