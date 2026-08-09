@@ -10,6 +10,7 @@ import at.bitfire.dav4jvm.property.webdav.DisplayName
 import at.bitfire.dav4jvm.property.webdav.GetContentLength
 import at.bitfire.dav4jvm.property.webdav.GetLastModified
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -26,6 +27,7 @@ import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.migration.RestoreTargets
 import me.rerere.rikkahub.data.migration.SettingsJsonHolder
 import me.rerere.rikkahub.data.migration.SkillUuidMigration
+import me.rerere.rikkahub.utils.appLanguageUpdateGate
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.asRequestBody
@@ -779,6 +781,7 @@ class WebdavSync(
                 var filesAttempted = false
                 var databaseApplied = false
                 var settingsAttempted = false
+                var appLanguageDeferralToken: me.rerere.rikkahub.utils.AppLanguageUpdateGate.Token? = null
                 try {
                     if (restoredFilePaths.isNotEmpty()) {
                         filesAttempted = true
@@ -799,6 +802,12 @@ class WebdavSync(
                     }
 
                     if (cleanedSettings != null) {
+                        if (
+                            cleanedSettings.displaySetting.appLanguage !=
+                            settingsSnapshot.settings.displaySetting.appLanguage
+                        ) {
+                            appLanguageDeferralToken = appLanguageUpdateGate.deferUntilRestart()
+                        }
                         settingsAttempted = true
                         settingsStore.update(cleanedSettings)
                         Log.i(
@@ -826,6 +835,7 @@ class WebdavSync(
                             readPositionStore.replaceAll(positions)
                             Log.i(TAG, "restoreFromBackupFile: Restored ${positions.size} read positions")
                         }.onFailure {
+                            if (it is CancellationException) throw it
                             Log.w(TAG, "restoreFromBackupFile: Failed to restore read positions", it)
                         }
                     }
@@ -846,6 +856,8 @@ class WebdavSync(
                         runCatching { settingsStore.restoreSnapshot(settingsSnapshot) }
                             .onFailure(rollbackErrors::add)
                     }
+
+                    appLanguageDeferralToken?.let(appLanguageUpdateGate::resumeUpdates)
 
                     rollbackErrors.forEach(restoreError::addSuppressed)
                     throw restoreError
@@ -871,10 +883,12 @@ class WebdavSync(
                 
                 Log.i(TAG, "restoreFromBackupFile: Cleanup summary - skipped ${unsupportedZipEntriesBytes} bytes, fixed ${totalCleanupResult.totalIssuesFixed} issues")
                 
-                RestoreResult(
+                val restoreResult = RestoreResult(
                     sanitization = sanitizationResult,
                     settingsCleanup = totalCleanupResult
                 )
+                appLanguageDeferralToken?.let(appLanguageUpdateGate::markRestartRequired)
+                restoreResult
             } finally {
                 // Cleanup temp dir
                 restoreTempDir.deleteRecursively()

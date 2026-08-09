@@ -38,8 +38,10 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.combine
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.utils.applyAppLanguage
+import me.rerere.rikkahub.utils.appLanguageUpdateGate
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -206,15 +208,26 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
         // （API 33+ 由系统侧持久化按应用语言，冷启动零代码即正确）
         get<AppScope>().launch {
             val settings = get<SettingsStore>().settingsFlowRaw.first()
-            applyAppLanguage(settings.displaySetting.appLanguage)
+            appLanguageUpdateGate.applyIfUpdatesAllowed {
+                applyAppLanguage(settings.displaySetting.appLanguage)
+            }
         }
 
         // 常驻：保持 DataStore 与系统语言一致（应用内切换、恢复后均会触发，幂等）
         get<AppScope>().launch {
-            get<SettingsStore>().settingsFlow
-                .map { it.displaySetting.appLanguage }
+            val settingsStore = get<SettingsStore>()
+            combine(
+                settingsStore.settingsFlow
+                    .map { it.displaySetting.appLanguage }
+                    .distinctUntilChanged(),
+                appLanguageUpdateGate.isDeferredUntilRestart,
+            ) { language, deferred -> language to deferred }
                 .distinctUntilChanged()
-                .collect { applyAppLanguage(it) }
+                .collect {
+                    appLanguageUpdateGate.applyIfUpdatesAllowed {
+                        applyAppLanguage(settingsStore.settingsFlow.value.displaySetting.appLanguage)
+                    }
+                }
         }
 
         // One-time migration: populate DailyActivityEntity from existing conversation dates

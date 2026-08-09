@@ -86,6 +86,7 @@ import me.rerere.rikkahub.ui.components.ui.FormItem
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
 import me.rerere.rikkahub.ui.components.ui.StickyHeader
 import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.rikkahub.utils.appLanguageUpdateGate
 import me.rerere.rikkahub.utils.fileSizeToString
 import me.rerere.rikkahub.utils.onError
 import me.rerere.rikkahub.utils.onLoading
@@ -98,12 +99,14 @@ import java.io.FileOutputStream
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import kotlin.system.exitProcess
 
 @Composable
 fun BackupPage(vm: BackupVM = koinViewModel()) {
     val pagerState = rememberPagerState { 3 }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val pendingRestoreResult by vm.pendingRestoreResult.collectAsStateWithLifecycle()
+    val languageRestartRequired by appLanguageUpdateGate.isRestartRequired.collectAsStateWithLifecycle()
     var showBackupLogs by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
@@ -206,6 +209,13 @@ fun BackupPage(vm: BackupVM = koinViewModel()) {
             }
         }
     }
+
+    if (pendingRestoreResult != null || languageRestartRequired) {
+        BackupDialog(
+            result = pendingRestoreResult,
+            onConfirm = { vm.restartApp(context) },
+        )
+    }
 }
 
 @Composable
@@ -218,8 +228,6 @@ private fun WebDavPage(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showBackupFiles by remember { mutableStateOf(false) }
-    var showRestartDialog by remember { mutableStateOf(false) }
-    var restoreResult by remember { mutableStateOf<me.rerere.rikkahub.data.sync.WebdavSync.RestoreResult?>(null) }
     var restoringItemId by remember { mutableStateOf<String?>(null) }
     var isBackingUp by remember { mutableStateOf(false) }
 
@@ -588,14 +596,12 @@ private fun WebDavPage(
                                     scope.launch {
                                         restoringItemId = item.displayName
                                         runCatching {
-                                            val result = vm.restore(item = item)
-                                            restoreResult = result
+                                            vm.restore(item = item)
                                             toaster.show(
                                                 context.getString(R.string.backup_page_restore_success),
                                                 type = ToastType.Success
                                             )
                                             showBackupFiles = false
-                                            showRestartDialog = true
                                         }.onFailure { err ->
                                             err.printStackTrace()
                                             toaster.show(
@@ -634,15 +640,6 @@ private fun WebDavPage(
         }
     }
 
-    if (showRestartDialog) {
-        val result = restoreResult // Capture immutable for checking
-        BackupDialog(
-             result = result,
-             onConfirm = {
-                 vm.restartApp(context)
-             }
-        )
-    }
 }
 
 @Composable
@@ -656,8 +653,6 @@ private fun ObjectStoragePage(
     val scope = rememberCoroutineScope()
 
     var showBackupFiles by remember { mutableStateOf(false) }
-    var showRestartDialog by remember { mutableStateOf(false) }
-    var restoreResult by remember { mutableStateOf<me.rerere.rikkahub.data.sync.WebdavSync.RestoreResult?>(null) }
     var restoringKey by remember { mutableStateOf<String?>(null) }
     var isBackingUp by remember { mutableStateOf(false) }
 
@@ -1033,14 +1028,12 @@ private fun ObjectStoragePage(
                                     scope.launch {
                                         restoringKey = item.key
                                         runCatching {
-                                            val result = vm.restoreFromObjectStorage(item)
-                                            restoreResult = result
+                                            vm.restoreFromObjectStorage(item)
                                             toaster.show(
                                                 context.getString(R.string.backup_page_restore_success),
                                                 type = ToastType.Success
                                             )
                                             showBackupFiles = false
-                                            showRestartDialog = true
                                         }.onFailure { err ->
                                             err.printStackTrace()
                                             toaster.show(
@@ -1079,15 +1072,6 @@ private fun ObjectStoragePage(
         }
     }
 
-    if (showRestartDialog) {
-        val result = restoreResult
-        BackupDialog(
-            result = result,
-            onConfirm = {
-                vm.restartApp(context)
-            }
-        )
-    }
 }
 
 @Composable
@@ -1364,9 +1348,6 @@ private fun ImportExportPage(
     val context = LocalContext.current
     var isExporting by remember { mutableStateOf(false) }
     var isRestoring by remember { mutableStateOf(false) }
-    var showRestartDialog by remember { mutableStateOf(false) }
-
-    var restoreResult by remember { mutableStateOf<me.rerere.rikkahub.data.sync.WebdavSync.RestoreResult?>(null) }
 
     // 导入类型：local 为本地备份，chatbox 为 Chatbox 导入
     var importType by remember { mutableStateOf("local") }
@@ -1453,19 +1434,23 @@ private fun ImportExportPage(
                             // 本地备份导入：处理zip文件
                             val tempFile =
                                 File(context.cacheDir, "temp_restore_${System.currentTimeMillis()}.zip")
-
-                            context.contentResolver.openInputStream(sourceUri)?.use { inputStream ->
-                                FileOutputStream(tempFile).use { outputStream ->
-                                    inputStream.copyTo(outputStream)
+                            var restoreOwnsTempFile = false
+                            try {
+                                context.contentResolver.openInputStream(sourceUri)?.use { inputStream ->
+                                    FileOutputStream(tempFile).use { outputStream ->
+                                        inputStream.copyTo(outputStream)
+                                    }
                                 }
+
+                                // 恢复任务接管文件后，即使页面销毁也由 BackupVM 在任务结束时清理。
+                                restoreOwnsTempFile = true
+                                vm.restoreFromLocalFile(
+                                    file = tempFile,
+                                    deleteAfterRestore = true,
+                                )
+                            } finally {
+                                if (!restoreOwnsTempFile) tempFile.delete()
                             }
-
-                            // 从临时文件恢复
-                            val result = vm.restoreFromLocalFile(tempFile)
-                            restoreResult = result
-
-                            // 清理临时文件
-                            tempFile.delete()
                         }
                     }
 
@@ -1473,7 +1458,6 @@ private fun ImportExportPage(
                         context.getString(R.string.backup_page_restore_success),
                         type = ToastType.Success
                     )
-                    showRestartDialog = true
                 }.onFailure { e ->
                     e.printStackTrace()
                     toaster.show(
@@ -1630,16 +1614,6 @@ private fun ImportExportPage(
         }
     }
 
-    // 重启对话框
-    if (showRestartDialog) {
-        val result = restoreResult // Capture immutable for checking
-        BackupDialog(
-             result = result,
-             onConfirm = {
-                 vm.restartApp(context)
-             }
-        )
-    }
 }
 
 @Composable

@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -105,11 +106,17 @@ class ChatReadPositionStore(
             .getOrNull()
 
     private suspend fun persist(positions: Map<String, ConversationReadPosition>): Boolean {
-        return runCatching {
+        return try {
             dataStore.edit { preferences ->
                 preferences[Keys.POSITIONS] = JsonInstant.encodeToString(positions)
             }
-        }.onFailure { Log.w(TAG, "Failed to persist read positions", it) }.isSuccess
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to persist read positions", e)
+            false
+        }
     }
 
     /** 同步读当前内存态；[readyFlow] 为 true 前可能返回 null（磁盘尚未加载完） */

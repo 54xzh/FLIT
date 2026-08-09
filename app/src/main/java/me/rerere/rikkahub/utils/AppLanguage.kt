@@ -4,8 +4,55 @@ import android.os.Build
 import android.os.LocaleList
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import me.rerere.rikkahub.LastChatApp
 import me.rerere.rikkahub.data.datastore.AppLanguage
+
+internal class AppLanguageUpdateGate {
+    internal data class Token(val id: Long)
+
+    private val lock = Any()
+    private val activeTokens = mutableSetOf<Long>()
+    private val restartRequiredTokens = mutableSetOf<Long>()
+    private var nextTokenId = 0L
+    private val _isDeferredUntilRestart = MutableStateFlow(false)
+    val isDeferredUntilRestart = _isDeferredUntilRestart.asStateFlow()
+    private val _isRestartRequired = MutableStateFlow(false)
+    val isRestartRequired = _isRestartRequired.asStateFlow()
+
+    fun deferUntilRestart(): Token = synchronized(lock) {
+        val token = Token(++nextTokenId)
+        activeTokens += token.id
+        _isDeferredUntilRestart.value = true
+        token
+    }
+
+    fun markRestartRequired(token: Token) {
+        synchronized(lock) {
+            if (token.id !in activeTokens) return
+            restartRequiredTokens += token.id
+            _isRestartRequired.value = true
+        }
+    }
+
+    fun resumeUpdates(token: Token) {
+        synchronized(lock) {
+            activeTokens -= token.id
+            restartRequiredTokens -= token.id
+            _isDeferredUntilRestart.value = activeTokens.isNotEmpty()
+            _isRestartRequired.value = restartRequiredTokens.isNotEmpty()
+        }
+    }
+
+    fun applyIfUpdatesAllowed(action: () -> Unit): Boolean = synchronized(lock) {
+        if (activeTokens.isNotEmpty()) return@synchronized false
+        action()
+        true
+    }
+}
+
+internal val appLanguageUpdateGate = AppLanguageUpdateGate()
 
 /**
  * 应用界面语言到系统。

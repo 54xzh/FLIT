@@ -3,8 +3,10 @@ package me.rerere.rikkahub.ui.pages.backup
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.contentOrNull
@@ -49,6 +51,8 @@ class BackupVM(
         started = SharingStarted.Eagerly,
         initialValue = emptyList()
     )
+    private val _pendingRestoreResult = MutableStateFlow<WebdavSync.RestoreResult?>(null)
+    val pendingRestoreResult = _pendingRestoreResult.asStateFlow()
 
     init {
         loadBackupFileItems()
@@ -111,11 +115,15 @@ class BackupVM(
     }
 
     suspend fun restore(item: WebDavBackupItem): WebdavSync.RestoreResult {
-        return backupCoordinator.restoreWebDav(item)
+        return runRestore {
+            backupCoordinator.restoreWebDav(item)
+        }
     }
 
     suspend fun restoreFromObjectStorage(item: ObjectStorageBackupItem): WebdavSync.RestoreResult {
-        return backupCoordinator.restoreObjectStorage(item)
+        return runRestore {
+            backupCoordinator.restoreObjectStorage(item)
+        }
     }
 
     suspend fun deleteWebDavBackupFile(item: WebDavBackupItem) {
@@ -134,8 +142,28 @@ class BackupVM(
         return backupCoordinator.exportRikkaHubCompat()
     }
 
-    suspend fun restoreFromLocalFile(file: File): WebdavSync.RestoreResult {
-        return backupCoordinator.restoreFromLocalFile(file)
+    suspend fun restoreFromLocalFile(
+        file: File,
+        deleteAfterRestore: Boolean = false,
+    ): WebdavSync.RestoreResult {
+        return runRestore(
+            onCompletion = {
+                if (deleteAfterRestore) runCatching { file.delete() }
+            },
+        ) {
+            backupCoordinator.restoreFromLocalFile(file)
+        }
+    }
+
+    private suspend fun runRestore(
+        onCompletion: () -> Unit = {},
+        block: suspend () -> WebdavSync.RestoreResult,
+    ): WebdavSync.RestoreResult {
+        val task = viewModelScope.async {
+            block().also { _pendingRestoreResult.value = it }
+        }
+        task.invokeOnCompletion { onCompletion() }
+        return task.await()
     }
 
     fun clearBackupLogs() {
