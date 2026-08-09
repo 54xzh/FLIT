@@ -1,7 +1,6 @@
 package me.rerere.rikkahub.data.datastore
 
 import android.content.Context
-import android.net.Uri
 import android.util.Log
 import java.io.File
 import androidx.datastore.core.IOException
@@ -1932,6 +1931,29 @@ private val DEFAULT_TTS_PROVIDERS = listOf(
 
 internal val DEFAULT_ASSISTANTS_IDS = DEFAULT_ASSISTANTS.map { it.id }
 
+private val RESTORABLE_LOCAL_FILE_FOLDERS = listOf(
+    "avatars",
+    "upload",
+    "images",
+    "custom_icons",
+)
+
+internal fun remapRestoredLocalFileUrl(rawUrl: String, filesDir: File?): String {
+    if (filesDir == null || !rawUrl.startsWith("file://")) return rawUrl
+
+    val fileName = rawUrl.substringAfterLast("/")
+    if (fileName.isBlank()) return rawUrl
+
+    val folder = RESTORABLE_LOCAL_FILE_FOLDERS.firstOrNull { rawUrl.contains("/$it/") }
+        ?: return rawUrl
+    return "file://${File(filesDir, "$folder/$fileName").absolutePath}"
+}
+
+internal fun normalizeRestoredAssistantBackground(background: String?, filesDir: File?): String? {
+    val normalized = background?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    return remapRestoredLocalFileUrl(normalized, filesDir)
+}
+
 /**
  * Sanitize settings after backup restore.
  * Cleans up deprecated fields and invalid references.
@@ -1943,6 +1965,7 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
     var orphanedTagReferences = 0
     var orphanedModelReferences = 0
     var fixedAvatarPaths = 0
+    var fixedAssistantBackgrounds = 0
 
     // Helper function to fix avatar path for the current device
     fun fixAvatarPath(avatar: Avatar): Avatar {
@@ -1964,31 +1987,8 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
             return avatar
         }
 
-        // Extract the filename from the path
-        val fileName = url.substringAfterLast("/")
-        if (fileName.isBlank()) {
-            Log.d("Settings.sanitize", "fixAvatarPath: fileName is blank, skipping")
-            return avatar
-        }
-
-        // Determine which folder this file belongs to
-        val folder = when {
-            url.contains("/avatars/") -> "avatars"
-            url.contains("/upload/") -> "upload"
-            url.contains("/images/") -> "images"
-            url.contains("/custom_icons/") -> "custom_icons"
-            else -> {
-                Log.d("Settings.sanitize", "fixAvatarPath: unknown folder in url, skipping")
-                return avatar // Unknown folder, don't modify
-            }
-        }
-
-        // Generate the correct path for the current device
-        // Note: We don't check if file exists because during restore,
-        // settings.json is processed before avatar files are extracted
-        val currentPath = File(context.filesDir, "$folder/$fileName")
-        val newUrl = Uri.fromFile(currentPath).toString()
-        Log.d("Settings.sanitize", "fixAvatarPath: folder=$folder, fileName=$fileName, currentPath=${currentPath.absolutePath}, newUrl=$newUrl")
+        // Do not check existence here: settings are sanitized before files are extracted.
+        val newUrl = remapRestoredLocalFileUrl(url, context.filesDir)
 
         if (newUrl != url) {
             fixedAvatarPaths++
@@ -2011,6 +2011,15 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
         if (fixedAvatar != assistant.avatar) {
             Log.i("Settings.sanitize", "Fixed avatar for assistant '${assistant.name}'")
             updatedAssistant = updatedAssistant.copy(avatar = fixedAvatar)
+        }
+
+        val fixedBackground = normalizeRestoredAssistantBackground(
+            background = assistant.background,
+            filesDir = context?.filesDir,
+        )
+        if (fixedBackground != assistant.background) {
+            fixedAssistantBackgrounds++
+            updatedAssistant = updatedAssistant.copy(background = fixedBackground)
         }
 
         // Fix searchMode
@@ -2196,6 +2205,7 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
         orphanedTagReferences = orphanedTagReferences,
         orphanedModelReferences = orphanedModelReferences,
         fixedAvatarPaths = fixedAvatarPaths,
+        fixedAssistantBackgrounds = fixedAssistantBackgrounds,
     )
 
     return cleanedSettings to result

@@ -61,7 +61,16 @@ class RestoreTargets(
 
     init {
         // 备份库可能带 wal，先强制 checkpoint 让数据落主文件，保证后续读到完整行。
-        rawDb?.let { db -> runCatching { db.execSQL("PRAGMA wal_checkpoint(FULL)") } }
+        rawDb?.let { db ->
+            db.query("PRAGMA wal_checkpoint(FULL)").use { cursor ->
+                check(cursor.moveToFirst() && cursor.columnCount >= 3) {
+                    "Temporary database checkpoint returned no result"
+                }
+                check(cursor.getInt(0) == 0) {
+                    "Temporary database checkpoint is busy"
+                }
+            }
+        }
     }
 
     override suspend fun readSkillsJson(): String? {

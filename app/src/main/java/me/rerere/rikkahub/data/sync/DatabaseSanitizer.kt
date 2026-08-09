@@ -6,11 +6,35 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import androidx.room.Room
+import androidx.sqlite.db.SupportSQLiteDatabase
 import me.rerere.rikkahub.data.db.AppDatabase
 import java.io.File
 
 object DatabaseSanitizer {
     private const val TAG = "DatabaseSanitizer"
+
+    internal val restorableTables = listOf(
+        "ConversationEntity",
+        "conversation_branch_counters",
+        "MemoryEntity",
+        "GenMediaEntity",
+        "ChatEpisodeEntity",
+        "embedding_cache",
+        "tool_result_archive",
+        "tool_result_archive_chunk",
+        "AIRequestLogEntity",
+        "BackupLogEntity",
+        "scheduled_tasks",
+        "scheduled_task_runs",
+        "daily_activity",
+        "lorebook_entry_revision",
+        "usage_stats",
+        "model_quota_usage",
+        "workspaces",
+        "workspace_saf_details",
+        "workspace_sandbox_details",
+        "workspace_sandbox_mounts",
+    )
 
     data class SanitizationResult(
         val totalRows: Int = 0,
@@ -26,6 +50,10 @@ object DatabaseSanitizer {
             issuesFixed = this.issuesFixed + other.issuesFixed,
             details = (this.details + "\n" + other.details).trim()
         )
+    }
+
+    fun isRikkaHubCompatDatabase(sourceDbFile: File): Boolean {
+        return RikkaHubCompatDatabaseImporter.isCompatDatabase(sourceDbFile)
     }
 
     /**
@@ -64,27 +92,30 @@ object DatabaseSanitizer {
             )
             sourceDb = db
 
-            val tables = listOf(
-                "ConversationEntity",
-                "conversation_branch_counters",
-                "MemoryEntity",
-                "GenMediaEntity",
-                "ChatEpisodeEntity",
-                "EmbeddingCacheEntity",
-                "DailyActivityEntity",
-                "workspaces",
-                "workspace_saf_details",
-                "workspace_sandbox_details",
-                "workspace_sandbox_mounts",
-            )
+            targetDbInfo.beginTransaction()
+            try {
+                val isRikkaHubCompat = RikkaHubCompatDatabaseImporter.matches(db)
+                if (isRikkaHubCompat) {
+                    val result = RikkaHubCompatDatabaseImporter.copyConversations(
+                        source = db,
+                        target = targetDbInfo,
+                        currentFilesDir = context.filesDir.absolutePath,
+                    )
+                    totalResult += result
+                    Log.i(TAG, "Converted RikkaHub conversations: $result")
+                }
 
-            for (table in tables) {
-                // Check if table exists in source
-                try {
-                    val cursor = db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table))
-                    val exists = cursor.count > 0
-                    cursor.close()
-                    
+                val tables = restorableTables.filterNot { table ->
+                    isRikkaHubCompat &&
+                        (table == "ConversationEntity" || table == "workspaces")
+                }
+
+                for (table in tables) {
+                    val exists = db.rawQuery(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                        arrayOf(table),
+                    ).use { cursor -> cursor.moveToFirst() }
+
                     if (exists) {
                         val result = copyTable(db, targetDbInfo, table)
                         totalResult += result
@@ -92,9 +123,10 @@ object DatabaseSanitizer {
                     } else {
                         Log.w(TAG, "Table $table not found in source database, skipping")
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to check/process table $table", e)
                 }
+                targetDbInfo.setTransactionSuccessful()
+            } finally {
+                targetDbInfo.endTransaction()
             }
 
         } catch (e: Exception) {
@@ -110,23 +142,29 @@ object DatabaseSanitizer {
 
     private fun copyTable(
         source: SQLiteDatabase,
-        target: androidx.sqlite.db.SupportSQLiteDatabase,
+        target: SupportSQLiteDatabase,
         tableName: String
     ): SanitizationResult {
         var rows = 0
+        var copied = 0
         var skipped = 0
         var skippedBytes = 0L
-        
-        var cursor: Cursor? = null
-        try {
-            cursor = source.query(tableName, null, null, null, null, null, null)
-            
-            // Get column names
-            val columnNames = cursor.columnNames
+
+        source.query(tableName, null, null, null, null, null, null).use { cursor ->
+            // 旧版或外部数据库可能有当前表不认识的列，只拷贝两边共有的列。
+            val targetColumns = target.query("PRAGMA table_info(`$tableName`)").use { tableInfo ->
+                val nameIndex = tableInfo.getColumnIndex("name")
+                buildSet {
+                    while (nameIndex >= 0 && tableInfo.moveToNext()) {
+                        add(tableInfo.getString(nameIndex))
+                    }
+                }
+            }
+            val columnNames = cursor.columnNames.filter { it in targetColumns }
             
             while (cursor.moveToNext()) {
                 rows++
-                try {
+                val values = try {
                     val values = ContentValues()
                     var rowBytes = 0L
                     
@@ -148,24 +186,30 @@ object DatabaseSanitizer {
                             }
                         }
                     }
-                    
-                    target.insert(tableName, android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE, values)
-                    
+                    values
                 } catch (e: Exception) {
                     Log.w(TAG, "Error copying row in $tableName", e)
                     skipped++
                     // We can't easily estimate bytes of a row specifically if we failed to read it, 
                     // but we can try to guess or just leave it.
                     // If the crash was in cursor.get...() then we missed it.
+                    continue
                 }
+
+                check(
+                    target.insert(
+                        tableName,
+                        android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE,
+                        values,
+                    ) != -1L
+                ) { "Failed to insert row into $tableName" }
+                copied++
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to query table $tableName", e)
-            return SanitizationResult(totalRows = rows, skippedRows = rows, details = "Failed to read table $tableName: ${e.message}")
-        } finally {
-            cursor?.close()
+            check(rows == 0 || copied > 0) {
+                "All $rows source rows in $tableName were unreadable"
+            }
         }
-        
+
         return SanitizationResult(
             totalRows = rows, 
             skippedRows = skipped, 

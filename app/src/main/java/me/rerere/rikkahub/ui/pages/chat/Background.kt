@@ -21,7 +21,7 @@ import me.rerere.rikkahub.ui.theme.LocalDarkMode
 @Composable
 fun AssistantBackground(setting: Settings, hazeState: HazeState? = null) {
     val assistant = setting.getCurrentAssistant()
-    val background = assistant.background
+    val background = assistant.background?.takeIf { it.isNotBlank() }
     if (background == null) {
         if (hazeState != null) {
             Box(
@@ -50,6 +50,12 @@ fun AssistantBackground(setting: Settings, hazeState: HazeState? = null) {
             Modifier.fillMaxSize()
         }
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        )
+
         AsyncImage(
             model = background,
             contentDescription = null,

@@ -232,6 +232,14 @@
   <string name="backup_page_path">路徑</string>
   <string name="backup_page_restart_app">重啟應用</string>
   <string name="backup_page_restart_desc">應用需要重啟以使設置生效。</string>
+  <string name="backup_restore_report_title">還原報告</string>
+  <string name="backup_restore_removed_invalid_items">• 已移除 %1$d 個損壞或無效項目</string>
+  <string name="backup_restore_reset_search_settings">• 已重設 %1$d 個無效搜尋設定</string>
+  <string name="backup_restore_removed_tag_references">• 已移除 %1$d 個無效助手標籤引用</string>
+  <string name="backup_restore_removed_model_references">• 已移除 %1$d 個無效收藏模型引用</string>
+  <string name="backup_restore_updated_avatar_paths">• 已更新 %1$d 個頭像檔案路徑</string>
+  <string name="backup_restore_updated_backgrounds">• 已修正 %1$d 個助手背景</string>
+  <string name="backup_restore_skipped_unsupported_data">• 已略過 %1$s 不支援的資料</string>
   <string name="backup_page_restore">恢復</string>
   <string name="backup_page_restore_failed">恢復失敗: %s</string>
   <string name="backup_page_restore_now">恢復</string>

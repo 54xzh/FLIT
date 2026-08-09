@@ -474,6 +474,45 @@ class WebdavSync(
         database.openHelper.writableDatabase.execSQL("VACUUM INTO '$path'")
     }
 
+    private fun replaceDatabaseContents(sourceFile: File) {
+        check(sourceFile.isFile) { "Restore database is missing" }
+        val db = database.openHelper.writableDatabase
+        val alias = "restore_source_${System.nanoTime().toString().replace('-', 'n')}"
+        var attached = false
+        try {
+            db.execSQL("ATTACH DATABASE ? AS $alias", arrayOf(sourceFile.absolutePath))
+            attached = true
+            db.beginTransaction()
+            try {
+                DatabaseSanitizer.restorableTables.forEach { table ->
+                    val quotedTable = "`${table.replace("`", "``")}`"
+                    val columns = db.query("PRAGMA table_info($quotedTable)").use { cursor ->
+                        val nameIndex = cursor.getColumnIndex("name")
+                        buildList {
+                            while (nameIndex >= 0 && cursor.moveToNext()) {
+                                add(cursor.getString(nameIndex))
+                            }
+                        }
+                    }
+                    check(columns.isNotEmpty()) { "Restore table has no columns: $table" }
+                    val columnSql = columns.joinToString(", ") { column ->
+                        "`${column.replace("`", "``")}`"
+                    }
+                    db.execSQL("DELETE FROM main.$quotedTable")
+                    db.execSQL(
+                        "INSERT INTO main.$quotedTable ($columnSql) " +
+                            "SELECT $columnSql FROM $alias.$quotedTable"
+                    )
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        } finally {
+            if (attached) db.execSQL("DETACH DATABASE $alias")
+        }
+    }
+
 
 
     data class RestoreResult(
@@ -662,19 +701,26 @@ class WebdavSync(
                 val restoreDb = webDavConfig.items.contains(WebDavConfig.BackupItem.DATABASE)
                 val tempDbFile = File(restoreTempDir, "rikka_hub")
                 val tempDbRestored = tempDbFile.exists()
+                val isRikkaHubCompatDatabase = tempDbRestored &&
+                    DatabaseSanitizer.isRikkaHubCompatDatabase(tempDbFile)
 
                 if (restoreSettings) {
                     Log.i(TAG, "restoreFromBackupFile: Running skill UUID→name migration on restored temp data")
                     RestoreTargets(
                         context = context,
                         settingsJsonHolder = settingsJsonHolder,
-                        tempDbFile = tempDbFile.takeIf { tempDbRestored },
+                        // 原版 RikkaHub v23 与 FLIT v23 版本号相同但 schema 不同，
+                        // 不能用 FLIT Room 迁移链打开；后续由 DatabaseSanitizer 专门转换。
+                        tempDbFile = tempDbFile.takeIf {
+                            tempDbRestored && !isRikkaHubCompatDatabase
+                        },
                     ).use { targets ->
                         skillUuidMigration.migrateRestoreData(
                             tempSkillsRoot = tempSkillsRoot,
                             targets = targets,
                             migrateFiles = restoreFiles,
-                            migrateDatabase = restoreDb && tempDbRestored,
+                            migrateDatabase = restoreDb && tempDbRestored &&
+                                !isRikkaHubCompatDatabase,
                         )
                     }
                     Log.i(TAG, "restoreFromBackupFile: Temp skill migration completed")
@@ -725,23 +771,13 @@ class WebdavSync(
                     relativePaths = rollbackFilePaths,
                 )
 
-                val finalDbFile = context.getDatabasePath("rikka_hub")
-                val liveDbFiles = listOf(
-                    finalDbFile,
-                    File(finalDbFile.path + "-wal"),
-                    File(finalDbFile.path + "-shm"),
-                )
-                val dbRollbackDir = File(restoreTempDir, "live_db_rollback")
+                val dbRollbackFile = File(restoreTempDir, "live_db_rollback")
                 if (tempDbRestored) {
-                    database.openHelper.writableDatabase.execSQL("PRAGMA wal_checkpoint(FULL)")
-                    dbRollbackDir.mkdirs()
-                    liveDbFiles.filter { it.isFile }.forEach { file ->
-                        file.copyTo(File(dbRollbackDir, file.name), overwrite = true)
-                    }
+                    exportDatabaseSnapshot(dbRollbackFile)
                 }
 
                 var filesAttempted = false
-                var databaseAttempted = false
+                var databaseApplied = false
                 var settingsAttempted = false
                 try {
                     if (restoredFilePaths.isNotEmpty()) {
@@ -755,27 +791,9 @@ class WebdavSync(
                     }
 
                     if (cleanDb != null) {
-                        databaseAttempted = true
-                        if (finalDbFile.exists()) check(finalDbFile.delete()) {
-                            "Failed to replace current database"
-                        }
-
-                        cleanDb.copyTo(finalDbFile, overwrite = true)
-
-                        val cleanWal = File(cleanDb.path + "-wal")
-                        val cleanShm = File(cleanDb.path + "-shm")
-
-                        if (cleanWal.exists()) {
-                            cleanWal.copyTo(File(finalDbFile.path + "-wal"), overwrite = true)
-                        } else {
-                            File(finalDbFile.path + "-wal").delete()
-                        }
-
-                        if (cleanShm.exists()) {
-                            cleanShm.copyTo(File(finalDbFile.path + "-shm"), overwrite = true)
-                        } else {
-                            File(finalDbFile.path + "-shm").delete()
-                        }
+                        // 从调用开始就视为需要回滚：事务提交后 DETACH 仍可能报错。
+                        databaseApplied = true
+                        replaceDatabaseContents(cleanDb)
 
                         Log.i(TAG, "Database restored and sanitized: $sanitizationResult")
                     }
@@ -819,17 +837,9 @@ class WebdavSync(
                             .onFailure(rollbackErrors::add)
                     }
 
-                    if (databaseAttempted) {
-                        runCatching {
-                            liveDbFiles.forEach { current ->
-                                if (current.exists()) check(current.delete()) {
-                                    "Failed to remove partially restored database file ${current.name}"
-                                }
-                            }
-                            dbRollbackDir.listFiles().orEmpty().forEach { backup ->
-                                backup.copyTo(File(finalDbFile.parentFile, backup.name), overwrite = true)
-                            }
-                        }.onFailure(rollbackErrors::add)
+                    if (databaseApplied) {
+                        runCatching { replaceDatabaseContents(dbRollbackFile) }
+                            .onFailure(rollbackErrors::add)
                     }
 
                     if (settingsAttempted) {

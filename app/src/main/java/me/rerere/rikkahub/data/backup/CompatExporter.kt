@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -79,7 +80,7 @@ class CompatExporter(
      * key   = 本机 filesDir 下源文件的真实绝对路径 (canonical)
      * value = 重写后该文件在原版备份里对应的相对名 (会放进 zip 的 upload/ 目录)
      *
-     * 导出过程中遇到的每个本地 file:// 路径 (头像 / 消息附件), 都会在这里登记一份,
+     * 导出过程中遇到的每个本地 file:// 路径 (头像 / 背景 / 消息附件), 都会在这里登记一份,
      * 统一在 zip 里以 upload/<uuid>.<ext> 落盘, 并把引用处的 URL 改写成原版路径。
      */
     private val sourcePathToTargetName = LinkedHashMap<String, String>()
@@ -851,7 +852,7 @@ class CompatExporter(
         }
     }
 
-    /** assistants[]{ avatar, localTools } */
+    /** assistants[]{ avatar, background, localTools } */
     private fun sanitizeAssistants(element: JsonElement): JsonElement {
         if (element !is JsonArray) return element
         return JsonArray(element.jsonArray.mapNotNull { assistantEl ->
@@ -860,12 +861,19 @@ class CompatExporter(
                 assistantEl.entries.forEach { (k, v) ->
                     when (k) {
                         "avatar" -> put(k, sanitizeAvatar(v))
+                        "background" -> put(k, sanitizeBackground(v))
                         "localTools" -> put(k, sanitizeLocalTools(v))
                         else -> put(k, v)
                     }
                 }
             }
         })
+    }
+
+    private fun sanitizeBackground(element: JsonElement): JsonElement {
+        val url = element.jsonPrimitiveOrNull?.contentOrNull ?: return element
+        if (url.isBlank()) return JsonNull
+        return remapLocalUriToUpstream(url)?.let(::JsonPrimitive) ?: element
     }
 
     /** Avatar: 本地多的 Resource 子类原版没有, 替换成原版能解析的 Dummy;
@@ -1013,7 +1021,7 @@ class CompatExporter(
     }
 
     private fun addUploadDirToZip(zipOut: ZipOutputStream) {
-        // 用重映射表里登记的目标名落盘: 头像 / 聊天附件在 settings/nodes JSON 里都已改写成
+        // 用重映射表里登记的目标名落盘: 头像 / 背景 / 聊天附件在 settings/nodes JSON 里都已改写成
         // file://<原版filesDir>/upload/<targetName>, 这里必须用同名文件对应, 否则原版读不到。
         // 没被任何 JSON 引用的本地 upload/ 文件不带 (原版恢复时也不需要它们)。
         for ((targetName, sourceFile) in targetNameToSourceFile) {

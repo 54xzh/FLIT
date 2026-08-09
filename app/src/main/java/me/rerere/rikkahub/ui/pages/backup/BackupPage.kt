@@ -1664,17 +1664,29 @@ private fun BackupDialog(
                         ) {
                             Column(modifier = Modifier.padding(8.dp)) {
                                 Text(
-                                    text = "Restore Report:",
+                                    text = stringResource(R.string.backup_restore_report_title),
                                     style = MaterialTheme.typography.labelMedium
                                 )
                                 if (it.sanitization.skippedRows > 0) {
-                                    Text("• Removed ${it.sanitization.skippedRows} corrupt/invalid items")
+                                    Text(stringResource(R.string.backup_restore_removed_invalid_items, it.sanitization.skippedRows))
                                 }
-                                if (it.settingsCleanup.totalIssuesFixed > 0) {
-                                    Text("• Fixed ${it.settingsCleanup.totalIssuesFixed} setting issues")
+                                if (it.settingsCleanup.invalidSearchModeCount > 0) {
+                                    Text(stringResource(R.string.backup_restore_reset_search_settings, it.settingsCleanup.invalidSearchModeCount))
+                                }
+                                if (it.settingsCleanup.orphanedTagReferences > 0) {
+                                    Text(stringResource(R.string.backup_restore_removed_tag_references, it.settingsCleanup.orphanedTagReferences))
+                                }
+                                if (it.settingsCleanup.orphanedModelReferences > 0) {
+                                    Text(stringResource(R.string.backup_restore_removed_model_references, it.settingsCleanup.orphanedModelReferences))
+                                }
+                                if (it.settingsCleanup.fixedAvatarPaths > 0) {
+                                    Text(stringResource(R.string.backup_restore_updated_avatar_paths, it.settingsCleanup.fixedAvatarPaths))
+                                }
+                                if (it.settingsCleanup.fixedAssistantBackgrounds > 0) {
+                                    Text(stringResource(R.string.backup_restore_updated_backgrounds, it.settingsCleanup.fixedAssistantBackgrounds))
                                 }
                                 if (it.settingsCleanup.unsupportedZipEntriesBytes > 0) {
-                                    Text("• Cleaned ${it.settingsCleanup.unsupportedZipEntriesBytes.fileSizeToString()} of junk data")
+                                    Text(stringResource(R.string.backup_restore_skipped_unsupported_data, it.settingsCleanup.unsupportedZipEntriesBytes.fileSizeToString()))
                                 }
                             }
                         }

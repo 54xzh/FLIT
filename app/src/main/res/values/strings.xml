@@ -372,6 +372,14 @@
     <string name="backup_page_path">Path</string>
     <string name="backup_page_restart_app">Restart App</string>
     <string name="backup_page_restart_desc">App needs restart to apply settings.</string>
+    <string name="backup_restore_report_title">Restore report</string>
+    <string name="backup_restore_removed_invalid_items">• Removed %1$d corrupt or invalid items</string>
+    <string name="backup_restore_reset_search_settings">• Reset %1$d invalid search settings</string>
+    <string name="backup_restore_removed_tag_references">• Removed %1$d invalid assistant tag references</string>
+    <string name="backup_restore_removed_model_references">• Removed %1$d invalid favorite model references</string>
+    <string name="backup_restore_updated_avatar_paths">• Updated %1$d avatar file paths</string>
+    <string name="backup_restore_updated_backgrounds">• Updated %1$d assistant backgrounds</string>
+    <string name="backup_restore_skipped_unsupported_data">• Skipped %1$s of unsupported data</string>
     <string name="backup_page_restore">Restore</string>
     <string name="backup_page_restore_failed">Restore Failed: %s</string>
     <string name="backup_page_restore_now">Restore</string>
