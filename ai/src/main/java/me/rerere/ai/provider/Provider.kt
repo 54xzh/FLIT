@@ -42,7 +42,7 @@ interface Provider<T : ProviderSetting> {
         providerSetting: T,
         input: List<String>,
         model: Model,
-        callTimeoutSeconds: Long? = null,
+        callTimeoutMillis: Long? = null,
     ): List<List<Float>> {
         return emptyList()
     }

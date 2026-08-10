@@ -13,6 +13,7 @@ import android.graphics.Paint
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Icon
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -93,6 +94,7 @@ import me.rerere.rikkahub.data.ai.AskUserRequest
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_CONTEXT_SUMMARY_PROMPT
 import me.rerere.rikkahub.data.ai.rag.EmbeddingService
+import me.rerere.rikkahub.data.ai.rag.EmbeddingTimeoutPolicy
 import me.rerere.rikkahub.data.ai.tools.ASK_USER_SYSTEM_PROMPT_TEMPLATE
 import me.rerere.rikkahub.data.ai.tools.LorebookTools
 import me.rerere.rikkahub.data.ai.tools.LocalToolOption
@@ -118,7 +120,7 @@ import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
-import me.rerere.rikkahub.data.datastore.getEmbeddingRetrievalTimeoutSeconds
+import me.rerere.rikkahub.data.datastore.getEmbeddingRetrievalTimeoutMillis
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.ChatTarget
 import me.rerere.rikkahub.data.model.AssistantSearchMode
@@ -438,8 +440,27 @@ class ChatService(
         return "${conversationId}:${assistantId}"
     }
 
-    private fun Settings.embeddingRetrievalTimeoutMillis(): Long {
-        return getEmbeddingRetrievalTimeoutSeconds().toLong() * 1_000L
+    private fun remainingRetrievalTimeoutMillis(startedAt: Long, totalTimeoutMillis: Long): Long {
+        val elapsed = SystemClock.elapsedRealtime() - startedAt
+        return (totalTimeoutMillis - elapsed).coerceAtLeast(1L)
+    }
+
+    private suspend fun loadPinnedMemoriesWithinRetrievalTimeout(
+        assistantId: String,
+        includeCore: Boolean,
+        startedAt: Long,
+        totalTimeoutMillis: Long,
+    ): List<AssistantMemory> {
+        if (!includeCore) return emptyList()
+        return try {
+            withTimeout(remainingRetrievalTimeoutMillis(startedAt, totalTimeoutMillis)) {
+                withContext(Dispatchers.IO) {
+                    memoryRepository.getPinnedMemoriesOfAssistant(assistantId)
+                }
+            }
+        } catch (_: TimeoutCancellationException) {
+            emptyList()
+        }
     }
 
     private fun filterMemoriesForRagOptions(
@@ -2255,16 +2276,23 @@ class ChatService(
                             ?.toText()
                             .orEmpty()
                         val limit = assistant.ragLimit.coerceIn(0, 50)
-                        val pinnedMemories = if (assistant.ragIncludeCore) {
-                            withContext(Dispatchers.IO) {
-                                memoryRepository.getPinnedMemoriesOfAssistant(assistantId)
-                            }
-                        } else {
-                            emptyList()
-                        }
+                        val retrievalTimeoutMs = settings.getEmbeddingRetrievalTimeoutMillis()
+                        val retrievalStartedAt = SystemClock.elapsedRealtime()
+                        val pinnedMemories = loadPinnedMemoriesWithinRetrievalTimeout(
+                            assistantId = assistantId,
+                            includeCore = assistant.ragIncludeCore,
+                            startedAt = retrievalStartedAt,
+                            totalTimeoutMillis = retrievalTimeoutMs,
+                        )
                         val canUseLastTurnMemory = settings.displaySetting.useLastTurnMemoryOnSkip
                         val lastTurnMemories = lastInjectedMemoriesByConversationAndAssistant[memoryCacheKey]
-                        val retrievalTimeoutMs = settings.embeddingRetrievalTimeoutMillis()
+                        if (limit > 0 && lastUserMessage.isNotBlank()) {
+                            memoryRepository.scheduleEmbeddingBackfillIfNeeded(
+                                assistantId = assistantId,
+                                includeCore = assistant.ragIncludeCore,
+                                includeEpisodes = assistant.ragIncludeEpisodes,
+                            )
+                        }
 
                         // 最近一轮重试：有缓存则复用动态检索结果，钉住记忆仍现取
                         if (reuseLastRagMemories && lastTurnMemories != null) {
@@ -2287,40 +2315,31 @@ class ChatService(
                             val resolved = when {
                                 limit <= 0 -> pinnedMemories
                                 lastUserMessage.isNotBlank() -> {
-                                    val queryEmbedding = runCatching {
-                                        embeddingService.embed(
-                                            text = lastUserMessage,
-                                            assistantId = assistantId,
-                                            source = AIRequestSource.MEMORY_RETRIEVAL,
-                                        )
-                                    }.getOrElse { t ->
-                                        if (t is CancellationException) throw t
-                                        retrievalSkipped = true
-                                        Log.w("RAG", "Memory query embedding failed: ${t.message}", t)
-                                        null
-                                    }
-
-                                    val results = if (queryEmbedding != null) {
-                                        runCatching {
-                                            withTimeout(retrievalTimeoutMs) {
-                                                withContext(Dispatchers.IO) {
-                                                    memoryRepository.retrieveRelevantMemoriesByEmbedding(
-                                                        assistantId = assistantId,
-                                                        queryEmbedding = queryEmbedding,
-                                                        limit = limit,
-                                                        similarityThreshold = assistant.ragSimilarityThreshold,
-                                                        includeCore = assistant.ragIncludeCore,
-                                                        includeEpisodes = assistant.ragIncludeEpisodes,
-                                                    )
-                                                }
+                                    val results = runCatching {
+                                        withTimeout(
+                                            remainingRetrievalTimeoutMillis(retrievalStartedAt, retrievalTimeoutMs)
+                                        ) {
+                                            val queryEmbedding = embeddingService.embed(
+                                                text = lastUserMessage,
+                                                assistantId = assistantId,
+                                                source = AIRequestSource.MEMORY_RETRIEVAL,
+                                                timeoutPolicy = EmbeddingTimeoutPolicy.RETRIEVAL,
+                                            )
+                                            withContext(Dispatchers.IO) {
+                                                memoryRepository.retrieveRelevantMemoriesByEmbedding(
+                                                    assistantId = assistantId,
+                                                    queryEmbedding = queryEmbedding,
+                                                    limit = limit,
+                                                    similarityThreshold = assistant.ragSimilarityThreshold,
+                                                    includeCore = assistant.ragIncludeCore,
+                                                    includeEpisodes = assistant.ragIncludeEpisodes,
+                                                )
                                             }
-                                        }.getOrElse { t ->
-                                            if (t is CancellationException && t !is TimeoutCancellationException) throw t
-                                            retrievalSkipped = true
-                                            Log.w("RAG", "Memory retrieval failed: ${t.message}", t)
-                                            emptyList()
                                         }
-                                    } else {
+                                    }.getOrElse { t ->
+                                        if (t is CancellationException && t !is TimeoutCancellationException) throw t
+                                        retrievalSkipped = true
+                                        Log.w("RAG", "Memory retrieval failed: ${t.message}", t)
                                         emptyList()
                                     }
 
@@ -3046,17 +3065,24 @@ class ChatService(
                 val memoryCacheKey = buildMemoryCacheKey(conversationId, assistantId)
                 val query = lastUserText.trim()
                 val limit = seatAssistant.ragLimit.coerceIn(0, 50)
-                val pinnedMemories = if (seatAssistant.ragIncludeCore) {
-                    withContext(Dispatchers.IO) {
-                        memoryRepository.getPinnedMemoriesOfAssistant(assistantId)
-                    }
-                } else {
-                    emptyList()
-                }
+                val retrievalTimeoutMs = settings.getEmbeddingRetrievalTimeoutMillis()
+                val retrievalStartedAt = SystemClock.elapsedRealtime()
+                val pinnedMemories = loadPinnedMemoriesWithinRetrievalTimeout(
+                    assistantId = assistantId,
+                    includeCore = seatAssistant.useRagMemoryRetrieval && seatAssistant.ragIncludeCore,
+                    startedAt = retrievalStartedAt,
+                    totalTimeoutMillis = retrievalTimeoutMs,
+                )
                 val canUseLastTurnMemory = settings.displaySetting.useLastTurnMemoryOnSkip
                 val lastTurnMemories = lastInjectedMemoriesByConversationAndAssistant[memoryCacheKey]
-                val retrievalTimeoutMs = settings.embeddingRetrievalTimeoutMillis()
                 var retrievalSkipped = false
+                if (seatAssistant.useRagMemoryRetrieval && limit > 0 && query.isNotBlank()) {
+                    memoryRepository.scheduleEmbeddingBackfillIfNeeded(
+                        assistantId = assistantId,
+                        includeCore = seatAssistant.ragIncludeCore,
+                        includeEpisodes = seatAssistant.ragIncludeEpisodes,
+                    )
+                }
 
                 when {
                     !seatAssistant.useRagMemoryRetrieval -> {
@@ -3069,40 +3095,31 @@ class ChatService(
                         pinnedMemories
                     }
                     query.isNotBlank() -> {
-                        val queryEmbedding = runCatching {
-                            embeddingService.embed(
-                                text = query,
-                                assistantId = assistantId,
-                                source = AIRequestSource.MEMORY_RETRIEVAL,
-                            )
-                        }.getOrElse { t ->
-                            if (t is CancellationException) throw t
-                            retrievalSkipped = true
-                            Log.w(TAG, "Group chat seat memory query embedding failed: ${t.message}", t)
-                            null
-                        }
-
-                        val results = if (queryEmbedding != null) {
-                            runCatching {
-                                withTimeout(retrievalTimeoutMs) {
-                                    withContext(Dispatchers.IO) {
-                                        memoryRepository.retrieveRelevantMemoriesByEmbedding(
-                                            assistantId = assistantId,
-                                            queryEmbedding = queryEmbedding,
-                                            limit = limit,
-                                            similarityThreshold = seatAssistant.ragSimilarityThreshold,
-                                            includeCore = seatAssistant.ragIncludeCore,
-                                            includeEpisodes = seatAssistant.ragIncludeEpisodes,
-                                        )
-                                    }
+                        val results = runCatching {
+                            withTimeout(
+                                remainingRetrievalTimeoutMillis(retrievalStartedAt, retrievalTimeoutMs)
+                            ) {
+                                val queryEmbedding = embeddingService.embed(
+                                    text = query,
+                                    assistantId = assistantId,
+                                    source = AIRequestSource.MEMORY_RETRIEVAL,
+                                    timeoutPolicy = EmbeddingTimeoutPolicy.RETRIEVAL,
+                                )
+                                withContext(Dispatchers.IO) {
+                                    memoryRepository.retrieveRelevantMemoriesByEmbedding(
+                                        assistantId = assistantId,
+                                        queryEmbedding = queryEmbedding,
+                                        limit = limit,
+                                        similarityThreshold = seatAssistant.ragSimilarityThreshold,
+                                        includeCore = seatAssistant.ragIncludeCore,
+                                        includeEpisodes = seatAssistant.ragIncludeEpisodes,
+                                    )
                                 }
-                            }.getOrElse { t ->
-                                if (t is CancellationException && t !is TimeoutCancellationException) throw t
-                                retrievalSkipped = true
-                                Log.w(TAG, "Group chat seat memory retrieval failed: ${t.message}", t)
-                                emptyList()
                             }
-                        } else {
+                        }.getOrElse { t ->
+                            if (t is CancellationException && t !is TimeoutCancellationException) throw t
+                            retrievalSkipped = true
+                            Log.w(TAG, "Group chat seat memory retrieval failed: ${t.message}", t)
                             emptyList()
                         }
 

@@ -17,6 +17,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.ai.AIRequestSource
 import me.rerere.rikkahub.data.ai.rag.EmbeddingService
+import me.rerere.rikkahub.data.ai.rag.EmbeddingTimeoutPolicy
 import me.rerere.rikkahub.data.ai.rag.VectorEngine
 import me.rerere.rikkahub.data.db.dao.EmbeddingCacheDAO
 import me.rerere.rikkahub.data.db.dao.ToolResultArchiveDao
@@ -543,6 +544,7 @@ class ToolResultArchiveRepository(
                 text = query,
                 assistantId = assistantId,
                 source = AIRequestSource.TOOL_RESULT_RAG,
+                timeoutPolicy = EmbeddingTimeoutPolicy.RETRIEVAL,
             )
         }.getOrElse { t ->
             Log.w(TAG, "Failed to compute query embedding for tool result chunk RAG: ${t.message}", t)
@@ -587,6 +589,7 @@ class ToolResultArchiveRepository(
                 text = query,
                 assistantId = assistantId,
                 source = AIRequestSource.TOOL_RESULT_RAG,
+                timeoutPolicy = EmbeddingTimeoutPolicy.RETRIEVAL,
             )
         }.getOrNull() ?: return@withContext emptyList()
 

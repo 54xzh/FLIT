@@ -1,16 +1,29 @@
 package me.rerere.rikkahub.data.repository
 
+import android.util.Log
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.map
+import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 import me.rerere.rikkahub.data.ai.AIRequestSource
 import me.rerere.rikkahub.data.ai.rag.EmbeddingService
+import me.rerere.rikkahub.data.ai.rag.EmbeddingTimeoutPolicy
 import me.rerere.rikkahub.data.ai.rag.VectorEngine
+import me.rerere.rikkahub.AppScope
+import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.dao.ChatEpisodeDAO
 import me.rerere.rikkahub.data.db.dao.EmbeddingCacheDAO
 import me.rerere.rikkahub.data.db.dao.MemoryDAO
@@ -19,7 +32,9 @@ import me.rerere.rikkahub.data.db.entity.EmbeddingCacheEntity
 import me.rerere.rikkahub.data.db.entity.MemoryEntity
 import me.rerere.rikkahub.data.db.entity.MemoryType
 import me.rerere.rikkahub.data.model.AssistantMemory
+import me.rerere.rikkahub.service.MemoryEmbeddingBackfillScheduler
 import me.rerere.rikkahub.utils.JsonInstant
+import java.util.concurrent.ConcurrentHashMap
 
 data class AssistantMemoryStats(
     val coreCount: Int = 0,
@@ -30,13 +45,27 @@ data class AssistantMemoryStats(
 
 // 打分按块进行：每块先批量预取嵌入缓存再计算相似度，块间释放，检索峰值内存有上限
 private const val EMBEDDING_SCORING_CHUNK_SIZE = 256
+private const val EMBEDDING_BACKFILL_BATCH_SIZE = 32
+private const val TAG = "MemoryRepository"
+
+private data class EmbeddingBackfillTarget(
+    val id: Int,
+    val memoryType: Int,
+    val content: String,
+    val originalModelId: String?,
+)
 
 class MemoryRepository(
     private val memoryDAO: MemoryDAO,
     private val chatEpisodeDAO: ChatEpisodeDAO,
     private val embeddingService: EmbeddingService,
-    private val embeddingCacheDAO: EmbeddingCacheDAO
+    private val embeddingCacheDAO: EmbeddingCacheDAO,
+    private val embeddingBackfillScheduler: MemoryEmbeddingBackfillScheduler,
+    private val database: AppDatabase,
+    private val appScope: AppScope,
 ) {
+    private val embeddingBackfillMutex = Mutex()
+    private val pendingBackfillChecks = ConcurrentHashMap.newKeySet<String>()
     companion object {
         private const val MEMORY_PAGE_SIZE = 30
         private const val MEMORY_INITIAL_LOAD_SIZE = 30
@@ -297,49 +326,33 @@ class MemoryRepository(
     }
 
     /**
-     * Get or create an embedding for a memory/episode content.
-     * First checks the cache, then generates if not found.
-     * @return The embedding if successful, null otherwise
+     * Load an existing embedding without issuing a network request.
      */
-    private suspend fun getOrCreateEmbedding(
+    private suspend fun getExistingEmbedding(
         memoryId: Int,
         memoryType: Int,
-        content: String,
         assistantId: String,
         existingEmbedding: String? = null,
         existingModelId: String? = null,
-        source: AIRequestSource = AIRequestSource.MEMORY_EMBEDDING,
         // 非空表示调用方已批量查过嵌入缓存表；未命中时不再发单点查询
         preloadedCache: Map<Int, EmbeddingCacheEntity>? = null,
-        // 与 preloadedCache 配套传入：保证缓存查取与后续回填/生成用同一份模型 ID 快照，
-        // 避免检索过程中切换嵌入模型时两端各自读取产生不一致
-        modelIdOverride: String? = null,
+        modelId: String,
     ): List<Float>? {
-        val normalizedContent = content.trim()
-        if (normalizedContent.isEmpty()) {
-            return null
-        }
-        val modelId = modelIdOverride ?: embeddingService.getEmbeddingModelId(assistantId)
-        
-        // Check cache first
         val cached = if (preloadedCache != null) {
             preloadedCache[memoryId]
         } else {
             embeddingCacheDAO.getEmbedding(memoryId, memoryType, modelId)
         }
         if (cached != null) {
-            return try {
+            val decoded = runCatching {
                 JsonInstant.decodeFromString<List<Float>>(cached.embedding)
-            } catch (e: Exception) {
-                null
-            }
+            }.getOrNull()
+            if (decoded != null) return decoded
         }
-        
-        // Check existing embedding in entity (Fallback / Optimization)
+
         if (existingEmbedding != null && existingModelId == modelId) {
-             try {
+            return try {
                 val emb = JsonInstant.decodeFromString<List<Float>>(existingEmbedding)
-                // Backfill cache for future performance
                 embeddingCacheDAO.insertEmbedding(
                     EmbeddingCacheEntity(
                         memoryId = memoryId,
@@ -348,34 +361,19 @@ class MemoryRepository(
                         embedding = existingEmbedding
                     )
                 )
-                return emb
-             } catch (e: Exception) {
-                 e.printStackTrace()
-             }
-        }
-
-        // Generate new embedding
-        return try {
-            val embedding = embeddingService.embed(
-                text = normalizedContent,
-                assistantId = assistantId,
-                source = source,
-            )
-            // Cache it
-            embeddingCacheDAO.insertEmbedding(
-                EmbeddingCacheEntity(
-                    memoryId = memoryId,
-                    memoryType = memoryType,
-                    modelId = modelId,
-                    embedding = JsonInstant.encodeToString(embedding)
+                emb
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                scheduleEmbeddingBackfillIfNeeded(
+                    assistantId = assistantId,
+                    includeCore = memoryType == MemoryType.CORE,
+                    includeEpisodes = memoryType == MemoryType.EPISODIC,
+                    force = true,
                 )
-            )
-            embedding
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            e.printStackTrace()
-            null
+                null
+            }
         }
+        return null
     }
 
     /**
@@ -420,6 +418,12 @@ class MemoryRepository(
 
         if (contentChanged) {
             embeddingCacheDAO.deleteByMemoryId(id, MemoryType.CORE)
+            scheduleEmbeddingBackfillIfNeeded(
+                assistantId = memory.assistantId,
+                includeCore = true,
+                includeEpisodes = false,
+                force = true,
+            )
         }
 
         return AssistantMemory(
@@ -441,6 +445,12 @@ class MemoryRepository(
 
         // Invalidate cache
         embeddingCacheDAO.deleteByMemoryId(id, MemoryType.CORE)
+        scheduleEmbeddingBackfillIfNeeded(
+            assistantId = memory.assistantId,
+            includeCore = true,
+            includeEpisodes = false,
+            force = true,
+        )
 
         return AssistantMemory(
             id = newMemory.id,
@@ -461,6 +471,12 @@ class MemoryRepository(
 
         // Invalidate cache
         embeddingCacheDAO.deleteByMemoryId(id, MemoryType.EPISODIC)
+        scheduleEmbeddingBackfillIfNeeded(
+            assistantId = episode.assistantId,
+            includeCore = false,
+            includeEpisodes = true,
+            force = true,
+        )
 
         return AssistantMemory(
             id = -newEpisode.id,
@@ -510,6 +526,13 @@ class MemoryRepository(
                     embedding = JsonInstant.encodeToString(embeddingResult.embeddings.first())
                 )
              )
+        } else {
+            scheduleEmbeddingBackfillIfNeeded(
+                assistantId = assistantId,
+                includeCore = true,
+                includeEpisodes = false,
+                force = true,
+            )
         }
 
         return AssistantMemory(
@@ -577,6 +600,40 @@ class MemoryRepository(
         ).map { it.first }
     }
 
+    fun scheduleEmbeddingBackfillIfNeeded(
+        assistantId: String,
+        includeCore: Boolean = true,
+        includeEpisodes: Boolean = true,
+        force: Boolean = false,
+    ) {
+        if (!includeCore && !includeEpisodes) return
+        val checkKey = "$assistantId:$includeCore:$includeEpisodes:$force"
+        if (!pendingBackfillChecks.add(checkKey)) return
+
+        appScope.launch(Dispatchers.IO) {
+            try {
+                val shouldEnqueue = force || memoryDAO.getPendingEmbeddingCount(
+                    assistantId = assistantId,
+                    modelId = embeddingService.getEmbeddingModelId(assistantId),
+                    includeCore = includeCore,
+                    includeEpisodes = includeEpisodes,
+                ) > 0
+                if (shouldEnqueue) {
+                    embeddingBackfillScheduler.enqueue(
+                        assistantId = assistantId,
+                        includeCore = includeCore,
+                        includeEpisodes = includeEpisodes,
+                    )
+                }
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                Log.w(TAG, "Failed to schedule memory embedding backfill: ${error.message}", error)
+            } finally {
+                pendingBackfillChecks.remove(checkKey)
+            }
+        }
+    }
+
     suspend fun retrieveRelevantMemoriesWithScoresByEmbedding(
         assistantId: String,
         queryEmbedding: List<Float>,
@@ -612,18 +669,17 @@ class MemoryRepository(
             val cachedMemoryEmbeddings =
                 batchLoadEmbeddingCache(memoryChunk.map { it.id }, MemoryType.CORE, embeddingModelId)
             memoryChunk.mapNotNull { memory ->
+                currentCoroutineContext().ensureActive()
                 if (memory.pinned) {
-                    val score = runCatching {
-                        val embedding = getOrCreateEmbedding(
+                    val score = try {
+                        val embedding = getExistingEmbedding(
                             memoryId = memory.id,
                             memoryType = MemoryType.CORE,
-                            content = memory.content,
                             assistantId = assistantId,
                             existingEmbedding = memory.embedding,
                             existingModelId = memory.embeddingModelId,
-                            source = AIRequestSource.MEMORY_RETRIEVAL,
                             preloadedCache = cachedMemoryEmbeddings,
-                            modelIdOverride = embeddingModelId,
+                            modelId = embeddingModelId,
                         )
                         if (embedding != null) {
                             val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
@@ -631,19 +687,20 @@ class MemoryRepository(
                         } else {
                             1f
                         }
-                    }.getOrDefault(1f)
+                    } catch (error: Throwable) {
+                        if (error is CancellationException) throw error
+                        1f
+                    }
                     ScoredCandidate(item = memory, score = score, isMemory = true, isPinned = true)
                 } else {
-                    val embedding = getOrCreateEmbedding(
+                    val embedding = getExistingEmbedding(
                         memoryId = memory.id,
                         memoryType = MemoryType.CORE,
-                        content = memory.content,
                         assistantId = assistantId,
                         existingEmbedding = memory.embedding,
                         existingModelId = memory.embeddingModelId,
-                        source = AIRequestSource.MEMORY_RETRIEVAL,
                         preloadedCache = cachedMemoryEmbeddings,
-                        modelIdOverride = embeddingModelId,
+                        modelId = embeddingModelId,
                     ) ?: return@mapNotNull null
 
                     val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
@@ -661,16 +718,15 @@ class MemoryRepository(
             val cachedEpisodeEmbeddings =
                 batchLoadEmbeddingCache(episodeChunk.map { it.id }, MemoryType.EPISODIC, embeddingModelId)
             episodeChunk.mapNotNull { episode ->
-                val embedding = getOrCreateEmbedding(
+                currentCoroutineContext().ensureActive()
+                val embedding = getExistingEmbedding(
                     memoryId = episode.id,
                     memoryType = MemoryType.EPISODIC,
-                    content = episode.content,
                     assistantId = assistantId,
                     existingEmbedding = episode.embedding,
                     existingModelId = episode.embeddingModelId,
-                    source = AIRequestSource.MEMORY_RETRIEVAL,
                     preloadedCache = cachedEpisodeEmbeddings,
-                    modelIdOverride = embeddingModelId,
+                    modelId = embeddingModelId,
                 ) ?: return@mapNotNull null
 
                 val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
@@ -775,6 +831,35 @@ class MemoryRepository(
         includeCore: Boolean = true,
         includeEpisodes: Boolean = true
     ): List<Pair<AssistantMemory, Float>> {
+        scheduleEmbeddingBackfillIfNeeded(
+            assistantId = assistantId,
+            includeCore = includeCore,
+            includeEpisodes = includeEpisodes,
+        )
+        return try {
+            withTimeout(embeddingService.getRetrievalTimeoutMillis()) {
+                retrieveRelevantMemoriesWithScoresInternal(
+                    assistantId = assistantId,
+                    query = query,
+                    limit = limit,
+                    similarityThreshold = similarityThreshold,
+                    includeCore = includeCore,
+                    includeEpisodes = includeEpisodes,
+                )
+            }
+        } catch (_: TimeoutCancellationException) {
+            getPinnedMemoriesWithScores(assistantId, includeCore)
+        }
+    }
+
+    private suspend fun retrieveRelevantMemoriesWithScoresInternal(
+        assistantId: String,
+        query: String,
+        limit: Int,
+        similarityThreshold: Float,
+        includeCore: Boolean,
+        includeEpisodes: Boolean,
+    ): List<Pair<AssistantMemory, Float>> {
         data class ScoredCandidate(
             val item: Any,
             val score: Float,
@@ -787,39 +872,17 @@ class MemoryRepository(
             }
         }
 
-        val pinnedCoreMemories = if (includeCore) {
-            memoryDAO.getPinnedMemoriesOfAssistant(assistantId)
-        } else {
-            emptyList()
-        }
-
         val queryEmbedding = try {
             embeddingService.embed(
                 text = query,
                 assistantId = assistantId,
                 source = AIRequestSource.MEMORY_RETRIEVAL,
+                timeoutPolicy = EmbeddingTimeoutPolicy.RETRIEVAL,
             )
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             e.printStackTrace()
-            val accessedAt = System.currentTimeMillis()
-            pinnedCoreMemories.map { it.id }
-                .chunked(500)
-                .forEach { memoryDAO.updateLastAccessedAt(it, accessedAt) }
-            return pinnedCoreMemories.map { memory ->
-                Pair(
-                    AssistantMemory(
-                        id = memory.id,
-                        content = memory.content,
-                        type = memory.type,
-                        hasEmbedding = memory.embedding != null,
-                        embeddingModelId = memory.embeddingModelId,
-                        timestamp = memory.createdAt,
-                        pinned = memory.pinned,
-                    ),
-                    1f
-                )
-            }
+            return getPinnedMemoriesWithScores(assistantId, includeCore)
         }
 
         val limitInt = limit.coerceAtLeast(0)
@@ -837,18 +900,17 @@ class MemoryRepository(
             val cachedMemoryEmbeddings =
                 batchLoadEmbeddingCache(memoryChunk.map { it.id }, MemoryType.CORE, embeddingModelId)
             memoryChunk.mapNotNull { memory ->
+                currentCoroutineContext().ensureActive()
                 if (memory.pinned) {
-                    val score = runCatching {
-                        val embedding = getOrCreateEmbedding(
+                    val score = try {
+                        val embedding = getExistingEmbedding(
                             memoryId = memory.id,
                             memoryType = MemoryType.CORE,
-                            content = memory.content,
                             assistantId = assistantId,
                             existingEmbedding = memory.embedding,
                             existingModelId = memory.embeddingModelId,
-                            source = AIRequestSource.MEMORY_RETRIEVAL,
                             preloadedCache = cachedMemoryEmbeddings,
-                            modelIdOverride = embeddingModelId,
+                            modelId = embeddingModelId,
                         )
                         if (embedding != null) {
                             val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
@@ -856,19 +918,20 @@ class MemoryRepository(
                         } else {
                             1f
                         }
-                    }.getOrDefault(1f)
+                    } catch (error: Throwable) {
+                        if (error is CancellationException) throw error
+                        1f
+                    }
                     ScoredCandidate(item = memory, score = score, isMemory = true, isPinned = true)
                 } else {
-                    val embedding = getOrCreateEmbedding(
+                    val embedding = getExistingEmbedding(
                         memoryId = memory.id,
                         memoryType = MemoryType.CORE,
-                        content = memory.content,
                         assistantId = assistantId,
                         existingEmbedding = memory.embedding,
                         existingModelId = memory.embeddingModelId,
-                        source = AIRequestSource.MEMORY_RETRIEVAL,
                         preloadedCache = cachedMemoryEmbeddings,
-                        modelIdOverride = embeddingModelId,
+                        modelId = embeddingModelId,
                     ) ?: return@mapNotNull null
 
                     val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
@@ -886,16 +949,15 @@ class MemoryRepository(
             val cachedEpisodeEmbeddings =
                 batchLoadEmbeddingCache(episodeChunk.map { it.id }, MemoryType.EPISODIC, embeddingModelId)
             episodeChunk.mapNotNull { episode ->
-                val embedding = getOrCreateEmbedding(
+                currentCoroutineContext().ensureActive()
+                val embedding = getExistingEmbedding(
                     memoryId = episode.id,
                     memoryType = MemoryType.EPISODIC,
-                    content = episode.content,
                     assistantId = assistantId,
                     existingEmbedding = episode.embedding,
                     existingModelId = episode.embeddingModelId,
-                    source = AIRequestSource.MEMORY_RETRIEVAL,
                     preloadedCache = cachedEpisodeEmbeddings,
-                    modelIdOverride = embeddingModelId,
+                    modelId = embeddingModelId,
                 ) ?: return@mapNotNull null
 
                 val similarity = VectorEngine.cosineSimilarity(queryEmbedding, embedding)
@@ -992,6 +1054,29 @@ class MemoryRepository(
         }
     }
 
+    private suspend fun getPinnedMemoriesWithScores(
+        assistantId: String,
+        includeCore: Boolean,
+    ): List<Pair<AssistantMemory, Float>> {
+        if (!includeCore) return emptyList()
+        val pinnedMemories = memoryDAO.getPinnedMemoriesOfAssistant(assistantId)
+        val accessedAt = System.currentTimeMillis()
+        pinnedMemories.map { it.id }
+            .chunked(500)
+            .forEach { memoryDAO.updateLastAccessedAt(it, accessedAt) }
+        return pinnedMemories.map { memory ->
+            AssistantMemory(
+                id = memory.id,
+                content = memory.content,
+                type = memory.type,
+                hasEmbedding = memory.embedding != null,
+                embeddingModelId = memory.embeddingModelId,
+                timestamp = memory.createdAt,
+                pinned = memory.pinned,
+            ) to 1f
+        }
+    }
+
     /**
      * Regenerate embeddings for memories and episodes that need it.
      * Only processes memories that:
@@ -1012,11 +1097,11 @@ class MemoryRepository(
         val currentModelId = embeddingService.getEmbeddingModelId(assistantId)
         
         // Filter to only memories that need embedding
-        val memoriesNeedingEmbedding = allMemories.filter { 
-            it.content.trim().isNotEmpty() && (it.embedding == null || it.embeddingModelId != currentModelId)
+        val memoriesNeedingEmbedding = allMemories.filter {
+            needsEmbeddingBackfill(it.content, it.embedding, it.embeddingModelId, currentModelId)
         }
-        val episodesNeedingEmbedding = allEpisodes.filter { 
-            it.content.trim().isNotEmpty() && (it.embedding == null || it.embeddingModelId != currentModelId)
+        val episodesNeedingEmbedding = allEpisodes.filter {
+            needsEmbeddingBackfill(it.content, it.embedding, it.embeddingModelId, currentModelId)
         }
         
         val total = memoriesNeedingEmbedding.size + episodesNeedingEmbedding.size
@@ -1095,81 +1180,159 @@ class MemoryRepository(
      * @param assistantId The assistant ID to fix embeddings for
      * @return Pair of (successCount, failureCount)
      */
-    suspend fun embedMissingMemories(assistantId: String): Pair<Int, Int> {
-        val memories = memoryDAO.getMemoriesOfAssistant(assistantId)
-        val episodes = chatEpisodeDAO.getEpisodesOfAssistant(assistantId)
+    suspend fun embedMissingMemories(
+        assistantId: String,
+        includeCore: Boolean = true,
+        includeEpisodes: Boolean = true,
+    ): Pair<Int, Int> = embeddingBackfillMutex.withLock {
+        val memories = if (includeCore) memoryDAO.getMemoriesOfAssistant(assistantId) else emptyList()
+        val episodes = if (includeEpisodes) chatEpisodeDAO.getEpisodesOfAssistant(assistantId) else emptyList()
         val currentModelId = embeddingService.getEmbeddingModelId(assistantId)
-        
+
+        val targets = memories.mapNotNull { memory ->
+            if (needsEmbeddingBackfill(memory.content, memory.embedding, memory.embeddingModelId, currentModelId)) {
+                EmbeddingBackfillTarget(
+                    id = memory.id,
+                    memoryType = MemoryType.CORE,
+                    content = memory.content,
+                    originalModelId = memory.embeddingModelId,
+                )
+            } else {
+                null
+            }
+        } + episodes.mapNotNull { episode ->
+            if (needsEmbeddingBackfill(episode.content, episode.embedding, episode.embeddingModelId, currentModelId)) {
+                EmbeddingBackfillTarget(
+                    id = episode.id,
+                    memoryType = MemoryType.EPISODIC,
+                    content = episode.content,
+                    originalModelId = episode.embeddingModelId,
+                )
+            } else {
+                null
+            }
+        }
+        if (targets.isEmpty()) return@withLock 0 to 0
+
+        val cachedEmbeddings = targets.groupBy { it.memoryType }
+            .flatMap { (memoryType, typedTargets) ->
+                batchLoadEmbeddingCache(
+                    memoryIds = typedTargets.map { it.id },
+                    memoryType = memoryType,
+                    modelId = currentModelId,
+                ).map { (memoryId, cache) -> (memoryType to memoryId) to cache }
+            }
+            .toMap()
+
         var successCount = 0
         var failureCount = 0
 
-        // Filter to only memories that need embedding
-        val memoriesNeedingEmbedding = memories.filter { 
-            it.content.trim().isNotEmpty() && (it.embedding == null || it.embeddingModelId != currentModelId)
-        }
-        val episodesNeedingEmbedding = episodes.filter { 
-            it.content.trim().isNotEmpty() && (it.embedding == null || it.embeddingModelId != currentModelId)
-        }
-
-        // Process Core Memories that need embedding
-        memoriesNeedingEmbedding.forEach { memory ->
-            try {
-                val embedding = embeddingService.embed(
-                    text = memory.content,
-                    assistantId = assistantId,
-                    source = AIRequestSource.MEMORY_EMBEDDING,
+        suspend fun persist(
+            target: EmbeddingBackfillTarget,
+            embedding: List<Float>,
+            modelId: String,
+        ) {
+            val embeddingJson = JsonInstant.encodeToString(embedding)
+            runCatching {
+                persistBackfilledEmbedding(
+                    target = target,
+                    embeddingJson = embeddingJson,
+                    modelId = modelId,
                 )
-                val embeddingJson = JsonInstant.encodeToString(embedding)
-                memoryDAO.updateMemory(memory.copy(
-                    embedding = embeddingJson,
-                    embeddingModelId = currentModelId
-                ))
-                // Also cache
-                embeddingCacheDAO.insertEmbedding(
-                    EmbeddingCacheEntity(
-                        memoryId = memory.id,
-                        memoryType = MemoryType.CORE,
-                        modelId = currentModelId,
-                        embedding = embeddingJson
-                    )
-                )
-                successCount++
-            } catch (e: Exception) {
-                e.printStackTrace()
+            }.onSuccess { persisted ->
+                if (persisted) successCount++
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
                 failureCount++
             }
         }
 
-        // Process Episodes that need embedding
-        episodesNeedingEmbedding.forEach { episode ->
-            try {
-                val embedding = embeddingService.embed(
-                    text = episode.content,
-                    assistantId = assistantId,
-                    source = AIRequestSource.MEMORY_EMBEDDING,
-                )
-                val embeddingJson = JsonInstant.encodeToString(embedding)
-                chatEpisodeDAO.insertEpisode(episode.copy(
-                    embedding = embeddingJson,
-                    embeddingModelId = currentModelId
-                ))
-                // Also cache
-                embeddingCacheDAO.insertEmbedding(
-                    EmbeddingCacheEntity(
-                        memoryId = episode.id,
-                        memoryType = MemoryType.EPISODIC,
-                        modelId = currentModelId,
-                        embedding = embeddingJson
-                    )
-                )
-                successCount++
-            } catch (e: Exception) {
-                e.printStackTrace()
-                failureCount++
+        val targetsNeedingRequest = mutableListOf<EmbeddingBackfillTarget>()
+        targets.forEach { target ->
+            val cached = cachedEmbeddings[target.memoryType to target.id]
+                ?.embedding
+                ?.let { encoded ->
+                    runCatching { JsonInstant.decodeFromString<List<Float>>(encoded) }.getOrNull()
+                }
+            if (cached != null) {
+                persist(target, cached, currentModelId)
+            } else {
+                targetsNeedingRequest.add(target)
             }
         }
-        
-        return successCount to failureCount
+
+        suspend fun requestAndPersist(chunk: List<EmbeddingBackfillTarget>) {
+            val batchResult = try {
+                embeddingService.embedBatch(
+                    texts = chunk.map { it.content },
+                    assistantId = assistantId,
+                    source = AIRequestSource.MEMORY_EMBEDDING,
+                ).also { result ->
+                    check(result.embeddings.size == chunk.size) {
+                        "Embedding batch size mismatch: expected ${chunk.size}, got ${result.embeddings.size}"
+                    }
+                }
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                if (chunk.size > 1 && error.isSplittableEmbeddingBatchFailure()) {
+                    val midpoint = chunk.size / 2
+                    requestAndPersist(chunk.subList(0, midpoint))
+                    requestAndPersist(chunk.subList(midpoint, chunk.size))
+                } else {
+                    failureCount += chunk.size
+                }
+                return
+            }
+
+            chunk.zip(batchResult.embeddings).forEach { (target, embedding) ->
+                persist(target, embedding, batchResult.modelId)
+            }
+        }
+
+        targetsNeedingRequest.chunked(EMBEDDING_BACKFILL_BATCH_SIZE).forEach { chunk ->
+            requestAndPersist(chunk)
+        }
+
+        successCount to failureCount
+    }
+
+    private suspend fun persistBackfilledEmbedding(
+        target: EmbeddingBackfillTarget,
+        embeddingJson: String,
+        modelId: String,
+    ): Boolean {
+        return database.withTransaction {
+            val updated = when (target.memoryType) {
+                MemoryType.CORE -> memoryDAO.updateEmbeddingIfContentMatches(
+                    id = target.id,
+                    expectedContent = target.content,
+                    expectedModelId = target.originalModelId,
+                    embedding = embeddingJson,
+                    modelId = modelId,
+                )
+
+                MemoryType.EPISODIC -> chatEpisodeDAO.updateEmbeddingIfContentMatches(
+                    id = target.id,
+                    expectedContent = target.content,
+                    expectedModelId = target.originalModelId,
+                    embedding = embeddingJson,
+                    modelId = modelId,
+                )
+
+                else -> 0
+            }
+            if (updated <= 0) return@withTransaction false
+
+            embeddingCacheDAO.insertEmbedding(
+                EmbeddingCacheEntity(
+                    memoryId = target.id,
+                    memoryType = target.memoryType,
+                    modelId = modelId,
+                    embedding = embeddingJson,
+                )
+            )
+            true
+        }
     }
 
     /**
@@ -1181,13 +1344,35 @@ class MemoryRepository(
         val episodes = chatEpisodeDAO.getEpisodesOfAssistant(assistantId)
         val currentModelId = embeddingService.getEmbeddingModelId(assistantId)
         
-        val memoriesNeedingEmbedding = memories.count { 
-            it.content.trim().isNotEmpty() && (it.embedding == null || it.embeddingModelId != currentModelId)
+        val memoriesNeedingEmbedding = memories.count {
+            needsEmbeddingBackfill(it.content, it.embedding, it.embeddingModelId, currentModelId)
         }
-        val episodesNeedingEmbedding = episodes.count { 
-            it.content.trim().isNotEmpty() && (it.embedding == null || it.embeddingModelId != currentModelId)
+        val episodesNeedingEmbedding = episodes.count {
+            needsEmbeddingBackfill(it.content, it.embedding, it.embeddingModelId, currentModelId)
         }
         
         return memoriesNeedingEmbedding + episodesNeedingEmbedding
     }
+}
+
+internal fun Throwable.isSplittableEmbeddingBatchFailure(): Boolean {
+    val messages = generateSequence(this) { it.cause }
+        .mapNotNull { it.message }
+        .joinToString(" ")
+    return messages.contains("Embedding batch size mismatch") ||
+        Regex("""(?:embedding:|with)\s*(?:400|413|422)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(messages)
+}
+
+internal fun needsEmbeddingBackfill(
+    content: String,
+    embedding: String?,
+    embeddingModelId: String?,
+    currentModelId: String,
+): Boolean {
+    if (content.isBlank()) return false
+    if (embedding.isNullOrBlank() || embeddingModelId != currentModelId) return true
+    return runCatching { JsonInstant.decodeFromString<List<Float>>(embedding) }
+        .getOrNull()
+        .isNullOrEmpty()
 }

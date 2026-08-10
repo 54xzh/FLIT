@@ -301,7 +301,7 @@ class OpenAIProvider(
         providerSetting: ProviderSetting.OpenAI,
         input: List<String>,
         model: Model,
-        callTimeoutSeconds: Long?,
+        callTimeoutMillis: Long?,
     ): List<List<Float>> = withContext(Dispatchers.IO) {
         val key = keyRoulette.next(providerSetting)
         val requestBody = json.encodeToString(buildEmbeddingRequestBody(input = input, model = model))
@@ -314,8 +314,8 @@ class OpenAIProvider(
             .build()
 
         val call = client.configureClientWithProxy(providerSetting.proxy).newCall(request)
-        if (callTimeoutSeconds != null && callTimeoutSeconds > 0) {
-            call.timeout().timeout(callTimeoutSeconds, TimeUnit.SECONDS)
+        if (callTimeoutMillis != null && callTimeoutMillis > 0) {
+            call.timeout().timeout(callTimeoutMillis, TimeUnit.MILLISECONDS)
         }
         val response = call.await()
         if (!response.isSuccessful) {

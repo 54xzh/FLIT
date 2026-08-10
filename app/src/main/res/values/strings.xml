@@ -802,7 +802,7 @@
     <string name="setting_display_page_show_context_compression_divider_title">Show Context Compression Divider</string>
     <string name="setting_display_page_show_context_compression_divider_desc">Show a divider in chat when older messages are summarized into context</string>
     <string name="setting_display_page_embedding_retrieval_timeout_title">Embedding Retrieval Timeout</string>
-    <string name="setting_display_page_embedding_retrieval_timeout_desc">If timeout, skip this retrieval. Unit: seconds</string>
+    <string name="setting_display_page_embedding_retrieval_timeout_desc">If timeout, skip this retrieval. Unit: seconds; decimals are supported</string>
     <string name="setting_display_page_use_last_turn_memory_title">Use Last Turn Memories</string>
     <string name="setting_display_page_use_last_turn_memory_desc">When memory retrieval is skipped, reuse memories injected in the last turn</string>
     <string name="setting_advanced_page_custom_request_title">Custom Request</string>

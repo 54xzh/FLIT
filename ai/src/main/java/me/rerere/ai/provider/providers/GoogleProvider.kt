@@ -959,7 +959,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         providerSetting: ProviderSetting.Google,
         input: List<String>,
         model: Model,
-        callTimeoutSeconds: Long?,
+        callTimeoutMillis: Long?,
     ): List<List<Float>> = withContext(Dispatchers.IO) {
         if (input.isEmpty()) {
             return@withContext emptyList()
@@ -995,8 +995,8 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             )
 
             val call = client.configureClientWithProxy(providerSetting.proxy).newCall(request)
-            if (callTimeoutSeconds != null && callTimeoutSeconds > 0) {
-                call.timeout().timeout(callTimeoutSeconds, TimeUnit.SECONDS)
+            if (callTimeoutMillis != null && callTimeoutMillis > 0) {
+                call.timeout().timeout(callTimeoutMillis, TimeUnit.MILLISECONDS)
             }
             val response = call.await()
             val bodyStr = response.body?.string() ?: ""
@@ -1041,8 +1041,8 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             )
 
             val call = client.configureClientWithProxy(providerSetting.proxy).newCall(request)
-            if (callTimeoutSeconds != null && callTimeoutSeconds > 0) {
-                call.timeout().timeout(callTimeoutSeconds, TimeUnit.SECONDS)
+            if (callTimeoutMillis != null && callTimeoutMillis > 0) {
+                call.timeout().timeout(callTimeoutMillis, TimeUnit.MILLISECONDS)
             }
             val response = call.await()
             val bodyStr = response.body?.string() ?: ""

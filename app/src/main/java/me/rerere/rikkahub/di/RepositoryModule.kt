@@ -12,6 +12,7 @@ import me.rerere.rikkahub.data.repository.SafRepository
 import me.rerere.rikkahub.data.repository.StorageManagerRepository
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.service.MemoryEmbeddingBackfillScheduler
 import me.rerere.rikkahub.workspace.ProotSandboxShellRunner
 import me.rerere.rikkahub.workspace.ProotSandboxProcessLauncher
 import me.rerere.rikkahub.workspace.SandboxProcessLauncher
@@ -31,11 +32,15 @@ val repositoryModule = module {
     }
 
     single {
-        EmbeddingService(get(), get(), get())
+        EmbeddingService(get(), get(), get(), get())
     }
 
     single {
-        MemoryRepository(get(), get(), get(), get())
+        MemoryEmbeddingBackfillScheduler(get())
+    }
+
+    single {
+        MemoryRepository(get(), get(), get(), get(), get(), get(), get())
     }
 
     single {

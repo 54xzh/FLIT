@@ -1319,7 +1319,7 @@
   <string name="setting_display_page_create_new_conversation_on_start_title">启动时新建对话</string>
   <string name="setting_display_page_developer_mode">开发者模式</string>
   <string name="setting_display_page_developer_mode_desc">显示更多调试功能,不建议普通用户使用。</string>
-    <string name="setting_display_page_embedding_retrieval_timeout_desc">超时后将跳过该次检索，单位：秒</string>
+    <string name="setting_display_page_embedding_retrieval_timeout_desc">超时后将跳过该次检索，单位：秒，支持小数</string>
     <string name="setting_display_page_embedding_retrieval_timeout_title">嵌入模型检索超时时间</string>
   <string name="setting_display_page_enable_message_generation_haptic_effect_desc">消息生成时启用触觉反馈效果</string>
   <string name="setting_display_page_enable_message_generation_haptic_effect_title">消息生成触觉反馈</string>

@@ -22,6 +22,7 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.WebDavConfig
 import me.rerere.rikkahub.data.datastore.migration.migrateLegacyReasoningSettingsJson
+import me.rerere.rikkahub.data.datastore.migrateLegacyEmbeddingRetrievalTimeoutSettingsJson
 import me.rerere.rikkahub.data.datastore.sanitize
 import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.migration.RestoreTargets
@@ -736,7 +737,8 @@ class WebdavSync(
                     val migratedJson = settingsJsonHolder.json
                         ?: throw Exception("Failed to restore settings: no settings captured")
                     try {
-                        val reasoningMigratedJson = migrateLegacyReasoningSettingsJson(migratedJson)
+                        val timeoutMigratedJson = migrateLegacyEmbeddingRetrievalTimeoutSettingsJson(migratedJson)
+                        val reasoningMigratedJson = migrateLegacyReasoningSettingsJson(timeoutMigratedJson)
                         settingsJsonHolder.json = reasoningMigratedJson
                         val settings = json.decodeFromString<Settings>(reasoningMigratedJson)
                         val (cleaned, cleanupResult) = settings.sanitize(context)

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -26,8 +27,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -36,11 +40,13 @@ import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.DisplaySetting
 import me.rerere.rikkahub.data.datastore.TOOL_RESULT_KEEP_USER_MESSAGES_MAX
 import me.rerere.rikkahub.data.datastore.TOOL_RESULT_KEEP_USER_MESSAGES_MIN
-import me.rerere.rikkahub.data.datastore.getEmbeddingRetrievalTimeoutSeconds
+import me.rerere.rikkahub.data.datastore.formatEmbeddingRetrievalTimeoutSeconds
+import me.rerere.rikkahub.data.datastore.getEmbeddingRetrievalTimeoutMillis
 import me.rerere.rikkahub.data.datastore.getHttpRetryDelaySeconds
 import me.rerere.rikkahub.data.datastore.getHttpRetryMaxRetries
 import me.rerere.rikkahub.data.datastore.getMcpToolCallTimeoutSeconds
 import me.rerere.rikkahub.data.datastore.getToolResultKeepUserMessages
+import me.rerere.rikkahub.data.datastore.parseEmbeddingRetrievalTimeoutMillis
 import me.rerere.rikkahub.data.model.ToolResultHistoryMode
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
@@ -60,6 +66,7 @@ fun SettingAdvancedPage(vm: SettingVM = koinViewModel()) {
     var displaySetting by remember(settings) { mutableStateOf(settings.displaySetting) }
     val haptics = rememberPremiumHaptics()
     val navController = LocalNavController.current
+    val focusManager = LocalFocusManager.current
 
     fun updateDisplaySetting(setting: DisplaySetting) {
         displaySetting = setting
@@ -99,26 +106,47 @@ fun SettingAdvancedPage(vm: SettingVM = koinViewModel()) {
                         title = stringResource(R.string.setting_display_page_embedding_retrieval_timeout_title),
                         subtitle = stringResource(R.string.setting_display_page_embedding_retrieval_timeout_desc),
                         trailing = {
-                            var timeoutText by remember(settings.getEmbeddingRetrievalTimeoutSeconds()) {
-                                mutableStateOf(settings.getEmbeddingRetrievalTimeoutSeconds().toString())
+                            val timeoutMillis = settings.getEmbeddingRetrievalTimeoutMillis()
+                            var timeoutText by remember(timeoutMillis) {
+                                mutableStateOf(formatEmbeddingRetrievalTimeoutSeconds(timeoutMillis))
                             }
+                            val timeoutIsValid = parseEmbeddingRetrievalTimeoutMillis(timeoutText) != null
 
                             OutlinedTextField(
                                 value = timeoutText,
                                 onValueChange = { value ->
-                                    val filtered = value.filter { it.isDigit() }
-                                    val parsed = filtered.toIntOrNull()
-                                    val safe = parsed?.coerceAtLeast(1)
-
-                                    timeoutText = (safe ?: filtered).toString()
-
-                                    if (safe != null) {
-                                        updateDisplaySetting(displaySetting.copy(embeddingRetrievalTimeoutSeconds = safe))
+                                    val normalized = value.replace(',', '.')
+                                    if (normalized.isValidDecimalTimeoutInput()) {
+                                        timeoutText = normalized
+                                        val parsedMillis = parseEmbeddingRetrievalTimeoutMillis(normalized)
+                                        if (parsedMillis != null) {
+                                            updateDisplaySetting(
+                                                displaySetting.copy(embeddingRetrievalTimeoutMillis = parsedMillis)
+                                            )
+                                        }
                                     }
                                 },
-                                modifier = Modifier.widthIn(min = 80.dp, max = 120.dp),
+                                modifier = Modifier
+                                    .widthIn(min = 80.dp, max = 120.dp)
+                                    .onFocusChanged { focusState ->
+                                        if (!focusState.isFocused && !timeoutIsValid) {
+                                            timeoutText = formatEmbeddingRetrievalTimeoutSeconds(timeoutMillis)
+                                        }
+                                    },
                                 singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                isError = !timeoutIsValid,
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Decimal,
+                                    imeAction = ImeAction.Done,
+                                ),
+                                keyboardActions = KeyboardActions(
+                                    onDone = {
+                                        if (!timeoutIsValid) {
+                                            timeoutText = formatEmbeddingRetrievalTimeoutSeconds(timeoutMillis)
+                                        }
+                                        focusManager.clearFocus()
+                                    }
+                                ),
                             )
                         }
                     )
@@ -306,6 +334,10 @@ fun SettingAdvancedPage(vm: SettingVM = koinViewModel()) {
             }
         }
     }
+}
+
+private fun String.isValidDecimalTimeoutInput(): Boolean {
+    return isEmpty() || matches(Regex("\\d+(?:\\.\\d{0,3})?"))
 }
 
 @Composable

@@ -122,6 +122,37 @@ interface MemoryDAO {
     )
     fun getPendingEmbeddingCountFlow(assistantId: String): Flow<Int>
 
+    @Query(
+        """
+        SELECT
+            CASE WHEN :includeCore THEN (
+                SELECT COUNT(*) FROM memoryentity
+                WHERE assistant_id = :assistantId
+                  AND trim(content) != ''
+                  AND (
+                      embedding IS NULL OR trim(embedding) = ''
+                      OR embedding_model_id IS NULL OR embedding_model_id != :modelId
+                  )
+            ) ELSE 0 END
+            +
+            CASE WHEN :includeEpisodes THEN (
+                SELECT COUNT(*) FROM chatepisodeentity
+                WHERE assistant_id = :assistantId
+                  AND trim(content) != ''
+                  AND (
+                      embedding IS NULL OR trim(embedding) = ''
+                      OR embedding_model_id IS NULL OR embedding_model_id != :modelId
+                  )
+            ) ELSE 0 END
+        """
+    )
+    suspend fun getPendingEmbeddingCount(
+        assistantId: String,
+        modelId: String,
+        includeCore: Boolean,
+        includeEpisodes: Boolean,
+    ): Int
+
     @Query("SELECT AVG(LENGTH(content)) FROM memoryentity WHERE assistant_id = :assistantId")
     fun getAverageMemoryContentLengthFlow(assistantId: String): Flow<Double?>
 
@@ -136,6 +167,26 @@ interface MemoryDAO {
 
     @Update
     suspend fun updateMemory(memory: MemoryEntity)
+
+    @Query(
+        """
+        UPDATE memoryentity
+        SET embedding = :embedding, embedding_model_id = :modelId
+        WHERE id = :id
+          AND content = :expectedContent
+          AND (
+              embedding_model_id = :expectedModelId
+              OR (embedding_model_id IS NULL AND :expectedModelId IS NULL)
+          )
+        """
+    )
+    suspend fun updateEmbeddingIfContentMatches(
+        id: Int,
+        expectedContent: String,
+        expectedModelId: String?,
+        embedding: String,
+        modelId: String,
+    ): Int
 
     /**
      * 批量写回访问时间，避免为改一个字段逐行重写整行（含 embedding 大列）。

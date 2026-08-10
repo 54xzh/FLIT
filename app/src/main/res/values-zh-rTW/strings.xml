@@ -1856,7 +1856,7 @@
   <string name="setting_display_page_show_context_compression_divider_title">顯示上下文壓縮分隔線</string>
   <string name="setting_display_page_show_context_compression_divider_desc">當歷史消息被總結進上下文時，在聊天中顯示分隔線</string>
   <string name="setting_display_page_embedding_retrieval_timeout_title">嵌入模型檢索逾時時間</string>
-  <string name="setting_display_page_embedding_retrieval_timeout_desc">逾時後將跳過該次檢索，單位：秒</string>
+  <string name="setting_display_page_embedding_retrieval_timeout_desc">逾時後將跳過該次檢索，單位：秒，支援小數</string>
   <string name="setting_display_page_use_last_turn_memory_title">使用上一輪記憶</string>
   <string name="setting_display_page_use_last_turn_memory_desc">跳過記憶檢索後，使用上一輪注入的記憶</string>
   <string name="setting_advanced_page_custom_request_title">自訂請求</string>

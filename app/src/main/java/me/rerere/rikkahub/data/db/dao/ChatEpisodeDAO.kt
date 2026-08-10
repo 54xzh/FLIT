@@ -76,6 +76,26 @@ interface ChatEpisodeDAO {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEpisode(episode: ChatEpisodeEntity): Long
 
+    @Query(
+        """
+        UPDATE ChatEpisodeEntity
+        SET embedding = :embedding, embedding_model_id = :modelId
+        WHERE id = :id
+          AND content = :expectedContent
+          AND (
+              embedding_model_id = :expectedModelId
+              OR (embedding_model_id IS NULL AND :expectedModelId IS NULL)
+          )
+        """
+    )
+    suspend fun updateEmbeddingIfContentMatches(
+        id: Int,
+        expectedContent: String,
+        expectedModelId: String?,
+        embedding: String,
+        modelId: String,
+    ): Int
+
     /**
      * 批量写回访问时间，避免为改一个字段逐行重写整行（含 embedding 大列）。
      */

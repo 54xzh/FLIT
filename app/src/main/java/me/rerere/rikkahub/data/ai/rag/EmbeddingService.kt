@@ -1,12 +1,23 @@
 package me.rerere.rikkahub.data.ai.rag
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import me.rerere.ai.provider.ProviderManager
+import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.ai.AIRequestLogManager
 import me.rerere.rikkahub.data.ai.AIRequestSource
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
-import me.rerere.rikkahub.data.datastore.getEmbeddingRetrievalTimeoutSeconds
+import me.rerere.rikkahub.data.datastore.getEmbeddingRetrievalTimeoutMillis
+
+enum class EmbeddingTimeoutPolicy {
+    DEFAULT,
+    RETRIEVAL,
+}
 
 data class EmbeddingResult(
     val embeddings: List<List<Float>>,
@@ -17,7 +28,12 @@ class EmbeddingService(
     private val providerManager: ProviderManager,
     private val settingsStore: SettingsStore,
     private val requestLogManager: AIRequestLogManager,
+    private val appScope: AppScope,
 ) {
+    fun getRetrievalTimeoutMillis(): Long {
+        return settingsStore.settingsFlow.value.getEmbeddingRetrievalTimeoutMillis()
+    }
+
     /**
      * Get the current embedding model ID for an assistant (or global if not set)
      */
@@ -36,16 +52,18 @@ class EmbeddingService(
         text: String,
         assistantId: String? = null,
         source: AIRequestSource = AIRequestSource.OTHER,
+        timeoutPolicy: EmbeddingTimeoutPolicy = EmbeddingTimeoutPolicy.DEFAULT,
     ): List<Float> {
-        return embedBatch(listOf(text), assistantId, source).embeddings.first()
+        return embedBatch(listOf(text), assistantId, source, timeoutPolicy).embeddings.first()
     }
 
     suspend fun embedWithModelId(
         text: String,
         assistantId: String? = null,
         source: AIRequestSource = AIRequestSource.OTHER,
+        timeoutPolicy: EmbeddingTimeoutPolicy = EmbeddingTimeoutPolicy.DEFAULT,
     ): EmbeddingResult {
-        val result = embedBatch(listOf(text), assistantId, source)
+        val result = embedBatch(listOf(text), assistantId, source, timeoutPolicy)
         return EmbeddingResult(result.embeddings, result.modelId)
     }
 
@@ -53,6 +71,7 @@ class EmbeddingService(
         texts: List<String>,
         assistantId: String? = null,
         source: AIRequestSource = AIRequestSource.OTHER,
+        timeoutPolicy: EmbeddingTimeoutPolicy = EmbeddingTimeoutPolicy.DEFAULT,
     ): EmbeddingResult {
         val settings = settingsStore.settingsFlow.value
         
@@ -69,10 +88,9 @@ class EmbeddingService(
         // Check if provider supports embeddings
         val providerSetting = model.findProvider(settings.providers) ?: error("Provider not found for embedding model")
         val provider = providerManager.getProviderByType(providerSetting)
-        val callTimeoutSeconds = when (source) {
-            AIRequestSource.MEMORY_RETRIEVAL,
-            AIRequestSource.TOOL_RESULT_RAG -> settings.getEmbeddingRetrievalTimeoutSeconds().toLong()
-            else -> null
+        val callTimeoutMillis = when (timeoutPolicy) {
+            EmbeddingTimeoutPolicy.DEFAULT -> null
+            EmbeddingTimeoutPolicy.RETRIEVAL -> settings.getEmbeddingRetrievalTimeoutMillis()
         }
         val requestBodyJson = provider.buildEmbeddingRequestBodyForLog(
             providerSetting = providerSetting,
@@ -85,7 +103,7 @@ class EmbeddingService(
         var embeddingResult: List<List<Float>> = emptyList()
         try {
             // Check if provider supports embeddings (OpenAI does, others may not)
-            embeddingResult = provider.createEmbedding(providerSetting, texts, model, callTimeoutSeconds)
+            embeddingResult = provider.createEmbedding(providerSetting, texts, model, callTimeoutMillis)
             if (embeddingResult.isEmpty() && texts.isNotEmpty()) {
                 error("Provider ${providerSetting::class.simpleName} does not support embeddings or returned empty result")
             }
@@ -94,17 +112,30 @@ class EmbeddingService(
             failure = t
             throw t
         } finally {
-            requestLogManager.logEmbedding(
-                source = source,
-                providerSetting = providerSetting,
-                model = model,
-                inputs = texts,
-                requestBodyJson = requestBodyJson,
-                embeddingCount = embeddingResult.size.takeIf { it > 0 },
-                dimensions = embeddingResult.firstOrNull()?.size,
-                durationMs = System.currentTimeMillis() - startAt,
-                error = failure,
-            )
+            val logInputs = texts.toList()
+            suspend fun writeLog() {
+                requestLogManager.logEmbedding(
+                    source = source,
+                    providerSetting = providerSetting,
+                    model = model,
+                    inputs = logInputs,
+                    requestBodyJson = requestBodyJson,
+                    embeddingCount = embeddingResult.size.takeIf { it > 0 },
+                    dimensions = embeddingResult.firstOrNull()?.size,
+                    durationMs = System.currentTimeMillis() - startAt,
+                    error = failure,
+                )
+            }
+            if (currentCoroutineContext().isActive) {
+                try {
+                    writeLog()
+                } catch (error: CancellationException) {
+                    appScope.launch(Dispatchers.IO) { writeLog() }
+                    throw error
+                }
+            } else {
+                appScope.launch(Dispatchers.IO) { writeLog() }
+            }
         }
     }
 }

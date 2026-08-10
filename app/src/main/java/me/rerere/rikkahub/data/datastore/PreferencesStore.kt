@@ -3,6 +3,8 @@ package me.rerere.rikkahub.data.datastore
 import android.content.Context
 import android.util.Log
 import java.io.File
+import java.math.BigDecimal
+import java.math.RoundingMode
 import androidx.datastore.core.IOException
 import androidx.datastore.preferences.SharedPreferencesMigration
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -31,6 +33,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.longOrNull
 import me.rerere.rikkahub.R
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.Model
@@ -77,8 +80,38 @@ import kotlin.uuid.Uuid
 
 private const val TAG = "PreferencesStore"
 private const val DEFAULT_CONTEXT_HISTORY_LIMIT = 10
+const val DEFAULT_EMBEDDING_RETRIEVAL_TIMEOUT_MILLIS = 2_000L
+const val MIN_EMBEDDING_RETRIEVAL_TIMEOUT_MILLIS = 1_000L
 const val TOOL_RESULT_KEEP_USER_MESSAGES_MIN = 1
 const val TOOL_RESULT_KEEP_USER_MESSAGES_MAX = 50
+
+internal fun parseEmbeddingRetrievalTimeoutMillis(value: String): Long? {
+    val seconds = value.replace(',', '.').toBigDecimalOrNull() ?: return null
+    val millis = runCatching {
+        seconds.multiply(BigDecimal(1_000)).setScale(0, RoundingMode.HALF_UP).longValueExact()
+    }.getOrNull() ?: return null
+    return millis.takeIf { it >= MIN_EMBEDDING_RETRIEVAL_TIMEOUT_MILLIS }
+}
+
+internal fun formatEmbeddingRetrievalTimeoutSeconds(timeoutMillis: Long): String {
+    return BigDecimal.valueOf(timeoutMillis, 3).stripTrailingZeros().toPlainString()
+}
+
+internal fun migrateLegacyEmbeddingRetrievalTimeoutSettingsJson(raw: String): String {
+    val root = runCatching { JsonInstant.parseToJsonElement(raw) as? JsonObject }.getOrNull()
+        ?: return raw
+    val displaySetting = root["displaySetting"] as? JsonObject ?: return raw
+    if ("embeddingRetrievalTimeoutMillis" in displaySetting) return raw
+    val legacySeconds = displaySetting["embeddingRetrievalTimeoutSeconds"]
+        ?.jsonPrimitiveOrNull
+        ?.longOrNull
+        ?: return raw
+
+    val migratedDisplaySetting = JsonObject(
+        displaySetting + ("embeddingRetrievalTimeoutMillis" to kotlinx.serialization.json.JsonPrimitive(legacySeconds * 1_000L))
+    )
+    return JsonObject(root + ("displaySetting" to migratedDisplaySetting)).toString()
+}
 
 fun DisplaySetting.getToolResultKeepUserMessages(): Int {
     return toolResultKeepUserMessages.coerceIn(
@@ -118,19 +151,39 @@ internal fun decodeDisplaySettingCompat(raw: String?): DisplaySetting {
     val decoded = runCatching { JsonInstant.decodeFromString<DisplaySetting>(raw) }
         .getOrElse { return DisplaySetting().normalizeToolResultSettings() }
 
+    val rawObject = runCatching {
+        JsonInstant.parseToJsonElement(raw) as? JsonObject
+    }.getOrNull()
+    val migratedTimeoutMillis = if (rawObject?.containsKey("embeddingRetrievalTimeoutMillis") == true) {
+        decoded.embeddingRetrievalTimeoutMillis
+    } else {
+        rawObject
+            ?.get("embeddingRetrievalTimeoutSeconds")
+            ?.jsonPrimitiveOrNull
+            ?.longOrNull
+            ?.times(1_000L)
+            ?: decoded.embeddingRetrievalTimeoutMillis
+    }
+
     val legacyKeepAll = runCatching {
-        (JsonInstant.parseToJsonElement(raw) as? JsonObject)
+        rawObject
             ?.get("toolResultKeepAll")
             ?.jsonPrimitiveOrNull
             ?.booleanOrNull
     }.getOrNull()
 
     val migrated = when {
-        legacyKeepAll == true -> decoded.copy(toolResultHistoryMode = ToolResultHistoryMode.KEEP_ALL)
+        legacyKeepAll == true -> decoded.copy(
+            toolResultHistoryMode = ToolResultHistoryMode.KEEP_ALL,
+            embeddingRetrievalTimeoutMillis = migratedTimeoutMillis,
+        )
         legacyKeepAll == false && decoded.toolResultHistoryMode == ToolResultHistoryMode.KEEP_ALL -> {
-            decoded.copy(toolResultHistoryMode = ToolResultHistoryMode.DISCARD)
+            decoded.copy(
+                toolResultHistoryMode = ToolResultHistoryMode.DISCARD,
+                embeddingRetrievalTimeoutMillis = migratedTimeoutMillis,
+            )
         }
-        else -> decoded
+        else -> decoded.copy(embeddingRetrievalTimeoutMillis = migratedTimeoutMillis)
     }
 
     return migrated.normalizeToolResultSettings()
@@ -1568,7 +1621,7 @@ data class DisplaySetting(
     val mergeProvidersInModelSelector: Boolean = false, // Merge providers with same first tag in model selector
     val showContextStacks: Boolean = false, // Show context sources (modes, memories, lorebooks) in message toolbar
     val showContextCompressionDivider: Boolean = true, // Show divider where older context has been summarized/compressed
-    val embeddingRetrievalTimeoutSeconds: Int = 2, // Timeout for embedding-based retrieval (memories, tool results)
+    val embeddingRetrievalTimeoutMillis: Long = DEFAULT_EMBEDDING_RETRIEVAL_TIMEOUT_MILLIS,
     val useLastTurnMemoryOnSkip: Boolean = true, // Reuse last injected memories when retrieval is skipped
     val useJsonEditorForCustomRequest: Boolean = false, // Use JSON editor for custom headers/body in assistant/model advanced settings
     val showExportConversationJsonButton: Boolean = false, // Show export raw JSON action in conversation long-press menu
@@ -1838,8 +1891,9 @@ fun Settings.getMcpToolCallTimeoutSeconds(): Int {
     return mcpToolCallTimeoutSeconds.coerceAtLeast(1)
 }
 
-fun Settings.getEmbeddingRetrievalTimeoutSeconds(): Int {
-    return displaySetting.embeddingRetrievalTimeoutSeconds.coerceAtLeast(1)
+fun Settings.getEmbeddingRetrievalTimeoutMillis(): Long {
+    return displaySetting.embeddingRetrievalTimeoutMillis
+        .coerceAtLeast(MIN_EMBEDDING_RETRIEVAL_TIMEOUT_MILLIS)
 }
 
 fun Settings.getHttpRetryMaxRetries(): Int {

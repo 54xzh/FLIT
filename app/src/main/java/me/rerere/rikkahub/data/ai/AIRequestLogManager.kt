@@ -269,17 +269,6 @@ private fun reclassifyLogSourceOrNull(log: AIRequestLogEntity): String? {
         return AIRequestSource.GROUP_CHAT_ROUTING.name
     }
 
-    val embeddingParams = log.paramsJson.parseEmbeddingParamsOrNull()
-    if (embeddingParams != null) {
-        if (log.source == AIRequestSource.MEMORY_EMBEDDING.name) {
-            return AIRequestSource.MEMORY_RETRIEVAL.name.takeIf { embeddingParams.totalChars < 200 }
-        }
-
-        return AIRequestSource.MEMORY_EMBEDDING.name.takeIf {
-            log.source == AIRequestSource.OTHER.name && embeddingParams.totalChars >= 200
-        }
-    }
-
     return null
 }
 
@@ -287,12 +276,6 @@ private fun String.isGroupChatRoutingPreview(): Boolean {
     val trimmed = trim()
     if (trimmed.isBlank()) return false
     return trimmed.contains("route the speakers", ignoreCase = true)
-}
-
-private fun String.parseEmbeddingParamsOrNull(): EmbeddingParamsLog? {
-    val trimmed = trim()
-    if (trimmed.isBlank()) return null
-    return runCatching { JsonInstant.decodeFromString(EmbeddingParamsLog.serializer(), trimmed) }.getOrNull()
 }
 
 private fun buildTextGenerationParamsJson(params: TextGenerationParams): String {
