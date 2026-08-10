@@ -29,6 +29,9 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemoryRetrievalRequest
+import me.rerere.rikkahub.data.repository.MemoryRetrievalService
+import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import me.rerere.rikkahub.utils.applyPlaceholders
 import java.time.LocalDate
 import java.time.format.TextStyle
@@ -41,6 +44,7 @@ class WelcomePhrasesService(
     private val settingsStore: SettingsStore,
     private val providerManager: ProviderManager,
     private val memoryRepository: MemoryRepository,
+    private val memoryRetrievalService: MemoryRetrievalService,
     private val requestLogManager: AIRequestLogManager,
 ) {
     private val mutex = Mutex()
@@ -150,7 +154,9 @@ class WelcomePhrasesService(
                     provider = provider,
                     locale = Locale.getDefault(),
                     enableMemory = assistant.enableMemory,
+                    ragLimit = assistant.ragLimit.coerceIn(0, 50),
                     ragSimilarityThreshold = assistant.ragSimilarityThreshold,
+                    retrievalMode = assistant.effectiveMemoryRetrievalMode(),
                     ragIncludeCore = assistant.ragIncludeCore,
                     ragIncludeEpisodes = assistant.ragIncludeEpisodes,
                     requireFullCount = force,
@@ -222,14 +228,18 @@ class WelcomePhrasesService(
                 val assistantIdString = pending.assistantId.toString()
                 val dateQuery = buildDateQuery(today)
 
-                val ragMemories = memoryRepository.retrieveRelevantMemories(
-                    assistantId = assistantIdString,
-                    query = dateQuery,
-                    limit = 10,
-                    similarityThreshold = pending.ragSimilarityThreshold,
-                    includeCore = pending.ragIncludeCore,
-                    includeEpisodes = pending.ragIncludeEpisodes,
+                val retrieval = memoryRetrievalService.retrieve(
+                    MemoryRetrievalRequest(
+                        assistantId = assistantIdString,
+                        mode = pending.retrievalMode,
+                        query = dateQuery,
+                        limit = pending.ragLimit,
+                        similarityThreshold = pending.ragSimilarityThreshold,
+                        includeCore = pending.ragIncludeCore,
+                        includeEpisodes = pending.ragIncludeEpisodes,
+                    )
                 )
+                val ragMemories = retrieval.hits.map { it.memory }
 
                 val recentMemories = memoryRepository.getRecentCombinedMemories(
                     assistantId = assistantIdString,
@@ -325,7 +335,9 @@ class WelcomePhrasesService(
         val provider: ProviderSetting,
         val locale: Locale,
         val enableMemory: Boolean,
+        val ragLimit: Int,
         val ragSimilarityThreshold: Float,
+        val retrievalMode: me.rerere.rikkahub.data.model.MemoryRetrievalMode,
         val ragIncludeCore: Boolean,
         val ragIncludeEpisodes: Boolean,
         val requireFullCount: Boolean,

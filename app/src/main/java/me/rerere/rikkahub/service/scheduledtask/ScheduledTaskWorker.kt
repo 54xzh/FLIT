@@ -51,13 +51,15 @@ import me.rerere.rikkahub.data.db.dao.ScheduledTaskDao
 import me.rerere.rikkahub.data.db.dao.ScheduledTaskRunDao
 import me.rerere.rikkahub.data.db.entity.ScheduledTaskEntity
 import me.rerere.rikkahub.data.model.AssistantMemory
+import me.rerere.rikkahub.data.repository.MemoryRetrievalRequest
+import me.rerere.rikkahub.data.repository.MemoryRetrievalService
+import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import me.rerere.rikkahub.data.db.entity.ScheduledTaskRunEntity
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantSearchMode
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.toMessageNode
 import me.rerere.rikkahub.data.repository.ConversationRepository
-import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.utils.JsonInstant
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -80,7 +82,7 @@ class ScheduledTaskWorker(
     private val taskDao: ScheduledTaskDao by inject()
     private val runDao: ScheduledTaskRunDao by inject()
     private val conversationRepository: ConversationRepository by inject()
-    private val memoryRepository: MemoryRepository by inject()
+    private val memoryRetrievalService: MemoryRetrievalService by inject()
     private val generationHandler: GenerationHandler by inject()
     private val templateTransformer: TemplateTransformer by inject()
     private val localTools: LocalTools by inject()
@@ -208,18 +210,17 @@ class ScheduledTaskWorker(
         }
 
         val memories: List<AssistantMemory>? = if (assistantForRun.enableMemory) {
-            if (assistantForRun.useRagMemoryRetrieval) {
-                memoryRepository.retrieveRelevantMemories(
+            memoryRetrievalService.retrieve(
+                MemoryRetrievalRequest(
                     assistantId = assistantForRun.id.toString(),
+                    mode = assistantForRun.effectiveMemoryRetrievalMode(),
                     query = prompt,
-                    limit = 50,
+                    limit = assistantForRun.ragLimit.coerceIn(0, 50),
                     similarityThreshold = assistantForRun.ragSimilarityThreshold,
                     includeCore = assistantForRun.ragIncludeCore,
                     includeEpisodes = assistantForRun.ragIncludeEpisodes,
                 )
-            } else {
-                memoryRepository.getMemoriesOfAssistant(assistantForRun.id.toString())
-            }
+            ).hits.map { it.memory }
         } else {
             null
         }

@@ -82,6 +82,8 @@ import me.rerere.rikkahub.data.datastore.getHttpRetryMaxRetries
 import me.rerere.rikkahub.data.datastore.getToolResultKeepUserMessages
 import me.rerere.rikkahub.data.ai.rag.EmbeddingService
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.MemoryRetrievalMode
+import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.InjectionPosition
 import me.rerere.rikkahub.data.model.Lorebook
@@ -389,11 +391,19 @@ class GenerationHandler(
                     buildMemoryTools(
                         onCreation = { content ->
                             val normalizedContent = content.trim()
-                            memoryRepo.addMemory(assistant.id.toString(), normalizedContent)
+                            memoryRepo.addMemory(
+                                assistantId = assistant.id.toString(),
+                                content = normalizedContent,
+                                generateEmbedding = assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
+                            )
                         },
                         onUpdate = { id, content ->
                             val normalizedContent = content.trim()
-                            memoryRepo.updateContent(id, normalizedContent)
+                            memoryRepo.updateContent(
+                                id = id,
+                                content = normalizedContent,
+                                generateEmbedding = assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
+                            )
                         },
                         onDelete = { id ->
                             memoryRepo.deleteMemory(id)
@@ -1304,7 +1314,7 @@ class GenerationHandler(
         
         // Memories (Prepare effective memories including recent chats if enabled)
         val shouldInjectMemories = assistant.enableMemory &&
-            (!assistant.useRagMemoryRetrieval || assistant.ragLimit > 0 || memories.any { it.pinned })
+            (assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.OFF || assistant.ragLimit > 0 || memories.any { it.pinned })
 
         val effectiveMemoriesCandidates = if (shouldInjectMemories) {
             // Recent-chat reference only injects conversation titles, which add noise without
@@ -1566,7 +1576,8 @@ class GenerationHandler(
             val reason = when {
                 memory.pinned -> "Pinned"
                 memory.id == -1 -> "Recent episode boost"
-                assistant.useRagMemoryRetrieval -> "Contextually relevant"
+                assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR -> "Vector match"
+                assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.KEYWORD -> "Keyword match"
                 else -> "Always included"
             }
             UsedMemory(

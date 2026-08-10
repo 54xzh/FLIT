@@ -1322,6 +1322,13 @@
   <string name="deselect_all">取消全選</string>
   <string name="assistant_page_rag_retrieval_title">RAG 記憶檢索</string>
   <string name="assistant_page_rag_retrieval_desc">基於對話上下文的智能記憶檢索</string>
+  <string name="assistant_page_memory_retrieval_mode_title">記憶檢索</string>
+  <string name="assistant_page_memory_retrieval_mode_desc">不進行檢索，核心記憶全部進入上下文</string>
+  <string name="assistant_page_memory_retrieval_mode_desc_vector">根據語義相似度檢索相關記憶，需要配置嵌入模型</string>
+  <string name="assistant_page_memory_retrieval_mode_desc_keyword">根據關鍵詞匹配相關記憶，無需額外配置</string>
+  <string name="assistant_page_memory_retrieval_mode_off">關</string>
+  <string name="assistant_page_memory_retrieval_mode_vector">向量</string>
+  <string name="assistant_page_memory_retrieval_mode_keyword">關鍵詞</string>
   <string name="assistant_page_rag_advanced_memory_title">高級記憶</string>
   <string name="assistant_page_rag_advanced_memory_desc">從對話中形成情景記憶</string>
   <string name="assistant_page_rag_reflection_title">反思</string>
@@ -1369,6 +1376,8 @@
   <string name="assistant_page_memory_mode_basic_recent_desc">添加最近對話的標題和時間戳</string>
   <string name="assistant_page_memory_mode_basic_rag_name">基礎 + RAG</string>
   <string name="assistant_page_memory_mode_basic_rag_desc">基於對話上下文的智能記憶檢索</string>
+  <string name="assistant_page_memory_mode_basic_keyword_name">基礎 + 關鍵詞</string>
+  <string name="assistant_page_memory_mode_basic_keyword_desc">根據關鍵詞匹配記憶</string>
   <string name="assistant_page_memory_mode_advanced_name">高級</string>
   <string name="assistant_page_memory_mode_advanced_desc">形成帶有自動整合功能的情景記憶</string>
   <string name="assistant_page_memory_mode_advanced_reflection_name">高級 + 反思</string>
@@ -1393,6 +1402,7 @@
   <string name="assistant_page_debugger_test_button">測試</string>
   <string name="assistant_page_debugger_results_format">結果 (%d):</string>
   <string name="assistant_page_debugger_score_format">得分: %s</string>
+  <string name="assistant_page_debugger_matched_terms">命中：%s</string>
   <string name="assistant_page_consolidation_track_a">記憶整合 (Track A)</string>
   <string name="assistant_page_consolidation_track_b">記憶反思 (Track B)</string>
   <string name="assistant_page_activity_recent">近期活動</string>

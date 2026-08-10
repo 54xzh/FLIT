@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.ai.AIRequestSource
 import me.rerere.rikkahub.data.ai.rag.EmbeddingService
 import me.rerere.rikkahub.data.ai.rag.EmbeddingTimeoutPolicy
@@ -27,6 +28,7 @@ import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.dao.ChatEpisodeDAO
 import me.rerere.rikkahub.data.db.dao.EmbeddingCacheDAO
 import me.rerere.rikkahub.data.db.dao.MemoryDAO
+import me.rerere.rikkahub.data.db.dao.MemoryRetrievalRow
 import me.rerere.rikkahub.data.db.entity.ChatEpisodeEntity
 import me.rerere.rikkahub.data.db.entity.EmbeddingCacheEntity
 import me.rerere.rikkahub.data.db.entity.MemoryEntity
@@ -65,8 +67,19 @@ class MemoryRepository(
     private val appScope: AppScope,
 ) {
     private val embeddingBackfillMutex = Mutex()
+    private val keywordIndexMutex = Mutex()
+    private val keywordTokenizer = KeywordMemoryTokenizer()
+    private val keywordIndexCache = LinkedHashMap<String, KeywordIndexCacheEntry>(16, 0.75f, true)
+    private var keywordIndexCacheTermCount = 0
     private val pendingBackfillChecks = ConcurrentHashMap.newKeySet<String>()
+
+    private data class KeywordIndexCacheEntry(
+        val rows: List<MemoryRetrievalRow>,
+        val index: KeywordMemoryIndex,
+    )
+
     companion object {
+        private const val KEYWORD_INDEX_TERM_BUDGET = 100_000
         private const val MEMORY_PAGE_SIZE = 30
         private const val MEMORY_INITIAL_LOAD_SIZE = 30
         private const val MEMORY_PREFETCH_DISTANCE = 10
@@ -326,6 +339,128 @@ class MemoryRepository(
     }
 
     /**
+     * Search memory text locally without loading embedding columns. Results include pinned core
+     * memories and up to [limit] dynamic results.
+     */
+    internal suspend fun retrieveKeywordMemoriesWithScores(
+        assistantId: String,
+        query: String,
+        limit: Int = 5,
+        includeCore: Boolean = true,
+        includeEpisodes: Boolean = true,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): List<KeywordSearchHit> {
+        val rows = withContext(Dispatchers.IO) {
+            memoryDAO.getMemoryRetrievalRows(
+                assistantId = assistantId,
+                includeCore = includeCore,
+                includeEpisodes = includeEpisodes,
+            ).sortedBy { it.id }
+        }
+        if (rows.isEmpty()) return emptyList()
+
+        val matchedHits = if (query.isBlank() || limit <= 0) {
+            emptyList()
+        } else {
+            val index = getKeywordIndex(
+                cacheKey = "$assistantId:$includeCore:$includeEpisodes",
+                rows = rows,
+            )
+            withContext(Dispatchers.Default) {
+                index.search(
+                    query = query,
+                    tokenizer = keywordTokenizer,
+                    nowMillis = nowMillis,
+                    limit = limit.coerceAtLeast(0),
+                )
+            }
+        }
+        val pinnedHits = rows.asSequence()
+            .filter { it.pinned }
+            .map { row ->
+                KeywordSearchHit(
+                    row = row,
+                    score = 1f,
+                    matchedTerms = emptyList(),
+                )
+            }
+            .toList()
+        val deduplicated = LinkedHashMap<String, KeywordSearchHit>()
+        (pinnedHits + matchedHits)
+            .sortedWith(
+                compareByDescending<KeywordSearchHit> { it.row.pinned }
+                    .thenByDescending { it.score }
+                    .thenByDescending { it.row.significance ?: 0 }
+                    .thenByDescending { it.row.timestamp }
+                    .thenBy { it.row.id },
+            )
+            .forEach { hit ->
+                val normalizedContent = keywordTokenizer.normalize(hit.row.content).trim()
+                val key = if (normalizedContent.isBlank()) "id:${hit.row.id}" else normalizedContent
+                deduplicated.putIfAbsent(key, hit)
+            }
+        val pinned = deduplicated.values.filter { it.row.pinned }
+        val dynamic = deduplicated.values
+            .filterNot { it.row.pinned }
+            .take(limit.coerceAtLeast(0))
+        val hits = pinned + dynamic
+
+        val accessedAt = System.currentTimeMillis()
+        withContext(Dispatchers.IO) {
+            hits.filter { it.row.id > 0 }
+                .map { it.row.id }
+                .chunked(500)
+                .forEach { ids -> if (ids.isNotEmpty()) memoryDAO.updateLastAccessedAt(ids, accessedAt) }
+            hits.filter { it.row.id < 0 }
+                .map { -it.row.id }
+                .chunked(500)
+                .forEach { ids -> if (ids.isNotEmpty()) chatEpisodeDAO.updateLastAccessedAt(ids, accessedAt) }
+        }
+        return hits
+    }
+
+    internal suspend fun invalidateKeywordMemoryCache(assistantId: String) {
+        keywordIndexMutex.withLock {
+            val iterator = keywordIndexCache.entries.iterator()
+            while (iterator.hasNext()) {
+                val (cacheKey, entry) = iterator.next()
+                if (cacheKey.startsWith("$assistantId:")) {
+                    keywordIndexCacheTermCount -= entry.index.estimatedTermCount
+                    iterator.remove()
+                }
+            }
+        }
+    }
+
+    private suspend fun getKeywordIndex(
+        cacheKey: String,
+        rows: List<MemoryRetrievalRow>,
+    ): KeywordMemoryIndex = keywordIndexMutex.withLock {
+        val cached = keywordIndexCache[cacheKey]
+        if (cached != null && cached.rows == rows) {
+            return@withLock cached.index
+        }
+
+        val index = withContext(Dispatchers.Default) {
+            KeywordMemoryIndex.build(rows, keywordTokenizer)
+        }
+        keywordIndexCache.remove(cacheKey)?.let { keywordIndexCacheTermCount -= it.index.estimatedTermCount }
+        // Do not retain an all-empty snapshot: its term budget is zero, but its rows could still
+        // grow with many assistants and otherwise bypass the LRU bound.
+        if (index.estimatedTermCount in 1..KEYWORD_INDEX_TERM_BUDGET) {
+            keywordIndexCache[cacheKey] = KeywordIndexCacheEntry(rows = rows, index = index)
+            keywordIndexCacheTermCount += index.estimatedTermCount
+            while (keywordIndexCacheTermCount > KEYWORD_INDEX_TERM_BUDGET && keywordIndexCache.isNotEmpty()) {
+                val iterator = keywordIndexCache.entries.iterator()
+                val eldest = iterator.next()
+                keywordIndexCacheTermCount -= eldest.value.index.estimatedTermCount
+                iterator.remove()
+            }
+        }
+        index
+    }
+
+    /**
      * Load an existing embedding without issuing a network request.
      */
     private suspend fun getExistingEmbedding(
@@ -400,11 +535,25 @@ class MemoryRepository(
     }
 
     suspend fun deleteMemoriesOfAssistant(assistantId: String) {
+        val memoryIds = memoryDAO.getMemoriesOfAssistant(assistantId).map { it.id }
+        val episodeIds = chatEpisodeDAO.getEpisodesOfAssistant(assistantId).map { it.id }
         memoryDAO.deleteMemoriesOfAssistant(assistantId)
         chatEpisodeDAO.deleteEpisodesOfAssistant(assistantId)
+        if (memoryIds.isNotEmpty()) {
+            memoryIds.chunked(500).forEach { ids -> embeddingCacheDAO.deleteByMemoryIds(MemoryType.CORE, ids) }
+        }
+        if (episodeIds.isNotEmpty()) {
+            episodeIds.chunked(500).forEach { ids -> embeddingCacheDAO.deleteByMemoryIds(MemoryType.EPISODIC, ids) }
+        }
+        invalidateKeywordMemoryCache(assistantId)
     }
 
-    suspend fun updateCoreMemory(id: Int, content: String, pinned: Boolean): AssistantMemory {
+    suspend fun updateCoreMemory(
+        id: Int,
+        content: String,
+        pinned: Boolean,
+        generateEmbedding: Boolean = true,
+    ): AssistantMemory {
         val memory = memoryDAO.getMemoryById(id) ?: error("Memory not found")
         val normalizedContent = content.trim()
         require(normalizedContent.isNotEmpty()) { "Memory content cannot be blank" }
@@ -413,17 +562,20 @@ class MemoryRepository(
             content = normalizedContent,
             pinned = pinned,
             embedding = if (contentChanged) null else memory.embedding,
+            embeddingModelId = if (contentChanged) null else memory.embeddingModelId,
         )
         memoryDAO.updateMemory(newMemory)
 
         if (contentChanged) {
             embeddingCacheDAO.deleteByMemoryId(id, MemoryType.CORE)
-            scheduleEmbeddingBackfillIfNeeded(
-                assistantId = memory.assistantId,
-                includeCore = true,
-                includeEpisodes = false,
-                force = true,
-            )
+            if (generateEmbedding) {
+                scheduleEmbeddingBackfillIfNeeded(
+                    assistantId = memory.assistantId,
+                    includeCore = true,
+                    includeEpisodes = false,
+                    force = true,
+                )
+            }
         }
 
         return AssistantMemory(
@@ -436,21 +588,31 @@ class MemoryRepository(
         )
     }
 
-    suspend fun updateContent(id: Int, content: String): AssistantMemory {
+    suspend fun updateContent(
+        id: Int,
+        content: String,
+        generateEmbedding: Boolean = true,
+    ): AssistantMemory {
         val memory = memoryDAO.getMemoryById(id) ?: error("Memory not found")
         val normalizedContent = content.trim()
         require(normalizedContent.isNotEmpty()) { "Memory content cannot be blank" }
-        val newMemory = memory.copy(content = normalizedContent, embedding = null) // Invalidate embedding
+        val newMemory = memory.copy(
+            content = normalizedContent,
+            embedding = null,
+            embeddingModelId = null,
+        ) // Invalidate embedding
         memoryDAO.updateMemory(newMemory)
 
         // Invalidate cache
         embeddingCacheDAO.deleteByMemoryId(id, MemoryType.CORE)
-        scheduleEmbeddingBackfillIfNeeded(
-            assistantId = memory.assistantId,
-            includeCore = true,
-            includeEpisodes = false,
-            force = true,
-        )
+        if (generateEmbedding) {
+            scheduleEmbeddingBackfillIfNeeded(
+                assistantId = memory.assistantId,
+                includeCore = true,
+                includeEpisodes = false,
+                force = true,
+            )
+        }
 
         return AssistantMemory(
             id = newMemory.id,
@@ -462,21 +624,31 @@ class MemoryRepository(
         )
     }
 
-    suspend fun updateEpisodeContent(id: Int, content: String): AssistantMemory {
+    suspend fun updateEpisodeContent(
+        id: Int,
+        content: String,
+        generateEmbedding: Boolean = true,
+    ): AssistantMemory {
         val episode = chatEpisodeDAO.getEpisodeById(id) ?: error("Episode not found")
         val normalizedContent = content.trim()
         require(normalizedContent.isNotEmpty()) { "Memory content cannot be blank" }
-        val newEpisode = episode.copy(content = normalizedContent, embedding = null) // Invalidate embedding
+        val newEpisode = episode.copy(
+            content = normalizedContent,
+            embedding = null,
+            embeddingModelId = null,
+        ) // Invalidate embedding
         chatEpisodeDAO.insertEpisode(newEpisode)
 
         // Invalidate cache
         embeddingCacheDAO.deleteByMemoryId(id, MemoryType.EPISODIC)
-        scheduleEmbeddingBackfillIfNeeded(
-            assistantId = episode.assistantId,
-            includeCore = false,
-            includeEpisodes = true,
-            force = true,
-        )
+        if (generateEmbedding) {
+            scheduleEmbeddingBackfillIfNeeded(
+                assistantId = episode.assistantId,
+                includeCore = false,
+                includeEpisodes = true,
+                force = true,
+            )
+        }
 
         return AssistantMemory(
             id = -newEpisode.id,
@@ -488,26 +660,36 @@ class MemoryRepository(
         )
     }
 
-    suspend fun addMemory(assistantId: String, content: String, pinned: Boolean = false): AssistantMemory {
+    suspend fun addMemory(
+        assistantId: String,
+        content: String,
+        pinned: Boolean = false,
+        generateEmbedding: Boolean = true,
+    ): AssistantMemory {
         val normalizedContent = content.trim()
         require(normalizedContent.isNotEmpty()) { "Memory content cannot be blank" }
 
-        val embeddingResult = try {
-            embeddingService.embedWithModelId(
-                text = normalizedContent,
-                assistantId = assistantId,
-                source = AIRequestSource.MEMORY_EMBEDDING,
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
+        val embeddingResult = if (generateEmbedding) {
+            try {
+                embeddingService.embedWithModelId(
+                    text = normalizedContent,
+                    assistantId = assistantId,
+                    source = AIRequestSource.MEMORY_EMBEDDING,
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
+            }
+        } else {
             null
         }
 
+        val embedding = embeddingResult?.embeddings?.firstOrNull()
         val entity = MemoryEntity(
             assistantId = assistantId,
             content = normalizedContent,
-            embedding = embeddingResult?.embeddings?.firstOrNull()?.let { JsonInstant.encodeToString(it) },
-            embeddingModelId = embeddingResult?.modelId,
+            embedding = embedding?.let { JsonInstant.encodeToString(it) },
+            embeddingModelId = embedding?.let { embeddingResult?.modelId },
             type = MemoryType.CORE,
             pinned = pinned,
             createdAt = System.currentTimeMillis(),
@@ -517,16 +699,16 @@ class MemoryRepository(
         val id = memoryDAO.insertMemory(entity)
         
         // Add to cache immediately if available
-        if (embeddingResult != null && embeddingResult.embeddings.isNotEmpty()) {
+        if (embedding != null && embeddingResult != null) {
              embeddingCacheDAO.insertEmbedding(
                 EmbeddingCacheEntity(
                     memoryId = id.toInt(),
                     memoryType = MemoryType.CORE,
                     modelId = embeddingResult.modelId,
-                    embedding = JsonInstant.encodeToString(embeddingResult.embeddings.first())
+                    embedding = JsonInstant.encodeToString(embedding)
                 )
              )
-        } else {
+        } else if (generateEmbedding) {
             scheduleEmbeddingBackfillIfNeeded(
                 assistantId = assistantId,
                 includeCore = true,
@@ -539,8 +721,8 @@ class MemoryRepository(
             id = id.toInt(),
             content = normalizedContent,
             type = MemoryType.CORE,
-            hasEmbedding = embeddingResult != null,
-            embeddingModelId = embeddingResult?.modelId,
+            hasEmbedding = embedding != null,
+            embeddingModelId = embedding?.let { embeddingResult?.modelId },
             pinned = pinned,
         )
     }

@@ -1479,6 +1479,13 @@
     <!-- RAG Memory & Consolidation -->
     <string name="assistant_page_rag_retrieval_title">RAG Memory Retrieval</string>
     <string name="assistant_page_rag_retrieval_desc">Smart context-based memory retrieval</string>
+    <string name="assistant_page_memory_retrieval_mode_title">Memory Retrieval</string>
+    <string name="assistant_page_memory_retrieval_mode_desc">No retrieval; all core memories enter the context</string>
+    <string name="assistant_page_memory_retrieval_mode_desc_vector">Retrieve relevant memories by semantic similarity; an embedding model is required</string>
+    <string name="assistant_page_memory_retrieval_mode_desc_keyword">Match relevant memories by keywords; no extra configuration is required</string>
+    <string name="assistant_page_memory_retrieval_mode_off">Off</string>
+    <string name="assistant_page_memory_retrieval_mode_vector">Vector</string>
+    <string name="assistant_page_memory_retrieval_mode_keyword">Keyword</string>
     <string name="assistant_page_rag_advanced_memory_title">Advanced Memory</string>
     <string name="assistant_page_rag_advanced_memory_desc">Form episodic memories from conversations</string>
     <string name="assistant_page_rag_reflection_title">Reflection</string>
@@ -1527,6 +1534,8 @@
     <string name="assistant_page_memory_mode_basic_recent_desc">Adds titles and timestamps of recent conversations</string>
     <string name="assistant_page_memory_mode_basic_rag_name">Basic + RAG</string>
     <string name="assistant_page_memory_mode_basic_rag_desc">Smart memory retrieval based on conversation context</string>
+    <string name="assistant_page_memory_mode_basic_keyword_name">Basic + Keywords</string>
+    <string name="assistant_page_memory_mode_basic_keyword_desc">Memory retrieval based on matching keywords</string>
     <string name="assistant_page_memory_mode_advanced_name">Advanced</string>
     <string name="assistant_page_memory_mode_advanced_desc">Forms episodic memories with automatic consolidation</string>
     <string name="assistant_page_memory_mode_advanced_reflection_name">Advanced + Reflection</string>
@@ -1551,6 +1560,7 @@
     <string name="assistant_page_debugger_test_button">Test</string>
     <string name="assistant_page_debugger_results_format">Results (%d):</string>
     <string name="assistant_page_debugger_score_format">Score: %s</string>
+    <string name="assistant_page_debugger_matched_terms">Matched: %s</string>
     <string name="assistant_page_consolidation_track_a">Consolidation (Track A)</string>
     <string name="assistant_page_consolidation_track_b">Reflection (Track B)</string>
     <string name="assistant_page_activity_recent">Recent Activity</string>

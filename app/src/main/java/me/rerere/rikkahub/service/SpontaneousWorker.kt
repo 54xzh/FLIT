@@ -19,7 +19,9 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.repository.ConversationRepository
-import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemoryRetrievalRequest
+import me.rerere.rikkahub.data.repository.MemoryRetrievalService
+import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import me.rerere.ai.core.MessageRole
 import me.rerere.rikkahub.utils.applyPlaceholders
 import org.koin.core.component.KoinComponent
@@ -33,7 +35,7 @@ class SpontaneousWorker(
 
     private val settingsStore: SettingsStore by inject()
     private val conversationRepository: ConversationRepository by inject()
-    private val memoryRepository: MemoryRepository by inject()
+    private val memoryRetrievalService: MemoryRetrievalService by inject()
     private val providerManager: me.rerere.ai.provider.ProviderManager by inject()
 
     override suspend fun doWork(): Result {
@@ -78,13 +80,23 @@ class SpontaneousWorker(
                 "\n\nYou last sent a notification: \"${assistant.lastNotificationContent}\". Don't repeat yourself or be redundant."
             } else ""
 
-            // RAG Retrieval
+            // Automatic memory retrieval
             val lastUserMessage = conversation.currentMessages.lastOrNull { it.role == MessageRole.USER }?.toText() ?: "User status"
-            val memories = memoryRepository.retrieveRelevantMemories(
-                assistantId = assistant.id.toString(),
-                query = lastUserMessage,
-                limit = 5
-            )
+            val memories = if (assistant.enableMemory) {
+                memoryRetrievalService.retrieve(
+                    MemoryRetrievalRequest(
+                        assistantId = assistant.id.toString(),
+                        mode = assistant.effectiveMemoryRetrievalMode(),
+                        query = lastUserMessage,
+                        limit = assistant.ragLimit.coerceIn(0, 50),
+                        similarityThreshold = assistant.ragSimilarityThreshold,
+                        includeCore = assistant.ragIncludeCore,
+                        includeEpisodes = assistant.ragIncludeEpisodes,
+                    )
+                ).hits.map { it.memory }
+            } else {
+                emptyList()
+            }
             val memoryContext = memories.joinToString("\n") { "- ${it.content}" }
             
             val customPrompt = assistant.backgroundPrompt

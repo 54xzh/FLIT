@@ -17,7 +17,9 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.repository.ConversationRepository
-import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemoryRetrievalRequest
+import me.rerere.rikkahub.data.repository.MemoryRetrievalService
+import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import kotlin.uuid.Uuid
@@ -29,7 +31,7 @@ class ScheduledMessageWorker(
 
     private val settingsStore: SettingsStore by inject()
     private val conversationRepository: ConversationRepository by inject()
-    private val memoryRepository: MemoryRepository by inject()
+    private val memoryRetrievalService: MemoryRetrievalService by inject()
     private val providerManager: me.rerere.ai.provider.ProviderManager by inject()
 
     override suspend fun doWork(): Result {
@@ -52,12 +54,18 @@ class ScheduledMessageWorker(
             
             // RAG Retrieval
             val lastUserMessage = conversation.currentMessages.lastOrNull { it.role == MessageRole.USER }?.toText() ?: ""
-            val memories = if (lastUserMessage.isNotBlank()) {
-                memoryRepository.retrieveRelevantMemories(
-                    assistantId = assistant.id.toString(),
-                    query = lastUserMessage,
-                    limit = 5
-                )
+            val memories = if (assistant.enableMemory) {
+                memoryRetrievalService.retrieve(
+                    MemoryRetrievalRequest(
+                        assistantId = assistant.id.toString(),
+                        mode = assistant.effectiveMemoryRetrievalMode(),
+                        query = lastUserMessage,
+                        limit = assistant.ragLimit.coerceIn(0, 50),
+                        similarityThreshold = assistant.ragSimilarityThreshold,
+                        includeCore = assistant.ragIncludeCore,
+                        includeEpisodes = assistant.ragIncludeEpisodes,
+                    )
+                ).hits.map { it.memory }
             } else {
                 emptyList()
             }

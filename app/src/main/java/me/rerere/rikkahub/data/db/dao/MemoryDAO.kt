@@ -25,8 +25,52 @@ data class AssistantMemoryStatsRow(
     val embeddedCount: Int,
 )
 
+/** Lightweight row used by lexical memory retrieval. It deliberately excludes embeddings. */
+data class MemoryRetrievalRow(
+    val id: Int,
+    val assistantId: String,
+    val content: String,
+    val type: Int,
+    val pinned: Boolean,
+    val timestamp: Long,
+    val significance: Int?,
+)
+
 @Dao
 interface MemoryDAO {
+    @Query(
+        """
+        SELECT
+            id AS id,
+            assistant_id AS assistantId,
+            content AS content,
+            type AS type,
+            pinned AS pinned,
+            created_at AS timestamp,
+            CAST(NULL AS INTEGER) AS significance
+        FROM memoryentity
+        WHERE assistant_id = :assistantId AND :includeCore = 1
+
+        UNION ALL
+
+        SELECT
+            -id AS id,
+            assistant_id AS assistantId,
+            content AS content,
+            1 AS type,
+            0 AS pinned,
+            CASE WHEN end_time > start_time THEN end_time ELSE start_time END AS timestamp,
+            significance AS significance
+        FROM chatepisodeentity
+        WHERE assistant_id = :assistantId AND :includeEpisodes = 1
+        """
+    )
+    suspend fun getMemoryRetrievalRows(
+        assistantId: String,
+        includeCore: Boolean,
+        includeEpisodes: Boolean,
+    ): List<MemoryRetrievalRow>
+
     @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId")
     fun getMemoriesOfAssistantFlow(assistantId: String): Flow<List<MemoryEntity>>
 

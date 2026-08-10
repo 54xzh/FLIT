@@ -148,6 +148,7 @@
     <string name="assistant_page_debugger_query_placeholder">输入测试查询...</string>
     <string name="assistant_page_debugger_results_format">结果 (%d):</string>
     <string name="assistant_page_debugger_score_format">得分: %s</string>
+    <string name="assistant_page_debugger_matched_terms">命中：%s</string>
     <string name="assistant_page_debugger_test_button">测试</string>
     <string name="assistant_page_debugger_type_format">类型：%1$s</string>
   <string name="assistant_page_default_assistant">默认助手</string>
@@ -235,6 +236,8 @@
     <string name="assistant_page_memory_mode_basic_name">基础</string>
     <string name="assistant_page_memory_mode_basic_rag_desc">基于对话上下文的智能记忆检索</string>
     <string name="assistant_page_memory_mode_basic_rag_name">基础 + RAG</string>
+    <string name="assistant_page_memory_mode_basic_keyword_name">基础 + 关键词</string>
+    <string name="assistant_page_memory_mode_basic_keyword_desc">根据关键词匹配记忆</string>
     <string name="assistant_page_memory_mode_basic_recent_desc">添加最近对话的标题和时间戳</string>
     <string name="assistant_page_memory_mode_basic_recent_name">基础 + 最近对话</string>
     <string name="assistant_page_memory_mode_format">记忆模式：%1$s</string>
@@ -286,6 +289,13 @@
     <string name="assistant_page_rag_reflection_title">反思</string>
     <string name="assistant_page_rag_retrieval_desc">基于对话上下文的智能记忆检索</string>
     <string name="assistant_page_rag_retrieval_title">RAG 记忆检索</string>
+    <string name="assistant_page_memory_retrieval_mode_title">记忆检索</string>
+    <string name="assistant_page_memory_retrieval_mode_desc">不进行检索，核心记忆全部进入上下文</string>
+    <string name="assistant_page_memory_retrieval_mode_desc_vector">根据语义相似度检索相关记忆，需要配置嵌入模型</string>
+    <string name="assistant_page_memory_retrieval_mode_desc_keyword">根据关键词匹配相关记忆，无需额外配置</string>
+    <string name="assistant_page_memory_retrieval_mode_off">关</string>
+    <string name="assistant_page_memory_retrieval_mode_vector">向量</string>
+    <string name="assistant_page_memory_retrieval_mode_keyword">关键词</string>
     <string name="assistant_page_rag_settings_title">RAG 设置</string>
     <string name="assistant_page_rag_similarity_all">0.0 (全部)</string>
     <string name="assistant_page_rag_similarity_exact">1.0 (精确)</string>

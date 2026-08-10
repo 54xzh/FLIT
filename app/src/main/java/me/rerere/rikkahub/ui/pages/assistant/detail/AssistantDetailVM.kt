@@ -23,10 +23,15 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.dao.ChatEpisodeDAO
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
+import me.rerere.rikkahub.data.model.MemoryRetrievalMode
+import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.Tag
 import me.rerere.rikkahub.data.repository.AssistantMemoryStats
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemoryRetrievalHit
+import me.rerere.rikkahub.data.repository.MemoryRetrievalRequest
+import me.rerere.rikkahub.data.repository.MemoryRetrievalService
 import me.rerere.rikkahub.utils.deleteChatFiles
 import kotlin.uuid.Uuid
 
@@ -38,6 +43,7 @@ class AssistantDetailVM(
     private val id: String,
     private val settingsStore: SettingsStore,
     private val memoryRepository: MemoryRepository,
+    private val memoryRetrievalService: MemoryRetrievalService,
     private val conversationRepository: me.rerere.rikkahub.data.repository.ConversationRepository,
     private val context: Application,
     private val chatEpisodeDAO: ChatEpisodeDAO,
@@ -215,6 +221,7 @@ class AssistantDetailVM(
     fun update(assistant: Assistant) {
         viewModelScope.launch {
             val currentSettings = settingsStore.settingsFlow.value
+            val previousAssistant = currentSettings.assistants.firstOrNull { it.id == assistant.id }
             settingsStore.update(
                 settings = currentSettings.copy(
                     assistants = currentSettings.assistants.map {
@@ -227,6 +234,17 @@ class AssistantDetailVM(
                         }
                     })
             )
+            if (
+                assistant.enableMemory &&
+                assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR &&
+                previousAssistant?.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.VECTOR
+            ) {
+                memoryRepository.scheduleEmbeddingBackfillIfNeeded(
+                    assistantId = assistant.id.toString(),
+                    includeCore = assistant.ragIncludeCore,
+                    includeEpisodes = assistant.ragIncludeEpisodes,
+                )
+            }
         }
     }
 
@@ -238,6 +256,7 @@ class AssistantDetailVM(
                 assistantId = assistantId.toString(),
                 content = normalizedContent,
                 pinned = memory.pinned,
+                generateEmbedding = assistant.value.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
             )
         }
     }
@@ -247,12 +266,17 @@ class AssistantDetailVM(
             val normalizedContent = memory.content.trim()
             if (normalizedContent.isEmpty()) return@launch
             if (memory.id < 0) {
-                memoryRepository.updateEpisodeContent(id = -memory.id, content = normalizedContent)
+                memoryRepository.updateEpisodeContent(
+                    id = -memory.id,
+                    content = normalizedContent,
+                    generateEmbedding = assistant.value.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
+                )
             } else {
                 memoryRepository.updateCoreMemory(
                     id = memory.id,
                     content = normalizedContent,
                     pinned = memory.pinned,
+                    generateEmbedding = assistant.value.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
                 )
             }
         }
@@ -356,38 +380,28 @@ class AssistantDetailVM(
         initialValue = false
     )
 
-    private val _retrievalResults = MutableStateFlow<List<Pair<AssistantMemory, Float>>>(emptyList())
+    private val _retrievalResults = MutableStateFlow<List<MemoryRetrievalHit>>(emptyList())
     val retrievalResults = _retrievalResults.asStateFlow()
 
     fun testRetrieval(query: String) {
         viewModelScope.launch {
             try {
                 val normalizedQuery = query.trim()
-                if (normalizedQuery.isEmpty()) {
-                    _retrievalResults.value = emptyList()
-                    return@launch
-                }
                 val currentAssistant = assistant.value
-                val threshold = if (currentAssistant.ragSimilarityThreshold > 0f) {
-                    currentAssistant.ragSimilarityThreshold
-                } else {
-                    0.0f // Show all for debugging
-                }
                 val limit = currentAssistant.ragLimit.coerceIn(0, 50)
-                if (limit <= 0) {
-                    _retrievalResults.value = emptyList()
-                    return@launch
-                }
                 
-                val results = memoryRepository.retrieveRelevantMemoriesWithScores(
-                    assistantId = assistantId.toString(),
-                    query = normalizedQuery,
-                    limit = limit,
-                    similarityThreshold = threshold,
-                    includeCore = currentAssistant.ragIncludeCore,
-                    includeEpisodes = currentAssistant.ragIncludeEpisodes
+                val results = memoryRetrievalService.retrieve(
+                    MemoryRetrievalRequest(
+                        assistantId = assistantId.toString(),
+                        mode = currentAssistant.effectiveMemoryRetrievalMode(),
+                        query = normalizedQuery,
+                        limit = limit,
+                        similarityThreshold = 0f,
+                        includeCore = currentAssistant.ragIncludeCore,
+                        includeEpisodes = currentAssistant.ragIncludeEpisodes,
+                    )
                 )
-                _retrievalResults.value = results
+                _retrievalResults.value = results.hits
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to test retrieval", e)
                 _snackbarMessage.value = "Retrieval failed: ${e.message}"
@@ -399,7 +413,18 @@ class AssistantDetailVM(
         _retrievalResults.value = emptyList()
     }
 
+    fun scheduleEmbeddingBackfillForRetrieval(mode: MemoryRetrievalMode = assistant.value.effectiveMemoryRetrievalMode()) {
+        val currentAssistant = assistant.value
+        if (!currentAssistant.enableMemory || mode != MemoryRetrievalMode.VECTOR) return
+        memoryRepository.scheduleEmbeddingBackfillIfNeeded(
+            assistantId = assistantId.toString(),
+            includeCore = currentAssistant.ragIncludeCore,
+            includeEpisodes = currentAssistant.ragIncludeEpisodes,
+        )
+    }
+
     fun regenerateEmbeddings() {
+        if (!assistant.value.enableMemory || assistant.value.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.VECTOR) return
         viewModelScope.launch {
             try {
                 _embeddingProgress.value = EmbeddingProgress(0, 1, true)

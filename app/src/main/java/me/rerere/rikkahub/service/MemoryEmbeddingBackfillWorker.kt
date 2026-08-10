@@ -13,9 +13,14 @@ import androidx.work.workDataOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.datastore.getAssistantById
+import me.rerere.rikkahub.data.model.MemoryRetrievalMode
+import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import kotlin.uuid.Uuid
 
 private const val TAG = "MemoryEmbeddingBackfill"
 private const val INPUT_ASSISTANT_ID = "assistant_id"
@@ -70,6 +75,7 @@ class MemoryEmbeddingBackfillWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(context, params), KoinComponent {
     private val memoryRepository: MemoryRepository by inject()
+    private val settingsStore: SettingsStore by inject()
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val assistantId = inputData.getString(INPUT_ASSISTANT_ID)
@@ -78,6 +84,17 @@ class MemoryEmbeddingBackfillWorker(
         val includeCore = inputData.getBoolean(INPUT_INCLUDE_CORE, false)
         val includeEpisodes = inputData.getBoolean(INPUT_INCLUDE_EPISODES, false)
         if (!includeCore && !includeEpisodes) return@withContext Result.failure()
+
+        val settings = settingsStore.settingsFlow.value
+        if (settings.init) return@withContext Result.retry()
+        val parsedAssistantId = runCatching { Uuid.parse(assistantId) }.getOrNull()
+            ?: return@withContext Result.success()
+        val assistant = settings.getAssistantById(parsedAssistantId)
+            ?: return@withContext Result.success()
+        if (!assistant.enableMemory || assistant.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.VECTOR) {
+            Log.i(TAG, "Skipping backfill because assistant retrieval mode is not vector")
+            return@withContext Result.success()
+        }
 
         runCatching {
             memoryRepository.embedMissingMemories(

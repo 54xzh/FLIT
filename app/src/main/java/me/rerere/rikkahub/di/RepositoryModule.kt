@@ -6,6 +6,7 @@ import me.rerere.rikkahub.data.repository.CachedOpenRouterModelCapabilityProvide
 import me.rerere.rikkahub.data.repository.GenMediaRepository
 import me.rerere.rikkahub.data.repository.LorebookEntryRevisionRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemoryRetrievalService
 import me.rerere.rikkahub.data.repository.ModelCapabilityRepository
 import me.rerere.rikkahub.data.repository.ModelQuotaRepository
 import me.rerere.rikkahub.data.repository.SafRepository
@@ -41,6 +42,10 @@ val repositoryModule = module {
 
     single {
         MemoryRepository(get(), get(), get(), get(), get(), get(), get())
+    }
+
+    single {
+        MemoryRetrievalService(get())
     }
 
     single {

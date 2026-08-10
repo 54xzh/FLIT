@@ -23,6 +23,7 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.db.dao.ChatEpisodeDAO
+import me.rerere.rikkahub.data.db.dao.EmbeddingCacheDAO
 import me.rerere.rikkahub.data.db.entity.ChatEpisodeEntity
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.repository.ConversationRepository
@@ -37,7 +38,9 @@ import me.rerere.rikkahub.data.db.entity.MemoryEntity
 import me.rerere.rikkahub.data.ai.AIRequestSource
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.GroupChatTemplate
+import me.rerere.rikkahub.data.model.MemoryRetrievalMode
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
+import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.rikkahub.utils.applyPlaceholders
@@ -50,6 +53,7 @@ class MemoryConsolidationWorker(
     private val conversationRepository: ConversationRepository by inject()
     private val memoryRepository: MemoryRepository by inject()
     private val chatEpisodeDAO: ChatEpisodeDAO by inject()
+    private val embeddingCacheDAO: EmbeddingCacheDAO by inject()
     private val settingsStore: SettingsStore by inject()
     private val embeddingService: EmbeddingService by inject()
     private val providerManager: me.rerere.ai.provider.ProviderManager by inject()
@@ -151,7 +155,9 @@ class MemoryConsolidationWorker(
         val now = System.currentTimeMillis()
         
         // Only process conversations if consolidation is enabled
-        if (assistant.enableMemoryConsolidation || forceConversationId != null) {
+        if (assistant.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.OFF &&
+            (assistant.enableMemoryConsolidation || forceConversationId != null)
+        ) {
             val conversationsToProcess = if (forceConversationId != null) {
                 // Manual consolidation: only process the specific conversation
                 val targetConversation = conversationRepository.getConversationById(kotlin.uuid.Uuid.parse(forceConversationId))
@@ -262,13 +268,17 @@ class MemoryConsolidationWorker(
                 summary = summary.trim()
                 if (summary.isEmpty()) continue
 
-                val summaryEmbeddingResult = runCatching {
-                    embeddingService.embedWithModelId(
-                        text = summary,
-                        assistantId = assistantId,
-                        source = AIRequestSource.MEMORY_EMBEDDING,
-                    )
-                }.getOrNull()
+                val summaryEmbeddingResult = if (isVectorMemoryEnabled(assistant.id)) {
+                    runCatching {
+                        embeddingService.embedWithModelId(
+                            text = summary,
+                            assistantId = assistantId,
+                            source = AIRequestSource.MEMORY_EMBEDDING,
+                        )
+                    }.getOrNull()
+                } else {
+                    null
+                }
                 val summaryEmbedding = summaryEmbeddingResult?.embeddings?.firstOrNull()
                 val embeddingModelId = summaryEmbeddingResult?.modelId
 
@@ -279,6 +289,7 @@ class MemoryConsolidationWorker(
                 )
 
                 if (existingEpisode != null) {
+                    embeddingCacheDAO.deleteByMemoryId(existingEpisode.id, MemoryType.EPISODIC)
                     chatEpisodeDAO.insertEpisode(
                         existingEpisode.copy(
                             content = summary,
@@ -365,6 +376,7 @@ class MemoryConsolidationWorker(
             
             // If older than retention period AND not accessed recently (7 days buffer)
             if (age > retentionMs && timeSinceAccess > (7L * 24 * 60 * 60 * 1000L)) {
+                embeddingCacheDAO.deleteByMemoryId(episode.id, MemoryType.EPISODIC)
                 chatEpisodeDAO.deleteEpisode(episode.id)
                 prunedCount++
             }
@@ -376,13 +388,15 @@ class MemoryConsolidationWorker(
         // =========================================================================================
         // AUTO-FIX: Embed any memories that are missing embeddings or have wrong model
         // =========================================================================================
-        try {
-            val (fixed, failed) = memoryRepository.embedMissingMemories(assistantId)
-            if (fixed > 0 || failed > 0) {
-                Log.i("MemoryConsolidation", "Auto-embedded $fixed memories ($failed failed)")
+        if (isVectorMemoryEnabled(assistant.id)) {
+            try {
+                val (fixed, failed) = memoryRepository.embedMissingMemories(assistantId)
+                if (fixed > 0 || failed > 0) {
+                    Log.i("MemoryConsolidation", "Auto-embedded $fixed memories ($failed failed)")
+                }
+            } catch (e: Exception) {
+                Log.e("MemoryConsolidation", "Error auto-embedding memories", e)
             }
-        } catch (e: Exception) {
-            Log.e("MemoryConsolidation", "Error auto-embedding memories", e)
         }
 
         if (!isFullScan && forceConversationId.isNullOrBlank()) {
@@ -399,6 +413,12 @@ class MemoryConsolidationWorker(
                 forcedConversationId = null,
             )
         }
+    }
+
+    private fun isVectorMemoryEnabled(assistantId: kotlin.uuid.Uuid): Boolean {
+        val currentAssistant = settingsStore.settingsFlow.value.getAssistantById(assistantId)
+        return currentAssistant?.enableMemory == true &&
+            currentAssistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR
     }
 
     private suspend fun consolidateGroupChatTemplate(
@@ -418,7 +438,12 @@ class MemoryConsolidationWorker(
             .map { seat -> seat.assistantId }
             .distinct()
             .mapNotNull { id -> settings.getAssistantById(id) }
-            .filter { assistant -> assistant.enableMemory && assistant.enableMemoryConsolidation }
+            .filter {
+                assistant ->
+                assistant.enableMemory &&
+                    assistant.enableMemoryConsolidation &&
+                    assistant.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.OFF
+            }
             .distinctBy { it.id }
             .toList()
 
@@ -558,13 +583,17 @@ class MemoryConsolidationWorker(
 
                 targetAssistants.forEach { targetAssistant ->
                     val targetAssistantId = targetAssistant.id.toString()
-                    val summaryEmbeddingResult = runCatching {
-                        embeddingService.embedWithModelId(
-                            text = summary,
-                            assistantId = targetAssistantId,
-                            source = AIRequestSource.MEMORY_EMBEDDING,
-                        )
-                    }.getOrNull()
+                    val summaryEmbeddingResult = if (isVectorMemoryEnabled(targetAssistant.id)) {
+                        runCatching {
+                            embeddingService.embedWithModelId(
+                                text = summary,
+                                assistantId = targetAssistantId,
+                                source = AIRequestSource.MEMORY_EMBEDDING,
+                            )
+                        }.getOrNull()
+                    } else {
+                        null
+                    }
                     val summaryEmbedding = summaryEmbeddingResult?.embeddings?.firstOrNull()
                     val embeddingModelId = summaryEmbeddingResult?.modelId
 
@@ -574,6 +603,7 @@ class MemoryConsolidationWorker(
                     )
 
                     if (existingEpisode != null) {
+                        embeddingCacheDAO.deleteByMemoryId(existingEpisode.id, MemoryType.EPISODIC)
                         chatEpisodeDAO.insertEpisode(
                             existingEpisode.copy(
                                 content = summary,

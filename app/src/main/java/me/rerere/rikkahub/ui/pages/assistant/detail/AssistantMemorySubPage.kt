@@ -50,7 +50,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -88,7 +87,10 @@ import me.rerere.ai.provider.Model
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
+import me.rerere.rikkahub.data.model.MemoryRetrievalMode
+import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import me.rerere.rikkahub.data.repository.AssistantMemoryStats
+import me.rerere.rikkahub.data.repository.MemoryRetrievalHit
 import me.rerere.rikkahub.ui.components.ui.Select
 import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.useEditState
@@ -106,8 +108,10 @@ import kotlin.math.roundToInt
 private fun getMemoryMode(assistant: Assistant): MemoryMode {
     return when {
         !assistant.enableMemory -> MemoryMode.OFF
+        assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.OFF -> MemoryMode.BASIC
         assistant.enableMemoryConsolidation -> MemoryMode.ADVANCED
-        assistant.useRagMemoryRetrieval -> MemoryMode.BASIC_RAG
+        assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR -> MemoryMode.BASIC_RAG
+        assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.KEYWORD -> MemoryMode.BASIC_KEYWORD
         else -> MemoryMode.BASIC
     }
 }
@@ -120,6 +124,7 @@ private enum class MemoryMode(
     BASIC(R.string.assistant_page_memory_mode_basic_name, R.string.assistant_page_memory_mode_basic_desc),
     BASIC_RECENT(R.string.assistant_page_memory_mode_basic_recent_name, R.string.assistant_page_memory_mode_basic_recent_desc),
     BASIC_RAG(R.string.assistant_page_memory_mode_basic_rag_name, R.string.assistant_page_memory_mode_basic_rag_desc),
+    BASIC_KEYWORD(R.string.assistant_page_memory_mode_basic_keyword_name, R.string.assistant_page_memory_mode_basic_keyword_desc),
     ADVANCED(R.string.assistant_page_memory_mode_advanced_name, R.string.assistant_page_memory_mode_advanced_desc),
 }
 
@@ -135,7 +140,7 @@ fun AssistantMemorySettings(
     onRegenerateEmbeddings: (() -> Unit)? = null,
     embeddingProgress: EmbeddingProgress? = null,
     onTestRetrieval: ((String) -> Unit)? = null,
-    retrievalResults: List<Pair<AssistantMemory, Float>> = emptyList(),
+    retrievalResults: List<MemoryRetrievalHit> = emptyList(),
     assistantDetailVM: AssistantDetailVM,
     estimatedMemoryCapacity: Int,
     needsEmbeddingRegeneration: Boolean = false,
@@ -332,37 +337,54 @@ fun AssistantMemorySettings(
                 )
             }
 
-            // RAG Toggle (when memory enabled)
+            // Retrieval mode (when memory enabled)
             AnimatedVisibility(
                 visible = assistant.enableMemory,
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically()
             ) {
+                val retrievalMode = assistant.effectiveMemoryRetrievalMode()
+                val modes = listOf(
+                    MemoryRetrievalMode.OFF to stringResource(R.string.assistant_page_memory_retrieval_mode_off),
+                    MemoryRetrievalMode.VECTOR to stringResource(R.string.assistant_page_memory_retrieval_mode_vector),
+                    MemoryRetrievalMode.KEYWORD to stringResource(R.string.assistant_page_memory_retrieval_mode_keyword),
+                )
+                val retrievalDescriptionRes = when (retrievalMode) {
+                    MemoryRetrievalMode.OFF -> R.string.assistant_page_memory_retrieval_mode_desc
+                    MemoryRetrievalMode.VECTOR -> R.string.assistant_page_memory_retrieval_mode_desc_vector
+                    MemoryRetrievalMode.KEYWORD -> R.string.assistant_page_memory_retrieval_mode_desc_keyword
+                }
                 MemorySettingsItem(
-                    title = stringResource(R.string.assistant_page_rag_retrieval_title),
-                    subtitle = stringResource(R.string.assistant_page_rag_retrieval_desc),
-                    position = if (!assistant.useRagMemoryRetrieval) "LAST" else "MIDDLE",
+                    title = stringResource(R.string.assistant_page_memory_retrieval_mode_title),
+                    subtitle = stringResource(retrievalDescriptionRes),
+                    position = if (assistant.enableMemoryConsolidation) "MIDDLE" else "LAST",
                     trailing = {
-                        HapticSwitch(
-                            checked = assistant.useRagMemoryRetrieval,
-                            onCheckedChange = { enabled ->
-                                if (!enabled) {
-                                    onUpdateAssistant(assistant.copy(
-                                        useRagMemoryRetrieval = false,
-                                        enableMemoryConsolidation = false
-                                    ))
-                                } else {
-                                    onUpdateAssistant(assistant.copy(useRagMemoryRetrieval = true))
-                                }
-                            }
+                        Select(
+                            options = modes,
+                            selectedOption = modes.first { it.first == retrievalMode },
+                            onOptionSelected = { (mode, _) ->
+                                onUpdateAssistant(
+                                    assistant.copy(
+                                        memoryRetrievalMode = mode,
+                                        useRagMemoryRetrieval = mode != MemoryRetrievalMode.OFF,
+                                        enableMemoryConsolidation = if (mode == MemoryRetrievalMode.OFF) {
+                                            false
+                                        } else {
+                                            assistant.enableMemoryConsolidation
+                                        },
+                                    )
+                                )
+                            },
+                            optionToString = { it.second },
+                            modifier = Modifier.width(128.dp),
                         )
-                    }
+                    },
                 )
             }
 
-            // Memory Consolidation Toggle (requires RAG)
+            // Memory Consolidation Toggle (requires dynamic retrieval)
             AnimatedVisibility(
-                visible = assistant.enableMemory && assistant.useRagMemoryRetrieval,
+                visible = assistant.enableMemory && assistant.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.OFF,
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically()
             ) {
@@ -395,13 +417,17 @@ fun AssistantMemorySettings(
         // RAG SETTINGS (when RAG is enabled)
         // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
         AnimatedVisibility(
-            visible = assistant.enableMemory && assistant.useRagMemoryRetrieval,
+            visible = assistant.enableMemory && assistant.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.OFF,
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically()
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 SettingsGroupHeader(title = stringResource(R.string.assistant_page_rag_settings_title))
-                RagSettingsCard(assistant = assistant, onUpdateAssistant = onUpdateAssistant)
+                RagSettingsCard(
+                    assistant = assistant,
+                    mode = assistant.effectiveMemoryRetrievalMode(),
+                    onUpdateAssistant = onUpdateAssistant,
+                )
             }
         }
 
@@ -477,7 +503,7 @@ fun AssistantMemorySettings(
         // MEMORY DEBUGGER (RAG only)
         // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
         AnimatedVisibility(
-            visible = assistant.enableMemory && assistant.useRagMemoryRetrieval && onTestRetrieval != null,
+            visible = assistant.enableMemory && assistant.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.OFF && onTestRetrieval != null,
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically()
         ) {
@@ -663,48 +689,51 @@ private enum class MemorySortOrder(@androidx.annotation.StringRes val displayNam
 @Composable
 private fun RagSettingsCard(
     assistant: Assistant,
-    onUpdateAssistant: (Assistant) -> Unit
+    mode: MemoryRetrievalMode,
+    onUpdateAssistant: (Assistant) -> Unit,
 ) {
     Column(
         modifier = Modifier.clip(RoundedCornerShape(24.dp)),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         // Similarity Threshold
-        Surface(
-            color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                var threshold by remember(assistant.ragSimilarityThreshold) {
-                    mutableFloatStateOf(assistant.ragSimilarityThreshold)
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(stringResource(R.string.assistant_page_rag_similarity_threshold), style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        text = String.format("%.2f", threshold),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
+        if (mode == MemoryRetrievalMode.VECTOR) {
+            Surface(
+                color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    var threshold by remember(assistant.ragSimilarityThreshold) {
+                        mutableFloatStateOf(assistant.ragSimilarityThreshold)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(stringResource(R.string.assistant_page_rag_similarity_threshold), style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = String.format("%.2f", threshold),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Slider(
+                        value = threshold,
+                        onValueChange = { newValue ->
+                            threshold = newValue
+                            onUpdateAssistant(assistant.copy(ragSimilarityThreshold = newValue))
+                        },
+                        valueRange = 0f..1f,
+                        steps = 19,
+                        modifier = Modifier.padding(top = 8.dp)
                     )
-                }
-                Slider(
-                    value = threshold,
-                    onValueChange = { newValue ->
-                        threshold = newValue
-                        onUpdateAssistant(assistant.copy(ragSimilarityThreshold = newValue))
-                    },
-                    valueRange = 0f..1f,
-                    steps = 19,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(stringResource(R.string.assistant_page_rag_similarity_all), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(stringResource(R.string.assistant_page_rag_similarity_exact), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(stringResource(R.string.assistant_page_rag_similarity_all), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.assistant_page_rag_similarity_exact), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         }
@@ -712,7 +741,11 @@ private fun RagSettingsCard(
         // Top-K
         Surface(
             color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+            shape = if (mode == MemoryRetrievalMode.VECTOR) {
+                RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+            } else {
+                RoundedCornerShape(24.dp)
+            }
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 var topK by remember(assistant.ragLimit) {
@@ -747,6 +780,7 @@ private fun RagSettingsCard(
                     steps = 49,
                     modifier = Modifier.padding(top = 8.dp)
                 )
+
             }
         }
     }
@@ -905,7 +939,7 @@ private fun MemoryStatisticsCard(
                 }
                 
                 // Show embeddings when RAG is enabled
-                AnimatedVisibility(visible = assistant.useRagMemoryRetrieval) {
+                AnimatedVisibility(visible = assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR) {
                     StatItem(
                         value = withEmbeddings.toString(),
                         label = stringResource(R.string.assistant_page_memory_stats_embedded),
@@ -917,7 +951,7 @@ private fun MemoryStatisticsCard(
                 }
             }
 
-            AnimatedVisibility(visible = assistant.useRagMemoryRetrieval) {
+            AnimatedVisibility(visible = assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR) {
                 Text(
                     text = stringResource(R.string.assistant_page_memory_estimated_capacity, estimatedMemoryCapacity),
                     style = MaterialTheme.typography.labelSmall,
@@ -1014,7 +1048,7 @@ private fun ManageMemoriesSection(
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (onRegenerateEmbeddings != null && assistant.useRagMemoryRetrieval && needsEmbeddingRegeneration) {
+                if (onRegenerateEmbeddings != null && assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR && needsEmbeddingRegeneration) {
                     IconButton(onClick = onRegenerateEmbeddings) {
                         Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.assistant_page_regenerate_embeddings_content_desc))
                     }
@@ -1057,7 +1091,7 @@ private fun ManageMemoriesSection(
                         memory = memory,
                         onEditMemory = onEditMemory,
                         onDeleteMemory = onDeleteMemory,
-                        useRagMemoryRetrieval = assistant.useRagMemoryRetrieval,
+                        useRagMemoryRetrieval = assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
                         currentEmbeddingModelId = currentEmbeddingModelId,
                         showType = showMemoryTypes,
                         position = position
@@ -1252,7 +1286,7 @@ private fun ManageMemoriesSection(
                                     memory = memory,
                                     onEditMemory = onEditMemory,
                                     onDeleteMemory = onDeleteMemory,
-                                    useRagMemoryRetrieval = assistant.useRagMemoryRetrieval,
+                                    useRagMemoryRetrieval = assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
                                     currentEmbeddingModelId = currentEmbeddingModelId,
                                     showType = showMemoryTypes,
                                     position = position
@@ -1457,7 +1491,7 @@ private fun MemoryItem(
 @Composable
 private fun MemoryDebugger(
     onTestRetrieval: (String) -> Unit,
-    retrievalResults: List<Pair<AssistantMemory, Float>>
+    retrievalResults: List<MemoryRetrievalHit>
 ) {
     val (query, setQuery) = remember { mutableStateOf("") }
 
@@ -1510,7 +1544,8 @@ private fun MemoryDebugger(
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    retrievalResults.forEachIndexed { index, (memory, score) ->
+                    retrievalResults.forEachIndexed { index, hit ->
+                        val memory = hit.memory
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceContainerHighest,
                             shape = RoundedCornerShape(10.dp)
@@ -1522,9 +1557,9 @@ private fun MemoryDebugger(
                                 ) {
                                     Text("#${index + 1}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                     Text(
-                                        stringResource(R.string.assistant_page_debugger_score_format, String.format("%.4f", score)),
+                                        stringResource(R.string.assistant_page_debugger_score_format, String.format("%.4f", hit.score)),
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = if (score >= 0.5f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = if (hit.score >= 0.5f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                                 Text(
@@ -1534,6 +1569,16 @@ private fun MemoryDebugger(
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.padding(vertical = 4.dp)
                                 )
+                                if (hit.matchedTerms.isNotEmpty()) {
+                                    Text(
+                                        text = stringResource(
+                                            R.string.assistant_page_debugger_matched_terms,
+                                            hit.matchedTerms.joinToString(", "),
+                                        ),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
                             }
                         }
                     }
