@@ -45,6 +45,43 @@ data class AssistantMemoryStats(
     val totalCount: Int = 0,
 )
 
+internal fun mergeKeywordMemoryHits(
+    rows: List<MemoryRetrievalRow>,
+    matchedHits: List<KeywordSearchHit>,
+    limit: Int,
+    normalize: (String) -> String,
+): List<KeywordSearchHit> {
+    val pinnedHits = rows.asSequence()
+        .filter { it.pinned }
+        .map { row ->
+            KeywordSearchHit(
+                row = row,
+                score = 1f,
+                matchedTerms = emptyList(),
+            )
+        }
+        .toList()
+    val deduplicated = LinkedHashMap<String, KeywordSearchHit>()
+    (pinnedHits + matchedHits)
+        .sortedWith(
+            compareByDescending<KeywordSearchHit> { it.row.pinned }
+                .thenByDescending { it.score }
+                .thenByDescending { it.row.significance ?: 0 }
+                .thenByDescending { it.row.timestamp }
+                .thenBy { it.row.id },
+        )
+        .forEach { hit ->
+            val normalizedContent = normalize(hit.row.content).trim()
+            val key = if (normalizedContent.isBlank()) "id:${hit.row.id}" else normalizedContent
+            deduplicated.putIfAbsent(key, hit)
+        }
+    val pinned = deduplicated.values.filter { it.row.pinned }
+    val dynamic = deduplicated.values
+        .filterNot { it.row.pinned }
+        .take(limit.coerceAtLeast(0))
+    return pinned + dynamic
+}
+
 // 打分按块进行：每块先批量预取嵌入缓存再计算相似度，块间释放，检索峰值内存有上限
 private const val EMBEDDING_SCORING_CHUNK_SIZE = 256
 private const val EMBEDDING_BACKFILL_BATCH_SIZE = 32
@@ -57,7 +94,7 @@ private data class EmbeddingBackfillTarget(
     val originalModelId: String?,
 )
 
-class MemoryRepository(
+class MemoryRepository internal constructor(
     private val memoryDAO: MemoryDAO,
     private val chatEpisodeDAO: ChatEpisodeDAO,
     private val embeddingService: EmbeddingService,
@@ -65,10 +102,29 @@ class MemoryRepository(
     private val embeddingBackfillScheduler: MemoryEmbeddingBackfillScheduler,
     private val database: AppDatabase,
     private val appScope: AppScope,
+    private val keywordTokenizer: MemoryKeywordTokenizer,
 ) {
+    constructor(
+        memoryDAO: MemoryDAO,
+        chatEpisodeDAO: ChatEpisodeDAO,
+        embeddingService: EmbeddingService,
+        embeddingCacheDAO: EmbeddingCacheDAO,
+        embeddingBackfillScheduler: MemoryEmbeddingBackfillScheduler,
+        database: AppDatabase,
+        appScope: AppScope,
+    ) : this(
+        memoryDAO = memoryDAO,
+        chatEpisodeDAO = chatEpisodeDAO,
+        embeddingService = embeddingService,
+        embeddingCacheDAO = embeddingCacheDAO,
+        embeddingBackfillScheduler = embeddingBackfillScheduler,
+        database = database,
+        appScope = appScope,
+        keywordTokenizer = KeywordMemoryTokenizer(),
+    )
+
     private val embeddingBackfillMutex = Mutex()
     private val keywordIndexMutex = Mutex()
-    private val keywordTokenizer = KeywordMemoryTokenizer()
     private val keywordIndexCache = LinkedHashMap<String, KeywordIndexCacheEntry>(16, 0.75f, true)
     private var keywordIndexCacheTermCount = 0
     private val pendingBackfillChecks = ConcurrentHashMap.newKeySet<String>()
@@ -362,11 +418,12 @@ class MemoryRepository(
         val matchedHits = if (query.isBlank() || limit <= 0) {
             emptyList()
         } else {
-            val index = getKeywordIndex(
+            keywordTokenizer.prepare()
+            var index = getKeywordIndex(
                 cacheKey = "$assistantId:$includeCore:$includeEpisodes",
                 rows = rows,
             )
-            withContext(Dispatchers.Default) {
+            var hits = withContext(Dispatchers.Default) {
                 index.search(
                     query = query,
                     tokenizer = keywordTokenizer,
@@ -374,36 +431,28 @@ class MemoryRepository(
                     limit = limit.coerceAtLeast(0),
                 )
             }
-        }
-        val pinnedHits = rows.asSequence()
-            .filter { it.pinned }
-            .map { row ->
-                KeywordSearchHit(
-                    row = row,
-                    score = 1f,
-                    matchedTerms = emptyList(),
+            if (index.tokenizerRevision != keywordTokenizer.revision) {
+                index = getKeywordIndex(
+                    cacheKey = "$assistantId:$includeCore:$includeEpisodes",
+                    rows = rows,
                 )
+                hits = withContext(Dispatchers.Default) {
+                    index.search(
+                        query = query,
+                        tokenizer = keywordTokenizer,
+                        nowMillis = nowMillis,
+                        limit = limit.coerceAtLeast(0),
+                    )
+                }
             }
-            .toList()
-        val deduplicated = LinkedHashMap<String, KeywordSearchHit>()
-        (pinnedHits + matchedHits)
-            .sortedWith(
-                compareByDescending<KeywordSearchHit> { it.row.pinned }
-                    .thenByDescending { it.score }
-                    .thenByDescending { it.row.significance ?: 0 }
-                    .thenByDescending { it.row.timestamp }
-                    .thenBy { it.row.id },
-            )
-            .forEach { hit ->
-                val normalizedContent = keywordTokenizer.normalize(hit.row.content).trim()
-                val key = if (normalizedContent.isBlank()) "id:${hit.row.id}" else normalizedContent
-                deduplicated.putIfAbsent(key, hit)
-            }
-        val pinned = deduplicated.values.filter { it.row.pinned }
-        val dynamic = deduplicated.values
-            .filterNot { it.row.pinned }
-            .take(limit.coerceAtLeast(0))
-        val hits = pinned + dynamic
+            hits
+        }
+        val hits = mergeKeywordMemoryHits(
+            rows = rows,
+            matchedHits = matchedHits,
+            limit = limit,
+            normalize = keywordTokenizer::normalize,
+        )
 
         val accessedAt = System.currentTimeMillis()
         withContext(Dispatchers.IO) {
@@ -437,7 +486,11 @@ class MemoryRepository(
         rows: List<MemoryRetrievalRow>,
     ): KeywordMemoryIndex = keywordIndexMutex.withLock {
         val cached = keywordIndexCache[cacheKey]
-        if (cached != null && cached.rows == rows) {
+        if (
+            cached != null &&
+            cached.rows == rows &&
+            cached.index.tokenizerRevision == keywordTokenizer.revision
+        ) {
             return@withLock cached.index
         }
 

@@ -413,6 +413,9 @@ dependencies {
     // Apache Commons Text
     implementation(libs.commons.text)
 
+    // Local Chinese word segmentation for keyword memory retrieval
+    implementation(libs.jieba.analysis)
+
     // Toast (Sonner)
     implementation(libs.sonner)
 

@@ -1,12 +1,18 @@
 package me.rerere.rikkahub.data.repository
 
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import me.rerere.rikkahub.data.db.dao.MemoryRetrievalRow
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.MemoryRetrievalMode
 import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicInteger
 
 class KeywordMemoryRetrieverTest {
     @Test
@@ -69,6 +75,27 @@ class KeywordMemoryRetrieverTest {
     }
 
     @Test
+    fun `explicit query word wins over an earlier auxiliary bigram`() {
+        val rows = listOf(row(1, "system"))
+        val tokenizer = FakeTokenizer(
+            mapOf(
+                "system" to listOf(word("系统")),
+                "compound system" to listOf(
+                    word("操作系统"),
+                    KeywordToken("系统", 0.35f, KeywordTokenKind.BIGRAM),
+                    word("系统"),
+                ),
+            ),
+        )
+        val index = KeywordMemoryIndex.build(rows, tokenizer)
+
+        val results = index.search("compound system", tokenizer, nowMillis = 0L, limit = 2)
+
+        assertEquals(listOf(1), results.map { it.row.id })
+        assertEquals(listOf("系统"), results.first().matchedTerms)
+    }
+
+    @Test
     fun `ordered phrase receives a relevance boost`() {
         val rows = listOf(
             row(1, "red blue"),
@@ -109,17 +136,198 @@ class KeywordMemoryRetrieverTest {
         assertTrue(results[0].score >= results[1].score)
     }
 
-    private fun row(id: Int, content: String) = MemoryRetrievalRow(
+    @Test
+    fun `real tokenizer keeps android and removes degree word`() = runBlocking {
+        val tokenizer = realTokenizer()
+        tokenizer.prepare()
+
+        val tokens = tokenizer.tokenizeWithKinds("但是 安卓手机很卡")
+
+        assertEquals(listOf("安卓", "手机", "卡"), tokens.primaryValues())
+        assertFalse(tokens.any { it.kind == KeywordTokenKind.BIGRAM && it.value == "安卓" })
+    }
+
+    @Test
+    fun `real tokenizer removes standalone multi-character degree word`() = runBlocking {
+        val tokenizer = realTokenizer()
+        tokenizer.prepare()
+
+        val tokens = tokenizer.tokenizeWithKinds("鸿蒙手机非常流畅")
+
+        assertEquals(listOf("鸿蒙", "手机", "流畅"), tokens.primaryValues())
+    }
+
+    @Test
+    fun `real tokenizer preserves complete technical identifiers`() = runBlocking {
+        val tokenizer = realTokenizer()
+        tokenizer.prepare()
+
+        val tokens = tokenizer.tokenizeWithKinds("GPT-4o. 和 C++.")
+        val primaryValues = tokens.primaryValues()
+
+        assertEquals(listOf("gpt-4o", "c++"), primaryValues)
+        assertFalse(primaryValues.any { it in setOf("gpt", "4o", "c") })
+    }
+
+    @Test
+    fun `sentence period does not turn ordinary english word into technical token`() = runBlocking {
+        val tokenizer = realTokenizer()
+        tokenizer.prepare()
+        val index = KeywordMemoryIndex.build(
+            rows = listOf(row(1, "phone.")),
+            tokenizer = tokenizer,
+        )
+
+        val results = index.search("phone", tokenizer, nowMillis = 0L, limit = 2)
+
+        assertEquals(listOf(1), results.map { it.row.id })
+        assertEquals(listOf("phone"), results.first().matchedTerms)
+    }
+
+    @Test
+    fun `degree word correction does not strip ordinary words`() = runBlocking {
+        val tokenizer = realTokenizer()
+        tokenizer.prepare()
+
+        val tokens = tokenizer.tokenizeWithKinds("太原 更换 最后")
+
+        assertEquals(listOf("太原", "更换", "最后"), tokens.primaryValues())
+    }
+
+    @Test
+    fun `stop-word-only query produces no dynamic matches`() = runBlocking {
+        val tokenizer = realTokenizer()
+        tokenizer.prepare()
+        val index = KeywordMemoryIndex.build(
+            rows = listOf(row(1, "很"), row(2, "安卓手机")),
+            tokenizer = tokenizer,
+        )
+
+        val results = index.search("很 非常", tokenizer, nowMillis = 0L, limit = 2)
+
+        assertTrue(results.isEmpty())
+    }
+
+    @Test
+    fun `specific android problem ranks above generic phone memory`() = runBlocking {
+        val tokenizer = realTokenizer()
+        tokenizer.prepare()
+        val index = KeywordMemoryIndex.build(
+            rows = listOf(
+                row(1, "安卓手机卡顿严重"),
+                row(2, "手机外观漂亮"),
+            ),
+            tokenizer = tokenizer,
+        )
+
+        val results = index.search("安卓手机很卡", tokenizer, nowMillis = 0L, limit = 2)
+
+        assertEquals(1, results.first().row.id)
+        assertEquals(listOf("安卓", "手机"), results.first().matchedTerms)
+    }
+
+    @Test
+    fun `real tokenizer initializes jieba only once under concurrency`() = runBlocking {
+        val factoryCalls = AtomicInteger(0)
+        val tokenizer = KeywordMemoryTokenizer(
+            textNormalizer = KeywordTextNormalizer { it.lowercase() },
+            wordBreaker = KeywordWordBreaker { listOf(it) },
+            segmenterFactory = {
+                factoryCalls.incrementAndGet()
+                com.huaban.analysis.jieba.JiebaSegmenter()
+            },
+        )
+
+        coroutineScope {
+            List(8) { async { tokenizer.prepare() } }.awaitAll()
+        }
+
+        assertEquals(1, factoryCalls.get())
+    }
+
+    @Test
+    fun `real tokenizer falls back without crashing when jieba initialization fails`() = runBlocking {
+        val tokenizer = KeywordMemoryTokenizer(
+            textNormalizer = KeywordTextNormalizer { it.lowercase() },
+            wordBreaker = KeywordWordBreaker { value -> value.split(' ') },
+            stopWordsLoader = { setOf("很") },
+            segmenterFactory = { error("test initialization failure") },
+        )
+
+        tokenizer.prepare()
+        val tokens = tokenizer.tokenizeWithKinds("很 手机")
+
+        assertEquals(listOf("手机"), tokens.primaryValues())
+    }
+
+    @Test
+    fun `index rebuilds entirely when jieba fails during tokenization`() = runBlocking {
+        val segmentCalls = AtomicInteger(0)
+        val tokenizer = KeywordMemoryTokenizer(
+            textNormalizer = KeywordTextNormalizer { it.lowercase() },
+            wordBreaker = KeywordWordBreaker { value -> value.split(' ') },
+            stopWordsLoader = { emptySet() },
+            segmentWords = { _, value ->
+                if (segmentCalls.incrementAndGet() == 2) error("test runtime failure")
+                value.split(' ')
+            },
+        )
+        tokenizer.prepare()
+
+        val index = KeywordMemoryIndex.build(
+            rows = listOf(row(1, "alpha"), row(2, "beta")),
+            tokenizer = tokenizer,
+        )
+        val results = index.search("alpha", tokenizer, nowMillis = 0L, limit = 2)
+
+        assertEquals(tokenizer.revision, index.tokenizerRevision)
+        assertEquals(listOf(1), results.map { it.row.id })
+    }
+
+    @Test
+    fun `stop-word-only query still preserves pinned memories at repository merge`() = runBlocking {
+        val tokenizer = realTokenizer()
+        tokenizer.prepare()
+        val pinned = row(1, "置顶记忆", pinned = true)
+
+        val results = mergeKeywordMemoryHits(
+            rows = listOf(pinned, row(2, "普通记忆")),
+            matchedHits = emptyList(),
+            limit = 2,
+            normalize = tokenizer::normalize,
+        )
+
+        assertEquals(listOf(1), results.map { it.row.id })
+    }
+
+    private fun row(
+        id: Int,
+        content: String,
+        pinned: Boolean = false,
+    ) = MemoryRetrievalRow(
         id = id,
         assistantId = "assistant",
         content = content,
         type = 0,
-        pinned = false,
+        pinned = pinned,
         timestamp = 0L,
         significance = null,
     )
 
     private fun word(value: String) = KeywordToken(value, 1f, KeywordTokenKind.WORD)
+
+    private fun realTokenizer() = KeywordMemoryTokenizer(
+        textNormalizer = KeywordTextNormalizer { it.lowercase() },
+        wordBreaker = KeywordWordBreaker { value ->
+            when (value) {
+                "很卡" -> listOf("很", "卡")
+                else -> listOf(value)
+            }
+        },
+    )
+
+    private fun List<KeywordToken>.primaryValues(): List<String> =
+        filter { it.kind != KeywordTokenKind.BIGRAM }.map { it.value }
 
     private class FakeTokenizer(
         private val termsByText: Map<String, List<KeywordToken>>,

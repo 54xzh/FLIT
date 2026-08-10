@@ -1,9 +1,5 @@
 package me.rerere.rikkahub.data.repository
 
-import android.icu.text.BreakIterator
-import android.icu.text.Normalizer2
-import android.icu.text.Transliterator
-import android.icu.util.ULocale
 import me.rerere.rikkahub.data.db.dao.MemoryRetrievalRow
 import kotlin.math.ln
 
@@ -35,6 +31,8 @@ internal data class KeywordSearchHit(
 )
 
 internal interface MemoryKeywordTokenizer {
+    val revision: Int get() = 0
+    suspend fun prepare() = Unit
     fun normalize(value: String): String
     fun tokenizeWithKinds(value: String): List<KeywordToken>
 }
@@ -48,6 +46,7 @@ internal class KeywordMemoryIndex private constructor(
     private val documentFrequency: Map<String, Int>,
     private val averageDocumentLength: Float,
     val estimatedTermCount: Int,
+    val tokenizerRevision: Int,
 ) {
     companion object {
         private const val BM25_K1 = 1.2f
@@ -64,6 +63,20 @@ internal class KeywordMemoryIndex private constructor(
         fun build(
             rows: List<MemoryRetrievalRow>,
             tokenizer: MemoryKeywordTokenizer,
+        ): KeywordMemoryIndex {
+            var revision: Int
+            var index: KeywordMemoryIndex
+            do {
+                revision = tokenizer.revision
+                index = buildOnce(rows, tokenizer, revision)
+            } while (revision != tokenizer.revision)
+            return index
+        }
+
+        private fun buildOnce(
+            rows: List<MemoryRetrievalRow>,
+            tokenizer: MemoryKeywordTokenizer,
+            tokenizerRevision: Int,
         ): KeywordMemoryIndex {
             val documents = rows.map { row ->
                 val tokens = tokenizer.tokenizeWithKinds(row.content)
@@ -110,6 +123,7 @@ internal class KeywordMemoryIndex private constructor(
                 documentFrequency = documentFrequency,
                 averageDocumentLength = averageDocumentLength,
                 estimatedTermCount = estimatedTermCount,
+                tokenizerRevision = tokenizerRevision,
             )
         }
     }
@@ -121,7 +135,13 @@ internal class KeywordMemoryIndex private constructor(
         limit: Int,
     ): List<KeywordSearchHit> {
         val rawQueryTokens = tokenizer.tokenizeWithKinds(query)
-            .distinctBy { it.value }
+            .groupBy { it.value }
+            .map { (_, tokens) ->
+                tokens.maxWith(
+                    compareBy<KeywordToken> { it.kind.queryPriority }
+                        .thenBy { it.weight },
+                )
+            }
         val primaryQueryTokens = rawQueryTokens.filter { it.kind != KeywordTokenKind.BIGRAM }
         val bigramQueryTokens = rawQueryTokens.filter { it.kind == KeywordTokenKind.BIGRAM }
         val selectedQueryValues = primaryQueryTokens
@@ -239,77 +259,9 @@ internal class KeywordMemoryIndex private constructor(
     }
 }
 
-internal class KeywordMemoryTokenizer : MemoryKeywordTokenizer {
-    private val technicalTokenRegex = Regex("[\\p{L}\\p{N}][\\p{L}\\p{N}._:/@+#-]*[\\p{N}._:/@+#-]+[\\p{L}\\p{N}._:/@+#-]*")
-    private val normalizer = Normalizer2.getNFKCCasefoldInstance()
-    private val traditionalToSimplified = runCatching {
-        Transliterator.getInstance("Traditional-Simplified")
-    }.getOrNull()
-
-    private val stopWords = setOf(
-        "的", "了", "吗", "呢", "啊", "哦", "我", "你", "他", "她", "它", "我们", "你们", "他们",
-        "这", "那", "是", "在", "和", "与", "及", "请", "问", "什么", "记得",
-        "a", "an", "the", "is", "are", "was", "were", "be", "to", "of", "and", "or", "in", "on", "at", "for",
-        "i", "you", "he", "she", "it", "we", "they", "do", "did", "does", "what", "which", "who", "please",
-    )
-
-    override fun normalize(value: String): String {
-        return runCatching {
-            val folded = normalizer.normalize(value)
-            traditionalToSimplified?.let { transliterator ->
-                synchronized(transliterator) { transliterator.transliterate(folded) }
-            } ?: folded
-        }.getOrElse { value }
+private val KeywordTokenKind.queryPriority: Int
+    get() = when (this) {
+        KeywordTokenKind.BIGRAM -> 0
+        KeywordTokenKind.WORD -> 1
+        KeywordTokenKind.TECHNICAL -> 2
     }
-
-    override fun tokenizeWithKinds(value: String): List<KeywordToken> {
-        val normalized = normalize(value)
-        if (normalized.isBlank()) return emptyList()
-
-        val tokens = mutableListOf<KeywordToken>()
-        val iterator = BreakIterator.getWordInstance(ULocale.ROOT)
-        iterator.setText(normalized)
-        var start = iterator.first()
-        var end = iterator.next()
-        while (end != BreakIterator.DONE) {
-            val candidate = normalized.substring(start, end).trim()
-            if (candidate.isNotBlank() && candidate.any { it.isLetterOrDigit() } && candidate !in stopWords) {
-                if (candidate.containsTechnicalCharacter()) {
-                    tokens += KeywordToken(candidate, 1.3f, KeywordTokenKind.TECHNICAL)
-                } else {
-                    tokens += KeywordToken(candidate, 1f, KeywordTokenKind.WORD)
-                }
-                if (candidate.all { it.isHanCharacter() }) {
-                    val chars = candidate.toCharArray()
-                    for (index in 0 until chars.lastIndex) {
-                        val bigram = String(chars, index, 2)
-                        if (bigram !in stopWords) {
-                            tokens += KeywordToken(bigram, 0.35f, KeywordTokenKind.BIGRAM)
-                        }
-                    }
-                }
-            }
-            start = end
-            end = iterator.next()
-        }
-
-        // Word boundaries split many useful identifiers at punctuation (for example, gpt-4o).
-        // Add the complete identifier as a stronger token while keeping ordinary word tokens.
-        technicalTokenRegex.findAll(normalized).forEach { match ->
-            val candidate = match.value
-            if (candidate !in stopWords && candidate.containsTechnicalCharacter()) {
-                tokens += KeywordToken(candidate, 1.3f, KeywordTokenKind.TECHNICAL)
-            }
-        }
-
-        return tokens
-            .groupBy { it.value to it.kind }
-            .map { (_, grouped) -> grouped.maxBy { it.weight } }
-    }
-
-    private fun String.containsTechnicalCharacter(): Boolean =
-        any { it.isDigit() || it in ".:_/@+#-" }
-
-    private fun Char.isHanCharacter(): Boolean =
-        this in '\u4E00'..'\u9FFF' || this in '\u3400'..'\u4DBF' || this in '\uF900'..'\uFAFF'
-}

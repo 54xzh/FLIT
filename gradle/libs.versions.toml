@@ -59,6 +59,7 @@ baselineprofile = "1.4.1"
 profileinstaller = "1.4.1"
 ktor = "3.3.2"
 jmdns = "3.6.3"
+jiebaAnalysis = "1.0.2"
 jose4j = "0.9.5"
 glance = "1.1.1"
 documentfile = "1.0.1"
@@ -162,6 +163,7 @@ ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negoti
 ktor-server-default-headers = { module = "io.ktor:ktor-server-default-headers", version.ref = "ktor" }
 ktor-server-status-pages = { module = "io.ktor:ktor-server-status-pages", version.ref = "ktor" }
 jmdns = { module = "org.jmdns:jmdns", version.ref = "jmdns" }
+jieba-analysis = { module = "com.huaban:jieba-analysis", version.ref = "jiebaAnalysis" }
 jose4j = { module = "org.bitbucket.b_c:jose4j", version.ref = "jose4j" }
 androidx-glance = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
 androidx-glance-material3 = { group = "androidx.glance", name = "glance-material3", version.ref = "glance" }

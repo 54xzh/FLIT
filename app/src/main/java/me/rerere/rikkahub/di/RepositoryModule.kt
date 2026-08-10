@@ -5,7 +5,9 @@ import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.CachedOpenRouterModelCapabilityProvider
 import me.rerere.rikkahub.data.repository.GenMediaRepository
 import me.rerere.rikkahub.data.repository.LorebookEntryRevisionRepository
+import me.rerere.rikkahub.data.repository.KeywordMemoryTokenizer
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemoryKeywordTokenizer
 import me.rerere.rikkahub.data.repository.MemoryRetrievalService
 import me.rerere.rikkahub.data.repository.ModelCapabilityRepository
 import me.rerere.rikkahub.data.repository.ModelQuotaRepository
@@ -41,7 +43,11 @@ val repositoryModule = module {
     }
 
     single {
-        MemoryRepository(get(), get(), get(), get(), get(), get(), get())
+        MemoryRepository(get(), get(), get(), get(), get(), get(), get(), get())
+    }
+
+    single<MemoryKeywordTokenizer> {
+        KeywordMemoryTokenizer()
     }
 
     single {
