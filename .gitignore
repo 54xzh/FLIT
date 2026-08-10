@@ -37,3 +37,4 @@ settings.local.json
 /write_patch.py
 /.codex_patches
 GOALS.md
+.firecrawl/
