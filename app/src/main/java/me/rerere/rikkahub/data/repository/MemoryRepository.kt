@@ -405,6 +405,7 @@ class MemoryRepository internal constructor(
         includeCore: Boolean = true,
         includeEpisodes: Boolean = true,
         nowMillis: Long = System.currentTimeMillis(),
+        recordAccess: Boolean = true,
     ): List<KeywordSearchHit> {
         val rows = withContext(Dispatchers.IO) {
             memoryDAO.getMemoryRetrievalRows(
@@ -419,9 +420,12 @@ class MemoryRepository internal constructor(
             emptyList()
         } else {
             keywordTokenizer.prepare()
+            val retrievalContext = currentCoroutineContext()
+            val checkCancelled = { retrievalContext.ensureActive() }
             var index = getKeywordIndex(
                 cacheKey = "$assistantId:$includeCore:$includeEpisodes",
                 rows = rows,
+                checkCancelled = checkCancelled,
             )
             var hits = withContext(Dispatchers.Default) {
                 index.search(
@@ -429,12 +433,14 @@ class MemoryRepository internal constructor(
                     tokenizer = keywordTokenizer,
                     nowMillis = nowMillis,
                     limit = limit.coerceAtLeast(0),
+                    checkCancelled = checkCancelled,
                 )
             }
             if (index.tokenizerRevision != keywordTokenizer.revision) {
                 index = getKeywordIndex(
                     cacheKey = "$assistantId:$includeCore:$includeEpisodes",
                     rows = rows,
+                    checkCancelled = checkCancelled,
                 )
                 hits = withContext(Dispatchers.Default) {
                     index.search(
@@ -442,6 +448,7 @@ class MemoryRepository internal constructor(
                         tokenizer = keywordTokenizer,
                         nowMillis = nowMillis,
                         limit = limit.coerceAtLeast(0),
+                        checkCancelled = checkCancelled,
                     )
                 }
             }
@@ -454,16 +461,13 @@ class MemoryRepository internal constructor(
             normalize = keywordTokenizer::normalize,
         )
 
-        val accessedAt = System.currentTimeMillis()
-        withContext(Dispatchers.IO) {
-            hits.filter { it.row.id > 0 }
-                .map { it.row.id }
-                .chunked(500)
-                .forEach { ids -> if (ids.isNotEmpty()) memoryDAO.updateLastAccessedAt(ids, accessedAt) }
-            hits.filter { it.row.id < 0 }
-                .map { -it.row.id }
-                .chunked(500)
-                .forEach { ids -> if (ids.isNotEmpty()) chatEpisodeDAO.updateLastAccessedAt(ids, accessedAt) }
+        if (recordAccess) {
+            updateLastAccessed(hits.map { hit ->
+                AssistantMemory(
+                    id = hit.row.id,
+                    type = hit.row.type,
+                )
+            })
         }
         return hits
     }
@@ -481,9 +485,35 @@ class MemoryRepository internal constructor(
         }
     }
 
+    internal suspend fun updateLastAccessed(memories: List<AssistantMemory>) {
+        if (memories.isEmpty()) return
+        try {
+            val accessedAt = System.currentTimeMillis()
+            withContext(Dispatchers.IO) {
+                memories.asSequence()
+                    .map { it.id }
+                    .filter { it > 0 }
+                    .distinct()
+                    .chunked(500)
+                    .forEach { ids -> memoryDAO.updateLastAccessedAt(ids, accessedAt) }
+                memories.asSequence()
+                    .map { it.id }
+                    .filter { it < 0 }
+                    .map { -it }
+                    .distinct()
+                    .chunked(500)
+                    .forEach { ids -> chatEpisodeDAO.updateLastAccessedAt(ids, accessedAt) }
+            }
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            Log.w(TAG, "Failed to update memory access time: ${error.message}", error)
+        }
+    }
+
     private suspend fun getKeywordIndex(
         cacheKey: String,
         rows: List<MemoryRetrievalRow>,
+        checkCancelled: () -> Unit,
     ): KeywordMemoryIndex = keywordIndexMutex.withLock {
         val cached = keywordIndexCache[cacheKey]
         if (
@@ -495,7 +525,7 @@ class MemoryRepository internal constructor(
         }
 
         val index = withContext(Dispatchers.Default) {
-            KeywordMemoryIndex.build(rows, keywordTokenizer)
+            KeywordMemoryIndex.build(rows, keywordTokenizer, checkCancelled)
         }
         keywordIndexCache.remove(cacheKey)?.let { keywordIndexCacheTermCount -= it.index.estimatedTermCount }
         // Do not retain an all-empty snapshot: its term budget is zero, but its rows could still
@@ -875,7 +905,8 @@ class MemoryRepository internal constructor(
         limit: Int = 5,
         similarityThreshold: Float = 0.5f,
         includeCore: Boolean = true,
-        includeEpisodes: Boolean = true
+        includeEpisodes: Boolean = true,
+        recordAccess: Boolean = true,
     ): List<Pair<AssistantMemory, Float>> {
         data class ScoredCandidate(
             val item: Any,
@@ -1015,15 +1046,15 @@ class MemoryRepository internal constructor(
         // Update lastAccessedAt for included items (pinned + top-k)
         // 批量写回：单条 UPDATE 替代逐行整行重写（旧写法每行重写含 embedding 的整行、各自提交
         // 一次事务，且每次写入都会让记忆列表的 Flow 订阅方全量重查一遍）
-        val accessedAt = System.currentTimeMillis()
-        finalCandidates.filter { it.isMemory }
-            .map { (it.item as MemoryEntity).id }
-            .chunked(500)
-            .forEach { memoryDAO.updateLastAccessedAt(it, accessedAt) }
-        finalCandidates.filterNot { it.isMemory }
-            .map { (it.item as ChatEpisodeEntity).id }
-            .chunked(500)
-            .forEach { chatEpisodeDAO.updateLastAccessedAt(it, accessedAt) }
+        if (recordAccess) {
+            updateLastAccessed(finalCandidates.map { candidate ->
+                if (candidate.isMemory) {
+                    AssistantMemory(id = (candidate.item as MemoryEntity).id, type = MemoryType.CORE)
+                } else {
+                    AssistantMemory(id = -(candidate.item as ChatEpisodeEntity).id, type = MemoryType.EPISODIC)
+                }
+            })
+        }
 
         return finalCandidates.mapNotNull { candidate ->
             if (candidate.isMemory) {

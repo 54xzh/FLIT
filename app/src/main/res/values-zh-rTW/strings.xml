@@ -1326,9 +1326,11 @@
   <string name="assistant_page_memory_retrieval_mode_desc">不進行檢索，核心記憶全部進入上下文</string>
   <string name="assistant_page_memory_retrieval_mode_desc_vector">根據語義相似度檢索相關記憶，需要配置嵌入模型</string>
   <string name="assistant_page_memory_retrieval_mode_desc_keyword">根據關鍵詞匹配相關記憶，無需額外配置</string>
+  <string name="assistant_page_memory_retrieval_mode_desc_hybrid">結合關鍵詞與語義相似度匹配記憶，需要配置嵌入模型</string>
   <string name="assistant_page_memory_retrieval_mode_off">關</string>
   <string name="assistant_page_memory_retrieval_mode_vector">向量</string>
   <string name="assistant_page_memory_retrieval_mode_keyword">關鍵詞</string>
+  <string name="assistant_page_memory_retrieval_mode_hybrid">混合</string>
   <string name="assistant_page_rag_advanced_memory_title">高級記憶</string>
   <string name="assistant_page_rag_advanced_memory_desc">從對話中形成情景記憶</string>
   <string name="assistant_page_rag_reflection_title">反思</string>

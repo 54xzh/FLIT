@@ -51,7 +51,7 @@ val repositoryModule = module {
     }
 
     single {
-        MemoryRetrievalService(get())
+        MemoryRetrievalService(get(), get())
     }
 
     single {

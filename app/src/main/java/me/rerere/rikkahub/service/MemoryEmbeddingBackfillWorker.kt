@@ -15,8 +15,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getAssistantById
-import me.rerere.rikkahub.data.model.MemoryRetrievalMode
 import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
+import me.rerere.rikkahub.data.model.requiresEmbedding
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -91,8 +91,8 @@ class MemoryEmbeddingBackfillWorker(
             ?: return@withContext Result.success()
         val assistant = settings.getAssistantById(parsedAssistantId)
             ?: return@withContext Result.success()
-        if (!assistant.enableMemory || assistant.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.VECTOR) {
-            Log.i(TAG, "Skipping backfill because assistant retrieval mode is not vector")
+        if (!assistant.enableMemory || !assistant.effectiveMemoryRetrievalMode().requiresEmbedding) {
+            Log.i(TAG, "Skipping backfill because assistant retrieval mode does not use embeddings")
             return@withContext Result.success()
         }
 

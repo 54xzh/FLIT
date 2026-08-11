@@ -25,6 +25,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryRetrievalMode
 import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
+import me.rerere.rikkahub.data.model.requiresEmbedding
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.Tag
 import me.rerere.rikkahub.data.repository.AssistantMemoryStats
@@ -236,8 +237,8 @@ class AssistantDetailVM(
             )
             if (
                 assistant.enableMemory &&
-                assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR &&
-                previousAssistant?.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.VECTOR
+                assistant.effectiveMemoryRetrievalMode().requiresEmbedding &&
+                previousAssistant?.effectiveMemoryRetrievalMode()?.requiresEmbedding != true
             ) {
                 memoryRepository.scheduleEmbeddingBackfillIfNeeded(
                     assistantId = assistant.id.toString(),
@@ -256,7 +257,7 @@ class AssistantDetailVM(
                 assistantId = assistantId.toString(),
                 content = normalizedContent,
                 pinned = memory.pinned,
-                generateEmbedding = assistant.value.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
+                generateEmbedding = assistant.value.effectiveMemoryRetrievalMode().requiresEmbedding,
             )
         }
     }
@@ -269,14 +270,14 @@ class AssistantDetailVM(
                 memoryRepository.updateEpisodeContent(
                     id = -memory.id,
                     content = normalizedContent,
-                    generateEmbedding = assistant.value.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
+                    generateEmbedding = assistant.value.effectiveMemoryRetrievalMode().requiresEmbedding,
                 )
             } else {
                 memoryRepository.updateCoreMemory(
                     id = memory.id,
                     content = normalizedContent,
                     pinned = memory.pinned,
-                    generateEmbedding = assistant.value.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
+                    generateEmbedding = assistant.value.effectiveMemoryRetrievalMode().requiresEmbedding,
                 )
             }
         }
@@ -415,7 +416,7 @@ class AssistantDetailVM(
 
     fun scheduleEmbeddingBackfillForRetrieval(mode: MemoryRetrievalMode = assistant.value.effectiveMemoryRetrievalMode()) {
         val currentAssistant = assistant.value
-        if (!currentAssistant.enableMemory || mode != MemoryRetrievalMode.VECTOR) return
+        if (!currentAssistant.enableMemory || !mode.requiresEmbedding) return
         memoryRepository.scheduleEmbeddingBackfillIfNeeded(
             assistantId = assistantId.toString(),
             includeCore = currentAssistant.ragIncludeCore,
@@ -424,7 +425,7 @@ class AssistantDetailVM(
     }
 
     fun regenerateEmbeddings() {
-        if (!assistant.value.enableMemory || assistant.value.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.VECTOR) return
+        if (!assistant.value.enableMemory || !assistant.value.effectiveMemoryRetrievalMode().requiresEmbedding) return
         viewModelScope.launch {
             try {
                 _embeddingProgress.value = EmbeddingProgress(0, 1, true)

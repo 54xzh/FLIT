@@ -1483,9 +1483,11 @@
     <string name="assistant_page_memory_retrieval_mode_desc">No retrieval; all core memories enter the context</string>
     <string name="assistant_page_memory_retrieval_mode_desc_vector">Retrieve relevant memories by semantic similarity; an embedding model is required</string>
     <string name="assistant_page_memory_retrieval_mode_desc_keyword">Match relevant memories by keywords; no extra configuration is required</string>
+    <string name="assistant_page_memory_retrieval_mode_desc_hybrid">Match memories using both keywords and semantic similarity; an embedding model is required</string>
     <string name="assistant_page_memory_retrieval_mode_off">Off</string>
     <string name="assistant_page_memory_retrieval_mode_vector">Vector</string>
     <string name="assistant_page_memory_retrieval_mode_keyword">Keyword</string>
+    <string name="assistant_page_memory_retrieval_mode_hybrid">Hybrid</string>
     <string name="assistant_page_rag_advanced_memory_title">Advanced Memory</string>
     <string name="assistant_page_rag_advanced_memory_desc">Form episodic memories from conversations</string>
     <string name="assistant_page_rag_reflection_title">Reflection</string>

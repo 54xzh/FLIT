@@ -63,12 +63,14 @@ internal class KeywordMemoryIndex private constructor(
         fun build(
             rows: List<MemoryRetrievalRow>,
             tokenizer: MemoryKeywordTokenizer,
+            checkCancelled: () -> Unit = {},
         ): KeywordMemoryIndex {
             var revision: Int
             var index: KeywordMemoryIndex
             do {
                 revision = tokenizer.revision
-                index = buildOnce(rows, tokenizer, revision)
+                checkCancelled()
+                index = buildOnce(rows, tokenizer, revision, checkCancelled)
             } while (revision != tokenizer.revision)
             return index
         }
@@ -77,8 +79,10 @@ internal class KeywordMemoryIndex private constructor(
             rows: List<MemoryRetrievalRow>,
             tokenizer: MemoryKeywordTokenizer,
             tokenizerRevision: Int,
+            checkCancelled: () -> Unit,
         ): KeywordMemoryIndex {
             val documents = rows.map { row ->
+                checkCancelled()
                 val tokens = tokenizer.tokenizeWithKinds(row.content)
                 val termFrequency = buildMap {
                     tokens.forEach { token ->
@@ -105,6 +109,7 @@ internal class KeywordMemoryIndex private constructor(
             }
             val documentFrequency = buildMap {
                 documents.forEach { document ->
+                    checkCancelled()
                     document.termFrequency.keys.forEach { term ->
                         put(term, (get(term) ?: 0) + 1)
                     }
@@ -133,6 +138,7 @@ internal class KeywordMemoryIndex private constructor(
         tokenizer: MemoryKeywordTokenizer,
         nowMillis: Long = System.currentTimeMillis(),
         limit: Int,
+        checkCancelled: () -> Unit = {},
     ): List<KeywordSearchHit> {
         val rawQueryTokens = tokenizer.tokenizeWithKinds(query)
             .groupBy { it.value }
@@ -166,14 +172,23 @@ internal class KeywordMemoryIndex private constructor(
             .toList()
         if (primaryQueryTerms.isEmpty()) return emptyList()
 
+        val scoreComparator = compareByDescending<KeywordSearchHit> { it.row.pinned }
+            .thenByDescending { it.score }
+            .thenByDescending { it.row.significance ?: 0 }
+            .thenByDescending { it.row.timestamp }
+            .thenBy { it.row.id }
+        var comparisonCount = 0
+        val cancellableComparator = Comparator<KeywordSearchHit> { left, right ->
+            if (++comparisonCount % 1024 == 0) checkCancelled()
+            scoreComparator.compare(left, right)
+        }
         return documents.asSequence()
-            .mapNotNull { document -> score(document, queryTokens, primaryQueryTerms, nowMillis) }
+            .mapNotNull { document ->
+                checkCancelled()
+                score(document, queryTokens, primaryQueryTerms, nowMillis)
+            }
             .sortedWith(
-                compareByDescending<KeywordSearchHit> { it.row.pinned }
-                    .thenByDescending { it.score }
-                    .thenByDescending { it.row.significance ?: 0 }
-                    .thenByDescending { it.row.timestamp }
-                    .thenBy { it.row.id },
+                cancellableComparator,
             )
             .toList()
             .let { hits ->

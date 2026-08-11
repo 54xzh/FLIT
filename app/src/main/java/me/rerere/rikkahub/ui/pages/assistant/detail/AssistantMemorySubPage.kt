@@ -89,6 +89,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryRetrievalMode
 import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
+import me.rerere.rikkahub.data.model.requiresEmbedding
 import me.rerere.rikkahub.data.repository.AssistantMemoryStats
 import me.rerere.rikkahub.data.repository.MemoryRetrievalHit
 import me.rerere.rikkahub.ui.components.ui.Select
@@ -112,6 +113,7 @@ private fun getMemoryMode(assistant: Assistant): MemoryMode {
         assistant.enableMemoryConsolidation -> MemoryMode.ADVANCED
         assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR -> MemoryMode.BASIC_RAG
         assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.KEYWORD -> MemoryMode.BASIC_KEYWORD
+        assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.HYBRID -> MemoryMode.BASIC_RAG
         else -> MemoryMode.BASIC
     }
 }
@@ -348,11 +350,13 @@ fun AssistantMemorySettings(
                     MemoryRetrievalMode.OFF to stringResource(R.string.assistant_page_memory_retrieval_mode_off),
                     MemoryRetrievalMode.VECTOR to stringResource(R.string.assistant_page_memory_retrieval_mode_vector),
                     MemoryRetrievalMode.KEYWORD to stringResource(R.string.assistant_page_memory_retrieval_mode_keyword),
+                    MemoryRetrievalMode.HYBRID to stringResource(R.string.assistant_page_memory_retrieval_mode_hybrid),
                 )
                 val retrievalDescriptionRes = when (retrievalMode) {
                     MemoryRetrievalMode.OFF -> R.string.assistant_page_memory_retrieval_mode_desc
                     MemoryRetrievalMode.VECTOR -> R.string.assistant_page_memory_retrieval_mode_desc_vector
                     MemoryRetrievalMode.KEYWORD -> R.string.assistant_page_memory_retrieval_mode_desc_keyword
+                    MemoryRetrievalMode.HYBRID -> R.string.assistant_page_memory_retrieval_mode_desc_hybrid
                 }
                 MemorySettingsItem(
                     title = stringResource(R.string.assistant_page_memory_retrieval_mode_title),
@@ -697,7 +701,7 @@ private fun RagSettingsCard(
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         // Similarity Threshold
-        if (mode == MemoryRetrievalMode.VECTOR) {
+        if (mode.requiresEmbedding) {
             Surface(
                 color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
                 shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
@@ -741,7 +745,7 @@ private fun RagSettingsCard(
         // Top-K
         Surface(
             color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = if (mode == MemoryRetrievalMode.VECTOR) {
+            shape = if (mode.requiresEmbedding) {
                 RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
             } else {
                 RoundedCornerShape(24.dp)
@@ -939,7 +943,7 @@ private fun MemoryStatisticsCard(
                 }
                 
                 // Show embeddings when RAG is enabled
-                AnimatedVisibility(visible = assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR) {
+                AnimatedVisibility(visible = assistant.effectiveMemoryRetrievalMode().requiresEmbedding) {
                     StatItem(
                         value = withEmbeddings.toString(),
                         label = stringResource(R.string.assistant_page_memory_stats_embedded),
@@ -951,7 +955,7 @@ private fun MemoryStatisticsCard(
                 }
             }
 
-            AnimatedVisibility(visible = assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR) {
+            AnimatedVisibility(visible = assistant.effectiveMemoryRetrievalMode().requiresEmbedding) {
                 Text(
                     text = stringResource(R.string.assistant_page_memory_estimated_capacity, estimatedMemoryCapacity),
                     style = MaterialTheme.typography.labelSmall,
@@ -1048,7 +1052,7 @@ private fun ManageMemoriesSection(
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (onRegenerateEmbeddings != null && assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR && needsEmbeddingRegeneration) {
+                if (onRegenerateEmbeddings != null && assistant.effectiveMemoryRetrievalMode().requiresEmbedding && needsEmbeddingRegeneration) {
                     IconButton(onClick = onRegenerateEmbeddings) {
                         Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.assistant_page_regenerate_embeddings_content_desc))
                     }
@@ -1091,7 +1095,7 @@ private fun ManageMemoriesSection(
                         memory = memory,
                         onEditMemory = onEditMemory,
                         onDeleteMemory = onDeleteMemory,
-                        useRagMemoryRetrieval = assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
+                        useRagMemoryRetrieval = assistant.effectiveMemoryRetrievalMode().requiresEmbedding,
                         currentEmbeddingModelId = currentEmbeddingModelId,
                         showType = showMemoryTypes,
                         position = position
@@ -1286,7 +1290,7 @@ private fun ManageMemoriesSection(
                                     memory = memory,
                                     onEditMemory = onEditMemory,
                                     onDeleteMemory = onDeleteMemory,
-                                    useRagMemoryRetrieval = assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
+                                    useRagMemoryRetrieval = assistant.effectiveMemoryRetrievalMode().requiresEmbedding,
                                     currentEmbeddingModelId = currentEmbeddingModelId,
                                     showType = showMemoryTypes,
                                     position = position

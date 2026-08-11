@@ -84,6 +84,7 @@ import me.rerere.rikkahub.data.ai.rag.EmbeddingService
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.MemoryRetrievalMode
 import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
+import me.rerere.rikkahub.data.model.requiresEmbedding
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.InjectionPosition
 import me.rerere.rikkahub.data.model.Lorebook
@@ -394,7 +395,7 @@ class GenerationHandler(
                             memoryRepo.addMemory(
                                 assistantId = assistant.id.toString(),
                                 content = normalizedContent,
-                                generateEmbedding = assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
+                                generateEmbedding = assistant.effectiveMemoryRetrievalMode().requiresEmbedding,
                             )
                         },
                         onUpdate = { id, content ->
@@ -402,7 +403,7 @@ class GenerationHandler(
                             memoryRepo.updateContent(
                                 id = id,
                                 content = normalizedContent,
-                                generateEmbedding = assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR,
+                                generateEmbedding = assistant.effectiveMemoryRetrievalMode().requiresEmbedding,
                             )
                         },
                         onDelete = { id ->
@@ -1578,6 +1579,7 @@ class GenerationHandler(
                 memory.id == -1 -> "Recent episode boost"
                 assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR -> "Vector match"
                 assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.KEYWORD -> "Keyword match"
+                assistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.HYBRID -> "Hybrid match"
                 else -> "Always included"
             }
             UsedMemory(

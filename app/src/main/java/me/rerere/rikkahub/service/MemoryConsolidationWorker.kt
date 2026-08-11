@@ -41,6 +41,7 @@ import me.rerere.rikkahub.data.model.GroupChatTemplate
 import me.rerere.rikkahub.data.model.MemoryRetrievalMode
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
+import me.rerere.rikkahub.data.model.requiresEmbedding
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.rikkahub.utils.applyPlaceholders
@@ -418,7 +419,7 @@ class MemoryConsolidationWorker(
     private fun isVectorMemoryEnabled(assistantId: kotlin.uuid.Uuid): Boolean {
         val currentAssistant = settingsStore.settingsFlow.value.getAssistantById(assistantId)
         return currentAssistant?.enableMemory == true &&
-            currentAssistant.effectiveMemoryRetrievalMode() == MemoryRetrievalMode.VECTOR
+            currentAssistant.effectiveMemoryRetrievalMode().requiresEmbedding
     }
 
     private suspend fun consolidateGroupChatTemplate(

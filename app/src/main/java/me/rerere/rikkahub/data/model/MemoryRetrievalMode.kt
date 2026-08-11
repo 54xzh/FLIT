@@ -14,7 +14,13 @@ enum class MemoryRetrievalMode {
 
     @SerialName("keyword")
     KEYWORD,
+
+    @SerialName("hybrid")
+    HYBRID,
 }
+
+val MemoryRetrievalMode.requiresEmbedding: Boolean
+    get() = this == MemoryRetrievalMode.VECTOR || this == MemoryRetrievalMode.HYBRID
 
 fun Assistant.effectiveMemoryRetrievalMode(): MemoryRetrievalMode =
     memoryRetrievalMode ?: if (useRagMemoryRetrieval) {

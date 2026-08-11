@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.repository
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -11,6 +12,7 @@ import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -282,6 +284,29 @@ class KeywordMemoryRetrieverTest {
 
         assertEquals(tokenizer.revision, index.tokenizerRevision)
         assertEquals(listOf(1), results.map { it.row.id })
+    }
+
+    @Test
+    fun `index build and search respond to cancellation checks`() {
+        val rows = List(20) { index -> row(index + 1, "memory-$index") }
+        val tokenizer = FakeTokenizer(rows.associate { memoryRow ->
+            memoryRow.content to listOf(word(memoryRow.content))
+        })
+        var buildChecks = 0
+
+        assertThrows(CancellationException::class.java) {
+            KeywordMemoryIndex.build(rows, tokenizer) {
+                if (++buildChecks >= 5) throw CancellationException("cancel build")
+            }
+        }
+
+        val index = KeywordMemoryIndex.build(rows, tokenizer)
+        var searchChecks = 0
+        assertThrows(CancellationException::class.java) {
+            index.search("memory-1", tokenizer, limit = 5) {
+                if (++searchChecks >= 5) throw CancellationException("cancel search")
+            }
+        }
     }
 
     @Test

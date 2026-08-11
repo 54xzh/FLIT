@@ -293,9 +293,11 @@
     <string name="assistant_page_memory_retrieval_mode_desc">不进行检索，核心记忆全部进入上下文</string>
     <string name="assistant_page_memory_retrieval_mode_desc_vector">根据语义相似度检索相关记忆，需要配置嵌入模型</string>
     <string name="assistant_page_memory_retrieval_mode_desc_keyword">根据关键词匹配相关记忆，无需额外配置</string>
+    <string name="assistant_page_memory_retrieval_mode_desc_hybrid">结合关键词与语义相似度匹配记忆，需要配置嵌入模型</string>
     <string name="assistant_page_memory_retrieval_mode_off">关</string>
     <string name="assistant_page_memory_retrieval_mode_vector">向量</string>
     <string name="assistant_page_memory_retrieval_mode_keyword">关键词</string>
+    <string name="assistant_page_memory_retrieval_mode_hybrid">混合</string>
     <string name="assistant_page_rag_settings_title">RAG 设置</string>
     <string name="assistant_page_rag_similarity_all">0.0 (全部)</string>
     <string name="assistant_page_rag_similarity_exact">1.0 (精确)</string>
