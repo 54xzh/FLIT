@@ -813,12 +813,18 @@ class SettingsStore(
         }
     }
 
-	    suspend fun update(settings: Settings) {
+	    suspend fun update(
+	        settings: Settings,
+	        rebindSearchServiceIndices: Boolean = true,
+	    ) {
 	        // 等设置就绪再写：世代号靠首个已应用的磁盘回流播种，未播种就发号会拿到过小的
 	        // 世代号，被在途的历史回流反超覆盖（加载完成后此等待无开销）
 	        settingsFlow.first { !it.init }
 	        updateMutex.withLock {
-	            updateLocked(settings)
+	            updateLocked(
+	                settings = settings,
+	                rebindSearchServiceIndices = rebindSearchServiceIndices,
+	            )
 	        }
 	    }
 
@@ -837,7 +843,11 @@ class SettingsStore(
         }
     }
 
-	    private suspend fun updateLocked(settings: Settings, autoUpdateRecentlyUsed: Boolean = true) {
+	    private suspend fun updateLocked(
+	        settings: Settings,
+	        autoUpdateRecentlyUsed: Boolean = true,
+	        rebindSearchServiceIndices: Boolean = true,
+	    ) {
 	        if(settings.init) {
 	            Log.w(TAG, "Cannot update dummy settings")
 	            return
@@ -862,7 +872,9 @@ class SettingsStore(
 	            settings
 	        }
 
-	        val settingsToSaveWithReboundSearchIndices = if (!oldSettingsSnapshot.init) {
+	        val settingsToSaveWithReboundSearchIndices = if (
+	            rebindSearchServiceIndices && !oldSettingsSnapshot.init
+	        ) {
 	            val oldSearchServiceIds = oldSettingsSnapshot.searchServices.map { it.id }
 	            val newSearchServiceIds = settingsToSave.searchServices.map { it.id }
 	            if (oldSearchServiceIds != newSearchServiceIds) {

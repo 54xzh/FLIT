@@ -239,6 +239,7 @@
   <string name="backup_restore_removed_model_references">• 已移除 %1$d 個無效收藏模型引用</string>
   <string name="backup_restore_updated_avatar_paths">• 已更新 %1$d 個頭像檔案路徑</string>
   <string name="backup_restore_updated_backgrounds">• 已修正 %1$d 個助手背景</string>
+  <string name="backup_restore_skipped_rikkahub_settings">• 已略過 %1$d 項不支援的 RikkaHub 設定</string>
   <string name="backup_restore_skipped_unsupported_data">• 已略過 %1$s 不支援的資料</string>
   <string name="backup_page_restore">恢復</string>
   <string name="backup_page_restore_failed">恢復失敗: %s</string>

@@ -93,6 +93,50 @@ class RikkaHubCompatDatabaseImporterTest {
         assertEquals("ok", (nodes.single().messages.single().parts.single() as UIMessagePart.Text).text)
     }
 
+    @Test
+    fun `unsupported upstream part does not drop other message parts`() {
+        val message = JsonInstant.parseToJsonElement(
+            JsonInstant.encodeToString(
+                UIMessage(
+                    id = Uuid.parse("10000000-0000-0000-0000-000000000004"),
+                    role = MessageRole.ASSISTANT,
+                    parts = listOf(UIMessagePart.Text("kept")),
+                )
+            )
+        ) as JsonObject
+        val sourceMessage = JsonObject(message.toMutableMap().apply {
+            put(
+                "parts",
+                JsonArray(
+                    listOf(
+                        JsonObject(mapOf("type" to JsonPrimitive("server_tool"))),
+                        JsonObject(
+                            mapOf(
+                                "type" to JsonPrimitive("text"),
+                                "text" to JsonPrimitive("kept"),
+                            )
+                        ),
+                    )
+                )
+            )
+        })
+
+        val result = RikkaHubCompatDatabaseImporter.convertMessageNodes(
+            rows = listOf(
+                RikkaHubCompatDatabaseImporter.MessageNodeRow(
+                    id = "20000000-0000-0000-0000-000000000004",
+                    messagesJson = JsonArray(listOf(sourceMessage)).toString(),
+                    selectIndex = 0,
+                )
+            ),
+            currentFilesDir = "/data/user/0/lastchat/files",
+        )
+        val nodes = JsonInstant.decodeFromString<List<MessageNode>>(result.nodesJson)
+
+        assertEquals(0, result.skippedRows)
+        assertEquals("kept", (nodes.single().messages.single().parts.single() as UIMessagePart.Text).text)
+    }
+
     private fun toUpstreamMessages(messages: List<UIMessage>): JsonArray {
         val current = JsonInstant.parseToJsonElement(JsonInstant.encodeToString(messages)) as JsonArray
         return JsonArray(current.map { messageElement ->

@@ -734,15 +734,27 @@ class WebdavSync(
                 // ---- 正式数据不变的前提下，先完成设置解析和数据库净化 ----
 
                 val cleanedSettings = if (restoreSettings) {
-                    val migratedJson = settingsJsonHolder.json
+                    var migratedJson = settingsJsonHolder.json
                         ?: throw Exception("Failed to restore settings: no settings captured")
                     try {
+                        if (isRikkaHubCompatDatabase) {
+                            val converted = RikkaHubCompatSettingsImporter.convert(migratedJson)
+                            migratedJson = converted.json
+                            settingsCleanupResult = settingsCleanupResult.copy(
+                                unsupportedRikkaHubSettings = converted.skippedItems,
+                            )
+                            Log.i(
+                                TAG,
+                                "Converted RikkaHub settings; skipped ${converted.skippedItems} " +
+                                    "unsupported entries (${converted.skippedTypes.joinToString()})",
+                            )
+                        }
                         val timeoutMigratedJson = migrateLegacyEmbeddingRetrievalTimeoutSettingsJson(migratedJson)
                         val reasoningMigratedJson = migrateLegacyReasoningSettingsJson(timeoutMigratedJson)
                         settingsJsonHolder.json = reasoningMigratedJson
                         val settings = json.decodeFromString<Settings>(reasoningMigratedJson)
                         val (cleaned, cleanupResult) = settings.sanitize(context)
-                        settingsCleanupResult = cleanupResult
+                        settingsCleanupResult += cleanupResult
                         cleaned
                     } catch (e: Exception) {
                         Log.e(TAG, "restoreFromBackupFile: Failed to prepare settings", e)
@@ -811,7 +823,10 @@ class WebdavSync(
                             appLanguageDeferralToken = appLanguageUpdateGate.deferUntilRestart()
                         }
                         settingsAttempted = true
-                        settingsStore.update(cleanedSettings)
+                        settingsStore.update(
+                            cleanedSettings,
+                            rebindSearchServiceIndices = !isRikkaHubCompatDatabase,
+                        )
                         Log.i(
                             TAG,
                             "restoreFromBackupFile: Settings restored and sanitized (issues fixed: ${settingsCleanupResult.totalIssuesFixed})"

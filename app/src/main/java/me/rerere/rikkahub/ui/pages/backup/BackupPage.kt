@@ -1659,6 +1659,9 @@ private fun BackupDialog(
                                 if (it.settingsCleanup.fixedAssistantBackgrounds > 0) {
                                     Text(stringResource(R.string.backup_restore_updated_backgrounds, it.settingsCleanup.fixedAssistantBackgrounds))
                                 }
+                                if (it.settingsCleanup.unsupportedRikkaHubSettings > 0) {
+                                    Text(stringResource(R.string.backup_restore_skipped_rikkahub_settings, it.settingsCleanup.unsupportedRikkaHubSettings))
+                                }
                                 if (it.settingsCleanup.unsupportedZipEntriesBytes > 0) {
                                     Text(stringResource(R.string.backup_restore_skipped_unsupported_data, it.settingsCleanup.unsupportedZipEntriesBytes.fileSizeToString()))
                                 }

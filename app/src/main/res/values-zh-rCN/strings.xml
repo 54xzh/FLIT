@@ -485,6 +485,7 @@
   <string name="backup_restore_removed_model_references">• 已移除 %1$d 个无效收藏模型引用</string>
   <string name="backup_restore_updated_avatar_paths">• 已更新 %1$d 个头像文件路径</string>
   <string name="backup_restore_updated_backgrounds">• 已修复 %1$d 个助手背景</string>
+  <string name="backup_restore_skipped_rikkahub_settings">• 已跳过 %1$d 项不支持的 RikkaHub 设置</string>
   <string name="backup_restore_skipped_unsupported_data">• 已跳过 %1$s 不支持的数据</string>
   <string name="backup_page_restore">恢复</string>
   <string name="backup_page_restore_failed">恢复失败: %s</string>

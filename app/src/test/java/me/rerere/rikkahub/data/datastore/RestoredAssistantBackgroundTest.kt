@@ -64,9 +64,14 @@ class RestoredAssistantBackgroundTest {
     @Test
     fun cleanupResult_addsBackgroundFixCounts() {
         val combined = BackupCleanupResult(fixedAssistantBackgrounds = 1) +
-            BackupCleanupResult(fixedAssistantBackgrounds = 2, fixedAvatarPaths = 1)
+            BackupCleanupResult(
+                fixedAssistantBackgrounds = 2,
+                fixedAvatarPaths = 1,
+                unsupportedRikkaHubSettings = 3,
+            )
 
         assertEquals(3, combined.fixedAssistantBackgrounds)
-        assertEquals(4, combined.totalIssuesFixed)
+        assertEquals(7, combined.totalIssuesFixed)
+        assertEquals(3, combined.unsupportedRikkaHubSettings)
     }
 }

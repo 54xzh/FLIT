@@ -379,6 +379,7 @@
     <string name="backup_restore_removed_model_references">• Removed %1$d invalid favorite model references</string>
     <string name="backup_restore_updated_avatar_paths">• Updated %1$d avatar file paths</string>
     <string name="backup_restore_updated_backgrounds">• Updated %1$d assistant backgrounds</string>
+    <string name="backup_restore_skipped_rikkahub_settings">• Skipped %1$d unsupported RikkaHub settings</string>
     <string name="backup_restore_skipped_unsupported_data">• Skipped %1$s of unsupported data</string>
     <string name="backup_page_restore">Restore</string>
     <string name="backup_page_restore_failed">Restore Failed: %s</string>
