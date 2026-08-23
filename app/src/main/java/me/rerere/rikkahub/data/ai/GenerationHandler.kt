@@ -1264,7 +1264,7 @@ class GenerationHandler(
         }
 
         // Tool system prompts are deduplicated by their full rendered text: several sandbox tools
-        // all return the identical SANDBOX_PROMPT verbatim, so whole-text dedup collapses those four
+        // all return the identical sandbox workspace prompt verbatim, so whole-text dedup collapses those four
         // copies to one without ever parsing the prompt body. We deliberately do NOT split on
         // markdown headers here — that would risk mis-splitting code fences or other structures in
         // user-customized prompts.

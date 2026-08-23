@@ -44,7 +44,7 @@ private fun sandboxReadTool(
         InputSchema.Obj(properties = buildJsonObject { putSandboxPath(required = true) }, required = listOf("path"))
     },
     requiresUserApproval = approval("sandbox_read_file"),
-    systemPrompt = { _, _ -> SANDBOX_PROMPT },
+    systemPrompt = { _, _ -> SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE },
     execute = { args ->
         val path = args.jsonObject.sandboxReadPath("path")
         buildJsonObject {
@@ -75,7 +75,7 @@ private fun sandboxWriteTool(id: String, repository: WorkspaceRepository, approv
         )
     },
     requiresUserApproval = approval("sandbox_write_file"),
-    systemPrompt = { _, _ -> SANDBOX_PROMPT },
+    systemPrompt = { _, _ -> SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE },
     execute = { args ->
         val params = args.jsonObject
         val path = params.sandboxPath("path")
@@ -101,7 +101,7 @@ private fun sandboxEditTool(id: String, repository: WorkspaceRepository, approva
         )
     },
     requiresUserApproval = approval("sandbox_edit_file"),
-    systemPrompt = { _, _ -> SANDBOX_PROMPT },
+    systemPrompt = { _, _ -> SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE },
     execute = { args ->
         val params = args.jsonObject
         val path = params.sandboxPath("path")
@@ -146,7 +146,7 @@ private fun sandboxShellTool(
         )
     },
     requiresUserApproval = approval("sandbox_shell"),
-    systemPrompt = { _, _ -> SANDBOX_PROMPT },
+    systemPrompt = { _, _ -> SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE },
     execute = { args ->
         val params = args.jsonObject
         val command = params.string("command")?.takeIf { it.isNotBlank() } ?: error("command is required")
@@ -192,7 +192,7 @@ private fun JsonObject.sandboxReadPath(name: String): String {
 private fun String.relativeSandboxPath(): String = removePrefix("/workspace/").removePrefix("/workspace")
 private fun JsonObject.string(name: String): String? = this[name]?.jsonPrimitive?.contentOrNull
 
-private const val SANDBOX_PROMPT = """
+internal const val SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE = """
 You are using a persistent Linux sandbox. Sandbox file tools accept absolute paths under /workspace, and sandbox_read_file also accepts /upload paths.
 /upload contains the files the user uploaded in this conversation. It is read-only input: read files from it, but never modify or delete them, and put any outputs under /workspace.
 If a task requires editing an uploaded file, first copy it into /workspace (e.g. cp /upload/report.docx /workspace/report.docx) and edit the copy there.

@@ -4,6 +4,7 @@ import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.db.entity.SANDBOX_WORKSPACE_TOOL_NAMES
 
 enum class ToolSystemPromptGroup {
     Search,
@@ -26,7 +27,7 @@ data class ToolSystemPromptDefinition(
     val defaultTemplate: String,
     val variables: List<ToolSystemPromptVariable> = emptyList(),
     val affectedToolNames: List<String> = listOf(toolName),
-    val injectedByToolName: String? = toolName,
+    val injectedByToolNames: List<String> = listOf(toolName),
 )
 
 object ToolSystemPromptRegistry {
@@ -50,17 +51,15 @@ object ToolSystemPromptRegistry {
             toolName = MEMORY_MANAGEMENT_TOOL_NAME,
             group = ToolSystemPromptGroup.Memory,
             defaultTemplate = MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE,
-            variables = listOf(ToolSystemPromptVariable(MEMORY_CONTEXT_VARIABLE)),
             affectedToolNames = MEMORY_MANAGEMENT_AFFECTED_TOOL_NAMES,
-            injectedByToolName = null,
+            injectedByToolNames = emptyList(),
         ),
         ToolSystemPromptDefinition(
             toolName = SESSION_MEMORY_MANAGEMENT_TOOL_NAME,
             group = ToolSystemPromptGroup.Memory,
             defaultTemplate = SESSION_MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE,
-            variables = listOf(ToolSystemPromptVariable(SESSION_MEMORY_CONTEXT_VARIABLE)),
             affectedToolNames = SESSION_MEMORY_MANAGEMENT_AFFECTED_TOOL_NAMES,
-            injectedByToolName = null,
+            injectedByToolNames = emptyList(),
         ),
         ToolSystemPromptDefinition(
             toolName = "memory_search",
@@ -176,18 +175,25 @@ object ToolSystemPromptRegistry {
             variables = listOf(ToolSystemPromptVariable(WORKSPACE_COMMON_RULES_VARIABLE)),
         ),
         ToolSystemPromptDefinition(
+            toolName = SANDBOX_WORKSPACE_PROMPT_NAME,
+            group = ToolSystemPromptGroup.Workspace,
+            defaultTemplate = SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE,
+            affectedToolNames = SANDBOX_WORKSPACE_TOOL_NAMES,
+            injectedByToolNames = SANDBOX_WORKSPACE_TOOL_NAMES,
+        ),
+        ToolSystemPromptDefinition(
             toolName = SCHEDULED_TASKS_MANAGEMENT_TOOL_NAME,
             group = ToolSystemPromptGroup.ScheduledTasks,
             defaultTemplate = SCHEDULED_TASK_SYSTEM_PROMPT_TEMPLATE,
             affectedToolNames = SCHEDULED_TASKS_MANAGEMENT_AFFECTED_TOOL_NAMES,
-            injectedByToolName = "list_scheduled_tasks",
+            injectedByToolNames = listOf("list_scheduled_tasks"),
         ),
         ToolSystemPromptDefinition(
             toolName = LOREBOOKS_MANAGEMENT_TOOL_NAME,
             group = ToolSystemPromptGroup.Lorebooks,
             defaultTemplate = LOREBOOK_SYSTEM_PROMPT_TEMPLATE,
             affectedToolNames = LOREBOOKS_MANAGEMENT_AFFECTED_TOOL_NAMES,
-            injectedByToolName = "lorebooks_list_enabled",
+            injectedByToolNames = listOf("lorebooks_list_enabled"),
         ),
         ToolSystemPromptDefinition(
             toolName = "ask_user",
@@ -198,8 +204,8 @@ object ToolSystemPromptRegistry {
 
     private val definitionsByName = definitions.associateBy { it.toolName }
     private val definitionsByInjectedToolName = definitions
-        .mapNotNull { definition ->
-            definition.injectedByToolName?.let { toolName -> toolName to definition }
+        .flatMap { definition ->
+            definition.injectedByToolNames.map { toolName -> toolName to definition }
         }
         .toMap()
 
@@ -210,6 +216,7 @@ object ToolSystemPromptRegistry {
 
 const val MEMORY_MANAGEMENT_TOOL_NAME = "memory_management"
 const val SESSION_MEMORY_MANAGEMENT_TOOL_NAME = "session_memory_management"
+const val SANDBOX_WORKSPACE_PROMPT_NAME = "sandbox_workspace"
 const val SCHEDULED_TASKS_MANAGEMENT_TOOL_NAME = "scheduled_tasks_management"
 const val LOREBOOKS_MANAGEMENT_TOOL_NAME = "lorebooks_management"
 const val MEMORY_CONTEXT_VARIABLE = "memory_context"
@@ -330,9 +337,6 @@ val SEARCH_AGENT_MAIN_TOOL_PROMPT_TEMPLATE = """
 """.trimIndent()
 
 val MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE = """
-    ## Memories
-    {{memory_context}}
-
     ## Memory Tool
     You are a stateless large language model; you **cannot store memories** internally. To remember information, you must use **memory tools**.
     Memory tools allow you (the assistant) to store multiple pieces of information (records) to recall details across conversations.
@@ -350,9 +354,6 @@ val MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE = """
 """.trimIndent()
 
 val SESSION_MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE = """
-    ## Session Memories
-    {{session_memory_context}}
-
     ## Session Memory Tool
     You can use `create_session_memory`, `edit_session_memory`, and `delete_session_memory` to manage details that should stay active in this conversation only.
     `create_session_memory` requires a `placement` value:
@@ -454,7 +455,7 @@ val WORKSPACE_COMMON_RULES_PROMPT = """
  * 交付物版本化完整规则。
  * 只注入到真正决定文件名的写入工具（workspace_write_file）；delete / rename
  * 各自只保留与自身操作相关的一行提醒，避免同一段话在一次请求里重复多遍。
- * 沙盒侧在 SANDBOX_PROMPT 中维护自己的副本。
+ * 沙盒侧在 SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE 中维护自己的副本。
  */
 val WORKSPACE_DELIVERABLE_VERSIONING_PROMPT = """
     ### deliverable versioning
@@ -470,7 +471,7 @@ val WORKSPACE_DELIVERABLE_VERSIONING_PROMPT = """
 /**
  * 文件夹整理规则。
  * 与交付物版本化规则一样，只注入真正决定文件路径的写入工具（workspace_write_file），
- * 避免同一段话在一次请求里重复多遍。沙盒侧在 SANDBOX_PROMPT 中维护自己的副本。
+ * 避免同一段话在一次请求里重复多遍。沙盒侧在 SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE 中维护自己的副本。
  */
 val WORKSPACE_FOLDER_ORGANIZATION_PROMPT = """
     ### folder organization
