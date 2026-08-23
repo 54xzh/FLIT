@@ -1,6 +1,7 @@
 package me.rerere.rikkahub
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -27,7 +28,7 @@ class CodexLoginDialogTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test
-    fun waitingStateShowsCodeOpensBrowserAndCanCancel() {
+    fun waitingStateShowsCodeWithoutOpeningBrowserAndCanOpenItManually() {
         val browserLaunches = AtomicInteger()
         val dismissed = AtomicBoolean()
         val loginService = FakeCodexLoginService(waitForAuthorization = true)
@@ -45,6 +46,10 @@ class CodexLoginDialogTest {
         }
 
         composeRule.onNodeWithText("TEST-CODE").assertIsDisplayed()
+        assertEquals(0, browserLaunches.get())
+        composeRule.onNodeWithText(context.getString(R.string.copy)).assertDoesNotExist()
+        composeRule.onNodeWithText(context.getString(R.string.webview_page_open_in_browser))
+            .performClick()
         composeRule.waitUntil { browserLaunches.get() == 1 }
         composeRule.onNodeWithText(context.getString(R.string.cancel)).performClick()
         assertTrue(dismissed.get())

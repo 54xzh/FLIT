@@ -2354,14 +2354,16 @@ private sealed interface CodexAccountState {
 @Composable
 private fun CodexAccountCard(provider: ProviderSetting.OpenAICodex) {
     val authService = koinInject<CodexAuthService>()
-    val credentialRevision by authService.credentialRevision.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val haptics = rememberPremiumHaptics()
     var reloadKey by remember { mutableIntStateOf(0) }
+    var forceQuotaRefresh by remember { mutableStateOf(false) }
     var accountState by remember(provider.id) { mutableStateOf<CodexAccountState>(CodexAccountState.Loading) }
     var showLogin by remember { mutableStateOf(false) }
 
-    LaunchedEffect(provider.id, reloadKey, credentialRevision) {
+    LaunchedEffect(provider.id, reloadKey) {
+        val shouldForceQuotaRefresh = forceQuotaRefresh
+        forceQuotaRefresh = false
         accountState = CodexAccountState.Loading
         val credential = authService.getCredential(provider.id)
         if (credential == null) {
@@ -2369,7 +2371,12 @@ private fun CodexAccountCard(provider: ProviderSetting.OpenAICodex) {
             return@LaunchedEffect
         }
         accountState = try {
-            CodexAccountState.Ready(credential, authService.readQuota(provider))
+            val quota = if (shouldForceQuotaRefresh) {
+                authService.refreshQuota(provider)
+            } else {
+                authService.readQuota(provider)
+            }
+            CodexAccountState.Ready(credential, quota)
         } catch (error: Throwable) {
             val currentCredential = authService.getCredential(provider.id)
             if (currentCredential == null) {
@@ -2394,10 +2401,30 @@ private fun CodexAccountCard(provider: ProviderSetting.OpenAICodex) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = stringResource(R.string.codex_account_title),
-                style = MaterialTheme.typography.titleMedium,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.codex_account_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = {
+                        haptics.perform(HapticPattern.Pop)
+                        forceQuotaRefresh = true
+                        reloadKey++
+                    },
+                    enabled = accountState is CodexAccountState.Ready ||
+                        accountState is CodexAccountState.Failed,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Refresh,
+                        contentDescription = stringResource(R.string.a11y_refresh),
+                    )
+                }
+            }
             when (val state = accountState) {
                 CodexAccountState.Loading -> {
                     Row(
@@ -2459,6 +2486,7 @@ private fun CodexAccountCard(provider: ProviderSetting.OpenAICodex) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = {
                             haptics.perform(HapticPattern.Pop)
+                            forceQuotaRefresh = true
                             reloadKey++
                         }) {
                             Text(stringResource(R.string.codex_retry))
@@ -2550,15 +2578,15 @@ private fun CodexQuotaWindowRow(window: CodexQuotaWindow) {
             Text(
                 text = stringResource(
                     R.string.codex_quota_percentages,
-                    used.toInt(),
                     remaining.toInt(),
+                    used.toInt(),
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         LinearProgressIndicator(
-            progress = { used / 100f },
+            progress = { remaining / 100f },
             modifier = Modifier.fillMaxWidth(),
         )
         window.resetsAtEpochSeconds?.let { resetsAt ->

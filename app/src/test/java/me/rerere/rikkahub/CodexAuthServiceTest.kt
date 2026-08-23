@@ -65,6 +65,97 @@ class CodexAuthServiceTest {
     }
 
     @Test
+    fun `quota reads use the ten minute cache and expire afterwards`() = runBlocking {
+        val provider = ProviderSetting.OpenAICodex()
+        val store = InMemoryCredentialStore().apply {
+            write(provider.id, credential(accessToken = "access", expiresAt = Long.MAX_VALUE))
+        }
+        val protocol = FakeCodexProtocolClient()
+        var nowMillis = 1_000L
+        val service = CodexAuthService(
+            credentialStore = store,
+            credentialTransactionGate = CodexCredentialTransactionGate(),
+            protocolClient = protocol,
+            nowMillis = { nowMillis },
+        )
+
+        service.readQuota(provider)
+        nowMillis += 9 * 60 * 1_000L
+        service.readQuota(provider)
+        assertEquals(1, protocol.quotaCalls.get())
+
+        nowMillis += 60 * 1_000L
+        service.readQuota(provider)
+        assertEquals(2, protocol.quotaCalls.get())
+    }
+
+    @Test
+    fun `manual quota refresh bypasses cache`() = runBlocking {
+        val provider = ProviderSetting.OpenAICodex()
+        val store = InMemoryCredentialStore().apply {
+            write(provider.id, credential(accessToken = "access", expiresAt = Long.MAX_VALUE))
+        }
+        val protocol = FakeCodexProtocolClient()
+        val service = CodexAuthService(store, CodexCredentialTransactionGate(), protocol)
+
+        service.readQuota(provider)
+        service.refreshQuota(provider)
+
+        assertEquals(2, protocol.quotaCalls.get())
+    }
+
+    @Test
+    fun `quota cache is not reused after the access token changes`() = runBlocking {
+        val provider = ProviderSetting.OpenAICodex()
+        val store = InMemoryCredentialStore().apply {
+            write(provider.id, credential(accessToken = "first", expiresAt = Long.MAX_VALUE))
+        }
+        val protocol = FakeCodexProtocolClient()
+        val service = CodexAuthService(store, CodexCredentialTransactionGate(), protocol)
+
+        service.readQuota(provider)
+        store.write(provider.id, credential(accessToken = "second", expiresAt = Long.MAX_VALUE))
+        service.readQuota(provider)
+
+        assertEquals(2, protocol.quotaCalls.get())
+    }
+
+    @Test
+    fun `logout clears the quota cache`() = runBlocking {
+        val provider = ProviderSetting.OpenAICodex()
+        val store = InMemoryCredentialStore().apply {
+            write(provider.id, credential(accessToken = "first", expiresAt = Long.MAX_VALUE))
+        }
+        val protocol = FakeCodexProtocolClient()
+        val service = CodexAuthService(store, CodexCredentialTransactionGate(), protocol)
+
+        service.readQuota(provider)
+        service.logout(provider.id)
+        store.write(provider.id, credential(accessToken = "second", expiresAt = Long.MAX_VALUE))
+        service.readQuota(provider)
+
+        assertEquals(2, protocol.quotaCalls.get())
+    }
+
+    @Test
+    fun `concurrent quota reads share one network request`() = runBlocking {
+        val provider = ProviderSetting.OpenAICodex()
+        val store = InMemoryCredentialStore().apply {
+            write(provider.id, credential(accessToken = "access", expiresAt = Long.MAX_VALUE))
+        }
+        val protocol = FakeCodexProtocolClient()
+        val service = CodexAuthService(store, CodexCredentialTransactionGate(), protocol)
+
+        coroutineScope {
+            List(12) {
+                async(Dispatchers.Default) { service.readQuota(provider) }
+            }.awaitAll()
+        }
+
+        assertEquals(1, protocol.quotaCalls.get())
+    }
+
+    @Test
     fun `invalid refresh clears credentials and requires login`() = runBlocking {
         val provider = ProviderSetting.OpenAICodex()
         val store = InMemoryCredentialStore().apply {

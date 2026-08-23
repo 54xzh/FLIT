@@ -1728,7 +1728,7 @@
     <string name="codex_quota_failed_with_reason">Couldn\'t load the subscription allowance: %1$s</string>
     <string name="codex_quota_unavailable">No allowance window was returned for this account.</string>
     <string name="codex_credit_balance">Credits: %1$s</string>
-    <string name="codex_quota_percentages">Used %1$d%% · Remaining %2$d%%</string>
+    <string name="codex_quota_percentages">Available %1$d%% · Used %2$d%%</string>
     <string name="codex_quota_resets_at">Resets %1$s</string>
     <string name="codex_models_login_required">Log in again to load this account\'s model catalog. You can still add a model ID manually.</string>
     <string name="mcp_status_idle">Idle</string>

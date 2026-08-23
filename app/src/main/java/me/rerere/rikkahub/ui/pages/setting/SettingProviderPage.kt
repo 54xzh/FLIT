@@ -3,7 +3,9 @@ package me.rerere.rikkahub.ui.pages.setting
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -137,7 +139,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.browser.customtabs.CustomTabsIntent
 import me.rerere.rikkahub.ui.components.ui.ToastType
 import me.rerere.rikkahub.ui.components.ui.AppToasterState
 import io.github.g00fy2.quickie.QRResult
@@ -1088,7 +1089,7 @@ internal fun CodexLoginDialog(
     commitAssociatedState: suspend () -> Unit = {},
     authService: CodexLoginService = koinInject<CodexAuthService>(),
     browserLauncher: (Context, Uri) -> Unit = { context, uri ->
-        CustomTabsIntent.Builder().build().launchUrl(context, uri)
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
     },
 ) {
     val context = LocalContext.current
@@ -1106,9 +1107,6 @@ internal fun CodexLoginDialog(
         try {
             val code = authService.startDeviceLogin(provider)
             deviceCode = code
-            runCatching {
-                browserLauncher(context, Uri.parse(code.verificationUrl))
-            }
             authService.completeDeviceLogin(provider, code) {
                 currentCommitAssociatedState()
             }
@@ -1146,7 +1144,15 @@ internal fun CodexLoginDialog(
     fun openBrowser() {
         val code = deviceCode ?: return
         haptics.perform(HapticPattern.Pop)
-        browserLauncher(context, Uri.parse(code.verificationUrl))
+        runCatching {
+            browserLauncher(context, Uri.parse(code.verificationUrl))
+        }.onFailure {
+            Toast.makeText(
+                context,
+                context.getString(R.string.toast_failed_to_open_url, code.verificationUrl),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
     }
 
     fun dismissLogin() {
@@ -1238,13 +1244,8 @@ internal fun CodexLoginDialog(
                     Text(stringResource(R.string.codex_retry))
                 }
             } else if (deviceCode != null) {
-                Row {
-                    TextButton(onClick = ::copyCode) {
-                        Text(stringResource(R.string.copy))
-                    }
-                    TextButton(onClick = ::openBrowser) {
-                        Text(stringResource(R.string.webview_page_open_in_browser))
-                    }
+                TextButton(onClick = ::openBrowser) {
+                    Text(stringResource(R.string.webview_page_open_in_browser))
                 }
             }
         },

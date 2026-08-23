@@ -31,14 +31,24 @@ class CodexAuthService(
     private val credentialStore: CodexCredentialStore,
     private val credentialTransactionGate: CodexCredentialTransactionGate,
     private val protocolClient: CodexProtocolClient,
+    private val nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) : CodexSessionProvider, CodexLoginService {
     private data class PendingDeviceLogin(
         val code: CodexDeviceCode,
         val version: CodexCredentialTransactionGate.Version,
     )
 
+    private data class CachedQuota(
+        val accessToken: String,
+        val snapshot: CodexQuotaSnapshot,
+        val fetchedAtEpochMillis: Long,
+    )
+
     private val refreshMutexes = ConcurrentHashMap<String, Mutex>()
     private val pendingDeviceLogins = ConcurrentHashMap<String, PendingDeviceLogin>()
+    private val quotaMutexes = ConcurrentHashMap<String, Mutex>()
+    private val quotaCache = ConcurrentHashMap<String, CachedQuota>()
+    private val quotaCacheGenerations = ConcurrentHashMap<String, Long>()
     private val deviceLoginStartMutex = Mutex()
     val credentialRevision = credentialStore.revision
 
@@ -99,6 +109,7 @@ class CodexAuthService(
                 throw CancellationException("Device login was superseded")
             }
             terminal = true
+            invalidateQuotaCache(key)
             return credential
         } catch (error: CancellationException) {
             throw error
@@ -133,14 +144,55 @@ class CodexAuthService(
         refreshEvenIfValid = true,
     )
 
-    suspend fun readQuota(providerSetting: ProviderSetting.OpenAICodex): CodexQuotaSnapshot {
-        val credential = requireValidCredential(providerSetting)
+    suspend fun readQuota(providerSetting: ProviderSetting.OpenAICodex): CodexQuotaSnapshot =
+        readQuota(providerSetting, forceRefresh = false)
+
+    suspend fun refreshQuota(providerSetting: ProviderSetting.OpenAICodex): CodexQuotaSnapshot =
+        readQuota(providerSetting, forceRefresh = true)
+
+    private suspend fun readQuota(
+        providerSetting: ProviderSetting.OpenAICodex,
+        forceRefresh: Boolean,
+    ): CodexQuotaSnapshot {
+        val key = providerSetting.id.toString()
+        val mutex = quotaMutexes.getOrPut(key) { Mutex() }
+        return mutex.withLock {
+            val credential = requireValidCredential(providerSetting)
+            val cacheGeneration = quotaCacheGenerations[key] ?: 0L
+            val now = now()
+            quotaCache[key]
+                ?.takeIf { cached ->
+                    !forceRefresh &&
+                        cached.accessToken == credential.accessToken &&
+                        now >= cached.fetchedAtEpochMillis &&
+                        now - cached.fetchedAtEpochMillis < QUOTA_CACHE_TTL_MILLIS
+                }
+                ?.snapshot
+                ?: readQuotaFromNetwork(providerSetting, credential).also { (snapshot, credentialUsed) ->
+                    if (
+                        (quotaCacheGenerations[key] ?: 0L) == cacheGeneration &&
+                        credentialStore.read(providerSetting.id)?.accessToken == credentialUsed.accessToken
+                    ) {
+                        quotaCache[key] = CachedQuota(
+                            accessToken = credentialUsed.accessToken,
+                            snapshot = snapshot,
+                            fetchedAtEpochMillis = now(),
+                        )
+                    }
+                }.first
+        }
+    }
+
+    private suspend fun readQuotaFromNetwork(
+        providerSetting: ProviderSetting.OpenAICodex,
+        credential: CodexCredential,
+    ): Pair<CodexQuotaSnapshot, CodexCredential> {
         return try {
-            protocolClient.readQuota(credential, providerSetting.proxy)
+            protocolClient.readQuota(credential, providerSetting.proxy) to credential
         } catch (error: CodexProtocolException) {
             if (error.statusCode != 401) throw error
             val refreshed = forceRefreshCredential(providerSetting, credential.accessToken)
-            protocolClient.readQuota(refreshed, providerSetting.proxy)
+            protocolClient.readQuota(refreshed, providerSetting.proxy) to refreshed
         }
     }
 
@@ -154,6 +206,8 @@ class CodexAuthService(
                 credentialStore.remove(providerId)
                 commitAssociatedState()
                 refreshMutexes.remove(providerId.toString())
+                quotaMutexes.remove(providerId.toString())
+                invalidateQuotaCache(providerId.toString())
             } catch (error: Throwable) {
                 previous?.let { credentialStore.write(providerId, it) }
                 throw error
@@ -183,6 +237,7 @@ class CodexAuthService(
                 } catch (error: CodexProtocolException) {
                     if (error.statusCode == 400 || error.statusCode == 401) {
                         credentialStore.remove(providerSetting.id)
+                        invalidateQuotaCache(providerSetting.id.toString())
                     }
                     throw error
                 }
@@ -190,9 +245,15 @@ class CodexAuthService(
         }
     }
 
-    private fun now() = Clock.System.now().toEpochMilliseconds()
+    private fun now() = nowMillis()
+
+    private fun invalidateQuotaCache(key: String) {
+        quotaCache.remove(key)
+        quotaCacheGenerations.compute(key) { _, generation -> (generation ?: 0L) + 1L }
+    }
 
     private companion object {
         const val REFRESH_SKEW_MILLIS = 60_000L
+        const val QUOTA_CACHE_TTL_MILLIS = 10 * 60 * 1_000L
     }
 }
