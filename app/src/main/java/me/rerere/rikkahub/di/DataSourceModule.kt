@@ -6,6 +6,11 @@ import io.pebbletemplates.pebble.PebbleEngine
 import kotlinx.serialization.json.Json
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.providers.openai.OpenRouterModelCapabilityProvider
+import me.rerere.ai.provider.providers.codex.CodexProtocolClient
+import me.rerere.rikkahub.data.ai.codex.AndroidCodexCredentialStore
+import me.rerere.rikkahub.data.ai.codex.CodexAuthService
+import me.rerere.rikkahub.data.ai.codex.CodexCredentialStore
+import me.rerere.rikkahub.data.ai.codex.CodexCredentialTransactionGate
 import me.rerere.common.http.AcceptLanguageBuilder
 import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.data.ai.AIRequestInterceptor
@@ -185,10 +190,13 @@ val dataSourceModule = module {
             .followRedirects(true)
             .retryOnConnectionFailure(true)
             .addInterceptor { chain ->
-                val request = chain.request().newBuilder()
+                val original = chain.request()
+                val builder = original.newBuilder()
                     .addHeader(HttpHeaders.AcceptLanguage, acceptLang)
-                    .addHeader(HttpHeaders.UserAgent, "LastChat-Android/${BuildConfig.VERSION_NAME}")
-                    .build()
+                if (original.header(HttpHeaders.UserAgent) == null) {
+                    builder.addHeader(HttpHeaders.UserAgent, "LastChat-Android/${BuildConfig.VERSION_NAME}")
+                }
+                val request = builder.build()
                 chain.proceed(request)
             }
             .addInterceptor(AIRequestInterceptor(remoteConfig = get()))
@@ -198,6 +206,7 @@ val dataSourceModule = module {
                 level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.HEADERS else HttpLoggingInterceptor.Level.NONE
                 redactHeader("Authorization")
                 redactHeader("x-api-key")
+                redactHeader("ChatGPT-Account-ID")
                 redactQueryParams("key")
             })
             .build()
@@ -207,12 +216,31 @@ val dataSourceModule = module {
         SponsorAPI.create(get())
     }
 
+    single { CodexCredentialTransactionGate() }
+
+    single<CodexCredentialStore> {
+        AndroidCodexCredentialStore(context = get())
+    }
+
+    single {
+        CodexProtocolClient(client = get())
+    }
+
+    single {
+        CodexAuthService(
+            credentialStore = get(),
+            credentialTransactionGate = get(),
+            protocolClient = get(),
+        )
+    }
+
     single {
         ProviderManager(
             client = get(),
             openRouterModelCapabilityProvider = runCatching {
                 get<OpenRouterModelCapabilityProvider>()
             }.getOrNull(),
+            codexSessionProvider = get<CodexAuthService>(),
         )
     }
 
@@ -224,6 +252,8 @@ val dataSourceModule = module {
             context = get(),
             database = get(),
             skillUuidMigration = get(),
+            codexCredentialStore = get(),
+            codexCredentialTransactionGate = get(),
         )
     }
 

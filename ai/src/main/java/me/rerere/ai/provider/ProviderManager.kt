@@ -3,6 +3,8 @@ package me.rerere.ai.provider
 import me.rerere.ai.provider.providers.ClaudeProvider
 import me.rerere.ai.provider.providers.GoogleProvider
 import me.rerere.ai.provider.providers.OpenAIProvider
+import me.rerere.ai.provider.providers.codex.CodexSessionProvider
+import me.rerere.ai.provider.providers.codex.OpenAICodexProvider
 import me.rerere.ai.provider.providers.openai.OpenRouterModelCapabilityProvider
 import okhttp3.OkHttpClient
 
@@ -12,6 +14,7 @@ import okhttp3.OkHttpClient
 class ProviderManager(
     client: OkHttpClient,
     openRouterModelCapabilityProvider: OpenRouterModelCapabilityProvider? = null,
+    codexSessionProvider: CodexSessionProvider? = null,
 ) {
     // 存储已注册的Provider实例
     private val providers = mutableMapOf<String, Provider<*>>()
@@ -21,6 +24,9 @@ class ProviderManager(
         registerProvider("openai", OpenAIProvider(client, openRouterModelCapabilityProvider))
         registerProvider("google", GoogleProvider(client))
         registerProvider("claude", ClaudeProvider(client))
+        if (codexSessionProvider != null) {
+            registerProvider("openai_codex", OpenAICodexProvider(client, codexSessionProvider))
+        }
     }
 
     /**
@@ -55,6 +61,7 @@ class ProviderManager(
             is ProviderSetting.OpenAI -> getProvider("openai")
             is ProviderSetting.Google -> getProvider("google")
             is ProviderSetting.Claude -> getProvider("claude")
+            is ProviderSetting.OpenAICodex -> getProvider("openai_codex")
         } as Provider<T>
     }
 }

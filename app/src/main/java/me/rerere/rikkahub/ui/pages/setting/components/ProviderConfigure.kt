@@ -79,6 +79,7 @@ fun ProviderConfigure(
                         is ProviderSetting.OpenAI -> provider.copy(enabled = enabled)
                         is ProviderSetting.Google -> provider.copy(enabled = enabled)
                         is ProviderSetting.Claude -> provider.copy(enabled = enabled)
+                        is ProviderSetting.OpenAICodex -> provider.copy(enabled = enabled)
                     }
                     onEdit(updated)
                 }
@@ -127,6 +128,7 @@ fun ProviderConfigure(
                         is ProviderSetting.OpenAI -> provider.copy(customIconUri = uri.toString())
                         is ProviderSetting.Google -> provider.copy(customIconUri = uri.toString())
                         is ProviderSetting.Claude -> provider.copy(customIconUri = uri.toString())
+                        is ProviderSetting.OpenAICodex -> provider.copy(customIconUri = uri.toString())
                     }
                     onEdit(updated)
                 },
@@ -135,6 +137,7 @@ fun ProviderConfigure(
                         is ProviderSetting.OpenAI -> provider.copy(customIconUri = null)
                         is ProviderSetting.Google -> provider.copy(customIconUri = null)
                         is ProviderSetting.Claude -> provider.copy(customIconUri = null)
+                        is ProviderSetting.OpenAICodex -> provider.copy(customIconUri = null)
                     }
                     onEdit(updated)
                 },
@@ -147,6 +150,7 @@ fun ProviderConfigure(
                         is ProviderSetting.OpenAI -> provider.copy(name = newName)
                         is ProviderSetting.Google -> provider.copy(name = newName)
                         is ProviderSetting.Claude -> provider.copy(name = newName)
+                        is ProviderSetting.OpenAICodex -> provider.copy(name = newName)
                     }
                     onEdit(updated)
                 },
@@ -170,6 +174,8 @@ fun ProviderConfigure(
             is ProviderSetting.Claude -> {
                 ProviderConfigureClaude(provider, onEdit)
             }
+
+            is ProviderSetting.OpenAICodex -> Unit
         }
     }
 }
@@ -186,32 +192,38 @@ fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSettin
         is ProviderSetting.OpenAI -> this.apiKey
         is ProviderSetting.Google -> this.apiKey
         is ProviderSetting.Claude -> this.apiKey
+        is ProviderSetting.OpenAICodex -> ""
     }
     val multiKeyEnabled = when (this) {
         is ProviderSetting.OpenAI -> this.multiKeyEnabled
         is ProviderSetting.Google -> this.multiKeyEnabled
         is ProviderSetting.Claude -> this.multiKeyEnabled
+        is ProviderSetting.OpenAICodex -> false
     }
     val apiKeys = when (this) {
         is ProviderSetting.OpenAI -> this.apiKeys
         is ProviderSetting.Google -> this.apiKeys
         is ProviderSetting.Claude -> this.apiKeys
+        is ProviderSetting.OpenAICodex -> emptyList()
     }
     val keyStrategy = when (this) {
         is ProviderSetting.OpenAI -> this.keyStrategy
         is ProviderSetting.Google -> this.keyStrategy
         is ProviderSetting.Claude -> this.keyStrategy
+        is ProviderSetting.OpenAICodex -> me.rerere.ai.provider.ProviderKeyStrategy.RANDOM
     }
     val legacyApiKeyBackup = when (this) {
         is ProviderSetting.OpenAI -> this.legacyApiKeyBackup
         is ProviderSetting.Google -> this.legacyApiKeyBackup
         is ProviderSetting.Claude -> this.legacyApiKeyBackup
+        is ProviderSetting.OpenAICodex -> ""
     }
 
     val baseUrl = when (this) {
         is ProviderSetting.OpenAI -> this.baseUrl
         is ProviderSetting.Google -> this.baseUrl
         is ProviderSetting.Claude -> this.baseUrl
+        is ProviderSetting.OpenAICodex -> "https://chatgpt.com/backend-api/codex"
     }
 
     val rewrittenBaseUrl = baseUrl.rewriteProviderBaseUrlForTarget(type)

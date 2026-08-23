@@ -75,16 +75,56 @@ class SSEEventSourceTest {
         assertTrue(failure is IllegalStateException)
     }
 
+    @Test
+    fun `processResponse accepts a header-less SSE payload`() {
+        val events = mutableListOf<String>()
+        var failure: Throwable? = null
+        val source = SSEEventSource(
+            request = request,
+            listener = object : EventSourceListener() {
+                override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
+                    events += data
+                }
+
+                override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+                    failure = t
+                }
+            },
+        )
+
+        source.processResponse(response(body = "event: response.created\ndata: {}\n\n", contentType = null))
+
+        assertEquals(listOf("{}"), events)
+        assertNull(failure)
+    }
+
+    @Test
+    fun `processResponse rejects header-less JSON`() {
+        var failure: Throwable? = null
+        val source = SSEEventSource(
+            request = request,
+            listener = object : EventSourceListener() {
+                override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+                    failure = t
+                }
+            },
+        )
+
+        source.processResponse(response(body = "{\"ok\":true}", contentType = null))
+
+        assertTrue(failure is IllegalStateException)
+    }
+
     private fun response(
         body: String,
-        contentType: String,
+        contentType: String?,
     ): Response {
         return Response.Builder()
             .request(request)
             .protocol(Protocol.HTTP_1_1)
             .code(200)
             .message("OK")
-            .body(body.toResponseBody(contentType.toMediaType()))
+            .body(body.toResponseBody(contentType?.toMediaType()))
             .build()
     }
 

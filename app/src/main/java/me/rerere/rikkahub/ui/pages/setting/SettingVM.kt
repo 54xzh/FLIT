@@ -36,6 +36,20 @@ class SettingVM(
         }
     }
 
+    suspend fun addProvider(provider: me.rerere.ai.provider.ProviderSetting) {
+        settingsStore.update { latest ->
+            if (latest.providers.any { it.id == provider.id }) latest else latest.copy(
+                providers = listOf(provider) + latest.providers,
+            )
+        }
+    }
+
+    suspend fun removeProvider(providerId: kotlin.uuid.Uuid) {
+        settingsStore.update { latest ->
+            latest.copy(providers = latest.providers.filterNot { it.id == providerId })
+        }
+    }
+
     fun saveMcpConfig(config: McpServerConfig) {
         viewModelScope.launch {
             var clearOldSelection = false

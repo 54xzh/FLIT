@@ -133,12 +133,16 @@ import me.rerere.ai.provider.ModelQuota
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderProxy
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.providers.codex.CodexCredential
+import me.rerere.ai.provider.providers.codex.CodexQuotaSnapshot
+import me.rerere.ai.provider.providers.codex.CodexQuotaWindow
 import me.rerere.ai.provider.QuotaResetPeriod
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.isClaudeBuiltInSearchEnabled
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.codex.CodexAuthService
 import me.rerere.rikkahub.ui.components.ai.ModelAbilityTag
 import me.rerere.rikkahub.ui.components.ai.ModelModalityTag
 import me.rerere.rikkahub.ui.components.ai.ModelSelector
@@ -186,7 +190,9 @@ import me.rerere.rikkahub.ui.hooks.HapticPattern
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.Slider
+import java.text.DateFormat
 import java.text.NumberFormat
+import java.util.Date
 
 private const val MODEL_SETTINGS_ADVANCED_PAGE = 1
 
@@ -198,6 +204,7 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
     val provider = settings.providers.find { it.id == id } ?: return
     val pager = rememberPagerState { 3 }
     val scope = rememberCoroutineScope()
+    val codexAuthService = koinInject<CodexAuthService>()
 
     val onEdit = { newProvider: ProviderSetting ->
         val newSettings = settings.copy(
@@ -212,11 +219,16 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
         vm.updateSettings(newSettings)
     }
     val onDelete = {
-        val newSettings = settings.copy(
-            providers = settings.providers - provider
-        )
-        vm.updateSettings(newSettings)
-        navController.popBackStack()
+        scope.launch {
+            if (provider is ProviderSetting.OpenAICodex) {
+                codexAuthService.logout(provider.id) {
+                    vm.removeProvider(provider.id)
+                }
+            } else {
+                vm.removeProvider(provider.id)
+            }
+            navController.popBackStack()
+        }
     }
 
     val onUpdateModelNameIfUnchanged = { modelUuid: Uuid, expectedName: String, generatedName: String ->
@@ -257,21 +269,22 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                     }
                 },
                 actions = {
-                    val shareSheetState = rememberShareSheetState()
-                    ShareSheet(shareSheetState)
-                    
                     // Test connection button
                     ConnectionTesterButton(
                         provider = provider,
                         scope = scope
                     )
-                    
-                    IconButton(
-                        onClick = {
-                            shareSheetState.show(provider)
+
+                    if (provider !is ProviderSetting.OpenAICodex) {
+                        val shareSheetState = rememberShareSheetState()
+                        ShareSheet(shareSheetState)
+                        IconButton(
+                            onClick = {
+                                shareSheetState.show(provider)
+                            }
+                        ) {
+                            Icon(Icons.Rounded.Share, null)
                         }
-                    ) {
-                        Icon(Icons.Rounded.Share, null)
                     }
                 }
             )
@@ -2253,6 +2266,10 @@ private fun SettingProviderConfigPage(
                 )
             }
 
+            (internalProvider as? ProviderSetting.OpenAICodex)?.let { codexProvider ->
+                CodexAccountCard(codexProvider)
+            }
+
             // Tags section
             Card(
                 shape = me.rerere.rikkahub.ui.theme.AppShapes.CardLarge,
@@ -2318,6 +2335,243 @@ private fun SettingProviderConfigPage(
                     )
                 )
         )
+    }
+}
+
+private sealed interface CodexAccountState {
+    data object Loading : CodexAccountState
+    data object LoggedOut : CodexAccountState
+    data class Ready(
+        val credential: CodexCredential,
+        val quota: CodexQuotaSnapshot,
+    ) : CodexAccountState
+    data class Failed(
+        val credential: CodexCredential?,
+        val message: String,
+    ) : CodexAccountState
+}
+
+@Composable
+private fun CodexAccountCard(provider: ProviderSetting.OpenAICodex) {
+    val authService = koinInject<CodexAuthService>()
+    val credentialRevision by authService.credentialRevision.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val haptics = rememberPremiumHaptics()
+    var reloadKey by remember { mutableIntStateOf(0) }
+    var accountState by remember(provider.id) { mutableStateOf<CodexAccountState>(CodexAccountState.Loading) }
+    var showLogin by remember { mutableStateOf(false) }
+
+    LaunchedEffect(provider.id, reloadKey, credentialRevision) {
+        accountState = CodexAccountState.Loading
+        val credential = authService.getCredential(provider.id)
+        if (credential == null) {
+            accountState = CodexAccountState.LoggedOut
+            return@LaunchedEffect
+        }
+        accountState = try {
+            CodexAccountState.Ready(credential, authService.readQuota(provider))
+        } catch (error: Throwable) {
+            val currentCredential = authService.getCredential(provider.id)
+            if (currentCredential == null) {
+                CodexAccountState.LoggedOut
+            } else {
+                CodexAccountState.Failed(currentCredential, error.message.orEmpty())
+            }
+        }
+    }
+
+    Card(
+        shape = me.rerere.rikkahub.ui.theme.AppShapes.CardLarge,
+        colors = CardDefaults.cardColors(
+            containerColor = if (LocalDarkMode.current) {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            }
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.codex_account_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            when (val state = accountState) {
+                CodexAccountState.Loading -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                    }
+                }
+
+                CodexAccountState.LoggedOut -> {
+                    Text(
+                        text = stringResource(R.string.codex_login_required),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            showLogin = true
+                        },
+                        shape = me.rerere.rikkahub.ui.theme.AppShapes.ButtonPill,
+                    ) {
+                        Text(stringResource(R.string.codex_login_action))
+                    }
+                }
+
+                is CodexAccountState.Ready -> {
+                    CodexAccountSummary(state.credential)
+                    CodexQuotaContent(state.quota)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            showLogin = true
+                        }) {
+                            Text(stringResource(R.string.codex_relogin))
+                        }
+                        TextButton(onClick = {
+                            haptics.perform(HapticPattern.Thud)
+                            scope.launch {
+                                authService.logout(provider.id)
+                                reloadKey++
+                            }
+                        }) {
+                            Text(stringResource(R.string.codex_logout))
+                        }
+                    }
+                }
+
+                is CodexAccountState.Failed -> {
+                    state.credential?.let { CodexAccountSummary(it) }
+                    Text(
+                        text = if (state.message.isBlank()) {
+                            stringResource(R.string.codex_quota_failed)
+                        } else {
+                            stringResource(R.string.codex_quota_failed_with_reason, state.message)
+                        },
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            reloadKey++
+                        }) {
+                            Text(stringResource(R.string.codex_retry))
+                        }
+                        TextButton(onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            showLogin = true
+                        }) {
+                            Text(stringResource(R.string.codex_relogin))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showLogin) {
+        CodexLoginDialog(
+            provider = provider,
+            onDismiss = { showLogin = false },
+            onSuccess = {
+                showLogin = false
+                reloadKey++
+            },
+        )
+    }
+}
+
+@Composable
+private fun CodexAccountSummary(credential: CodexCredential) {
+    val accountLabel = credential.email ?: credential.accountId.takeLast(8).let { "••••$it" }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = stringResource(R.string.codex_logged_in_as, accountLabel),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        credential.planType?.takeIf { it.isNotBlank() }?.let { plan ->
+            Text(
+                text = stringResource(R.string.codex_subscription_type, plan),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CodexQuotaContent(quota: CodexQuotaSnapshot) {
+    if (quota.buckets.isEmpty() && quota.creditBalance == null) {
+        Text(
+            text = stringResource(R.string.codex_quota_unavailable),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        quota.creditBalance?.let { balance ->
+            Text(
+                text = stringResource(
+                    R.string.codex_credit_balance,
+                    NumberFormat.getNumberInstance().format(balance),
+                ),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+        quota.buckets.forEach { bucket ->
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = bucket.name?.takeIf { it.isNotBlank() } ?: bucket.id,
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                bucket.primary?.let { CodexQuotaWindowRow(it) }
+                bucket.secondary?.let { CodexQuotaWindowRow(it) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CodexQuotaWindowRow(window: CodexQuotaWindow) {
+    val used = window.usedPercent.coerceIn(0f, 100f)
+    val remaining = 100f - used
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(window.label, style = MaterialTheme.typography.bodySmall)
+            Text(
+                text = stringResource(
+                    R.string.codex_quota_percentages,
+                    used.toInt(),
+                    remaining.toInt(),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        LinearProgressIndicator(
+            progress = { used / 100f },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        window.resetsAtEpochSeconds?.let { resetsAt ->
+            Text(
+                text = stringResource(
+                    R.string.codex_quota_resets_at,
+                    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                        .format(Date(resetsAt * 1_000L)),
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -2567,6 +2821,13 @@ private fun ModelList(
     contentPadding: PaddingValues = PaddingValues(0.dp)
 ) {
     val providerManager = koinInject<ProviderManager>()
+    val codexAuthService = koinInject<CodexAuthService>()
+    val credentialRevision by codexAuthService.credentialRevision.collectAsStateWithLifecycle()
+    val modelCredentialRevision = if (providerSetting is ProviderSetting.OpenAICodex) {
+        credentialRevision
+    } else {
+        0L
+    }
     val modelCapabilityRepository = koinInject<ModelCapabilityRepository>()
     val scope = rememberCoroutineScope()
     LaunchedEffect(providerSetting.id, providerSetting.models) {
@@ -2577,7 +2838,7 @@ private fun ModelList(
             onUpdateProvider(updatedProvider.ensureVisibleQuotaGroups())
         }
     }
-    val modelList by produceState(emptyList(), providerSetting) {
+    val modelList by produceState(emptyList(), providerSetting, modelCredentialRevision) {
         runCatching {
             println("loading models...")
             value = providerManager.getProviderByType(providerSetting)
@@ -3311,7 +3572,20 @@ private fun ModelPickerFab(
     var showPicker by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val modelCapabilityRepository = koinInject<ModelCapabilityRepository>()
+    val codexAuthService = koinInject<CodexAuthService>()
+    val credentialRevision by codexAuthService.credentialRevision.collectAsStateWithLifecycle()
     val haptics = me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics()
+    val codexLoggedIn by produceState<Boolean?>(
+        initialValue = null,
+        parentProvider.id,
+        credentialRevision,
+    ) {
+        value = if (parentProvider is ProviderSetting.OpenAICodex) {
+            codexAuthService.getCredential(parentProvider.id) != null
+        } else {
+            null
+        }
+    }
     
     FloatingActionButton(
         onClick = { 
@@ -3398,6 +3672,7 @@ private fun ModelPickerFab(
                                 is ProviderSetting.OpenAI -> parentProvider.apiKey.isNotBlank()
                                 is ProviderSetting.Google -> parentProvider.apiKey.isNotBlank()
                                 is ProviderSetting.Claude -> parentProvider.apiKey.isNotBlank()
+                                is ProviderSetting.OpenAICodex -> codexLoggedIn == true
                             }
                             
                             Column(
@@ -3409,8 +3684,13 @@ private fun ModelPickerFab(
                             ) {
                                 Text(
                                     text = stringResource(
-                                        if (hasApiKey) R.string.setting_provider_page_no_models_with_api_key
-                                        else R.string.setting_provider_page_no_models_no_api_key
+                                        if (parentProvider is ProviderSetting.OpenAICodex && !hasApiKey) {
+                                            R.string.codex_models_login_required
+                                        } else if (hasApiKey) {
+                                            R.string.setting_provider_page_no_models_with_api_key
+                                        } else {
+                                            R.string.setting_provider_page_no_models_no_api_key
+                                        }
                                     ),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -3629,6 +3909,19 @@ private fun ModelPicker(
     var showModal by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val modelCapabilityRepository = koinInject<ModelCapabilityRepository>()
+    val codexAuthService = koinInject<CodexAuthService>()
+    val credentialRevision by codexAuthService.credentialRevision.collectAsStateWithLifecycle()
+    val codexLoggedIn by produceState<Boolean?>(
+        initialValue = null,
+        parentProvider.id,
+        credentialRevision,
+    ) {
+        value = if (parentProvider is ProviderSetting.OpenAICodex) {
+            codexAuthService.getCredential(parentProvider.id) != null
+        } else {
+            null
+        }
+    }
     if (showModal) {
         ModalBottomSheet(
             onDismissRequest = { showModal = false },
@@ -3706,6 +3999,7 @@ private fun ModelPicker(
                                 is ProviderSetting.OpenAI -> parentProvider.apiKey.isNotBlank()
                                 is ProviderSetting.Google -> parentProvider.apiKey.isNotBlank()
                                 is ProviderSetting.Claude -> parentProvider.apiKey.isNotBlank()
+                                is ProviderSetting.OpenAICodex -> codexLoggedIn == true
                             }
                             
                             Column(
@@ -3717,8 +4011,13 @@ private fun ModelPicker(
                             ) {
                                 Text(
                                     text = stringResource(
-                                        if (hasApiKey) R.string.setting_provider_page_no_models_with_api_key
-                                        else R.string.setting_provider_page_no_models_no_api_key
+                                        if (parentProvider is ProviderSetting.OpenAICodex && !hasApiKey) {
+                                            R.string.codex_models_login_required
+                                        } else if (hasApiKey) {
+                                            R.string.setting_provider_page_no_models_with_api_key
+                                        } else {
+                                            R.string.setting_provider_page_no_models_no_api_key
+                                        }
                                     ),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -85,9 +85,20 @@ class SSEEventSource(
     }
 
     private fun ResponseBody.isEventStream(): Boolean {
-        val contentType = contentType() ?: return false
-        return contentType.type == "text" &&
-            (contentType.subtype == "event-stream" || contentType.subtype == "plain")
+        val contentType = contentType()
+        if (contentType != null) {
+            return contentType.type == "text" &&
+                (contentType.subtype == "event-stream" || contentType.subtype == "plain")
+        }
+
+        // The Codex backend can omit Content-Type on an otherwise valid SSE response.
+        // Do not accept arbitrary header-less data: inspect a non-consuming preview first.
+        val preview = runCatching {
+            val source = source()
+            if (!source.request(1)) return@runCatching ""
+            source.peek().readUtf8(minOf(source.buffer.size, 512L)).trimStart()
+        }.getOrDefault("")
+        return preview.startsWith("data:") || preview.startsWith("event:") || preview.startsWith(":")
     }
 
     override fun onFailure(

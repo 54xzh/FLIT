@@ -53,6 +53,7 @@ private val SENSITIVE_NAMES = setOf(
     "token",
     "access_token",
     "refresh_token",
+    "chatgpt-account-id",
     "secret",
     "password",
     "private_key",

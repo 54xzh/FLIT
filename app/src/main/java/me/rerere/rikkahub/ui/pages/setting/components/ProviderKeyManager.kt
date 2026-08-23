@@ -706,6 +706,8 @@ private suspend fun testProviderApiKey(
             )
             providerManager.getProviderByType(testProvider).generateText(testProvider, messages, params)
         }
+
+        is ProviderSetting.OpenAICodex -> Unit
     }
 }
 

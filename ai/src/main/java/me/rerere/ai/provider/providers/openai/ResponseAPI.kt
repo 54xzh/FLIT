@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -59,6 +60,15 @@ import okhttp3.sse.EventSourceListener
 import kotlin.time.Clock
 
 private const val TAG = "ResponseAPI"
+private const val REASONING_ID_METADATA = "openai_reasoning_id"
+private const val REASONING_ENCRYPTED_METADATA = "openai_reasoning_encrypted_content"
+
+internal class ResponseStreamState {
+    val functionCallIds = mutableMapOf<String, String>()
+    val completedFunctionCalls = mutableSetOf<String>()
+    val textItemsWithDeltas = mutableSetOf<String>()
+    val reasoningItemsWithDeltas = mutableSetOf<String>()
+}
 
 class ResponseAPI(
     private val client: OkHttpClient,
@@ -143,6 +153,7 @@ class ResponseAPI(
         // 请求体可能含 base64 附件（数 MB），发布版不写入日志
         if (BuildConfig.DEBUG) Log.i(TAG, "streamText: $requestBodyJson")
         val rawEventBuffer = StringBuilder()
+        val streamState = ResponseStreamState()
 
         val listener = object : EventSourceListener() {
             override fun onEvent(
@@ -159,6 +170,9 @@ class ResponseAPI(
                     close()
                     return
                 }
+                // Some Codex streams use an empty event as a keepalive. It has no model
+                // payload and must not be treated as malformed JSON.
+                if (eventData.isEmpty()) return
                 val json = runCatching { json.parseToJsonElement(eventData).jsonObject }
                     .getOrElse { throwable ->
                         close(
@@ -181,7 +195,7 @@ class ResponseAPI(
                     )
                     return
                 }
-                val chunk = runCatching { parseResponseDelta(json) }
+                val chunk = runCatching { parseResponseDelta(json, streamState) }
                     .getOrElse { throwable ->
                         close(
                             RawResponseException(
@@ -225,9 +239,24 @@ class ResponseAPI(
                     e.printStackTrace()
                 } finally {
                     val exceptionWithStatus = response?.let { resp ->
+                        val contentType = resp.header("Content-Type") ?: "missing"
+                        val requestId = resp.header("x-request-id")
+                            ?: resp.header("x-openai-request-id")
+                        val detail = buildString {
+                            append(exception?.message ?: "HTTP ${resp.code}")
+                            if (contentType == "missing" || exception?.message?.contains(
+                                    "Invalid content-type:",
+                                    ignoreCase = true,
+                                ) == true
+                            ) {
+                                append(" (HTTP ${resp.code}, Content-Type: $contentType")
+                                requestId?.let { append(", request: $it") }
+                                append(")")
+                            }
+                        }
                         HttpStatusException(
                             statusCode = resp.code,
-                            message = exception?.message ?: "HTTP ${resp.code}",
+                            message = detail,
                             cause = exception,
                         )
                     } ?: exception
@@ -338,8 +367,16 @@ class ResponseAPI(
 
     private fun buildMessages(messages: List<UIMessage>) = buildJsonArray {
         messages
-            .filter {
-                it.isValidToUpload() && it.role != MessageRole.SYSTEM
+            .filter { message ->
+                message.role != MessageRole.SYSTEM && (
+                    message.isValidToUpload() || message.parts.any { part ->
+                        part is UIMessagePart.Reasoning && part.metadata
+                            ?.get(REASONING_ENCRYPTED_METADATA)
+                            ?.jsonPrimitive
+                            ?.contentOrNull
+                            ?.isNotBlank() == true
+                    }
+                )
             }
             .forEachIndexed { index, message ->
                 if (message.role == MessageRole.TOOL) {
@@ -352,21 +389,42 @@ class ResponseAPI(
                     }
                     return@forEachIndexed
                 }
-                add(buildJsonObject {
+                message.parts.filterIsInstance<UIMessagePart.Reasoning>().forEach { reasoning ->
+                    val metadata = reasoning.metadata ?: return@forEach
+                    val encrypted = metadata[REASONING_ENCRYPTED_METADATA]
+                        ?.jsonPrimitive
+                        ?.contentOrNull
+                        ?.takeIf { it.isNotBlank() }
+                        ?: return@forEach
+                    add(buildJsonObject {
+                        put("type", "reasoning")
+                        metadata[REASONING_ID_METADATA]
+                            ?.jsonPrimitive
+                            ?.contentOrNull
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { put("id", it) }
+                        put("encrypted_content", encrypted)
+                        putJsonArray("summary") { }
+                    })
+                }
+                val contentParts = message.parts.filter {
+                    it is UIMessagePart.Text || it is UIMessagePart.Image || it is UIMessagePart.Audio
+                }
+                if (contentParts.isNotEmpty()) add(buildJsonObject {
                     // role
                     put("role", JsonPrimitive(message.role.name.lowercase()))
 
                     // content
-                    if (message.parts.isOnlyTextPart()) {
+                    if (contentParts.isOnlyTextPart()) {
                         // 如果只是纯文本，直接赋值给content
                         put(
                             "content",
-                            message.parts.filterIsInstance<UIMessagePart.Text>().first().text
+                            contentParts.filterIsInstance<UIMessagePart.Text>().first().text
                         )
                     } else {
                         // 否则，使用parts构建
                         putJsonArray("content") {
-                            message.parts.forEach { part ->
+                            contentParts.forEach { part ->
                                 when (part) {
                                     is UIMessagePart.Text -> {
                                         add(buildJsonObject {
@@ -449,9 +507,13 @@ class ResponseAPI(
             }
     }
 
-    private fun extractStreamError(jsonObject: JsonObject): Exception? {
+    internal fun extractStreamError(jsonObject: JsonObject): Exception? {
         val chunkType = jsonObject["type"]?.jsonPrimitive?.contentOrNull?.trim()
-        if (chunkType != "response.failed" && chunkType != "error") {
+        if (
+            chunkType != "response.failed" &&
+            chunkType != "response.incomplete" &&
+            chunkType != "error"
+        ) {
             return null
         }
 
@@ -483,11 +545,28 @@ class ResponseAPI(
         return JsonPrimitive(fallbackMessage).parseErrorDetail()
     }
 
-    private fun parseResponseDelta(jsonObject: JsonObject): MessageChunk? {
+    private fun reasoningMetadata(item: JsonObject): JsonObject? {
+        val id = item["id"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+        val encrypted = item["encrypted_content"]
+            ?.jsonPrimitive
+            ?.contentOrNull
+            ?.takeIf { it.isNotBlank() }
+        if (id == null && encrypted == null) return null
+        return buildJsonObject {
+            id?.let { put(REASONING_ID_METADATA, it) }
+            encrypted?.let { put(REASONING_ENCRYPTED_METADATA, it) }
+        }
+    }
+
+    internal fun parseResponseDelta(
+        jsonObject: JsonObject,
+        state: ResponseStreamState,
+    ): MessageChunk? {
         val chunkType = jsonObject["type"]?.jsonPrimitive?.content ?: error("chunk type not found")
 
         when (chunkType) {
             "response.output_text.delta" -> {
+                jsonObject["item_id"]?.jsonPrimitive?.contentOrNull?.let(state.textItemsWithDeltas::add)
                 return MessageChunk(
                     id = jsonObject["item_id"]?.jsonPrimitive?.contentOrNull ?: "",
                     model = "",
@@ -505,6 +584,8 @@ class ResponseAPI(
             }
 
             "response.reasoning_summary_text.delta" -> {
+                jsonObject["item_id"]?.jsonPrimitive?.contentOrNull
+                    ?.let(state.reasoningItemsWithDeltas::add)
                 return MessageChunk(
                     id = jsonObject["item_id"]?.jsonPrimitive?.contentOrNull ?: "",
                     model = "",
@@ -534,8 +615,11 @@ class ResponseAPI(
                 val type = item["type"]?.jsonPrimitive?.content ?: error("chunk type not found")
                 val id = item["id"]?.jsonPrimitive?.content ?: error("chunk id not found")
                 if (type == "function_call") {
+                    val callId = item["call_id"]?.jsonPrimitive?.contentOrNull
+                        ?: error("function call_id not found")
+                    state.functionCallIds[id] = callId
                     return MessageChunk(
-                        id = id,
+                        id = callId,
                         model = "",
                         choices = listOf(
                             UIMessageChoice(
@@ -545,7 +629,7 @@ class ResponseAPI(
                                     role = MessageRole.ASSISTANT,
                                     parts = listOf(
                                         UIMessagePart.ToolCall(
-                                            toolCallId = id,
+                                            toolCallId = callId,
                                             toolName = item["name"]?.jsonPrimitive?.content ?: "",
                                             arguments = item["arguments"]?.jsonPrimitive?.content
                                                 ?: ""
@@ -556,7 +640,7 @@ class ResponseAPI(
                             )
                         )
                     )
-                } else if(type == "reasoning") {
+                } else if (type == "reasoning") {
                     return MessageChunk(
                         id = id,
                         model = "",
@@ -571,6 +655,7 @@ class ResponseAPI(
                                             reasoning = "",
                                             createdAt = Clock.System.now(),
                                             finishedAt = null,
+                                            metadata = reasoningMetadata(item),
                                         )
                                     )
                                 ),
@@ -581,9 +666,17 @@ class ResponseAPI(
                 }
             }
 
+            "response.output_item.done" -> {
+                val item = jsonObject["item"]?.jsonObject ?: error("chunk item not found")
+                return parseCompletedOutputItem(item, state)
+            }
+
             "response.function_call_arguments.done" -> {
-                val toolCallId =
-                    jsonObject["item_id"]?.jsonPrimitive?.content ?: error("item_id not found")
+                val itemId = jsonObject["item_id"]?.jsonPrimitive?.content ?: error("item_id not found")
+                val toolCallId = state.functionCallIds.remove(itemId)
+                    ?: jsonObject["call_id"]?.jsonPrimitive?.contentOrNull
+                    ?: error("call_id not found for $itemId")
+                state.completedFunctionCalls += toolCallId
                 val arguments =
                     jsonObject["arguments"]?.jsonPrimitive?.content ?: error("arguments not found")
                 return MessageChunk(
@@ -628,6 +721,108 @@ class ResponseAPI(
         return null
     }
 
+    private fun parseCompletedOutputItem(
+        item: JsonObject,
+        state: ResponseStreamState,
+    ): MessageChunk? {
+        return when (item["type"]?.jsonPrimitive?.contentOrNull) {
+            "function_call" -> {
+                val callId = item["call_id"]?.jsonPrimitive?.contentOrNull
+                    ?: error("function call_id not found")
+                if (!state.completedFunctionCalls.add(callId)) return null
+                MessageChunk(
+                    id = callId,
+                    model = "",
+                    choices = listOf(
+                        UIMessageChoice(
+                            index = 0,
+                            message = null,
+                            delta = UIMessage(
+                                role = MessageRole.ASSISTANT,
+                                parts = listOf(
+                                    UIMessagePart.ToolCall(
+                                        toolCallId = callId,
+                                        toolName = item["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                                        arguments = item["arguments"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                                    )
+                                ),
+                            ),
+                            finishReason = null,
+                        )
+                    ),
+                )
+            }
+
+            "reasoning" -> MessageChunk(
+                id = item["id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                model = "",
+                choices = listOf(
+                    UIMessageChoice(
+                        index = 0,
+                        message = null,
+                        delta = UIMessage(
+                            role = MessageRole.ASSISTANT,
+                            parts = listOf(
+                                UIMessagePart.Reasoning(
+                                    reasoning = if (
+                                        item["id"]?.jsonPrimitive?.contentOrNull in
+                                        state.reasoningItemsWithDeltas
+                                    ) "" else reasoningSummary(item),
+                                    createdAt = Clock.System.now(),
+                                    finishedAt = null,
+                                    metadata = reasoningMetadata(item),
+                                )
+                            ),
+                        ),
+                        finishReason = null,
+                    )
+                ),
+            )
+
+            "message" -> {
+                val itemId = item["id"]?.jsonPrimitive?.contentOrNull
+                if (itemId != null && itemId in state.textItemsWithDeltas) return null
+                val text = (item["content"] as? JsonArray)
+                    .orEmpty()
+                    .mapNotNull { content ->
+                        val part = content as? JsonObject ?: return@mapNotNull null
+                        if (part["type"]?.jsonPrimitive?.contentOrNull != "output_text") {
+                            return@mapNotNull null
+                        }
+                        part["text"]?.jsonPrimitive?.contentOrNull
+                    }
+                    .joinToString("")
+                if (text.isEmpty()) return null
+                MessageChunk(
+                    id = itemId.orEmpty(),
+                    model = "",
+                    choices = listOf(
+                        UIMessageChoice(
+                            index = 0,
+                            message = null,
+                            delta = UIMessage.assistant(text),
+                            finishReason = null,
+                        )
+                    ),
+                )
+            }
+
+            else -> null
+        }
+    }
+
+    private fun reasoningSummary(item: JsonObject): String =
+        (item["summary"] as? JsonArray)
+            .orEmpty()
+            .mapNotNull { summary ->
+                val part = summary as? JsonObject ?: return@mapNotNull null
+                if (part["type"]?.jsonPrimitive?.contentOrNull != "summary_text") {
+                    return@mapNotNull null
+                }
+                part["text"]?.jsonPrimitive?.contentOrNull
+            }
+            .joinToString("\n")
+
     private fun parseResponseOutput(jsonObject: JsonObject): MessageChunk {
         if (BuildConfig.DEBUG) println(jsonObject)
         val outputs = jsonObject["output"]?.jsonArray ?: error("output not found")
@@ -638,22 +833,14 @@ class ResponseAPI(
             val type = output["type"]?.jsonPrimitive?.content ?: error("output type not found")
             when (type) {
                 "reasoning" -> {
-                    val summary = output["summary"]?.jsonArray ?: error("summary not found")
-                    summary.map { it.jsonObject }.forEach { part ->
-                        val partType = part["type"]?.jsonPrimitive?.content ?: error("part type not found")
-                        when (partType) {
-                            "summary_text" -> {
-                                val text = part["text"]?.jsonPrimitive?.content ?: error("text not found")
-                                parts.add(
-                                    UIMessagePart.Reasoning(
-                                        reasoning = text,
-                                        createdAt = Clock.System.now(),
-                                        finishedAt = Clock.System.now()
-                                    )
-                                )
-                            }
-                        }
-                    }
+                    parts.add(
+                        UIMessagePart.Reasoning(
+                            reasoning = reasoningSummary(output),
+                            createdAt = Clock.System.now(),
+                            finishedAt = Clock.System.now(),
+                            metadata = reasoningMetadata(output),
+                        )
+                    )
                 }
 
                 "function_call" -> {

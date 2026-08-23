@@ -714,6 +714,10 @@ class SettingsStore(
                         is ProviderSetting.Claude -> provider.copy(
                             models = provider.models.distinctBy { model -> model.id }
                         )
+
+                        is ProviderSetting.OpenAICodex -> provider.copy(
+                            models = provider.models.distinctBy { model -> model.id }
+                        )
                     }.normalizeProviderApiKeys()
                 },
                 assistants = dedupedAssistants,
@@ -775,6 +779,13 @@ class SettingsStore(
         val preferences: androidx.datastore.preferences.core.Preferences,
         val settings: Settings,
     )
+
+    internal suspend fun <T> withSettingsSnapshot(
+        block: suspend (Settings) -> T,
+    ): T {
+        settingsFlow.first { !it.init }
+        return updateMutex.withLock { block(settingsFlow.value) }
+    }
 
     internal suspend fun createRestoreSnapshot(): RestoreSnapshot {
         // 等设置就绪：否则快照里存的是 dummy，回滚时会把 dummy 写回内存

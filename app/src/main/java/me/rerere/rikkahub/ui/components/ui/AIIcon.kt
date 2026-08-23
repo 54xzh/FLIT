@@ -54,6 +54,7 @@ fun ProviderIcon(
         is ProviderSetting.OpenAI -> provider.baseUrl
         is ProviderSetting.Google -> provider.baseUrl
         is ProviderSetting.Claude -> provider.baseUrl
+        is ProviderSetting.OpenAICodex -> "https://chatgpt.com/backend-api/codex"
     }
     
     // Only use known slugs for remote lookup; unknown names should fall back instantly to local icon/text.
@@ -100,6 +101,7 @@ fun ModelIcon(
         is ProviderSetting.OpenAI -> provider.baseUrl
         is ProviderSetting.Google -> provider.baseUrl
         is ProviderSetting.Claude -> provider.baseUrl
+        is ProviderSetting.OpenAICodex -> "https://chatgpt.com/backend-api/codex"
         null -> null
     }
     
@@ -1001,4 +1003,3 @@ fun SiliconFlowPowerByIcon(modifier: Modifier = Modifier) {
         AsyncImage(model = R.drawable.siliconflow_dark, contentDescription = null, modifier = modifier)
     }
 }
-

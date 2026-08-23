@@ -1,5 +1,8 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -67,6 +70,7 @@ import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.GridView
@@ -81,6 +85,7 @@ import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -108,6 +113,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -131,15 +137,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.browser.customtabs.CustomTabsIntent
 import me.rerere.rikkahub.ui.components.ui.ToastType
 import me.rerere.rikkahub.ui.components.ui.AppToasterState
 import io.github.g00fy2.quickie.QRResult
 import io.github.g00fy2.quickie.ScanQRCode
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.providers.codex.CodexDeviceCode
+import me.rerere.ai.provider.providers.codex.CodexProtocolException
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.ProviderViewMode
+import me.rerere.rikkahub.data.ai.codex.CodexAuthService
+import me.rerere.rikkahub.data.ai.codex.CodexLoginService
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.nav.OneUITopAppBar
 import me.rerere.rikkahub.ui.components.ui.AutoProviderIcon
@@ -160,6 +173,7 @@ import me.rerere.rikkahub.ui.pages.setting.components.toProviderSetting
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.ImageUtils
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import me.rerere.rikkahub.data.model.Tag as DataTag
@@ -169,6 +183,7 @@ fun SettingProviderPage(vm: SettingVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
     val scope = rememberCoroutineScope()
+    val codexAuthService = koinInject<CodexAuthService>()
     
     // Search query state
     var searchQuery by remember { mutableStateOf("") }
@@ -214,23 +229,28 @@ fun SettingProviderPage(vm: SettingVM = koinViewModel()) {
                 },
                 actions = {
                     ImportProviderButton {
-                        vm.updateSettings(
-                            settings.copy(
-                                providers = listOf(it) + settings.providers
+                        vm.updateSettings { currentSettings ->
+                            currentSettings.copy(
+                                providers = listOf(it) + currentSettings.providers
                             )
-                        )
+                        }
                         providerAddScrollTrigger++
                     }
                     AddButton(
-                        enableHaptics = settings.displaySetting.enableUIHaptics
-                    ) {
-                        vm.updateSettings(
-                            settings.copy(
-                                providers = listOf(it) + settings.providers
-                            )
-                        )
-                        providerAddScrollTrigger++
-                    }
+                        enableHaptics = settings.displaySetting.enableUIHaptics,
+                        onCommitCodexProvider = { provider ->
+                            vm.addProvider(provider)
+                            providerAddScrollTrigger++
+                        },
+                        onAdd = { provider ->
+                            vm.updateSettings { currentSettings ->
+                                currentSettings.copy(
+                                    providers = listOf(provider) + currentSettings.providers
+                                )
+                            }
+                            providerAddScrollTrigger++
+                        },
+                    )
                 }
             )
         },
@@ -298,11 +318,9 @@ fun SettingProviderPage(vm: SettingVM = koinViewModel()) {
                     vm.updateSettings(settings.copy(providers = newProviders))
                 },
                 onAddProvider = { provider ->
-                    vm.updateSettings(
-                        settings.copy(
-                            providers = listOf(provider) + settings.providers
-                        )
-                    )
+                    vm.updateSettings { latest ->
+                        latest.copy(providers = listOf(provider) + latest.providers)
+                    }
                     providerAddScrollTrigger++
                 }
             )
@@ -331,12 +349,17 @@ fun SettingProviderPage(vm: SettingVM = koinViewModel()) {
                     confirmButton = {
                         TextButton(
                             onClick = {
-                                providerToDelete?.let { p ->
-                                    vm.updateSettings(
-                                        settings.copy(
-                                            providers = settings.providers.filter { it.id != p.id }
-                                        )
-                                    )
+                                val providerToRemove = providerToDelete
+                                if (providerToRemove != null) {
+                                    scope.launch {
+                                        if (providerToRemove is ProviderSetting.OpenAICodex) {
+                                            codexAuthService.logout(providerToRemove.id) {
+                                                vm.removeProvider(providerToRemove.id)
+                                            }
+                                        } else {
+                                            vm.removeProvider(providerToRemove.id)
+                                        }
+                                    }
                                 }
                                 showDeleteDialog = false
                                 providerToDelete = null
@@ -418,8 +441,10 @@ private fun ProviderListView(
     val matchingPreset = remember(searchQuery, providers) {
         if (providers.isEmpty() && searchQuery.isNotBlank()) {
             PROVIDER_PRESETS.find { preset ->
-                preset.name.contains(searchQuery, ignoreCase = true) ||
-                preset.description.contains(searchQuery, ignoreCase = true)
+                !preset.requiresCodexLogin && (
+                    preset.name.contains(searchQuery, ignoreCase = true) ||
+                        preset.description.contains(searchQuery, ignoreCase = true)
+                    )
             }
         } else null
     }
@@ -759,11 +784,14 @@ private fun handleImageQRCode(
 @Composable
 private fun AddButton(
     enableHaptics: Boolean,
-    onAdd: (ProviderSetting) -> Unit
+    onCommitCodexProvider: suspend (ProviderSetting.OpenAICodex) -> Unit,
+    onAdd: (ProviderSetting) -> Unit,
 ) {
     var showBottomSheet by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var showCustomProviderDialog by remember { mutableStateOf(false) }
+    var codexLoginProvider by remember { mutableStateOf<ProviderSetting.OpenAICodex?>(null) }
+    val navController = LocalNavController.current
     
     // Custom provider dialog state
     val customDialogState = useEditState<ProviderSetting> {
@@ -943,8 +971,12 @@ private fun AddButton(
                             onClick = {
                                 haptics.perform(HapticPattern.Pop)
                                 val provider = preset.toProviderSetting()
-                                onAdd(provider)
                                 showBottomSheet = false
+                                if (preset.requiresCodexLogin && provider is ProviderSetting.OpenAICodex) {
+                                    codexLoginProvider = provider
+                                } else {
+                                    onAdd(provider)
+                                }
                             },
                             modifier = Modifier.fillMaxWidth(),
                             shape = shape,
@@ -964,11 +996,19 @@ private fun AddButton(
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = preset.name,
+                                        text = if (preset.requiresCodexLogin) {
+                                            stringResource(R.string.codex_provider_name)
+                                        } else {
+                                            preset.name
+                                        },
                                         style = MaterialTheme.typography.titleMedium
                                     )
                                     Text(
-                                        text = preset.description,
+                                        text = if (preset.requiresCodexLogin) {
+                                            stringResource(R.string.codex_provider_preset_description)
+                                        } else {
+                                            preset.description
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -986,6 +1026,20 @@ private fun AddButton(
                 }
             }
         }
+    }
+
+    codexLoginProvider?.let { provider ->
+        CodexLoginDialog(
+            provider = provider,
+            onDismiss = { codexLoginProvider = null },
+            commitAssociatedState = { onCommitCodexProvider(provider) },
+            onSuccess = {
+                codexLoginProvider = null
+                navController.navigate(
+                    Screen.SettingProviderDetail(providerId = provider.id.toString())
+                )
+            },
+        )
     }
     
     // Custom provider dialog (old behavior)
@@ -1024,6 +1078,177 @@ private fun AddButton(
             },
         )
     }
+}
+
+@Composable
+internal fun CodexLoginDialog(
+    provider: ProviderSetting.OpenAICodex,
+    onDismiss: () -> Unit,
+    onSuccess: () -> Unit,
+    commitAssociatedState: suspend () -> Unit = {},
+    authService: CodexLoginService = koinInject<CodexAuthService>(),
+    browserLauncher: (Context, Uri) -> Unit = { context, uri ->
+        CustomTabsIntent.Builder().build().launchUrl(context, uri)
+    },
+) {
+    val context = LocalContext.current
+    val haptics = rememberPremiumHaptics()
+    var deviceCode by remember { mutableStateOf<CodexDeviceCode?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var attempt by remember { mutableIntStateOf(0) }
+    var remainingSeconds by remember { mutableIntStateOf(0) }
+    val currentOnSuccess by rememberUpdatedState(onSuccess)
+    val currentCommitAssociatedState by rememberUpdatedState(commitAssociatedState)
+
+    LaunchedEffect(provider.id, attempt) {
+        deviceCode = null
+        errorMessage = null
+        try {
+            val code = authService.startDeviceLogin(provider)
+            deviceCode = code
+            runCatching {
+                browserLauncher(context, Uri.parse(code.verificationUrl))
+            }
+            authService.completeDeviceLogin(provider, code) {
+                currentCommitAssociatedState()
+            }
+            haptics.perform(HapticPattern.Success)
+            currentOnSuccess()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            errorMessage = if (error is CodexProtocolException && error.statusCode == 404) {
+                context.getString(R.string.codex_device_login_not_enabled)
+            } else {
+                error.message ?: context.getString(R.string.codex_login_failed)
+            }
+        }
+    }
+
+    LaunchedEffect(deviceCode) {
+        val code = deviceCode ?: return@LaunchedEffect
+        while (true) {
+            remainingSeconds = ((code.expiresAtEpochMillis - System.currentTimeMillis()) / 1_000L)
+                .coerceAtLeast(0L)
+                .toInt()
+            if (remainingSeconds == 0) break
+            delay(1_000L)
+        }
+    }
+
+    fun copyCode() {
+        val code = deviceCode ?: return
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("OpenAI Codex device code", code.userCode))
+        haptics.perform(HapticPattern.Pop)
+    }
+
+    fun openBrowser() {
+        val code = deviceCode ?: return
+        haptics.perform(HapticPattern.Pop)
+        browserLauncher(context, Uri.parse(code.verificationUrl))
+    }
+
+    fun dismissLogin() {
+        authService.cancelDeviceLogin(provider.id)
+        onDismiss()
+    }
+
+    AlertDialog(
+        onDismissRequest = ::dismissLogin,
+        title = { Text(stringResource(R.string.codex_login_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = stringResource(R.string.codex_login_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                when {
+                    errorMessage != null -> {
+                        Text(
+                            text = errorMessage.orEmpty(),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+
+                    deviceCode == null -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                        Text(
+                            text = stringResource(R.string.codex_requesting_device_code),
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+
+                    else -> {
+                        Text(stringResource(R.string.codex_device_code_label))
+                        Surface(
+                            shape = AppShapes.CardMedium,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = deviceCode?.userCode.orEmpty(),
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                IconButton(onClick = ::copyCode) {
+                                    Icon(
+                                        Icons.Rounded.ContentCopy,
+                                        contentDescription = stringResource(R.string.copy),
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            stringResource(
+                                R.string.codex_waiting_for_authorization,
+                                remainingSeconds / 60,
+                                remainingSeconds % 60,
+                            )
+                        )
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                haptics.perform(HapticPattern.Pop)
+                dismissLogin()
+            }) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+        confirmButton = {
+            if (errorMessage != null) {
+                TextButton(onClick = {
+                    haptics.perform(HapticPattern.Pop)
+                    attempt++
+                }) {
+                    Text(stringResource(R.string.codex_retry))
+                }
+            } else if (deviceCode != null) {
+                Row {
+                    TextButton(onClick = ::copyCode) {
+                        Text(stringResource(R.string.copy))
+                    }
+                    TextButton(onClick = ::openBrowser) {
+                        Text(stringResource(R.string.webview_page_open_in_browser))
+                    }
+                }
+            }
+        },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

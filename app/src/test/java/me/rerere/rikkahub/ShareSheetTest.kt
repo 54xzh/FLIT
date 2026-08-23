@@ -9,11 +9,38 @@ import me.rerere.rikkahub.ui.components.ui.encodeForShare
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import kotlin.io.encoding.Base64
 import kotlin.uuid.Uuid
 
 class ShareSheetTest {
+    @Test
+    fun `Codex share keeps configuration and contains no credentials`() {
+        val model = Model(
+            id = Uuid.random(),
+            modelId = "gpt-codex-test",
+            displayName = "Codex Test",
+        )
+        val original = ProviderSetting.OpenAICodex(
+            name = "Work Codex",
+            models = listOf(model),
+            proxy = ProviderProxy.Http(address = "127.0.0.1", port = 8080),
+        )
+
+        val encoded = original.encodeForShare()
+        val serialized = Base64.decode(encoded.removePrefix("ai-provider:v1:")).decodeToString()
+        val decoded = decodeProviderSetting(encoded) as ProviderSetting.OpenAICodex
+
+        assertEquals("Work Codex", decoded.name)
+        assertEquals(listOf("gpt-codex-test"), decoded.models.map { it.modelId })
+        assertTrue(decoded.proxy is ProviderProxy.Http)
+        assertFalse(serialized.contains("access_token", ignoreCase = true))
+        assertFalse(serialized.contains("refresh_token", ignoreCase = true))
+        assertFalse(serialized.contains("balanceOption", ignoreCase = true))
+        assertFalse(serialized.contains("app_EMoamEEZ73f0CkXaXp7hrann"))
+    }
+
     @Test
     fun `decode should restore OpenAI provider correctly`() {
         val originalId = Uuid.random()

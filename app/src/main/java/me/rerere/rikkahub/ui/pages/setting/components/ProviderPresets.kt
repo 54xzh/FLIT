@@ -14,7 +14,8 @@ data class ProviderPreset(
     val baseUrl: String,
     val balanceOption: BalanceOption = BalanceOption(),
     val useResponseApi: Boolean = false,
-    val chatCompletionsPath: String = "/chat/completions"
+    val chatCompletionsPath: String = "/chat/completions",
+    val requiresCodexLogin: Boolean = false,
 )
 
 /**
@@ -28,6 +29,13 @@ val PROVIDER_PRESETS = listOf(
         type = ProviderSetting.OpenAI::class,
         baseUrl = "https://api.openai.com/v1",
         useResponseApi = false // Response API available but default off for compatibility
+    ),
+    ProviderPreset(
+        name = "OpenAI Codex",
+        description = "Use your ChatGPT account and Codex subscription quota",
+        type = ProviderSetting.OpenAICodex::class,
+        baseUrl = "https://chatgpt.com/backend-api/codex",
+        requiresCodexLogin = true,
     ),
     ProviderPreset(
         name = "Google Gemini",
@@ -326,6 +334,7 @@ fun ProviderPreset.toProviderSetting(): ProviderSetting {
             baseUrl = baseUrl,
             balanceOption = balanceOption
         )
+        ProviderSetting.OpenAICodex::class -> ProviderSetting.OpenAICodex(name = name)
         else -> ProviderSetting.OpenAI(
             name = name,
             baseUrl = baseUrl,

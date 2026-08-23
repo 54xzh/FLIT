@@ -15,7 +15,13 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
+import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.providers.codex.CodexCredential
 import me.rerere.rikkahub.data.backup.BackupRemoteResult
+import me.rerere.rikkahub.data.ai.codex.CodexCredentialStore
+import me.rerere.rikkahub.data.ai.codex.CodexCredentialTransactionGate
+import me.rerere.rikkahub.data.ai.codex.decodeCodexCredentials
+import me.rerere.rikkahub.data.ai.codex.encodeCodexCredentials
 import me.rerere.rikkahub.data.datastore.ChatReadPositionStore
 import me.rerere.rikkahub.data.datastore.ConversationReadPosition
 import me.rerere.rikkahub.data.datastore.Settings
@@ -49,6 +55,7 @@ private const val BACKUP_FILE_SUFFIX = ".zip"
 // 旧版本导出的备份以 LastChat_backup_ 开头，识别时一并兼容
 private val BACKUP_FILE_PREFIXES = setOf(BACKUP_FILE_PREFIX, "LastChat_backup_")
 private const val DATABASE_SNAPSHOT_PREFIX = "rikka_hub_snapshot_"
+private const val CODEX_CREDENTIALS_ENTRY = "codex_credentials.json"
 private val STALE_BACKUP_TEMP_MAX_AGE_MS = TimeUnit.HOURS.toMillis(24)
 
 internal data class RestoreDirectorySnapshot(
@@ -56,6 +63,16 @@ internal data class RestoreDirectorySnapshot(
     val existed: Boolean,
     val backupDir: File,
 )
+
+internal fun filterRestoredCodexCredentials(
+    providers: List<ProviderSetting>,
+    credentials: Map<kotlin.uuid.Uuid, CodexCredential>,
+): Map<kotlin.uuid.Uuid, CodexCredential> {
+    val providerIds = providers
+        .filterIsInstance<ProviderSetting.OpenAICodex>()
+        .mapTo(mutableSetOf()) { it.id }
+    return credentials.filterKeys { it in providerIds }
+}
 
 private fun resolveRestoreDirectory(root: File, relativePath: String): File {
     val canonicalRoot = root.canonicalFile
@@ -174,6 +191,8 @@ class WebdavSync(
     private val context: Context,
     private val database: AppDatabase,
     private val skillUuidMigration: SkillUuidMigration,
+    private val codexCredentialStore: CodexCredentialStore,
+    private val codexCredentialTransactionGate: CodexCredentialTransactionGate,
 ) {
     suspend fun testWebdav(webDavConfig: WebDavConfig) {
         val davCollection = DavCollection(
@@ -364,12 +383,26 @@ class WebdavSync(
             backupFile.delete()
         }
 
+        val (settingsSnapshot, codexCredentialSnapshot) =
+            codexCredentialTransactionGate.withLock {
+                settingsStore.withSettingsSnapshot { settings ->
+                    settings to codexCredentialStore.readAll()
+                }
+            }
+
         // 创建zip文件并备份数据库
         ZipOutputStream(FileOutputStream(backupFile)).use { zipOut ->
             addVirtualFileToZip(
                 zipOut = zipOut,
                 name = "settings.json",
-                content = json.encodeToString(settingsStore.settingsFlow.value)
+                content = json.encodeToString(settingsSnapshot)
+            )
+
+            // OAuth credentials follow the same full-backup behavior as API keys in settings.
+            addVirtualFileToZip(
+                zipOut = zipOut,
+                name = CODEX_CREDENTIALS_ENTRY,
+                content = encodeCodexCredentials(codexCredentialSnapshot),
             )
 
             // 阅读位置已从 Settings 挪到独立存储，单独入包，恢复时才能继续带回各会话的阅读进度
@@ -542,6 +575,7 @@ class WebdavSync(
             val settingsJsonHolder = SettingsJsonHolder(json = null)
             // 新版备份的阅读位置独立条目；老备份没有该条目，恢复时从 settings.json 的旧字段提取
             var readPositionsJson: String? = null
+            var codexCredentialsJson: String? = null
             val restoredFilePaths = linkedSetOf<String>()
             val rollbackFilePaths = linkedSetOf<String>()
 
@@ -574,6 +608,11 @@ class WebdavSync(
                                 "read_positions.json" -> {
                                     readPositionsJson = zipIn.readBytes().toString(Charsets.UTF_8)
                                     Log.i(TAG, "restoreFromBackupFile: Captured read positions (deferred)")
+                                }
+
+                                CODEX_CREDENTIALS_ENTRY -> {
+                                    codexCredentialsJson = zipIn.readBytes().toString(Charsets.UTF_8)
+                                    Log.i(TAG, "restoreFromBackupFile: Captured Codex credentials (deferred)")
                                 }
 
                                 "rikka_hub.db", "rikka_hub-wal", "rikka_hub-shm" -> {
@@ -778,25 +817,38 @@ class WebdavSync(
                     null
                 }
 
+                val restoredCodexCredentials: Map<kotlin.uuid.Uuid, CodexCredential>? =
+                    cleanedSettings?.let { restoredSettings ->
+                        val decoded = try {
+                            codexCredentialsJson?.let(::decodeCodexCredentials).orEmpty()
+                        } catch (error: Exception) {
+                            throw Exception("Failed to restore Codex credentials: ${error.message}")
+                        }
+                        filterRestoredCodexCredentials(restoredSettings.providers, decoded)
+                    }
+
                 // ---- 所有预检查成功后，准备回滚快照并统一落盘 ----
 
-                val settingsSnapshot = settingsStore.createRestoreSnapshot()
-                val fileSnapshots = prepareRestoreDirectorySnapshots(
-                    filesDir = context.filesDir,
-                    rollbackRoot = File(restoreTempDir, "live_files_rollback"),
-                    relativePaths = rollbackFilePaths,
-                )
-
-                val dbRollbackFile = File(restoreTempDir, "live_db_rollback")
-                if (tempDbRestored) {
-                    exportDatabaseSnapshot(dbRollbackFile)
-                }
-
-                var filesAttempted = false
-                var databaseApplied = false
-                var settingsAttempted = false
                 var appLanguageDeferralToken: me.rerere.rikkahub.utils.AppLanguageUpdateGate.Token? = null
-                try {
+                codexCredentialTransactionGate.mutateAll {
+                    val settingsSnapshot = settingsStore.createRestoreSnapshot()
+                    val codexCredentialSnapshot = codexCredentialStore.readAll()
+                    val fileSnapshots = prepareRestoreDirectorySnapshots(
+                        filesDir = context.filesDir,
+                        rollbackRoot = File(restoreTempDir, "live_files_rollback"),
+                        relativePaths = rollbackFilePaths,
+                    )
+
+                    val dbRollbackFile = File(restoreTempDir, "live_db_rollback")
+                    if (tempDbRestored) {
+                        exportDatabaseSnapshot(dbRollbackFile)
+                    }
+
+                    var filesAttempted = false
+                    var databaseApplied = false
+                    var settingsAttempted = false
+                    var codexCredentialsAttempted = false
+                    try {
                     if (restoredFilePaths.isNotEmpty()) {
                         filesAttempted = true
                         landStagedRestoreDirectories(
@@ -832,6 +884,15 @@ class WebdavSync(
                             "restoreFromBackupFile: Settings restored and sanitized (issues fixed: ${settingsCleanupResult.totalIssuesFixed})"
                         )
 
+                        restoredCodexCredentials?.let { credentials ->
+                            codexCredentialsAttempted = true
+                            codexCredentialStore.replaceAll(credentials)
+                            Log.i(
+                                TAG,
+                                "restoreFromBackupFile: Restored ${credentials.size} Codex credential records",
+                            )
+                        }
+
                         // 阅读位置属锦上添花的数据：失败只记日志，不让整个恢复失败、也不参与回滚
                         runCatching {
                             val capturedReadPositionsJson = readPositionsJson
@@ -856,7 +917,7 @@ class WebdavSync(
                             Log.w(TAG, "restoreFromBackupFile: Failed to restore read positions", it)
                         }
                     }
-                } catch (restoreError: Exception) {
+                    } catch (restoreError: Exception) {
                     val rollbackErrors = mutableListOf<Throwable>()
 
                     if (filesAttempted) {
@@ -874,10 +935,16 @@ class WebdavSync(
                             .onFailure(rollbackErrors::add)
                     }
 
+                    if (codexCredentialsAttempted) {
+                        runCatching { codexCredentialStore.replaceAll(codexCredentialSnapshot) }
+                            .onFailure(rollbackErrors::add)
+                    }
+
                     appLanguageDeferralToken?.let(appLanguageUpdateGate::resumeUpdates)
 
                     rollbackErrors.forEach(restoreError::addSuppressed)
-                    throw restoreError
+                        throw restoreError
+                    }
                 }
 
                 Log.i(TAG, "restoreFromBackupFile: Restore completed successfully")

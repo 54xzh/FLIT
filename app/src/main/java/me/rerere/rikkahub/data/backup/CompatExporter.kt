@@ -956,6 +956,9 @@ class CompatExporter(
         if (element !is JsonArray) return element
         return JsonArray(element.jsonArray.mapNotNull { providerEl ->
             if (providerEl !is JsonObject) return@mapNotNull providerEl
+            if (providerEl["type"]?.jsonPrimitive?.contentOrNull == "openai_codex") {
+                return@mapNotNull null
+            }
             sanitizeProviderEntry(providerEl)
         })
     }
