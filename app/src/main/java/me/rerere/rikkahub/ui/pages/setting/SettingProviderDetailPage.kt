@@ -2923,6 +2923,9 @@ private fun ModelList(
 
     fun scheduleGeneratedNameIfNeeded(model: Model) {
         scope.launch {
+            if (model.hasExplicitDisplayName()) {
+                return@launch
+            }
             val remoteDisplayName = modelCapabilityRepository.resolveDisplayNameForProvider(
                 modelId = model.modelId,
                 provider = providerSetting,
@@ -3109,6 +3112,12 @@ private fun ModelList(
             )
         }
     }
+}
+
+private fun Model.hasExplicitDisplayName(): Boolean {
+    val modelId = modelId.trim()
+    val displayName = displayName.trim()
+    return displayName.isNotBlank() && displayName != modelId
 }
 
 @Composable
