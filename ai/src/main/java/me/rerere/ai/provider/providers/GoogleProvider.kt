@@ -534,6 +534,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                         BuiltInTools.ClaudeWebSearchDisabled -> Unit
                         BuiltInTools.GrokWebSearch -> Unit
                         BuiltInTools.GrokXSearch -> Unit
+                        BuiltInTools.CodexWebSearch -> Unit
 
                         BuiltInTools.UrlContext -> {
                             add(buildJsonObject {

@@ -423,6 +423,12 @@
     <string name="backup_log_status_skipped">Skipped</string>
     <string name="built_in_search_description">Enable model built-in search capability</string>
     <string name="built_in_search_title">Built-in Search</string>
+    <string name="codex_web_search_title">Codex Web Search</string>
+    <string name="codex_web_search_running">Searching the live web…</string>
+    <string name="codex_web_search_failed">Live web search failed</string>
+    <string name="codex_web_search_actions">Actions</string>
+    <string name="codex_web_search_sources">Sources</string>
+    <string name="codex_web_search_no_sources">No sources were returned.</string>
     <string name="calculating">Calculating...</string>
     <string name="cancel">Cancel</string>
     <string name="clear">Clear</string>

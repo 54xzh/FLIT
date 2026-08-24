@@ -56,6 +56,20 @@ interface Provider<T : ProviderSetting> {
     }
 }
 
+/**
+ * 由 Provider 在本地执行、但以 Provider 原生工具形式提供给模型的工具工厂。
+ *
+ * 工厂在一次生成开始时只调用一次，因此工具可在多轮调用间保留同一会话状态。
+ */
+interface ProviderNativeToolFactory {
+    fun createNativeTools(
+        provider: ProviderSetting,
+        model: Model,
+        messages: List<UIMessage>,
+        maxOutputTokens: Int?,
+    ): List<Tool>
+}
+
 @Serializable
 data class TextGenerationParams(
     val model: Model,

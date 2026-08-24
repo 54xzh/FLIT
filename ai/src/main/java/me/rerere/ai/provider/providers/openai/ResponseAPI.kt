@@ -30,9 +30,13 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
+import me.rerere.ai.provider.providers.codex.CODEX_WEB_NAMESPACE
+import me.rerere.ai.provider.providers.codex.CODEX_WEB_RUN_NAME
+import me.rerere.ai.provider.providers.codex.CODEX_WEB_RUN_TOOL_NAME
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.MessageChunk
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.util.configureClientWithProxy
@@ -68,6 +72,7 @@ internal class ResponseStreamState {
     val completedFunctionCalls = mutableSetOf<String>()
     val textItemsWithDeltas = mutableSetOf<String>()
     val reasoningItemsWithDeltas = mutableSetOf<String>()
+    val pendingWebSearchAnnotations = mutableListOf<UIMessageAnnotation.UrlCitation>()
 }
 
 class ResponseAPI(
@@ -333,12 +338,24 @@ class ResponseAPI(
             }
 
             // tools
+            // ChatGPT/Codex Responses registers web search as a built-in tool. web.run is reserved
+            // by that endpoint, so declaring it as a custom namespace/function both fails schema
+            // validation and leaves the model without an actual searchable tool.
+            val hasCodexWebSearch = params.model.tools.contains(BuiltInTools.CodexWebSearch)
+            val functionTools = params.tools.filterNot { tool ->
+                hasCodexWebSearch && tool.name == CODEX_WEB_RUN_TOOL_NAME
+            }
             val hasGrokWebSearch = params.model.tools.contains(BuiltInTools.GrokWebSearch)
             val hasGrokXSearch = params.model.tools.contains(BuiltInTools.GrokXSearch)
-            val hasFunctionTools = params.model.abilities.contains(ModelAbility.TOOL) && params.tools.isNotEmpty()
+            val hasFunctionTools = params.model.abilities.contains(ModelAbility.TOOL) && functionTools.isNotEmpty()
 
-            if (hasFunctionTools || hasGrokWebSearch || hasGrokXSearch) {
+            if (hasFunctionTools || hasCodexWebSearch || hasGrokWebSearch || hasGrokXSearch) {
                 putJsonArray("tools") {
+                    if (hasCodexWebSearch) {
+                        // The supported Responses built-in search has no cached/indexed mode;
+                        // requests are live by design.
+                        add(buildJsonObject { put("type", "web_search") })
+                    }
                     if (hasGrokWebSearch) {
                         add(buildJsonObject { put("type", "web_search") })
                     }
@@ -346,7 +363,7 @@ class ResponseAPI(
                         add(buildJsonObject { put("type", "x_search") })
                     }
                     if (hasFunctionTools) {
-                        params.tools.forEach { tool ->
+                        functionTools.forEach { tool ->
                             add(buildJsonObject {
                                 put("type", "function")
                                 put("name", tool.name)
@@ -365,7 +382,7 @@ class ResponseAPI(
         }.mergeCustomBody(params.customBody)
     }
 
-    private fun buildMessages(messages: List<UIMessage>) = buildJsonArray {
+    internal fun buildMessages(messages: List<UIMessage>) = buildJsonArray {
         messages
             .filter { message ->
                 message.role != MessageRole.SYSTEM && (
@@ -499,7 +516,12 @@ class ResponseAPI(
                             add(buildJsonObject {
                                 put("type", "function_call")
                                 put("call_id", toolCall.toolCallId)
-                                put("name", toolCall.toolName)
+                                if (toolCall.toolName == CODEX_WEB_RUN_TOOL_NAME) {
+                                    put("namespace", CODEX_WEB_NAMESPACE)
+                                    put("name", CODEX_WEB_RUN_NAME)
+                                } else {
+                                    put("name", toolCall.toolName)
+                                }
                                 put("arguments", toolCall.arguments)
                             })
                         }
@@ -573,13 +595,39 @@ class ResponseAPI(
                     choices = listOf(
                         UIMessageChoice(
                             index = 0,
-                            delta = UIMessage.assistant(
-                                jsonObject["delta"]?.jsonPrimitive?.contentOrNull ?: ""
+                            delta = UIMessage(
+                                role = MessageRole.ASSISTANT,
+                                parts = listOf(
+                                    UIMessagePart.Text(
+                                        jsonObject["delta"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                                    )
+                                ),
+                                annotations = parseUrlCitations(jsonObject["annotations"] as? JsonArray),
                             ),
                             message = null,
                             finishReason = null
                         )
                     )
+                )
+            }
+
+            "response.output_text.annotation.added" -> {
+                val annotation = parseUrlCitation(jsonObject["annotation"] as? JsonObject) ?: return null
+                return MessageChunk(
+                    id = jsonObject["item_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    model = "",
+                    choices = listOf(
+                        UIMessageChoice(
+                            index = 0,
+                            delta = UIMessage(
+                                role = MessageRole.ASSISTANT,
+                                parts = emptyList(),
+                                annotations = listOf(annotation),
+                            ),
+                            message = null,
+                            finishReason = null,
+                        )
+                    ),
                 )
             }
 
@@ -630,7 +678,7 @@ class ResponseAPI(
                                     parts = listOf(
                                         UIMessagePart.ToolCall(
                                             toolCallId = callId,
-                                            toolName = item["name"]?.jsonPrimitive?.content ?: "",
+                                            toolName = responseFunctionName(item),
                                             arguments = item["arguments"]?.jsonPrimitive?.content
                                                 ?: ""
                                         )
@@ -742,7 +790,7 @@ class ResponseAPI(
                                 parts = listOf(
                                     UIMessagePart.ToolCall(
                                         toolCallId = callId,
-                                        toolName = item["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                                        toolName = responseFunctionName(item),
                                         arguments = item["arguments"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                                     )
                                 ),
@@ -779,9 +827,23 @@ class ResponseAPI(
                 ),
             )
 
+            "web_search_call" -> {
+                state.pendingWebSearchAnnotations += parseWebSearchSources(item["action"] as? JsonObject)
+                null
+            }
+
             "message" -> {
                 val itemId = item["id"]?.jsonPrimitive?.contentOrNull
-                if (itemId != null && itemId in state.textItemsWithDeltas) return null
+                val annotations = (
+                    (item["content"] as? JsonArray)
+                        .orEmpty()
+                        .flatMap { content ->
+                            parseUrlCitations((content as? JsonObject)?.get("annotations") as? JsonArray)
+                        }
+                    + state.pendingWebSearchAnnotations
+                ).distinct()
+                state.pendingWebSearchAnnotations.clear()
+                val hasStreamedText = itemId != null && itemId in state.textItemsWithDeltas
                 val text = (item["content"] as? JsonArray)
                     .orEmpty()
                     .mapNotNull { content ->
@@ -792,7 +854,8 @@ class ResponseAPI(
                         part["text"]?.jsonPrimitive?.contentOrNull
                     }
                     .joinToString("")
-                if (text.isEmpty()) return null
+                if (hasStreamedText && annotations.isEmpty()) return null
+                if (!hasStreamedText && text.isEmpty() && annotations.isEmpty()) return null
                 MessageChunk(
                     id = itemId.orEmpty(),
                     model = "",
@@ -800,7 +863,11 @@ class ResponseAPI(
                         UIMessageChoice(
                             index = 0,
                             message = null,
-                            delta = UIMessage.assistant(text),
+                            delta = UIMessage(
+                                role = MessageRole.ASSISTANT,
+                                parts = if (hasStreamedText) emptyList() else listOf(UIMessagePart.Text(text)),
+                                annotations = annotations,
+                            ),
                             finishReason = null,
                         )
                     ),
@@ -827,6 +894,7 @@ class ResponseAPI(
         if (BuildConfig.DEBUG) println(jsonObject)
         val outputs = jsonObject["output"]?.jsonArray ?: error("output not found")
         val parts = arrayListOf<UIMessagePart>()
+        val annotations = arrayListOf<UIMessageAnnotation>()
 
         outputs.forEach { outputItem ->
             val output = outputItem.jsonObject
@@ -845,7 +913,7 @@ class ResponseAPI(
 
                 "function_call" -> {
                     val callId = output["call_id"]?.jsonPrimitive?.content ?: error("call_id not found")
-                    val name = output["name"]?.jsonPrimitive?.content ?: error("name not found")
+                    val name = responseFunctionName(output).ifBlank { error("name not found") }
                     val arguments =
                         output["arguments"]?.jsonPrimitive?.content ?: error("arguments not found")
                     parts.add(
@@ -855,6 +923,10 @@ class ResponseAPI(
                             arguments = arguments
                         )
                     )
+                }
+
+                "web_search_call" -> {
+                    annotations += parseWebSearchSources(output["action"] as? JsonObject)
                 }
 
                 "message" -> {
@@ -869,6 +941,7 @@ class ResponseAPI(
                                         text = text
                                     )
                                 )
+                                annotations += parseUrlCitations(part["annotations"] as? JsonArray)
                             }
 
                             else -> error("unknown part type $partType")
@@ -888,6 +961,7 @@ class ResponseAPI(
                     message = UIMessage(
                         role = MessageRole.ASSISTANT,
                         parts = parts,
+                        annotations = annotations.distinct(),
                     ),
                     finishReason = finishReason,
                     delta = null
@@ -899,6 +973,42 @@ class ResponseAPI(
                 ?.let { setOf(it) }
                 ?: emptySet(),
         )
+    }
+
+    private fun responseFunctionName(item: JsonObject): String {
+        val name = item["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val namespace = item["namespace"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        return if (namespace.isBlank() || name.contains('.')) name else "$namespace.$name"
+    }
+
+    private fun parseUrlCitations(annotations: JsonArray?): List<UIMessageAnnotation> {
+        return annotations.orEmpty().mapNotNull { element ->
+            parseUrlCitation(element as? JsonObject)
+        }
+    }
+
+    private fun parseUrlCitation(annotation: JsonObject?): UIMessageAnnotation.UrlCitation? {
+        annotation ?: return null
+        if (annotation["type"]?.jsonPrimitive?.contentOrNull != "url_citation") return null
+        val detail = annotation["url_citation"] as? JsonObject ?: annotation
+        val url = detail["url"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (url.isBlank()) return null
+        val title = detail["title"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrBlank() }
+            ?: url
+        return UIMessageAnnotation.UrlCitation(title = title, url = url)
+    }
+
+    private fun parseWebSearchSources(action: JsonObject?): List<UIMessageAnnotation.UrlCitation> {
+        val sources = action?.get("sources") as? JsonArray ?: return emptyList()
+        return sources.mapNotNull { source ->
+            val objectSource = source as? JsonObject ?: return@mapNotNull null
+            val url = objectSource["url"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (url.isBlank()) return@mapNotNull null
+            val title = objectSource["title"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: url
+            UIMessageAnnotation.UrlCitation(title = title, url = url)
+        }
     }
 
     private fun parseResponseFinishReason(response: JsonObject?): String? {

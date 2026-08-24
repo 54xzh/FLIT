@@ -37,6 +37,7 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.Provider
 import me.rerere.ai.provider.ProviderManager
+import me.rerere.ai.provider.ProviderNativeToolFactory
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.supportsFastMode
@@ -114,6 +115,12 @@ private const val TAG = "GenerationHandler"
 private class ToolCallInputException(message: String) : IllegalStateException(message)
 private const val SEARCH_WEB_TOOL_NAME = "search_web"
 private const val SEARCH_AGENT_TOOL_NAME = "search_agent"
+private const val CODEX_WEB_RUN_TOOL_NAME = "web.run"
+private val SEARCH_TOOL_NAMES = setOf(
+    SEARCH_WEB_TOOL_NAME,
+    SEARCH_AGENT_TOOL_NAME,
+    CODEX_WEB_RUN_TOOL_NAME,
+)
 private val CHAT_UPLOAD_TOOL_NAMES = setOf("sandbox_read_file", "sandbox_shell")
 private val MEMORY_TOOL_NAMES = setOf("create_memory", "edit_memory", "delete_memory")
 private val SESSION_MEMORY_TOOL_NAMES = setOf(
@@ -142,7 +149,7 @@ private const val STREAM_UI_UPDATE_MAX_INTERVAL_MS = 360L
 
 internal fun shouldIncludeCurrentDateSection(toolNames: Iterable<String>): Boolean {
     return toolNames.any { name ->
-        name == SEARCH_WEB_TOOL_NAME || name == SEARCH_AGENT_TOOL_NAME
+        name == SEARCH_WEB_TOOL_NAME || name == SEARCH_AGENT_TOOL_NAME || name == CODEX_WEB_RUN_TOOL_NAME
     }
 }
 
@@ -379,6 +386,14 @@ class GenerationHandler(
 
         var messages: List<UIMessage> = messages
         var currentSessionMemories = sessionMemories
+        val providerNativeTools = (providerImpl as? ProviderNativeToolFactory)
+            ?.createNativeTools(
+                provider = provider,
+                model = model,
+                messages = messages,
+                maxOutputTokens = assistant.maxTokens,
+            )
+            .orEmpty()
 
         for (stepIndex in 0 until maxSteps) {
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
@@ -421,6 +436,7 @@ class GenerationHandler(
                     ).let(this::addAll)
                 }
                 addAll(tools)
+                addAll(providerNativeTools)
             }.sortedWith(compareBy<Tool> { it.name }.thenBy { it.description })
 
             generateInternal(
@@ -984,7 +1000,7 @@ class GenerationHandler(
                 val searchResultIndices = contextMessages.mapIndexedNotNull { index, msg ->
                     val hasSearchResult = msg.parts.any { part ->
                         part is UIMessagePart.ToolResult &&
-                            (part.toolName == "search_web" || part.toolName == "search_agent")
+                            part.toolName in SEARCH_TOOL_NAMES
                     }
                     if (hasSearchResult) index else null
                 }
@@ -997,7 +1013,7 @@ class GenerationHandler(
                                 parts = msg.parts.map { part ->
                                     if (
                                         part is UIMessagePart.ToolResult &&
-                                        (part.toolName == "search_web" || part.toolName == "search_agent")
+                                        part.toolName in SEARCH_TOOL_NAMES
                                     ) {
                                         part.copy(
                                             content = buildJsonObject {

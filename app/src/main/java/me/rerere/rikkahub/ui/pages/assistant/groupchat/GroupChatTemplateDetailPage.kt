@@ -62,6 +62,7 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.model.AssistantSearchMode
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.withBuiltInSearchDisabled
 import me.rerere.rikkahub.data.model.GroupChatSeat
 import me.rerere.rikkahub.data.model.GroupChatSeatOverrides
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
@@ -781,6 +782,12 @@ private fun SeatOverridesEditor(
                             overrides.copy(
                                 searchEnabled = overrides.searchEnabled || enabled,
                                 preferBuiltInSearch = enabled,
+                                searchMode = if (enabled) overrides.searchMode else {
+                                    overrides.searchMode.withBuiltInSearchDisabled(
+                                        searchServiceCount = settings.searchServices.size,
+                                        selectedSearchServiceIndex = settings.searchServiceSelected,
+                                    )
+                                },
                             )
                         }
                     },

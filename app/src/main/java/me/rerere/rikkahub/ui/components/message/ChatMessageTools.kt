@@ -98,6 +98,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -161,6 +162,7 @@ internal fun toolApprovalDisplayName(toolName: String): String {
         "sandbox_edit_file" -> stringResource(R.string.tool_approval_sandbox_edit_file)
         "sandbox_shell" -> stringResource(R.string.tool_approval_sandbox_shell)
         "eval_python" -> stringResource(R.string.chat_message_tool_run_python_generic)
+        "web.run" -> stringResource(R.string.codex_web_search_title)
         else -> toolName
     }
 }
@@ -201,6 +203,7 @@ fun ToolCallItem(
                         "delete_memory" -> Icons.Rounded.BookmarkRemove
                         "search_agent" -> Icons.Rounded.Public
                         "search_web" -> Icons.Rounded.Public
+                        "web.run" -> Icons.Rounded.Public
                         "scrape_web" -> Icons.Rounded.Public
                         "read_skill_file" -> Icons.Rounded.Extension
                         "run_skill_script" -> Icons.Rounded.Terminal
@@ -230,6 +233,7 @@ fun ToolCallItem(
                         "edit_memory" -> stringResource(R.string.chat_message_tool_edit_memory)
                         "delete_memory" -> stringResource(R.string.chat_message_tool_delete_memory)
                         "search_agent" -> stringResource(R.string.chat_message_tool_search_agent)
+                        "web.run" -> stringResource(R.string.codex_web_search_title)
                         "search_web" -> stringResource(
                             R.string.chat_message_tool_search_web,
                             arguments.jsonObject["query"]?.jsonPrimitiveOrNull?.contentOrNull
@@ -715,6 +719,14 @@ internal fun ToolCallPreviewSheet(
                         selectedTabStates = searchAgentSelectedTabStates,
                     )
 
+                    "web.run" -> CodexWebSearchPreviewContent(
+                        arguments = arguments,
+                        content = content,
+                        metadata = metadata,
+                        hasResult = hasResult,
+                        onOpenUrl = { url -> navController.navigate(Screen.WebView(url = url)) },
+                    )
+
                     "search_web" -> {
                         Text(
                             stringResource(
@@ -1019,6 +1031,120 @@ internal fun ToolCallPreviewSheet(
             }
         },
     )
+}
+
+@Composable
+private fun CodexWebSearchPreviewContent(
+    arguments: JsonElement,
+    content: JsonElement,
+    metadata: JsonObject?,
+    hasResult: Boolean,
+    onOpenUrl: (String) -> Unit,
+) {
+    val result = content as? JsonObject
+    val actions = (metadata?.get("actions") as? JsonArray)
+        ?.mapNotNull { it.jsonPrimitiveOrNull?.contentOrNull }
+        ?.takeIf { it.isNotEmpty() }
+        ?: (arguments as? JsonObject)?.keys?.sorted().orEmpty()
+    val error = (metadata?.get("error") as? JsonObject ?: result?.get("error") as? JsonObject)
+    val errorMessage = error?.get("message")?.jsonPrimitiveOrNull?.contentOrNull
+    val sources = (metadata?.get("sources") as? JsonArray ?: result?.get("sources") as? JsonArray)
+        .orEmpty()
+        .mapNotNull { element ->
+            val source = element as? JsonObject ?: return@mapNotNull null
+            val url = source["url"]?.jsonPrimitiveOrNull?.contentOrNull?.trim().orEmpty()
+            if (url.isBlank()) return@mapNotNull null
+            val title = source["title"]?.jsonPrimitiveOrNull?.contentOrNull?.trim()
+                ?.takeIf { it.isNotBlank() } ?: url
+            title to url
+        }
+        .distinctBy { it.second }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.codex_web_search_title),
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        if (!hasResult) {
+            Text(
+                text = stringResource(R.string.codex_web_search_running),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (!errorMessage.isNullOrBlank()) {
+            Text(
+                text = stringResource(R.string.codex_web_search_failed),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text = errorMessage,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (actions.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.codex_web_search_actions),
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Text(
+                text = actions.joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            text = stringResource(R.string.codex_web_search_sources),
+            style = MaterialTheme.typography.labelLarge,
+        )
+        if (sources.isEmpty()) {
+            Text(
+                text = stringResource(R.string.codex_web_search_no_sources),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(sources, key = { it.second }) { (title, url) ->
+                    Card(
+                        onClick = { onOpenUrl(url) },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        ),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Favicon(url = url, modifier = Modifier.size(20.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    text = url,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

@@ -66,6 +66,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantSearchMode
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.buildAssistantProviderSearchMode
+import me.rerere.rikkahub.data.model.withBuiltInSearchDisabled
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.utils.JsonInstant
@@ -871,10 +872,11 @@ private fun Route.webRoutes(
                         it.copy(
                             preferBuiltInSearch = request.enabled,
                             enableSearchAgent = if (request.enabled) false else it.enableSearchAgent,
-                            searchMode = if (!request.enabled && it.searchMode is AssistantSearchMode.BuiltIn) {
-                                AssistantSearchMode.Off
-                            } else {
-                                it.searchMode
+                            searchMode = if (request.enabled) it.searchMode else {
+                                it.searchMode.withBuiltInSearchDisabled(
+                                    searchServiceCount = current.searchServices.size,
+                                    selectedSearchServiceIndex = current.searchServiceSelected,
+                                )
                             },
                         )
                     }

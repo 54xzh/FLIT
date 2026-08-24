@@ -1,6 +1,7 @@
 package me.rerere.ai.provider
 
 import org.junit.Test
+import org.junit.Assert.assertEquals
 
 class BuiltInSearchTest {
     @Test
@@ -92,5 +93,18 @@ class BuiltInSearchTest {
         val result = model.ensureBuiltInSearchTool(officialProvider)
 
         assert(result.tools.contains(BuiltInTools.GrokWebSearch))
+    }
+
+    @Test
+    fun testCodexLoginModelsAlwaysUseNativeBuiltInSearch() {
+        val provider = ProviderSetting.OpenAICodex()
+        val model = Model(modelId = "account-returned-model")
+
+        val enabled = model.ensureBuiltInSearchTool(provider)
+
+        assert(enabled.supportsBuiltInSearch(provider))
+        assert(enabled.tools.contains(BuiltInTools.CodexWebSearch))
+        assertEquals(BuiltInTools.CodexWebSearch, enabled.preferredBuiltInSearchTool(provider))
+        assert(!enabled.withoutBuiltInSearchTools().tools.contains(BuiltInTools.CodexWebSearch))
     }
 }

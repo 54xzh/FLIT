@@ -968,6 +968,7 @@ private fun toolTimelineTitle(
         "edit_memory" -> stringResource(R.string.chat_message_tool_edit_memory)
         "delete_memory" -> stringResource(R.string.chat_message_tool_delete_memory)
         "search_agent" -> stringResource(R.string.chat_message_tool_search_agent)
+        "web.run" -> stringResource(R.string.codex_web_search_title)
         "search_web" -> stringResource(
             R.string.chat_message_tool_search_web,
             arguments.jsonObject["query"]?.jsonPrimitiveOrNull?.contentOrNull ?: ""
@@ -1052,6 +1053,15 @@ private fun toolTimelineSubtitle(
                     ?.let { stringResource(R.string.chat_message_tool_search_results_count, it) }
         }
 
+        "web.run" -> {
+            if (isRunning) {
+                stringResource(R.string.codex_web_search_running)
+            } else {
+                val error = ((content as? JsonObject)?.get("error") as? JsonObject)
+                error?.get("message")?.jsonPrimitiveOrNull?.contentOrNull
+            }
+        }
+
         "scrape_web" -> {
             arguments.jsonObject["url"]?.jsonPrimitiveOrNull?.contentOrNull
                 ?: arguments.jsonObject["urls"]?.jsonArray
@@ -1131,7 +1141,7 @@ private fun processTimelineIcon(part: UIMessagePart): ImageVector {
 
 private fun processTimelineToolIcon(toolName: String): ImageVector {
     return when (toolName) {
-        "search_agent", "search_web", "scrape_web" -> Icons.Rounded.Public
+        "search_agent", "search_web", "scrape_web", "web.run" -> Icons.Rounded.Public
         "run_skill_script", "eval_python", "sandbox_shell" -> Icons.Rounded.Terminal
         "create_memory", "edit_memory", "delete_memory" -> Icons.Rounded.Bookmark
         "ask_user" -> Icons.Rounded.HelpOutline

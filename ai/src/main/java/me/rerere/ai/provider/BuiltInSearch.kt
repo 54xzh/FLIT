@@ -27,6 +27,9 @@ private fun String.extractHostFromBaseUrl(): String? {
 }
 
 fun Model.supportsBuiltInSearch(providerSetting: ProviderSetting? = null): Boolean {
+    if (providerSetting is ProviderSetting.OpenAICodex) {
+        return true
+    }
     if (tools.contains(BuiltInTools.Search)) {
         return true
     }
@@ -37,6 +40,9 @@ fun Model.supportsBuiltInSearch(providerSetting: ProviderSetting? = null): Boole
         return true
     }
     if (tools.contains(BuiltInTools.GrokWebSearch)) {
+        return true
+    }
+    if (tools.contains(BuiltInTools.CodexWebSearch)) {
         return true
     }
 
@@ -61,10 +67,14 @@ fun Model.isClaudeBuiltInSearchEnabled(providerSetting: ProviderSetting? = null)
 
 fun Model.preferredBuiltInSearchTool(providerSetting: ProviderSetting? = null): BuiltInTools? {
     return when {
+        providerSetting is ProviderSetting.OpenAICodex -> BuiltInTools.CodexWebSearch
         tools.contains(BuiltInTools.Search) -> BuiltInTools.Search
         tools.contains(BuiltInTools.ClaudeWebSearchDisabled) -> null
         tools.contains(BuiltInTools.ClaudeWebSearch) -> BuiltInTools.ClaudeWebSearch
         tools.contains(BuiltInTools.GrokWebSearch) -> BuiltInTools.GrokWebSearch
+        tools.contains(BuiltInTools.CodexWebSearch) -> {
+            BuiltInTools.CodexWebSearch
+        }
         ModelRegistry.CLAUDE_SERIES.match(modelId) -> BuiltInTools.ClaudeWebSearch
         ModelRegistry.GEMINI_SERIES.match(modelId) -> BuiltInTools.Search
         providerSetting.supportsGrokBuiltInSearchByHost() -> BuiltInTools.GrokWebSearch
@@ -80,7 +90,8 @@ fun Model.ensureBuiltInSearchTool(providerSetting: ProviderSetting? = null): Mod
 fun Model.withoutBuiltInSearchTools(): Model {
     val filtered = tools.filterNot { tool ->
         tool == BuiltInTools.Search || tool == BuiltInTools.ClaudeWebSearch ||
-            tool == BuiltInTools.GrokWebSearch  // GrokXSearch intentionally omitted (model-level opt-in)
+            tool == BuiltInTools.GrokWebSearch || tool == BuiltInTools.CodexWebSearch
+        // GrokXSearch intentionally omitted (model-level opt-in)
     }.toSet()
     return if (filtered == tools) this else copy(tools = filtered)
 }

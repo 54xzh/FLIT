@@ -163,4 +163,9 @@ sealed class BuiltInTools {
     @Serializable
     @SerialName("grok_x_search")
     data object GrokXSearch : BuiltInTools()
+
+    /** ChatGPT/Codex 登录模型使用的原生实时网页搜索。 */
+    @Serializable
+    @SerialName("codex_web_search")
+    data object CodexWebSearch : BuiltInTools()
 }

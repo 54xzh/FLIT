@@ -283,6 +283,12 @@
   <string name="backup_log_status_skipped">跳過</string>
   <string name="built_in_search_description">是否啟用模型內建的搜尋功能</string>
   <string name="built_in_search_title">模型內建搜尋</string>
+  <string name="codex_web_search_title">Codex 網頁搜尋</string>
+  <string name="codex_web_search_running">正在即時搜尋網頁…</string>
+  <string name="codex_web_search_failed">即時網頁搜尋失敗</string>
+  <string name="codex_web_search_actions">執行操作</string>
+  <string name="codex_web_search_sources">來源</string>
+  <string name="codex_web_search_no_sources">未傳回來源。</string>
   <string name="calculating">計算中...</string>
   <string name="cancel">取消</string>
   <string name="clear">清除</string>

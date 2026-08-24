@@ -250,8 +250,10 @@ data class UIMessage(
                 }
             }
             // Handle annotations
-            val newAnnotations = delta.annotations.ifEmpty {
+            val newAnnotations = if (delta.annotations.isEmpty()) {
                 annotations
+            } else {
+                (annotations + delta.annotations).distinct()
             }
             copy(
                 parts = newParts,

@@ -2,12 +2,31 @@ package me.rerere.rikkahub.data.datastore
 
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantSearchMode
+import me.rerere.rikkahub.data.model.withBuiltInSearchDisabled
 import me.rerere.search.SearchServiceOptions
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import kotlin.uuid.Uuid
 
 class SearchServiceIndexRebindTest {
+    @Test
+    fun disablingBuiltInSearch_restoresSelectedExternalProvider_orTurnsSearchOff() {
+        assertEquals(
+            AssistantSearchMode.Provider(1),
+            AssistantSearchMode.BuiltIn.withBuiltInSearchDisabled(
+                searchServiceCount = 3,
+                selectedSearchServiceIndex = 1,
+            ),
+        )
+        assertEquals(
+            AssistantSearchMode.Off,
+            AssistantSearchMode.BuiltIn.withBuiltInSearchDisabled(
+                searchServiceCount = 0,
+                selectedSearchServiceIndex = 0,
+            ),
+        )
+    }
+
     @Test
     fun rebindSearchServiceIndices_remapsAssistantSearchModes_andGlobalSelectedIndex_onReorder() {
         val a = SearchServiceOptions.TavilyOptions(id = Uuid.parse("00000000-0000-0000-0000-000000000001"))
@@ -85,4 +104,3 @@ class SearchServiceIndexRebindTest {
         )
     }
 }
-

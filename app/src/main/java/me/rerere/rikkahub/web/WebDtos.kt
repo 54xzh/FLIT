@@ -23,6 +23,7 @@ import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ModelType
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.supportsBuiltInSearch
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
@@ -924,6 +925,7 @@ private fun ProviderSetting.toWebProviderDto(
             model.toWebProviderModelDto(
                 isSelected = model.id == selectedModelId,
                 builtInSearchEnabled = builtInSearchEnabled,
+                providerSetting = this,
             )
         },
     )
@@ -932,6 +934,7 @@ private fun ProviderSetting.toWebProviderDto(
 private fun Model.toWebProviderModelDto(
     isSelected: Boolean,
     builtInSearchEnabled: Boolean,
+    providerSetting: ProviderSetting,
 ): WebProviderModelDto {
     val tools = buildList {
         this@toWebProviderModelDto.tools.forEach { tool ->
@@ -947,7 +950,11 @@ private fun Model.toWebProviderModelDto(
             }
         }
 
-        if (isSelected && builtInSearchEnabled && this@toWebProviderModelDto.supportsBuiltInSearch() && none { it.type == "search" }) {
+        if (
+            isSelected && builtInSearchEnabled &&
+            this@toWebProviderModelDto.supportsBuiltInSearch(providerSetting) &&
+            none { it.type == "search" }
+        ) {
             add(WebBuiltInToolDto(type = "search"))
         }
     }
@@ -962,10 +969,6 @@ private fun Model.toWebProviderModelDto(
         abilities = abilities,
         tools = tools,
     )
-}
-
-private fun Model.supportsBuiltInSearch(): Boolean {
-    return tools.any { it is BuiltInTools.Search } || modelId.contains("gemini", ignoreCase = true)
 }
 
 private fun Avatar.toWebAvatarDto(context: Context): WebAvatarDto? {

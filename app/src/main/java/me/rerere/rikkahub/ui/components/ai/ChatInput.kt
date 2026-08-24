@@ -181,6 +181,7 @@ import me.rerere.rikkahub.data.datastore.hasConversationWorkspaceRoot
 import me.rerere.rikkahub.data.datastore.rememberWorkspaceForNewChatsIfEnabled
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.buildAssistantProviderSearchMode
+import me.rerere.rikkahub.data.model.withBuiltInSearchDisabled
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.GroupChatTemplate
 import me.rerere.rikkahub.data.model.ModelModeState
@@ -709,6 +710,12 @@ fun ChatInput(
                                         assistant.copy(
                                             preferBuiltInSearch = enabled,
                                             enableSearchAgent = if (enabled) false else assistant.enableSearchAgent,
+                                            searchMode = if (enabled) assistant.searchMode else {
+                                                assistant.searchMode.withBuiltInSearchDisabled(
+                                                    searchServiceCount = settings.searchServices.size,
+                                                    selectedSearchServiceIndex = settings.searchServiceSelected,
+                                                )
+                                            },
                                         )
                                     )
                                 },

@@ -224,6 +224,20 @@ fun buildAssistantProviderSearchMode(
     }
 }
 
+/**
+ * 内置搜索关闭时，旧的 BuiltIn 模式应回到用户已配置的外部服务；没有服务才真正关闭搜索。
+ */
+fun AssistantSearchMode.withBuiltInSearchDisabled(
+    searchServiceCount: Int,
+    selectedSearchServiceIndex: Int,
+): AssistantSearchMode {
+    if (this !is AssistantSearchMode.BuiltIn) return this
+    if (searchServiceCount <= 0) return AssistantSearchMode.Off
+    return AssistantSearchMode.Provider(
+        selectedSearchServiceIndex.coerceIn(0, searchServiceCount - 1)
+    )
+}
+
 @Serializable
 data class AssistantRegex(
     val id: Uuid,
