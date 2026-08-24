@@ -205,6 +205,9 @@ fun AutoProviderIcon(
     padding: Dp = 4.dp,
 ) {
     val darkMode = LocalDarkMode.current
+    val providerSlug = remember(name) {
+        getProviderSlugFromName(name) ?: name.lowercase().replace(" ", "-").replace("_", "-")
+    }
     
     // Priority 1: Local pattern matching
     val localPath = remember(name) { computeAIIconByName(name) }
@@ -221,9 +224,6 @@ fun AutoProviderIcon(
     }
     
     // Priority 2: LobeHub CDN - try known slug first, then derive from name
-    val providerSlug = remember(name) { 
-        getProviderSlugFromName(name) ?: name.lowercase().replace(" ", "-").replace("_", "-")
-    }
     val lobeHubUrls = getLobeHubIconUrls(providerSlug, darkMode)
     RemoteIcon(
         url = lobeHubUrls.coloredUrl,
@@ -303,6 +303,8 @@ private fun ProviderFaviconFallback(
 private fun getProviderSlugFromName(name: String): String? {
     val lowerName = name.lowercase()
     return when {
+        // Must precede OpenAI because the default name is "OpenAI Codex".
+        lowerName.contains("codex") -> "codex"
         lowerName.contains("openai") -> "openai"
         lowerName.contains("anthropic") || lowerName.contains("claude") -> "anthropic"
         lowerName.contains("google") || lowerName.contains("gemini") -> "google"
@@ -424,6 +426,8 @@ fun AutoAIIconWithUrl(
     // Determine provider type based on base URL
     val isOpenRouterProvider = providerBaseUrl?.contains("openrouter.ai") == true
     val isOpenAIProvider = providerBaseUrl?.contains("api.openai.com") == true
+    val isCodexProvider = name.contains("codex", ignoreCase = true) ||
+        providerSlug?.contains("codex", ignoreCase = true) == true
     
     // Priority 1: Direct icon URL from API
     if (!iconUrl.isNullOrBlank()) {
@@ -450,7 +454,7 @@ fun AutoAIIconWithUrl(
     
     // Priority 2: LobeHub CDN via provider slug (for any provider with a slug)
     // Skip CDN for models that already have good local icons
-    if (!providerSlug.isNullOrBlank() && !hasGoodLocalIcon(name)) {
+    if (!providerSlug.isNullOrBlank() && !isCodexProvider && !hasGoodLocalIcon(name)) {
         val lobeHubUrls = getLobeHubIconUrls(providerSlug, darkMode)
         RemoteIcon(
             url = lobeHubUrls.coloredUrl,
@@ -739,6 +743,9 @@ private fun computeAIIconByName(name: String): String? {
 // Match against provider/company patterns - used for OpenRouter provider prefixes
 private fun matchProviderPattern(providerName: String): String? {
     return when {
+        // Codex must precede the broader OpenAI matching rules.
+        providerName.contains("codex") -> "codex.svg"
+
         // Custom providers
         providerName.contains("antigravity") -> "antigravity.png"
         providerName.contains("meituan") || providerName.contains("美团") || providerName.contains("longcat") -> "longcat-color.svg"
@@ -797,6 +804,7 @@ private fun matchProviderPattern(providerName: String): String? {
 private fun matchModelPattern(modelName: String): String? {
     return when {
         // Specific model patterns - order matters (more specific first)
+        PATTERN_CODEX.containsMatchIn(modelName) -> "codex.svg"
         PATTERN_LONGCAT_MODEL.containsMatchIn(modelName) -> "longcat-color.svg"
         PATTERN_XIAOMI_MIMO.containsMatchIn(modelName) -> "xiaomimimo.svg"
         PATTERN_BAAI.containsMatchIn(modelName) -> "baai.svg"
@@ -852,6 +860,7 @@ private fun matchModelPattern(modelName: String): String? {
 // Also provide legacy matching for non-OpenRouter usage (backwards compat)
 private fun matchIconPattern(searchName: String): String? {
     return when {
+        PATTERN_CODEX.containsMatchIn(searchName) -> "codex.svg"
         PATTERN_LONGCAT.containsMatchIn(searchName) -> "longcat-color.svg"
         PATTERN_XIAOMI_MIMO.containsMatchIn(searchName) -> "xiaomimimo.svg"
         PATTERN_BAAI.containsMatchIn(searchName) -> "baai.svg"
@@ -914,6 +923,7 @@ private val ICON_CACHE = mutableMapOf<String, String>()
 private val REMOTE_ICON_FAILURE_CACHE =
     java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 private val PATTERN_LONGCAT = Regex("longcat|meituan|美团")
+private val PATTERN_CODEX = Regex("codex")
 private val PATTERN_XIAOMI_MIMO = Regex("xiaomi|小米|mimo")
 private val PATTERN_BAAI = Regex("baai")
 private val PATTERN_KWAIPILOT = Regex("kwaipilot")
