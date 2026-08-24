@@ -2193,12 +2193,9 @@
     <string name="codex_login_action">登录</string>
     <string name="codex_relogin">重新登录</string>
     <string name="codex_logout">退出登录</string>
-    <string name="codex_logged_in_as">已登录：%1$s</string>
-    <string name="codex_subscription_type">订阅类型：%1$s</string>
     <string name="codex_quota_failed">无法读取订阅额度。</string>
     <string name="codex_quota_failed_with_reason">无法读取订阅额度：%1$s</string>
     <string name="codex_quota_unavailable">该账号未返回可显示的额度窗口。</string>
-    <string name="codex_credit_balance">点数余额：%1$s</string>
     <string name="codex_quota_percentages">可用 %1$d%% · 已用 %2$d%%</string>
     <string name="codex_quota_resets_at">重置时间：%1$s</string>
     <string name="codex_models_login_required">请重新登录以读取该账号的模型目录。你仍可手动添加模型 ID。</string>

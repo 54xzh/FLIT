@@ -2518,24 +2518,37 @@ private fun CodexAccountCard(provider: ProviderSetting.OpenAICodex) {
 @Composable
 private fun CodexAccountSummary(credential: CodexCredential) {
     val accountLabel = credential.email ?: credential.accountId.takeLast(8).let { "••••$it" }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Text(
-            text = stringResource(R.string.codex_logged_in_as, accountLabel),
+            text = accountLabel,
             style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         credential.planType?.takeIf { it.isNotBlank() }?.let { plan ->
-            Text(
-                text = stringResource(R.string.codex_subscription_type, plan),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Surface(
+                shape = me.rerere.rikkahub.ui.theme.AppShapes.ButtonPill,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+                Text(
+                    text = plan.trim().replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun CodexQuotaContent(quota: CodexQuotaSnapshot) {
-    if (quota.buckets.isEmpty() && quota.creditBalance == null) {
+    if (quota.buckets.isEmpty()) {
         Text(
             text = stringResource(R.string.codex_quota_unavailable),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2543,15 +2556,6 @@ private fun CodexQuotaContent(quota: CodexQuotaSnapshot) {
         return
     }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        quota.creditBalance?.let { balance ->
-            Text(
-                text = stringResource(
-                    R.string.codex_credit_balance,
-                    NumberFormat.getNumberInstance().format(balance),
-                ),
-                style = MaterialTheme.typography.labelLarge,
-            )
-        }
         quota.buckets.forEach { bucket ->
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(

@@ -1553,12 +1553,9 @@
   <string name="codex_login_action">登入</string>
   <string name="codex_relogin">重新登入</string>
   <string name="codex_logout">登出</string>
-  <string name="codex_logged_in_as">已登入：%1$s</string>
-  <string name="codex_subscription_type">訂閱類型：%1$s</string>
   <string name="codex_quota_failed">無法讀取訂閱額度。</string>
   <string name="codex_quota_failed_with_reason">無法讀取訂閱額度：%1$s</string>
   <string name="codex_quota_unavailable">此帳號未回傳可顯示的額度視窗。</string>
-  <string name="codex_credit_balance">點數餘額：%1$s</string>
   <string name="codex_quota_percentages">可用 %1$d%% · 已用 %2$d%%</string>
   <string name="codex_quota_resets_at">重設時間：%1$s</string>
   <string name="codex_models_login_required">請重新登入以讀取此帳號的模型目錄。你仍可手動新增模型 ID。</string>
