@@ -2583,7 +2583,6 @@ private fun CodexQuotaWindowRow(window: CodexQuotaWindow) {
                 text = stringResource(
                     R.string.codex_quota_percentages,
                     remaining.toInt(),
-                    used.toInt(),
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
