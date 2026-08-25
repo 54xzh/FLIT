@@ -30,9 +30,6 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
-import me.rerere.ai.provider.providers.codex.CODEX_WEB_NAMESPACE
-import me.rerere.ai.provider.providers.codex.CODEX_WEB_RUN_NAME
-import me.rerere.ai.provider.providers.codex.CODEX_WEB_RUN_TOOL_NAME
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.MessageChunk
 import me.rerere.ai.ui.UIMessage
@@ -338,13 +335,8 @@ class ResponseAPI(
             }
 
             // tools
-            // ChatGPT/Codex Responses registers web search as a built-in tool. web.run is reserved
-            // by that endpoint, so declaring it as a custom namespace/function both fails schema
-            // validation and leaves the model without an actual searchable tool.
             val hasCodexWebSearch = params.model.tools.contains(BuiltInTools.CodexWebSearch)
-            val functionTools = params.tools.filterNot { tool ->
-                hasCodexWebSearch && tool.name == CODEX_WEB_RUN_TOOL_NAME
-            }
+            val functionTools = params.tools
             val hasGrokWebSearch = params.model.tools.contains(BuiltInTools.GrokWebSearch)
             val hasGrokXSearch = params.model.tools.contains(BuiltInTools.GrokXSearch)
             val hasFunctionTools = params.model.abilities.contains(ModelAbility.TOOL) && functionTools.isNotEmpty()
@@ -382,7 +374,7 @@ class ResponseAPI(
         }.mergeCustomBody(params.customBody)
     }
 
-    internal fun buildMessages(messages: List<UIMessage>) = buildJsonArray {
+    private fun buildMessages(messages: List<UIMessage>) = buildJsonArray {
         messages
             .filter { message ->
                 message.role != MessageRole.SYSTEM && (
@@ -516,12 +508,7 @@ class ResponseAPI(
                             add(buildJsonObject {
                                 put("type", "function_call")
                                 put("call_id", toolCall.toolCallId)
-                                if (toolCall.toolName == CODEX_WEB_RUN_TOOL_NAME) {
-                                    put("namespace", CODEX_WEB_NAMESPACE)
-                                    put("name", CODEX_WEB_RUN_NAME)
-                                } else {
-                                    put("name", toolCall.toolName)
-                                }
+                                put("name", toolCall.toolName)
                                 put("arguments", toolCall.arguments)
                             })
                         }
@@ -678,7 +665,7 @@ class ResponseAPI(
                                     parts = listOf(
                                         UIMessagePart.ToolCall(
                                             toolCallId = callId,
-                                            toolName = responseFunctionName(item),
+                                            toolName = item["name"]?.jsonPrimitive?.content.orEmpty(),
                                             arguments = item["arguments"]?.jsonPrimitive?.content
                                                 ?: ""
                                         )
@@ -790,7 +777,7 @@ class ResponseAPI(
                                 parts = listOf(
                                     UIMessagePart.ToolCall(
                                         toolCallId = callId,
-                                        toolName = responseFunctionName(item),
+                                        toolName = item["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                                         arguments = item["arguments"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                                     )
                                 ),
@@ -913,7 +900,7 @@ class ResponseAPI(
 
                 "function_call" -> {
                     val callId = output["call_id"]?.jsonPrimitive?.content ?: error("call_id not found")
-                    val name = responseFunctionName(output).ifBlank { error("name not found") }
+                    val name = output["name"]?.jsonPrimitive?.content ?: error("name not found")
                     val arguments =
                         output["arguments"]?.jsonPrimitive?.content ?: error("arguments not found")
                     parts.add(
@@ -973,12 +960,6 @@ class ResponseAPI(
                 ?.let { setOf(it) }
                 ?: emptySet(),
         )
-    }
-
-    private fun responseFunctionName(item: JsonObject): String {
-        val name = item["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
-        val namespace = item["namespace"]?.jsonPrimitive?.contentOrNull.orEmpty()
-        return if (namespace.isBlank() || name.contains('.')) name else "$namespace.$name"
     }
 
     private fun parseUrlCitations(annotations: JsonArray?): List<UIMessageAnnotation> {

@@ -8,14 +8,12 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
-import kotlinx.serialization.json.put
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
@@ -93,23 +91,6 @@ data class CodexQuotaSnapshot(
     val planType: String?,
     val buckets: List<CodexQuotaBucket>,
     val creditBalance: Double?,
-)
-
-/** A native Codex web.run request. Search mode is intentionally fixed to live. */
-internal data class CodexSearchRequest(
-    val id: String,
-    val model: String,
-    val input: JsonArray,
-    val commands: JsonObject,
-    val maxOutputTokens: Int?,
-)
-
-internal data class CodexSearchRequestMetadata(
-    val sessionId: String,
-    val threadId: String,
-    val clientRequestId: String,
-    val windowId: String,
-    val turnMetadata: JsonObject,
 )
 
 internal data class CodexModelCatalogPage(
@@ -301,55 +282,6 @@ open class CodexProtocolClient(
             cursor = page.nextCursor?.takeIf { it.isNotBlank() && seenCursors.add(it) }
         } while (cursor != null)
         models.distinctBy { it.modelId }
-    }
-
-    /**
-     * Executes Codex's native web tool endpoint. Authentication renewal is owned by the caller so
-     * the same policy can be shared with normal Codex generation requests.
-     */
-    internal open suspend fun search(
-        credential: CodexCredential,
-        proxy: ProviderProxy,
-        request: CodexSearchRequest,
-        metadata: CodexSearchRequestMetadata,
-    ): JsonElement = withContext(Dispatchers.IO) {
-        val requestBody = buildJsonObject {
-            put("id", request.id)
-            put("model", request.model)
-            put("input", request.input)
-            put("commands", request.commands)
-            put("settings", buildJsonObject {
-                // The Codex native endpoint accepts no cached/indexed choice in this app.
-                put("web_search", "live")
-            })
-            request.maxOutputTokens?.let { put("max_output_tokens", it) }
-        }
-        val response = execute(
-            authenticatedRequest(
-                url = "${CodexProtocolConfig.RESPONSES_BASE_URL}/alpha/search",
-                credential = credential,
-            )
-                .header("Content-Type", "application/json")
-                .header("session-id", metadata.sessionId)
-                .header("thread-id", metadata.threadId)
-                .header("x-client-request-id", metadata.clientRequestId)
-                .header("x-codex-window-id", metadata.windowId)
-                .header("X-Codex-Turn-Metadata", json.encodeToString(metadata.turnMetadata))
-                .post(
-                    json.encodeToString(requestBody)
-                        .toRequestBody("application/json".toMediaType())
-                )
-                .build(),
-            proxy = proxy,
-        )
-        val body = response.body?.string().orEmpty()
-        if (!response.isSuccessful) {
-            throw CodexProtocolException(response.code, parseError(body, "Codex web search failed"))
-        }
-        runCatching { json.parseToJsonElement(body) }
-            .getOrElse { throwable ->
-                throw CodexProtocolException(null, "Invalid Codex web search response: ${throwable.message}")
-            }
     }
 
     open suspend fun readQuota(

@@ -1,7 +1,5 @@
 package me.rerere.ai.provider.providers.codex
 
-import android.util.Log
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
@@ -10,15 +8,12 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import me.rerere.ai.BuildConfig
-import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.CustomBody
 import me.rerere.ai.provider.CustomHeader
 import me.rerere.ai.provider.ImageGenerationParams
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.Provider
-import me.rerere.ai.provider.ProviderNativeToolFactory
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.providers.openai.ResponseAPI
@@ -29,16 +24,13 @@ import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.util.HttpStatusException
 import me.rerere.ai.util.KeyRoulette
 import okhttp3.OkHttpClient
-import java.io.IOException
 import kotlin.uuid.Uuid
-
-private const val TAG = "OpenAICodexProvider"
 
 class OpenAICodexProvider(
     client: OkHttpClient,
     private val sessionProvider: CodexSessionProvider,
     private val protocolClient: CodexProtocolClient = CodexProtocolClient(client),
-) : Provider<ProviderSetting.OpenAICodex>, ProviderNativeToolFactory {
+) : Provider<ProviderSetting.OpenAICodex> {
     private val responseApi = ResponseAPI(client, KeyRoulette.default())
 
     override suspend fun listModels(providerSetting: ProviderSetting.OpenAICodex): List<Model> =
@@ -127,82 +119,6 @@ class OpenAICodexProvider(
     ): List<List<Float>> = throw UnsupportedOperationException(
         "Codex subscription providers do not support embeddings"
     )
-
-    override fun createNativeTools(
-        provider: ProviderSetting,
-        model: Model,
-        messages: List<UIMessage>,
-        maxOutputTokens: Int?,
-    ): List<Tool> {
-        val providerSetting = provider as? ProviderSetting.OpenAICodex ?: return emptyList()
-        if (!model.tools.contains(BuiltInTools.CodexWebSearch)) {
-            return emptyList()
-        }
-
-        // Keep these immutable values for the whole generation. The same tool closure is reused by
-        // GenerationHandler's existing tool loop, which also keeps the server-side search session coherent.
-        val input = responseApi.buildMessages(messages.ensureSystemInstructions())
-        val requestMetadata = codexRequestMetadata(messages, providerSetting.id.toString())
-        val searchId = Uuid.random().toString()
-        return listOf(
-            Tool(
-                name = CODEX_WEB_RUN_TOOL_NAME,
-                description = CODEX_WEB_RUN_DESCRIPTION.trim(),
-                parameters = ::codexWebRunParameters,
-                systemPrompt = { _, _ -> CODEX_WEB_RUN_SYSTEM_PROMPT.trim() },
-                execute = { arguments ->
-                    val commands = arguments as? JsonObject
-                        ?: return@Tool codexSearchError(
-                            code = "invalid_request",
-                            retryable = false,
-                            message = "web.run arguments must be a JSON object.",
-                        )
-                    val unsupportedCommands = commands.keys - CODEX_WEB_COMMANDS
-                    if (commands.isEmpty() || unsupportedCommands.isNotEmpty()) {
-                        return@Tool codexSearchError(
-                            code = "invalid_request",
-                            retryable = false,
-                            message = "web.run contains no supported command.",
-                            commands = commands,
-                        )
-                    }
-                    try {
-                        val result = authenticatedCall(providerSetting) { credential ->
-                            protocolClient.search(
-                                credential = credential,
-                                proxy = providerSetting.proxy,
-                                request = CodexSearchRequest(
-                                    id = searchId,
-                                    model = model.modelId,
-                                    input = input,
-                                    commands = commands,
-                                    maxOutputTokens = maxOutputTokens,
-                                ),
-                                metadata = CodexSearchRequestMetadata(
-                                    sessionId = requestMetadata.sessionId,
-                                    threadId = requestMetadata.threadId,
-                                    clientRequestId = Uuid.random().toString(),
-                                    windowId = requestMetadata.windowId,
-                                    turnMetadata = requestMetadata.clientMetadata,
-                                ),
-                            )
-                        }
-                        codexSearchSuccess(result, commands)
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (error: Throwable) {
-                        logSearchFailure(error)
-                        codexSearchError(
-                            code = error.toCodexSearchErrorCode(),
-                            retryable = error.isCodexSearchRetryable(),
-                            message = error.toCodexSearchErrorMessage(),
-                            commands = commands,
-                        )
-                    }
-                },
-            )
-        )
-    }
 
     private suspend fun <T> authenticatedCall(
         providerSetting: ProviderSetting.OpenAICodex,
@@ -355,138 +271,4 @@ class OpenAICodexProvider(
         return false
     }
 
-    private fun logSearchFailure(error: Throwable) {
-        if (BuildConfig.DEBUG) {
-            val status = (error as? CodexProtocolException)?.statusCode
-            // Debug logging must never replace the structured tool error (notably in local JVM tests
-            // where android.util.Log may be an unmocked stub).
-            runCatching {
-                Log.w(TAG, "Codex native web search failed, status=$status", error)
-            }
-        }
-    }
-}
-
-private val CODEX_WEB_COMMANDS = setOf(
-    "search_query",
-    "image_query",
-    "open",
-    "click",
-    "find",
-    "screenshot",
-    "finance",
-    "weather",
-    "sports",
-    "time",
-    "response_length",
-)
-
-private fun codexSearchSuccess(result: kotlinx.serialization.json.JsonElement, commands: JsonObject): JsonObject {
-    val response = result as? JsonObject ?: buildJsonObject { put("result", result) }
-    return JsonObject(
-        response + ("_tool_result_metadata" to buildJsonObject {
-            put("type", "codex_web_search")
-            put("status", "completed")
-            put("actions", JsonArray(commands.keys.map(::JsonPrimitive)))
-            put("sources", extractCodexSearchSources(response))
-        })
-    )
-}
-
-private fun codexSearchError(
-    code: String,
-    retryable: Boolean,
-    message: String,
-    commands: JsonObject = JsonObject(emptyMap()),
-): JsonObject {
-    val error = buildJsonObject {
-        put("type", "codex_web_search_error")
-        put("code", code)
-        put("retryable", retryable)
-        put("message", message)
-    }
-    return buildJsonObject {
-        put("error", error)
-        put("_tool_result_metadata", buildJsonObject {
-            put("type", "codex_web_search")
-            put("status", "failed")
-            put("actions", JsonArray(commands.keys.map(::JsonPrimitive)))
-            put("error", error)
-        })
-    }
-}
-
-private fun extractCodexSearchSources(response: JsonObject): JsonArray {
-    val unique = linkedMapOf<String, JsonObject>()
-    val pending = ArrayDeque<Pair<kotlinx.serialization.json.JsonElement, Int>>().apply {
-        add(response to 0)
-    }
-    while (pending.isNotEmpty() && unique.size < 64) {
-        val (candidate, depth) = pending.removeFirst()
-        when (candidate) {
-            is JsonObject -> {
-                val url = (candidate["url"] as? JsonPrimitive)?.content?.trim().orEmpty()
-                if (url.isNotBlank()) {
-                    unique.putIfAbsent(url, buildJsonObject {
-                        put("url", url)
-                        (candidate["title"] as? JsonPrimitive)?.content?.trim()
-                            ?.takeIf { it.isNotBlank() }
-                            ?.let { put("title", it) }
-                    })
-                }
-                if (depth < 4) {
-                    CODEX_SEARCH_RESULT_CHILD_KEYS.forEach { key ->
-                        candidate[key]?.let { child -> pending.add(child to depth + 1) }
-                    }
-                }
-            }
-
-            is JsonArray -> if (depth < 4) {
-                candidate.forEach { child -> pending.add(child to depth + 1) }
-            }
-
-            else -> Unit
-        }
-    }
-    return JsonArray(unique.values.toList())
-}
-
-private val CODEX_SEARCH_RESULT_CHILD_KEYS = setOf(
-    "result",
-    "results",
-    "sources",
-    "items",
-    "output",
-    "content",
-    "citations",
-    "data",
-)
-
-private fun Throwable.toCodexSearchErrorCode(): String {
-    val status = (this as? CodexProtocolException)?.statusCode
-    return when (status) {
-        400 -> "invalid_request"
-        401 -> "unauthorized"
-        403, 404 -> "protocol_unsupported"
-        408, 429 -> if (status == 429) "rate_limited" else "network"
-        in 500..599 -> "network"
-        null -> if (this is IOException) "network" else "unknown"
-        else -> "unknown"
-    }
-}
-
-private fun Throwable.isCodexSearchRetryable(): Boolean {
-    val status = (this as? CodexProtocolException)?.statusCode
-    return status == null || status == 408 || status == 429 || status in 500..599
-}
-
-private fun Throwable.toCodexSearchErrorMessage(): String {
-    return when (toCodexSearchErrorCode()) {
-        "invalid_request" -> "The native web search request was rejected as invalid."
-        "unauthorized" -> "Codex login could not be renewed for web search."
-        "protocol_unsupported" -> "This Codex service version does not support the requested web action."
-        "rate_limited" -> "Codex web search is temporarily rate limited."
-        "network" -> "Codex web search is temporarily unavailable due to a network or service error."
-        else -> "Codex web search could not be completed."
-    }
 }

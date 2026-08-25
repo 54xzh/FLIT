@@ -502,12 +502,6 @@
   <string name="backup_page_webdav_server_address">WebDAV 服务器地址</string>
   <string name="built_in_search_description">是否启用模型内置的搜索功能</string>
   <string name="built_in_search_title">模型内置搜索</string>
-  <string name="codex_web_search_title">Codex 网页搜索</string>
-  <string name="codex_web_search_running">正在实时搜索网页…</string>
-  <string name="codex_web_search_failed">实时网页搜索失败</string>
-  <string name="codex_web_search_actions">执行操作</string>
-  <string name="codex_web_search_sources">来源</string>
-  <string name="codex_web_search_no_sources">未返回来源。</string>
   <string name="calculating">计算中...</string>
   <string name="cancel">取消</string>
   <string name="cancel_edit">取消编辑</string>

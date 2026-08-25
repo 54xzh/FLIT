@@ -14,7 +14,6 @@ import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.TextGenerationParams
-import me.rerere.ai.provider.providers.codex.CODEX_WEB_RUN_TOOL_NAME
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
@@ -80,29 +79,7 @@ class ResponseAPICodexStateTest {
     }
 
     @Test
-    fun `namespace function call is mapped to local web run tool`() {
-        val done = api.parseResponseDelta(
-            jsonObject(
-                "type" to JsonPrimitive("response.output_item.done"),
-                "item" to jsonObject(
-                    "type" to JsonPrimitive("function_call"),
-                    "call_id" to JsonPrimitive("call_web"),
-                    "namespace" to JsonPrimitive("web"),
-                    "name" to JsonPrimitive("run"),
-                    "arguments" to JsonPrimitive("{\"time\":[{\"utc_offset\":\"+08:00\"}]}"),
-                ),
-            ),
-            ResponseStreamState(),
-        )
-
-        assertEquals(
-            CODEX_WEB_RUN_TOOL_NAME,
-            done?.choices?.first()?.delta?.getToolCalls()?.single()?.toolName,
-        )
-    }
-
-    @Test
-    fun `Codex built in web search is registered without custom web run`() {
+    fun `Codex built in web search is registered with function tools`() {
         val model = Model(
             modelId = "gpt-codex",
             abilities = listOf(ModelAbility.TOOL),
@@ -140,7 +117,6 @@ class ResponseAPICodexStateTest {
         assertEquals("web_search", tools.first().jsonObject["type"]?.jsonPrimitive?.content)
         assertEquals("function", tools.last().jsonObject["type"]?.jsonPrimitive?.content)
         assertEquals("local_tool", tools.last().jsonObject["name"]?.jsonPrimitive?.content)
-        assertTrue(tools.none { it.jsonObject["name"]?.jsonPrimitive?.content == CODEX_WEB_RUN_TOOL_NAME })
     }
 
     @Test
