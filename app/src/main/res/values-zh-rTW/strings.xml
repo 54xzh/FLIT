@@ -1368,6 +1368,8 @@
   <string name="assistant_page_consolidation_delay">整合延遲</string>
   <string name="assistant_page_consolidation_delay_value">整合延遲: %d 分鐘</string>
   <string name="assistant_page_consolidation_delay_desc">對話結束后等待多久再形成記憶</string>
+  <string name="assistant_page_pause_memory_consolidation">暫停整合記憶</string>
+  <string name="assistant_page_pause_memory_consolidation_desc">開啟後，期間的對話將不再自動整合成記憶</string>
   <string name="assistant_page_consolidation_reflection_interval">反思間隔</string>
   <string name="assistant_page_consolidation_reflection_interval_value">反思間隔: %d 小時</string>
   <string name="assistant_page_consolidation_reflection_interval_desc">多久反思一次情景記憶以形成核心記憶</string>

@@ -120,7 +120,6 @@ fun ColumnScope.ConversationList(
     onConsolidate: (Conversation) -> Unit = {},
     onPin: (Conversation) -> Unit = {},
     onExportConversationJson: (Conversation) -> Unit = {},
-    showUnconsolidatedDot: Boolean = false,
     showConsolidateOption: Boolean = false,
     showExportConversationJsonButton: Boolean = false,
 ) {
@@ -398,7 +397,6 @@ fun ColumnScope.ConversationList(
                             onConsolidate = onConsolidate,
                             onPin = onPin,
                             onExportConversationJson = onExportConversationJson,
-                            showUnconsolidatedDot = showUnconsolidatedDot,
                             showConsolidateOption = showConsolidateOption,
                             showExportConversationJsonButton = showExportConversationJsonButton,
                             modifier = Modifier.animateItem(
@@ -539,7 +537,6 @@ private fun ConversationItem(
     onConsolidate: (Conversation) -> Unit = {},
     onPin: (Conversation) -> Unit = {},
     onExportConversationJson: (Conversation) -> Unit = {},
-    showUnconsolidatedDot: Boolean = false,
     showConsolidateOption: Boolean = false,
     showExportConversationJsonButton: Boolean = false,
     onClick: (Conversation) -> Unit
@@ -626,17 +623,6 @@ private fun ConversationItem(
             )
             Spacer(Modifier.weight(1f))
             
-            // Unconsolidated Dot
-            AnimatedVisibility(showUnconsolidatedDot && !conversation.isConsolidated) {
-                Box(
-                    modifier = Modifier
-                        .padding(end = 4.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.error)
-                        .size(6.dp)
-                )
-            }
-
             // 置顶图标
             AnimatedVisibility(conversation.isPinned) {
                 Icon(

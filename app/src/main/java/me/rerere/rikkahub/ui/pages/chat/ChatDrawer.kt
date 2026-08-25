@@ -312,7 +312,6 @@ fun ChatDrawerContent(
                 onExportConversationJson = { conversation ->
                     exportConversationJson(conversation)
                 },
-                showUnconsolidatedDot = canConsolidate,
                 showConsolidateOption = canConsolidate,
                 showExportConversationJsonButton = settings.displaySetting.showExportConversationJsonButton,
             )

@@ -1526,6 +1526,8 @@
     <string name="assistant_page_consolidation_delay">Consolidation Delay</string>
     <string name="assistant_page_consolidation_delay_value">Consolidation Delay: %d minutes</string>
     <string name="assistant_page_consolidation_delay_desc">Wait time after a chat ends before forming memories</string>
+    <string name="assistant_page_pause_memory_consolidation">Pause Memory Consolidation</string>
+    <string name="assistant_page_pause_memory_consolidation_desc">When enabled, conversations during this period will no longer be automatically consolidated into memories</string>
     <string name="assistant_page_consolidation_reflection_interval">Reflection Interval</string>
     <string name="assistant_page_consolidation_reflection_interval_value">Reflection Interval: %d hours</string>
     <string name="assistant_page_consolidation_reflection_interval_desc">How often to reflect on episodes to form core memories</string>

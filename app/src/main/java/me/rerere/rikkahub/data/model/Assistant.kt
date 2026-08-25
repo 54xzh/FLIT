@@ -144,6 +144,8 @@ data class Assistant(
 
     // Memory System Configuration & Stats
     val consolidationDelayMinutes: Int = 30, // Wait time before consolidating a chat
+    val isMemoryConsolidationPaused: Boolean = false, // Pause automatic memory consolidation
+    val memoryConsolidationResumeAt: Long = 0L, // Do not auto-consolidate chats updated before this time
     val lastConsolidationTime: Long = 0L,
     val lastConsolidationResult: String = "",
 

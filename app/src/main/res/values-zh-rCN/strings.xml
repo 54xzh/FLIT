@@ -117,6 +117,8 @@
     <string name="assistant_page_consolidation_delay">整合延迟</string>
     <string name="assistant_page_consolidation_delay_desc">对话结束后等待多久再形成记忆</string>
     <string name="assistant_page_consolidation_delay_value">整合延迟: %d 分钟</string>
+    <string name="assistant_page_pause_memory_consolidation">暂停整合记忆</string>
+    <string name="assistant_page_pause_memory_consolidation_desc">打开后，期间的对话将不再自动整合成记忆</string>
     <string name="assistant_page_consolidation_enable">启用记忆整合</string>
     <string name="assistant_page_consolidation_enable_desc">允许助手形成长期记忆</string>
     <string name="assistant_page_consolidation_human_like">类人记忆</string>

@@ -83,7 +83,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
-import me.rerere.ai.provider.Model
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
@@ -100,6 +99,7 @@ import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.utils.toLocalString
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
+import me.rerere.rikkahub.service.withMemoryConsolidationPaused
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -251,13 +251,6 @@ fun AssistantMemorySettings(
     val currentEmbeddingModelId by assistantDetailVM.currentEmbeddingModelId.collectAsState()
     val currentMode = getMemoryMode(assistant)
     
-    // Get all models for summarizer picker
-    val providers by assistantDetailVM.providers.collectAsStateWithLifecycle()
-    val allModels = remember(providers) { providers.flatMap { it.models } }
-    val defaultModel = Model("default", "Default (Background Model)")
-    val modelOptions = listOf(defaultModel) + allModels
-    val selectedModel = allModels.find { it.id == assistant.summarizerModelId } ?: defaultModel
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -448,8 +441,6 @@ fun AssistantMemorySettings(
                 ConsolidationSettingsCard(
                     assistant = assistant,
                     onUpdateAssistant = onUpdateAssistant,
-                    modelOptions = modelOptions,
-                    selectedModel = selectedModel,
                     onConsolidate = { assistantDetailVM.consolidateMemories(true) }
                 )
             }
@@ -794,41 +785,16 @@ private fun RagSettingsCard(
 private fun ConsolidationSettingsCard(
     assistant: Assistant,
     onUpdateAssistant: (Assistant) -> Unit,
-    modelOptions: List<Model>,
-    selectedModel: Model,
     onConsolidate: () -> Unit
 ) {
     Column(
         modifier = Modifier.clip(RoundedCornerShape(24.dp)),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // Summarizer Model
-        Surface(
-            color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.assistant_page_consolidation_summarizer_model), style = MaterialTheme.typography.titleMedium)
-                Select(
-                    options = modelOptions,
-                    selectedOption = selectedModel,
-                    onOptionSelected = { model ->
-                        if (model.id.toString() == "default") {
-                            onUpdateAssistant(assistant.copy(summarizerModelId = null))
-                        } else {
-                            onUpdateAssistant(assistant.copy(summarizerModelId = model.id))
-                        }
-                    },
-                    optionToString = { it.displayName },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
         // Consolidation Delay
         Surface(
             color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = RoundedCornerShape(10.dp)
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
@@ -853,6 +819,45 @@ private fun ConsolidationSettingsCard(
                     valueRange = 0f..240f,
                     steps = 23,
                     modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        }
+
+        Surface(
+            color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.assistant_page_pause_memory_consolidation),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = stringResource(R.string.assistant_page_pause_memory_consolidation_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                HapticSwitch(
+                    checked = assistant.isMemoryConsolidationPaused,
+                    onCheckedChange = { paused ->
+                        onUpdateAssistant(
+                            assistant.withMemoryConsolidationPaused(
+                                paused = paused,
+                                now = System.currentTimeMillis(),
+                            )
+                        )
+                    },
                 )
             }
         }

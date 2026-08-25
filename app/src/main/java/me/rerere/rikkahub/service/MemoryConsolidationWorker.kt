@@ -97,6 +97,31 @@ class MemoryConsolidationWorker(
         return null
     }
 
+    private fun isManualConsolidation(isFullScan: Boolean, forceConversationId: String?): Boolean {
+        return isFullScan || forceConversationId != null
+    }
+
+    /**
+     * Reads the latest setting instead of relying on the worker's initial snapshot, so pausing
+     * consolidation while a worker is running prevents that worker from writing an episode.
+     */
+    private fun canProcessConversation(
+        assistantId: kotlin.uuid.Uuid,
+        conversationUpdateAt: Long,
+        isManual: Boolean,
+    ): Boolean {
+        if (isManual) return true
+
+        val latestAssistant = settingsStore.settingsFlow.value.getAssistantById(assistantId) ?: return false
+        return latestAssistant.enableMemory &&
+            latestAssistant.enableMemoryConsolidation &&
+            latestAssistant.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.OFF &&
+            latestAssistant.canConsolidateConversation(
+                conversationUpdateAt = conversationUpdateAt,
+                isManual = false,
+            )
+    }
+
     private suspend fun consolidateMemories() {
         val settings = settingsStore.settingsFlow.value
         val isFullScan = inputData.getBoolean("FULL_SCAN", false)
@@ -154,6 +179,7 @@ class MemoryConsolidationWorker(
 
         var trackACount = 0
         val now = System.currentTimeMillis()
+        val isManual = isManualConsolidation(isFullScan, forceConversationId)
         
         // Only process conversations if consolidation is enabled
         if (assistant.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.OFF &&
@@ -172,6 +198,10 @@ class MemoryConsolidationWorker(
             for (conversation in conversationsToProcess) {
             // Skip conversations without at least one user & one assistant message
             val allMessages = getMessagesForConsolidationOrNull(conversation) ?: continue
+
+            if (!canProcessConversation(assistant.id, conversation.updateAt.toEpochMilli(), isManual)) {
+                continue
+            }
             
             // Check if already consolidated (unless forced or full scan)
             if (conversation.isConsolidated && !isFullScan && forceConversationId == null) continue
@@ -269,6 +299,11 @@ class MemoryConsolidationWorker(
                 summary = summary.trim()
                 if (summary.isEmpty()) continue
 
+                // The switch may have been enabled while this request was in flight.
+                if (!canProcessConversation(assistant.id, conversation.updateAt.toEpochMilli(), isManual)) {
+                    continue
+                }
+
                 val summaryEmbeddingResult = if (isVectorMemoryEnabled(assistant.id)) {
                     runCatching {
                         embeddingService.embedWithModelId(
@@ -282,6 +317,10 @@ class MemoryConsolidationWorker(
                 }
                 val summaryEmbedding = summaryEmbeddingResult?.embeddings?.firstOrNull()
                 val embeddingModelId = summaryEmbeddingResult?.modelId
+
+                if (!canProcessConversation(assistant.id, conversation.updateAt.toEpochMilli(), isManual)) {
+                    continue
+                }
 
                 val conversationId = conversation.id.toString()
                 val existingEpisode = chatEpisodeDAO.getEpisodeByConversationIdAndAssistantId(
@@ -469,9 +508,19 @@ class MemoryConsolidationWorker(
 
         val templateName = template.name.trim().ifBlank { "Group Chat" }
         val now = System.currentTimeMillis()
+        val isManual = isManualConsolidation(isFullScan, forcedConversationId)
 
         for (conversation in conversationsToProcess) {
             val allMessages = getMessagesForConsolidationOrNull(conversation) ?: continue
+
+            val eligibleTargetAssistants = targetAssistants.filter { targetAssistant ->
+                canProcessConversation(
+                    assistantId = targetAssistant.id,
+                    conversationUpdateAt = conversation.updateAt.toEpochMilli(),
+                    isManual = isManual,
+                )
+            }
+            if (eligibleTargetAssistants.isEmpty()) continue
 
             if (conversation.isConsolidated && !isFullScan && forcedConversation == null) continue
 
@@ -582,7 +631,16 @@ class MemoryConsolidationWorker(
                 val conversationId = conversation.id.toString()
                 var insertedCount = 0
 
-                targetAssistants.forEach { targetAssistant ->
+                eligibleTargetAssistants.forEach { targetAssistant ->
+                    if (!canProcessConversation(
+                            assistantId = targetAssistant.id,
+                            conversationUpdateAt = conversation.updateAt.toEpochMilli(),
+                            isManual = isManual,
+                        )
+                    ) {
+                        return@forEach
+                    }
+
                     val targetAssistantId = targetAssistant.id.toString()
                     val summaryEmbeddingResult = if (isVectorMemoryEnabled(targetAssistant.id)) {
                         runCatching {
@@ -597,6 +655,15 @@ class MemoryConsolidationWorker(
                     }
                     val summaryEmbedding = summaryEmbeddingResult?.embeddings?.firstOrNull()
                     val embeddingModelId = summaryEmbeddingResult?.modelId
+
+                    if (!canProcessConversation(
+                            assistantId = targetAssistant.id,
+                            conversationUpdateAt = conversation.updateAt.toEpochMilli(),
+                            isManual = isManual,
+                        )
+                    ) {
+                        return@forEach
+                    }
 
                     val existingEpisode = chatEpisodeDAO.getEpisodeByConversationIdAndAssistantId(
                         conversationId = conversationId,
@@ -634,7 +701,7 @@ class MemoryConsolidationWorker(
                     insertedCount++
                 }
 
-                if (insertedCount == targetAssistants.size) {
+                if (insertedCount > 0) {
                     conversationRepository.markAsConsolidated(conversation.id)
                 }
             } catch (t: Throwable) {
