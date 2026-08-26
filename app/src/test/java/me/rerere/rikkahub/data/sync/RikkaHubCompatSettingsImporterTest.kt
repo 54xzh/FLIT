@@ -80,6 +80,7 @@ class RikkaHubCompatSettingsImporterTest {
                         JsonArray(
                             listOf(
                                 buildJsonObject { put("type", "time_info") },
+                                buildJsonObject { put("type", "image_generation") },
                                 buildJsonObject { put("type", "clipboard") },
                             )
                         )
@@ -197,7 +198,10 @@ class RikkaHubCompatSettingsImporterTest {
         assertEquals("https://example.test/v1", provider.baseUrl)
         assertEquals(modelId, model.id)
         assertEquals(setOf(BuiltInTools.Search), model.tools)
-        assertEquals(listOf(LocalToolOption.GetCurrentTime), assistant.localTools)
+        assertEquals(
+            listOf(LocalToolOption.GetCurrentTime, LocalToolOption.ImageGeneration),
+            assistant.localTools,
+        )
         assertEquals(AssistantSearchMode.Provider(0), assistant.searchMode)
         assertEquals(0, converted.searchServiceSelected)
         assertEquals("doubao-key", converted.searchServices.single { it.id == searchId }.let { service ->

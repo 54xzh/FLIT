@@ -832,8 +832,8 @@ class CompatExporter(
      *   / grok_web_search / grok_x_search / codex_web_search (原版只有 search / url_context / image_generation)
      * - LocalToolOption (assistants[].localTools[]): python_engine / device_control /
      *   workspace_files / lorebooks_editor / scheduled_task_manager / memory_search /
-     *   chat_search / get_current_time (原版只 javascript_engine / ask_user / time_info /
-     *   clipboard / tts / screen_time / calendar)
+     *   chat_search / get_current_time / image_generation (原版只 javascript_engine /
+     *   ask_user / time_info / clipboard / tts / screen_time / calendar)
      * - Avatar (displaySetting.userAvatar, assistants[].avatar): Resource (原版只有
      *   Dummy / Emoji / Image) — discard avatar 时用原版默认值由原版兜底
      *

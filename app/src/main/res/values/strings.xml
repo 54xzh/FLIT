@@ -225,6 +225,8 @@
     <string name="assistant_page_local_tools_scheduled_task_manager_desc">Allow assistant to create, update, and delete scheduled tasks (requires approval)</string>
     <string name="assistant_page_local_tools_ask_user_title">Ask User</string>
     <string name="assistant_page_local_tools_ask_user_desc">Allow assistant to ask you questions when uncertain</string>
+    <string name="assistant_page_local_tools_image_generation_title">Image Generation</string>
+    <string name="assistant_page_local_tools_image_generation_desc">Allow the assistant to generate images with the selected image model and save them to the in-app gallery.</string>
     <string name="assistant_page_local_tools_get_time_title">Get Current Time</string>
     <string name="assistant_page_local_tools_get_time_desc">Allow assistant to call a tool to get the current date, time and weekday</string>
     <string name="assistant_page_local_tools_mcp_manager_title">MCP Manager</string>

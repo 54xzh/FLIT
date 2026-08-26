@@ -39,7 +39,16 @@ val appModule = module {
     }
 
     single {
-        LocalTools(get(), get(), get(), get(), get(), get())
+        LocalTools(
+            context = get(),
+            settingsStore = get(),
+            mcpManager = get(),
+            workspaceRepository = get(),
+            scheduledTaskDao = get(),
+            scheduledTaskScheduler = get(),
+            providerManager = get(),
+            genMediaRepository = get(),
+        )
     }
 
     single {

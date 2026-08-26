@@ -190,6 +190,8 @@
     <string name="assistant_page_json_must_be_object">JSON 必须是对象，例如 {&quot;key&quot;:&quot;value&quot;}</string>
     <string name="assistant_page_local_tools_ask_user_desc">允许助手在不确定时向你提问</string>
     <string name="assistant_page_local_tools_ask_user_title">询问用户</string>
+    <string name="assistant_page_local_tools_image_generation_title">图片生成</string>
+    <string name="assistant_page_local_tools_image_generation_desc">允许助手使用所选图片模型生成图片，并保存到应用内图库。</string>
     <string name="assistant_page_local_tools_chat_search_desc">允许助手按关键词搜索过往的聊天记录。</string>
     <string name="assistant_page_local_tools_chat_search_title">聊天搜索</string>
   <string name="assistant_page_local_tools_device_control_desc">允许助手与设备交互（发送通知、读取通知、启动应用、设置闹钟、设置提醒）。</string>

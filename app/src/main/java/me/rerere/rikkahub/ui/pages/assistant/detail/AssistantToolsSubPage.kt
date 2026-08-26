@@ -253,6 +253,24 @@ fun AssistantToolsSubPage(
                 }
             )
 
+            SettingGroupItem(
+                title = stringResource(R.string.assistant_page_local_tools_image_generation_title),
+                subtitle = stringResource(R.string.assistant_page_local_tools_image_generation_desc),
+                trailing = {
+                    HapticSwitch(
+                        checked = assistant.localTools.contains(LocalToolOption.ImageGeneration),
+                        onCheckedChange = { enabled ->
+                            val newLocalTools = if (enabled) {
+                                assistant.localTools + LocalToolOption.ImageGeneration
+                            } else {
+                                assistant.localTools - LocalToolOption.ImageGeneration
+                            }
+                            onUpdate(assistant.copy(localTools = newLocalTools))
+                        }
+                    )
+                }
+            )
+
             // Get Current Time
             SettingGroupItem(
                 title = stringResource(R.string.assistant_page_local_tools_get_time_title),

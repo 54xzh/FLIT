@@ -73,6 +73,10 @@ sealed class LocalToolOption {
     @Serializable
     @SerialName("mcp_manager")
     data object McpManager : LocalToolOption()
+
+    @Serializable
+    @SerialName("image_generation")
+    data object ImageGeneration : LocalToolOption()
 }
 
 class LocalTools(
@@ -82,7 +86,18 @@ class LocalTools(
     private val workspaceRepository: me.rerere.rikkahub.data.repository.WorkspaceRepository,
     private val scheduledTaskDao: ScheduledTaskDao,
     private val scheduledTaskScheduler: ScheduledTaskScheduler,
+    private val providerManager: me.rerere.ai.provider.ProviderManager,
+    private val genMediaRepository: me.rerere.rikkahub.data.repository.GenMediaRepository,
 ) {
+    private val imageGenerationTool by lazy {
+        createImageGenerationTool(
+            context = context,
+            settingsStore = settingsStore,
+            providerManager = providerManager,
+            genMediaRepository = genMediaRepository,
+        )
+    }
+
     val javascriptTool by lazy {
         Tool(
             name = "eval_javascript",
@@ -554,6 +569,9 @@ class LocalTools(
         }
         if (options.contains(LocalToolOption.GetCurrentTime)) {
             tools.add(currentTimeTool)
+        }
+        if (options.contains(LocalToolOption.ImageGeneration)) {
+            tools.add(imageGenerationTool)
         }
         return tools
     }

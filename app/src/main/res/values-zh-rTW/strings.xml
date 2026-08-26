@@ -1719,6 +1719,8 @@
   <string name="assistant_page_local_tools_scheduled_task_manager_desc">允許助手建立、編輯和刪除定時任務（需要使用者確認）</string>
   <string name="assistant_page_local_tools_ask_user_title">詢問使用者</string>
   <string name="assistant_page_local_tools_ask_user_desc">允許助手在不確定時向你提問</string>
+  <string name="assistant_page_local_tools_image_generation_title">圖片生成</string>
+  <string name="assistant_page_local_tools_image_generation_desc">允許助手使用所選圖片模型生成圖片，並儲存到應用程式內圖片庫。</string>
   <string name="assistant_page_local_tools_get_time_title">取得目前時間</string>
   <string name="assistant_page_local_tools_get_time_desc">允許助手呼叫工具取得目前的日期、時間和星期</string>
   <string name="assistant_page_local_tools_mcp_manager_title">MCP 管理</string>

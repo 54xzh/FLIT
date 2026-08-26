@@ -75,6 +75,7 @@ internal object RikkaHubCompatSettingsImporter {
         "javascript_engine",
         "ask_user",
         "get_current_time",
+        "image_generation",
     )
 
     /**
