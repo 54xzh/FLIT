@@ -168,4 +168,9 @@ sealed class BuiltInTools {
     @Serializable
     @SerialName("codex_web_search")
     data object CodexWebSearch : BuiltInTools()
+
+    /** ChatGPT/Codex 登录模型使用的原生图片生成工具。 */
+    @Serializable
+    @SerialName("codex_image_generation")
+    data object CodexImageGeneration : BuiltInTools()
 }

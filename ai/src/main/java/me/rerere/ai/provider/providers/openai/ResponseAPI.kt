@@ -293,6 +293,22 @@ class ResponseAPI(
         params: TextGenerationParams,
         stream: Boolean
     ): JsonObject {
+        val hasCodexImageGeneration = params.model.tools.contains(BuiltInTools.CodexImageGeneration)
+        val systemInstructions = messages
+            .filter { it.role == MessageRole.SYSTEM }
+            .flatMap { message -> message.parts.filterIsInstance<UIMessagePart.Text>() }
+            .joinToString("\n") { it.text }
+        val instructions = buildList {
+            systemInstructions.takeIf { it.isNotBlank() }?.let(::add)
+            if (hasCodexImageGeneration) {
+                // Codex's hosted image tool is selected by the host model. The
+                // backend does not accept forcing it through tool_choice.
+                add(
+                    "When the user asks to create, draw, render, edit, or generate an image, " +
+                        "use the image_generation tool."
+                )
+            }
+        }.joinToString("\n\n")
         return buildJsonObject {
             put("model", params.model.modelId)
             put("stream", stream)
@@ -304,11 +320,8 @@ class ResponseAPI(
             if (params.maxTokens != null) put("max_output_tokens", params.maxTokens)
 
             // system instructions
-            if (messages.any { it.role == MessageRole.SYSTEM }) {
-                val parts = messages.first { it.role == MessageRole.SYSTEM }.parts
-                put(
-                    "instructions",
-                    parts.filterIsInstance<UIMessagePart.Text>().joinToString("\n") { it.text })
+            if (instructions.isNotBlank()) {
+                put("instructions", instructions)
             }
 
             // messages
@@ -341,12 +354,26 @@ class ResponseAPI(
             val hasGrokXSearch = params.model.tools.contains(BuiltInTools.GrokXSearch)
             val hasFunctionTools = params.model.abilities.contains(ModelAbility.TOOL) && functionTools.isNotEmpty()
 
-            if (hasFunctionTools || hasCodexWebSearch || hasGrokWebSearch || hasGrokXSearch) {
+            if (
+                hasFunctionTools || hasCodexWebSearch || hasCodexImageGeneration ||
+                hasGrokWebSearch || hasGrokXSearch
+            ) {
                 putJsonArray("tools") {
                     if (hasCodexWebSearch) {
                         // The supported Responses built-in search has no cached/indexed mode;
                         // requests are live by design.
                         add(buildJsonObject { put("type", "web_search") })
+                    }
+                    if (hasCodexImageGeneration) {
+                        add(buildJsonObject {
+                            put("type", "image_generation")
+                            put("model", "gpt-image-2")
+                            put("size", "1024x1024")
+                            put("quality", "medium")
+                            put("output_format", "png")
+                            put("background", "opaque")
+                            put("partial_images", 0)
+                        })
                     }
                     if (hasGrokWebSearch) {
                         add(buildJsonObject { put("type", "web_search") })
@@ -819,6 +846,8 @@ class ResponseAPI(
                 null
             }
 
+            "image_generation_call" -> imageGenerationChunk(item)
+
             "message" -> {
                 val itemId = item["id"]?.jsonPrimitive?.contentOrNull
                 val annotations = (
@@ -863,6 +892,50 @@ class ResponseAPI(
 
             else -> null
         }
+    }
+
+    private fun imageGenerationChunk(item: JsonObject): MessageChunk? {
+        val image = parseGeneratedImage(item) ?: return null
+        return MessageChunk(
+            id = item["id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            model = "",
+            choices = listOf(
+                UIMessageChoice(
+                    index = 0,
+                    message = null,
+                    delta = UIMessage(
+                        role = MessageRole.ASSISTANT,
+                        parts = listOf(image),
+                    ),
+                    finishReason = null,
+                )
+            ),
+        )
+    }
+
+    /**
+     * Responses returns an image-generation result as base64 in current Codex
+     * streams. Accept the equivalent URL fields too so the message renderer can
+     * handle compatible Responses servers without a provider-specific branch.
+     */
+    private fun parseGeneratedImage(item: JsonObject): UIMessagePart.Image? {
+        val imageUrlObject = item["image_url"] as? JsonObject
+        val imageData = item["result"]?.jsonPrimitive?.contentOrNull
+            ?: item["b64_json"]?.jsonPrimitive?.contentOrNull
+            ?: item["image_base64"]?.jsonPrimitive?.contentOrNull
+            ?: item["image_url"]?.jsonPrimitive?.contentOrNull
+            ?: imageUrlObject?.get("url")?.jsonPrimitive?.contentOrNull
+            ?: return null
+        val outputFormat = item["output_format"]?.jsonPrimitive?.contentOrNull
+            ?.lowercase()
+            ?.takeIf { it in setOf("png", "jpeg", "webp") }
+            ?: "png"
+        val imageUrl = when {
+            imageData.startsWith("data:") || imageData.startsWith("http:") ||
+                imageData.startsWith("https:") -> imageData
+            else -> "data:image/$outputFormat;base64,$imageData"
+        }
+        return UIMessagePart.Image(imageUrl)
     }
 
     private fun reasoningSummary(item: JsonObject): String =
@@ -914,6 +987,10 @@ class ResponseAPI(
 
                 "web_search_call" -> {
                     annotations += parseWebSearchSources(output["action"] as? JsonObject)
+                }
+
+                "image_generation_call" -> {
+                    parseGeneratedImage(output)?.let(parts::add)
                 }
 
                 "message" -> {

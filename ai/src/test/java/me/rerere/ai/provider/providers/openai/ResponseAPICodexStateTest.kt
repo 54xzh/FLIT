@@ -79,11 +79,11 @@ class ResponseAPICodexStateTest {
     }
 
     @Test
-    fun `Codex built in web search is registered with function tools`() {
+    fun `Codex built in tools are registered with function tools`() {
         val model = Model(
             modelId = "gpt-codex",
             abilities = listOf(ModelAbility.TOOL),
-            tools = setOf(BuiltInTools.CodexWebSearch),
+            tools = setOf(BuiltInTools.CodexWebSearch, BuiltInTools.CodexImageGeneration),
         )
         val messages = listOf(
             UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("hello"))),
@@ -94,8 +94,16 @@ class ResponseAPICodexStateTest {
             stream = true,
         )
         val builtInTools = builtInOnlyBody["tools"]?.jsonArray ?: error("web search tool missing")
-        assertEquals(1, builtInTools.size)
-        assertEquals("web_search", builtInTools.single().jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals(2, builtInTools.size)
+        assertEquals("web_search", builtInTools.first().jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("image_generation", builtInTools.last().jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("gpt-image-2", builtInTools.last().jsonObject["model"]?.jsonPrimitive?.content)
+        assertEquals("1024x1024", builtInTools.last().jsonObject["size"]?.jsonPrimitive?.content)
+        assertEquals("medium", builtInTools.last().jsonObject["quality"]?.jsonPrimitive?.content)
+        assertTrue(
+            builtInOnlyBody["instructions"]?.jsonPrimitive?.content
+                ?.contains("use the image_generation tool") == true
+        )
 
         val body = buildResponseRequest(
             messages = messages,
@@ -113,10 +121,33 @@ class ResponseAPICodexStateTest {
         )
 
         val tools = body["tools"]?.jsonArray ?: error("normal tool missing")
-        assertEquals(2, tools.size)
+        assertEquals(3, tools.size)
         assertEquals("web_search", tools.first().jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("image_generation", tools[1].jsonObject["type"]?.jsonPrimitive?.content)
         assertEquals("function", tools.last().jsonObject["type"]?.jsonPrimitive?.content)
         assertEquals("local_tool", tools.last().jsonObject["name"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `completed image generation call is added as an assistant image`() {
+        val done = api.parseResponseDelta(
+            jsonObject(
+                "type" to JsonPrimitive("response.output_item.done"),
+                "item" to jsonObject(
+                    "type" to JsonPrimitive("image_generation_call"),
+                    "id" to JsonPrimitive("img_123"),
+                    "result" to JsonPrimitive("aGVsbG8="),
+                    "output_format" to JsonPrimitive("webp"),
+                ),
+            ),
+            ResponseStreamState(),
+        )
+
+        val image = done?.choices?.first()?.delta?.parts
+            ?.filterIsInstance<UIMessagePart.Image>()
+            ?.single()
+            ?: error("generated image missing")
+        assertEquals("data:image/webp;base64,aGVsbG8=", image.url)
     }
 
     @Test

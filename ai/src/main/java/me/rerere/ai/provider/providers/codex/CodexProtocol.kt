@@ -15,6 +15,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import me.rerere.ai.provider.Modality
+import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ModelCapabilitySource
@@ -398,6 +399,10 @@ open class CodexProtocolClient(
                 add(ModelAbility.TOOL)
                 if (hasReasoning) add(ModelAbility.REASONING)
             },
+            // Codex exposes image creation as a Responses built-in tool rather than a
+            // separately selectable model. Keep it available on every catalog model,
+            // matching the official Codex client behavior.
+            tools = setOf(BuiltInTools.CodexImageGeneration),
             capabilitySource = ModelCapabilitySource.AUTO,
         )
     }

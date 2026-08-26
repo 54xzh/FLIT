@@ -161,6 +161,11 @@ class OpenAICodexProvider(
         messages: List<UIMessage>,
         installationId: String,
     ): TextGenerationParams {
+        // Model lists are cached locally. Always attach the native image tool here so
+        // existing Codex models gain it immediately, without waiting for a re-fetch.
+        val codexModel = params.model.copy(
+            tools = params.model.tools + BuiltInTools.CodexImageGeneration,
+        )
         val reservedHeaders = setOf(
             "authorization",
             "chatgpt-account-id",
@@ -205,11 +210,15 @@ class OpenAICodexProvider(
                     }
                 }),
             ),
-            CustomBody("tool_choice", JsonPrimitive("auto")),
             CustomBody("parallel_tool_calls", JsonPrimitive(true)),
             CustomBody("client_metadata", metadata.clientMetadata),
-        )
+        ) + if (codexModel.tools.contains(BuiltInTools.CodexImageGeneration)) {
+            emptyList()
+        } else {
+            listOf(CustomBody("tool_choice", JsonPrimitive("auto")))
+        }
         return params.copy(
+            model = codexModel,
             proMode = false,
             fastMode = false,
             customHeaders = headers,

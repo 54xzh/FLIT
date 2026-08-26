@@ -6,6 +6,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.provider.ModelAbility
+import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderProxy
@@ -125,7 +126,8 @@ class CodexProtocolClientTest {
         assertNull(headers["openai-beta"])
         assertNull(headers["accept"])
         assertTrue(params.customBody.none { it.key == "stream" })
-        assertTrue("web_search_call.action.sources" in included)
+        assertTrue(BuiltInTools.CodexImageGeneration in params.model.tools)
+        assertTrue(params.customBody.none { it.key == "tool_choice" })
         assertEquals("provider-id", metadata["x-codex-installation-id"]?.jsonPrimitive?.content)
         assertEquals(headers["session-id"], metadata["session_id"]?.jsonPrimitive?.content)
         assertEquals(headers["thread-id"], metadata["thread_id"]?.jsonPrimitive?.content)
@@ -240,6 +242,7 @@ class CodexProtocolClientTest {
         assertEquals(listOf("gpt-visible", "gpt-minimal"), models.map { it.modelId })
         assertTrue(ModelAbility.REASONING in models.first().abilities)
         assertEquals(listOf(Modality.TEXT, Modality.IMAGE), models.first().inputModalities)
+        assertTrue(BuiltInTools.CodexImageGeneration in models.first().tools)
         assertFalse(ModelAbility.REASONING in models.last().abilities)
     }
 
