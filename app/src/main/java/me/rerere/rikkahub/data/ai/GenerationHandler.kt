@@ -2477,7 +2477,6 @@ class GenerationHandler(
             var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
-                temperature = 0.3f,
                 onRequestBody = { requestBodyJson = it },
             )
             val requestMessages = messages
@@ -2552,8 +2551,6 @@ class GenerationHandler(
             var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
-                temperature = 0.3f,
-                topP = 0.95f,
                 customBody = listOf(
                     CustomBody(
                         key = "translation_options",

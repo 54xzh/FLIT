@@ -59,6 +59,8 @@ interface Provider<T : ProviderSetting> {
 @Serializable
 data class TextGenerationParams(
     val model: Model,
+    // null means do not send the parameter and let the provider use its model default.
+    // Internal features should prefer this so models that reject sampling parameters remain usable.
     val temperature: Float? = null,
     val topP: Float? = null,
     val maxTokens: Int? = null,

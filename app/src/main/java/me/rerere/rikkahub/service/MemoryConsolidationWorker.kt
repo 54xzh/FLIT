@@ -261,7 +261,6 @@ class MemoryConsolidationWorker(
             var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
-                temperature = 0.5f,
                 onRequestBody = { requestBodyJson = it },
             )
             val startAt = System.currentTimeMillis()
@@ -590,7 +589,6 @@ class MemoryConsolidationWorker(
                 var requestBodyJson: String? = null
                 val params = TextGenerationParams(
                     model = model,
-                    temperature = 0.5f,
                     onRequestBody = { requestBodyJson = it },
                 )
                 val startAt = System.currentTimeMillis()

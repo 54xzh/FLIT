@@ -100,7 +100,6 @@ class ScheduledMessageWorker(
                 messages = listOf(UIMessage.user(prompt)),
                 params = TextGenerationParams(
                     model = model,
-                    temperature = 0.7f,
                     reasoningLevel = ReasoningLevel.OFF
                 )
             )

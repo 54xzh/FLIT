@@ -213,7 +213,6 @@ private class SearchAgentRunner(
             val toolsForStep = if (stepLimitReached) emptyList() else internalTools
             val params = TextGenerationParams(
                 model = model,
-                temperature = 0.1f,
                 tools = toolsForStep,
                 onRequestBody = { requestBodyJson = it },
             )

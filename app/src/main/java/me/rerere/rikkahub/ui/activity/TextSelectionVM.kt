@@ -189,7 +189,6 @@ class TextSelectionVM(
 
                 val params = TextGenerationParams(
                     model = model,
-                    temperature = 0.7f,
                 )
 
                 // Get the actual provider from the manager

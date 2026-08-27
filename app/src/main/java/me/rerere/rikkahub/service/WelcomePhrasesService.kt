@@ -274,7 +274,6 @@ class WelcomePhrasesService(
         var requestBodyJson: String? = null
         val params = TextGenerationParams(
             model = pending.model,
-            temperature = 0.9f,
             reasoningLevel = ReasoningLevel.OFF,
             onRequestBody = { requestBodyJson = it },
         )

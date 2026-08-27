@@ -250,6 +250,8 @@ class SettingsStore(
         val THEME_ID = stringPreferencesKey("theme_id")
         val DISPLAY_SETTING = stringPreferencesKey("display_setting")
         val LIVE_UPDATE_DEFAULT_APPLIED = booleanPreferencesKey("live_update_default_applied")
+        val DEFAULT_TEMPERATURE_MIGRATION_APPLIED =
+            booleanPreferencesKey("default_temperature_migration_applied")
         val DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
         val SHOW_MARKDOWN_FONT_DEBUG_INFO = booleanPreferencesKey("show_markdown_font_debug_info")
         val AUTO_CONTINUE_ON_TRUNCATION = booleanPreferencesKey("auto_continue_on_truncation")
@@ -487,6 +489,28 @@ class SettingsStore(
                 Log.w(TAG, "migrateKeepAliveAlwaysToGeneration failed: ${it.message}", it)
             }
         }
+
+        // The previous built-in assistant explicitly used 0.6. Leave user-customized assistants
+        // untouched, but let an unchanged default assistant follow the selected model's default.
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val prefs = dataStore.data.first()
+                if (prefs[DEFAULT_TEMPERATURE_MIGRATION_APPLIED] == true) return@launch
+
+                dataStore.edit { preferences ->
+                    val assistants = preferences[ASSISTANTS]?.let { raw ->
+                        JsonInstant.decodeFromString<List<Assistant>>(raw)
+                    }.orEmpty()
+                    val migratedAssistants = migrateLegacyDefaultAssistantTemperature(assistants)
+                    if (migratedAssistants != assistants) {
+                        preferences[ASSISTANTS] = JsonInstant.encodeToString(migratedAssistants)
+                    }
+                    preferences[DEFAULT_TEMPERATURE_MIGRATION_APPLIED] = true
+                }
+            }.onFailure {
+                Log.w(TAG, "migrateDefaultAssistantTemperature failed: ${it.message}", it)
+            }
+        }
     }
 
     val settingsFlowRaw = dataStore.data
@@ -639,7 +663,9 @@ class SettingsStore(
                     )
                 } else provider
             }.toMutableList()
-            val assistants = it.assistants.ifEmpty { DEFAULT_ASSISTANTS }.toMutableList()
+            val assistants = migrateLegacyDefaultAssistantTemperature(
+                it.assistants.ifEmpty { DEFAULT_ASSISTANTS }
+            ).toMutableList()
             val ttsProviders = it.ttsProviders.ifEmpty { DEFAULT_TTS_PROVIDERS }.toMutableList()
             DEFAULT_TTS_PROVIDERS.forEach { defaultTTSProvider ->
                 if (ttsProviders.none { provider -> provider.id == defaultTTSProvider.id }) {
@@ -1980,7 +2006,6 @@ internal val DEFAULT_ASSISTANTS = listOf(
         id = DEFAULT_ASSISTANT_ID,
         name = "Generical",
         avatar = Avatar.Resource(me.rerere.rikkahub.R.drawable.default_generical_pfp),
-        temperature = 0.6f,
         systemPrompt = """
             You are the best generic assistant, called {{char}}. {{char}} is a really nice guy. He doesn't use emojis though. Use the search tool when looking for factual info. You can have opinions if the user asks you for one. 
 
@@ -2005,6 +2030,23 @@ private val DEFAULT_TTS_PROVIDERS = listOf(
         name = "",
     ),
 )
+
+private const val LEGACY_DEFAULT_ASSISTANT_TEMPERATURE = 0.6f
+
+/**
+ * The legacy built-in assistant was serialized with a temperature even though the user had not
+ * explicitly opted into sampling controls. Its other fields must still match exactly so a
+ * customized assistant keeps the user's choice.
+ */
+internal fun migrateLegacyDefaultAssistantTemperature(assistants: List<Assistant>): List<Assistant> {
+    val legacyDefaultAssistant = DEFAULT_ASSISTANTS.single {
+        it.id == DEFAULT_ASSISTANT_ID
+    }.copy(temperature = LEGACY_DEFAULT_ASSISTANT_TEMPERATURE)
+
+    return assistants.map { assistant ->
+        if (assistant == legacyDefaultAssistant) assistant.copy(temperature = null) else assistant
+    }
+}
 
 internal val DEFAULT_ASSISTANTS_IDS = DEFAULT_ASSISTANTS.map { it.id }
 

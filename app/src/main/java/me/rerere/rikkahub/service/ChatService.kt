@@ -4293,7 +4293,6 @@ class ChatService(
             var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
-                temperature = 0.3f,
                 reasoningLevel = ReasoningLevel.AUTO,
                 onRequestBody = { requestBodyJson = it },
             )
@@ -4436,7 +4435,6 @@ class ChatService(
             var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
-                temperature = 1.0f,
                 reasoningLevel = ReasoningLevel.AUTO,
                 onRequestBody = { requestBodyJson = it },
             )
@@ -5053,7 +5051,6 @@ class ChatService(
             var requestBodyJson: String? = null
             val params = TextGenerationParams(
                 model = model,
-                temperature = 0.3f,
                 reasoningLevel = ReasoningLevel.AUTO,
                 onRequestBody = { requestBodyJson = it },
             )
