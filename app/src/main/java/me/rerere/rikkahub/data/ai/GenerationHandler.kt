@@ -250,6 +250,8 @@ private fun UIMessagePart.streamUiVisibleChars(): Int {
         is UIMessagePart.Text -> text.length
         is UIMessagePart.Reasoning -> reasoning.length
         is UIMessagePart.Thinking -> thinking.length
+        is UIMessagePart.WebSearch -> queries.sumOf(String::length) +
+            (url?.length ?: 0) + (pattern?.length ?: 0) + sources.sumOf { it.title.length + it.url.length }
         else -> 0
     }
 }
@@ -259,6 +261,7 @@ private fun UIMessagePart.streamUiPartStructureKey(): String {
         is UIMessagePart.Text -> "text"
         is UIMessagePart.Reasoning -> "reasoning:${finishedAt != null}"
         is UIMessagePart.Thinking -> "thinking:${finishedAt != null}"
+        is UIMessagePart.WebSearch -> "webSearch:$callId:$status:$action:${queries.hashCode()}:${url.hashCode()}:${pattern.hashCode()}:${sources.hashCode()}:${finishedAt != null}"
         is UIMessagePart.Image -> "image:${url.hashCode()}"
         is UIMessagePart.Video -> "video:${url.hashCode()}"
         is UIMessagePart.Audio -> "audio:${url.hashCode()}"

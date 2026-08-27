@@ -103,6 +103,7 @@ internal fun buildMessageRenderBlocks(
 
             is UIMessagePart.Reasoning,
             is UIMessagePart.Thinking,
+            is UIMessagePart.WebSearch,
             is UIMessagePart.AskUser,
                 -> {
                     flushMediaParts()

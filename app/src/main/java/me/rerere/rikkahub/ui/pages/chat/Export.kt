@@ -316,7 +316,11 @@ internal fun buildChatMarkdown(
             .append("\n\n")
 
         message.parts.toSortedMessageParts()
-            .filterNot { it is UIMessagePart.Reasoning || it is UIMessagePart.Thinking }
+            .filterNot {
+                it is UIMessagePart.Reasoning ||
+                    it is UIMessagePart.Thinking ||
+                    it is UIMessagePart.WebSearch
+            }
             .forEach { part ->
                 when (part) {
                     is UIMessagePart.QuotedFollowUp -> {

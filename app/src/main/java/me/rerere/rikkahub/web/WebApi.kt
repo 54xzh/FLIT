@@ -1199,6 +1199,7 @@ private fun UIMessage.toSearchableText(): String {
             is UIMessagePart.Text -> part.text
             is UIMessagePart.Reasoning -> part.reasoning
             is UIMessagePart.Thinking -> part.thinking
+            is UIMessagePart.WebSearch -> part.queries.joinToString(" ")
             is UIMessagePart.Document -> listOf(part.fileName, part.mime).joinToString(" ")
             is UIMessagePart.ToolCall -> listOf(part.toolName, part.arguments).joinToString(" ")
             is UIMessagePart.ToolApproval -> part.toolName

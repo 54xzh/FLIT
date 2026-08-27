@@ -390,6 +390,20 @@ private fun sanitizePartForLog(part: UIMessagePart, system: Boolean): UIMessageP
             metadata = null,
         )
 
+        is UIMessagePart.WebSearch -> part.copy(
+            callId = part.callId.truncateInline(120),
+            queries = part.queries.map { it.truncateTo(REQUEST_LOG_MAX_TEXT_PART_CHARS) },
+            url = part.url?.let(::sanitizeUrlForLog),
+            pattern = part.pattern?.truncateTo(REQUEST_LOG_MAX_TEXT_PART_CHARS),
+            sources = part.sources.map { source ->
+                source.copy(
+                    title = source.title.truncateInline(120),
+                    url = sanitizeUrlForLog(source.url),
+                )
+            },
+            metadata = null,
+        )
+
         is UIMessagePart.ToolCall -> part.copy(
             toolCallId = part.toolCallId.truncateInline(120),
             toolName = part.toolName.truncateInline(120),

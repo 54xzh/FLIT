@@ -732,6 +732,7 @@ class CompatExporter(
             fqcn.endsWith(".UIMessagePart.ToolCall") -> "tool_call"
             fqcn.endsWith(".UIMessagePart.ToolResult") -> "tool_result"
             fqcn.endsWith(".UIMessagePart.Search") -> "search"
+            fqcn.endsWith(".UIMessagePart.WebSearch") -> null // 上游兼容格式不认识,丢弃
             fqcn.endsWith(".UIMessagePart.ToolApproval") -> null // 原版不认识,丢弃
             fqcn.endsWith(".UIMessagePart.AskUser") -> null      // 原版不认识,丢弃
             fqcn.endsWith(".UIMessagePart.Thinking") -> "reasoning" // 已被 migrateLegacyNodesJson 处理,兜底

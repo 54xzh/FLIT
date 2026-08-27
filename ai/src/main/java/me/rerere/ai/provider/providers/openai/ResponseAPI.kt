@@ -36,6 +36,8 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.WebSearchAction
+import me.rerere.ai.ui.WebSearchStatus
 import me.rerere.ai.util.configureClientWithProxy
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.encodeBase64
@@ -69,6 +71,7 @@ internal class ResponseStreamState {
     val completedFunctionCalls = mutableSetOf<String>()
     val textItemsWithDeltas = mutableSetOf<String>()
     val reasoningItemsWithDeltas = mutableSetOf<String>()
+    val reasoningSummaryIndexes = mutableMapOf<String, Int>()
     val pendingWebSearchAnnotations = mutableListOf<UIMessageAnnotation.UrlCitation>()
 }
 
@@ -580,16 +583,21 @@ class ResponseAPI(
         return JsonPrimitive(fallbackMessage).parseErrorDetail()
     }
 
-    private fun reasoningMetadata(item: JsonObject): JsonObject? {
-        val id = item["id"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
-        val encrypted = item["encrypted_content"]
-            ?.jsonPrimitive
-            ?.contentOrNull
-            ?.takeIf { it.isNotBlank() }
-        if (id == null && encrypted == null) return null
+    private fun reasoningMetadata(item: JsonObject): JsonObject? = reasoningMetadata(
+        id = (item["id"] as? JsonPrimitive)?.contentOrNull,
+        encrypted = (item["encrypted_content"] as? JsonPrimitive)?.contentOrNull,
+    )
+
+    private fun reasoningMetadata(
+        id: String?,
+        encrypted: String? = null,
+    ): JsonObject? {
+        val stableId = id?.takeIf { it.isNotBlank() }
+        val encryptedContent = encrypted?.takeIf { it.isNotBlank() }
+        if (stableId == null && encryptedContent == null) return null
         return buildJsonObject {
-            id?.let { put(REASONING_ID_METADATA, it) }
-            encrypted?.let { put(REASONING_ENCRYPTED_METADATA, it) }
+            stableId?.let { put(REASONING_ID_METADATA, it) }
+            encryptedContent?.let { put(REASONING_ENCRYPTED_METADATA, it) }
         }
     }
 
@@ -645,10 +653,23 @@ class ResponseAPI(
             }
 
             "response.reasoning_summary_text.delta" -> {
-                jsonObject["item_id"]?.jsonPrimitive?.contentOrNull
-                    ?.let(state.reasoningItemsWithDeltas::add)
+                val itemId = jsonObject["item_id"]?.jsonPrimitive?.contentOrNull
+                itemId?.let(state.reasoningItemsWithDeltas::add)
+                val summaryIndex = (jsonObject["summary_index"] as? JsonPrimitive)?.intOrNull
+                val separator = if (
+                    itemId != null && summaryIndex != null &&
+                    state.reasoningSummaryIndexes[itemId] != null &&
+                    state.reasoningSummaryIndexes[itemId] != summaryIndex
+                ) {
+                    "\n\n"
+                } else {
+                    ""
+                }
+                if (itemId != null && summaryIndex != null) {
+                    state.reasoningSummaryIndexes[itemId] = summaryIndex
+                }
                 return MessageChunk(
-                    id = jsonObject["item_id"]?.jsonPrimitive?.contentOrNull ?: "",
+                    id = itemId.orEmpty(),
                     model = "",
                     choices = listOf(
                         UIMessageChoice(
@@ -657,10 +678,12 @@ class ResponseAPI(
                                 role = MessageRole.ASSISTANT,
                                 parts = listOf(
                                     UIMessagePart.Reasoning(
-                                        reasoning = jsonObject["delta"]?.jsonPrimitive?.contentOrNull
-                                            ?: "",
+                                        reasoning = separator + (
+                                            (jsonObject["delta"] as? JsonPrimitive)?.contentOrNull ?: ""
+                                        ),
                                         createdAt = Clock.System.now(),
-                                        finishedAt = null
+                                        finishedAt = null,
+                                        metadata = reasoningMetadata(itemId),
                                     )
                                 )
                             ),
@@ -724,7 +747,33 @@ class ResponseAPI(
                             )
                         )
                     )
+                } else if (type == "web_search_call") {
+                    return webSearchChunk(
+                        item = item,
+                        fallbackStatus = WebSearchStatus.InProgress,
+                    )
                 }
+            }
+
+            "response.web_search_call.in_progress" -> {
+                return webSearchStatusChunk(
+                    callId = jsonObject["item_id"]?.jsonPrimitive?.contentOrNull,
+                    status = WebSearchStatus.InProgress,
+                )
+            }
+
+            "response.web_search_call.searching" -> {
+                return webSearchStatusChunk(
+                    callId = jsonObject["item_id"]?.jsonPrimitive?.contentOrNull,
+                    status = WebSearchStatus.Searching,
+                )
+            }
+
+            "response.web_search_call.completed" -> {
+                return webSearchStatusChunk(
+                    callId = jsonObject["item_id"]?.jsonPrimitive?.contentOrNull,
+                    status = WebSearchStatus.Completed,
+                )
             }
 
             "response.output_item.done" -> {
@@ -814,35 +863,40 @@ class ResponseAPI(
                 )
             }
 
-            "reasoning" -> MessageChunk(
-                id = item["id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                model = "",
-                choices = listOf(
-                    UIMessageChoice(
-                        index = 0,
-                        message = null,
-                        delta = UIMessage(
-                            role = MessageRole.ASSISTANT,
-                            parts = listOf(
-                                UIMessagePart.Reasoning(
-                                    reasoning = if (
-                                        item["id"]?.jsonPrimitive?.contentOrNull in
-                                        state.reasoningItemsWithDeltas
-                                    ) "" else reasoningSummary(item),
-                                    createdAt = Clock.System.now(),
-                                    finishedAt = null,
-                                    metadata = reasoningMetadata(item),
-                                )
+            "reasoning" -> {
+                val itemId = item["id"]?.jsonPrimitive?.contentOrNull
+                val hasDeltas = itemId != null && itemId in state.reasoningItemsWithDeltas
+                itemId?.let(state.reasoningSummaryIndexes::remove)
+                MessageChunk(
+                    id = itemId.orEmpty(),
+                    model = "",
+                    choices = listOf(
+                        UIMessageChoice(
+                            index = 0,
+                            message = null,
+                            delta = UIMessage(
+                                role = MessageRole.ASSISTANT,
+                                parts = listOf(
+                                    UIMessagePart.Reasoning(
+                                        reasoning = if (hasDeltas) "" else reasoningSummary(item),
+                                        createdAt = Clock.System.now(),
+                                        finishedAt = null,
+                                        metadata = reasoningMetadata(item),
+                                    )
+                                ),
                             ),
-                        ),
-                        finishReason = null,
-                    )
-                ),
-            )
+                            finishReason = null,
+                        )
+                    ),
+                )
+            }
 
             "web_search_call" -> {
                 state.pendingWebSearchAnnotations += parseWebSearchSources(item["action"] as? JsonObject)
-                null
+                webSearchChunk(
+                    item = item,
+                    fallbackStatus = WebSearchStatus.Completed,
+                )
             }
 
             "image_generation_call" -> imageGenerationChunk(item)
@@ -856,7 +910,9 @@ class ResponseAPI(
                             parseUrlCitations((content as? JsonObject)?.get("annotations") as? JsonArray)
                         }
                     + state.pendingWebSearchAnnotations
-                ).distinct()
+                ).distinctBy { annotation ->
+                    (annotation as? UIMessageAnnotation.UrlCitation)?.url ?: annotation
+                }
                 state.pendingWebSearchAnnotations.clear()
                 val hasStreamedText = itemId != null && itemId in state.textItemsWithDeltas
                 val text = (item["content"] as? JsonArray)
@@ -912,6 +968,114 @@ class ResponseAPI(
         )
     }
 
+    private fun webSearchStatusChunk(
+        callId: String?,
+        status: WebSearchStatus,
+    ): MessageChunk? {
+        val stableCallId = callId?.takeIf { it.isNotBlank() } ?: return null
+        return webSearchChunk(
+            UIMessagePart.WebSearch(
+                callId = stableCallId,
+                status = status,
+                finishedAt = status.finishedAtOrNull(),
+            )
+        )
+    }
+
+    private fun webSearchChunk(
+        item: JsonObject,
+        fallbackStatus: WebSearchStatus,
+    ): MessageChunk? = parseWebSearchPart(item, fallbackStatus)?.let(::webSearchChunk)
+
+    private fun webSearchChunk(search: UIMessagePart.WebSearch): MessageChunk {
+        return MessageChunk(
+            id = search.callId,
+            model = "",
+            choices = listOf(
+                UIMessageChoice(
+                    index = 0,
+                    message = null,
+                    delta = UIMessage(
+                        role = MessageRole.ASSISTANT,
+                        parts = listOf(search),
+                    ),
+                    finishReason = null,
+                )
+            ),
+        )
+    }
+
+    private fun parseWebSearchPart(
+        item: JsonObject,
+        fallbackStatus: WebSearchStatus,
+    ): UIMessagePart.WebSearch? {
+        val callId = (item["id"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+            ?: return null
+        val action = item["action"] as? JsonObject
+        val status = parseWebSearchStatus(
+            rawStatus = (item["status"] as? JsonPrimitive)?.contentOrNull,
+            fallback = fallbackStatus,
+        )
+        return UIMessagePart.WebSearch(
+            callId = callId,
+            status = status,
+            action = parseWebSearchAction(action),
+            queries = parseWebSearchQueries(action),
+            url = (action?.get("url") as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() },
+            pattern = (action?.get("pattern") as? JsonPrimitive)
+                ?.contentOrNull
+                ?.takeIf { it.isNotBlank() },
+            sources = parseWebSearchSources(action),
+            createdAt = Clock.System.now(),
+            finishedAt = status.finishedAtOrNull(),
+        )
+    }
+
+    private fun parseWebSearchStatus(
+        rawStatus: String?,
+        fallback: WebSearchStatus,
+    ): WebSearchStatus = when (rawStatus?.lowercase()) {
+        "in_progress" -> WebSearchStatus.InProgress
+        "searching" -> WebSearchStatus.Searching
+        "completed" -> WebSearchStatus.Completed
+        "failed" -> WebSearchStatus.Failed
+        else -> fallback
+    }
+
+    private fun parseWebSearchAction(action: JsonObject?): WebSearchAction = when (
+        (action?.get("type") as? JsonPrimitive)?.contentOrNull
+    ) {
+        "search" -> WebSearchAction.Search
+        "open_page" -> WebSearchAction.OpenPage
+        "find_in_page" -> WebSearchAction.FindInPage
+        else -> WebSearchAction.Unknown
+    }
+
+    private fun parseWebSearchQueries(action: JsonObject?): List<String> {
+        val pluralQueries = (action?.get("queries") as? JsonArray)
+            .orEmpty()
+            .mapNotNull { element ->
+                (element as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { text -> text.isNotBlank() }
+            }
+        if (pluralQueries.isNotEmpty()) return pluralQueries.distinct()
+        return (action?.get("query") as? JsonPrimitive)
+            ?.contentOrNull
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::listOf)
+            .orEmpty()
+    }
+
+    private fun WebSearchStatus.finishedAtOrNull() = when (this) {
+        WebSearchStatus.Completed,
+        WebSearchStatus.Failed,
+            -> Clock.System.now()
+
+        WebSearchStatus.InProgress,
+        WebSearchStatus.Searching,
+            -> null
+    }
+
     /**
      * Responses returns an image-generation result as base64 in current Codex
      * streams. Accept the equivalent URL fields too so the message renderer can
@@ -947,7 +1111,7 @@ class ResponseAPI(
                 }
                 part["text"]?.jsonPrimitive?.contentOrNull
             }
-            .joinToString("\n")
+            .joinToString("\n\n")
 
     private fun parseResponseOutput(jsonObject: JsonObject): MessageChunk {
         if (BuildConfig.DEBUG) println(jsonObject)
@@ -985,6 +1149,10 @@ class ResponseAPI(
                 }
 
                 "web_search_call" -> {
+                    parseWebSearchPart(
+                        item = output,
+                        fallbackStatus = WebSearchStatus.Completed,
+                    )?.let(parts::add)
                     annotations += parseWebSearchSources(output["action"] as? JsonObject)
                 }
 
@@ -1024,7 +1192,9 @@ class ResponseAPI(
                     message = UIMessage(
                         role = MessageRole.ASSISTANT,
                         parts = parts,
-                        annotations = annotations.distinct(),
+                    annotations = annotations.distinctBy { annotation ->
+                        (annotation as? UIMessageAnnotation.UrlCitation)?.url ?: annotation
+                    },
                     ),
                     finishReason = finishReason,
                     delta = null
@@ -1065,7 +1235,7 @@ class ResponseAPI(
                 ?.takeIf { it.isNotBlank() }
                 ?: url
             UIMessageAnnotation.UrlCitation(title = title, url = url)
-        }
+        }.distinctBy { it.url }
     }
 
     private fun parseResponseFinishReason(response: JsonObject?): String? {

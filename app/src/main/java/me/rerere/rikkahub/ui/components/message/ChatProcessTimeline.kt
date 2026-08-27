@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -46,8 +48,10 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -83,13 +87,18 @@ import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.AskUserState
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.WebSearchAction
+import me.rerere.ai.ui.WebSearchStatus
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.getEffectiveDisplaySetting
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantAffectScope
 import me.rerere.rikkahub.data.model.replaceRegexes
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
+import me.rerere.rikkahub.ui.components.ui.Favicon
+import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
@@ -352,6 +361,8 @@ private fun ProcessTimelineStep(
                         assistant = assistant,
                         streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
                     )
+
+                    is UIMessagePart.WebSearch -> CompactWebSearchTimelineItem(search = part)
 
                     is UIMessagePart.ToolCall -> {
                         val parsedArguments = toolCallArgumentsById[part.toolCallId] ?: runCatching {
@@ -730,6 +741,297 @@ private fun CompactToolTimelineItem(
         )
     }
 
+}
+
+@Composable
+private fun CompactWebSearchTimelineItem(search: UIMessagePart.WebSearch) {
+    val settings = LocalSettings.current
+    val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
+    val isRunning = search.status == WebSearchStatus.InProgress ||
+        search.status == WebSearchStatus.Searching
+    var showDetails by remember(search.callId) { mutableStateOf(false) }
+
+    ProcessStepRow(
+        title = webSearchTimelineTitle(search),
+        subtitle = webSearchTimelineSubtitle(search),
+        trailing = {
+            when {
+                isRunning -> CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+
+                search.status == WebSearchStatus.Failed -> Icon(
+                    imageVector = Icons.Rounded.ErrorOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(16.dp),
+                )
+
+                else -> Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        onClick = {
+            haptics.perform(HapticPattern.Pop)
+            showDetails = true
+        },
+    )
+
+    if (showDetails) {
+        WebSearchDetailsSheet(
+            search = search,
+            onDismissRequest = { showDetails = false },
+        )
+    }
+}
+
+@Composable
+private fun webSearchTimelineTitle(search: UIMessagePart.WebSearch): String {
+    if (search.status == WebSearchStatus.Failed) {
+        return stringResource(R.string.web_search_timeline_failed)
+    }
+    val isRunning = search.status == WebSearchStatus.InProgress ||
+        search.status == WebSearchStatus.Searching
+    return when (search.action) {
+        WebSearchAction.OpenPage -> stringResource(
+            if (isRunning) R.string.web_search_timeline_opening else R.string.web_search_timeline_opened
+        )
+
+        WebSearchAction.FindInPage -> stringResource(
+            if (isRunning) R.string.web_search_timeline_finding else R.string.web_search_timeline_found
+        )
+
+        WebSearchAction.Search,
+        WebSearchAction.Unknown,
+            -> stringResource(
+                if (isRunning) R.string.web_search_timeline_searching else R.string.web_search_timeline_searched
+            )
+    }
+}
+
+@Composable
+private fun webSearchTimelineSubtitle(search: UIMessagePart.WebSearch): String? {
+    return when (search.action) {
+        WebSearchAction.Search -> webSearchQueriesSubtitle(search.queries)
+        WebSearchAction.OpenPage -> search.url?.let(::webSearchDisplayHost)
+        WebSearchAction.FindInPage -> listOfNotNull(
+            search.pattern?.takeIf(String::isNotBlank),
+            search.url?.let(::webSearchDisplayHost),
+        ).joinToString(" · ").takeIf(String::isNotBlank)
+
+        WebSearchAction.Unknown -> webSearchQueriesSubtitle(search.queries)
+            ?: search.url?.let(::webSearchDisplayHost)
+            ?: search.pattern?.takeIf(String::isNotBlank)
+    }
+}
+
+@Composable
+private fun webSearchQueriesSubtitle(queries: List<String>): String? {
+    val first = queries.firstOrNull()?.takeIf(String::isNotBlank) ?: return null
+    val additionalCount = queries.count { it.isNotBlank() } - 1
+    return if (additionalCount > 0) {
+        stringResource(R.string.web_search_timeline_more_queries, first, additionalCount)
+    } else {
+        first
+    }
+}
+
+private fun webSearchDisplayHost(url: String): String {
+    return url
+        .substringAfter("://", url)
+        .substringBefore('/')
+        .substringBefore('?')
+        .takeIf(String::isNotBlank)
+        ?: url
+}
+
+@Composable
+private fun WebSearchDetailsSheet(
+    search: UIMessagePart.WebSearch,
+    onDismissRequest: () -> Unit,
+) {
+    val navController = LocalNavController.current
+    ModalBottomSheet(
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        onDismissRequest = onDismissRequest,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxHeight(0.8f)
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.web_search_timeline_details_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+
+            if (search.queries.any(String::isNotBlank)) {
+                WebSearchDetailSection(title = stringResource(R.string.web_search_timeline_queries)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        search.queries.filter(String::isNotBlank).forEach { query ->
+                            Text(
+                                text = query,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier
+                                    .background(
+                                        color = MaterialTheme.colorScheme.secondaryContainer,
+                                        shape = AppShapes.ButtonPill,
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            search.url?.takeIf(String::isNotBlank)?.let { url ->
+                if (search.action == WebSearchAction.OpenPage) {
+                    WebSearchOpenedPageCard(
+                        url = url,
+                        onClick = { navController.navigate(Screen.WebView(url = url)) },
+                    )
+                } else {
+                    WebSearchDetailSection(title = stringResource(R.string.web_search_timeline_url)) {
+                        Text(
+                            text = url,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            }
+
+            search.pattern?.takeIf(String::isNotBlank)?.let { pattern ->
+                WebSearchDetailSection(title = stringResource(R.string.web_search_timeline_pattern)) {
+                    Text(
+                        text = pattern,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+
+            if (search.sources.isNotEmpty()) {
+                WebSearchDetailSection(title = stringResource(R.string.web_search_timeline_sources)) {
+                    search.sources.forEach { source ->
+                        WebSearchSourceCard(
+                            source = source,
+                            onClick = { navController.navigate(Screen.WebView(url = source.url)) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WebSearchSourceCard(
+    source: me.rerere.ai.ui.UIMessageAnnotation.UrlCitation,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp, horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Favicon(url = source.url, modifier = Modifier.size(24.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = source.title.ifBlank { source.url },
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = source.url,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WebSearchOpenedPageCard(
+    url: String,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = url,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+            modifier = Modifier.fillMaxWidth(),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onClick,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Favicon(url = url, modifier = Modifier.size(24.dp))
+                Text(
+                    text = webSearchDisplayHost(url),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WebSearchDetailSection(
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        content()
+    }
 }
 
 @Composable
@@ -1121,6 +1423,7 @@ private fun processTimelineIcon(part: UIMessagePart): ImageVector {
         is UIMessagePart.Thinking,
             -> Icons.Rounded.Lightbulb
 
+        is UIMessagePart.WebSearch -> Icons.Rounded.Public
         is UIMessagePart.ToolApproval -> Icons.Rounded.Extension
         is UIMessagePart.AskUser -> Icons.Rounded.HelpOutline
         is UIMessagePart.ToolCall -> processTimelineToolIcon(part.toolName)

@@ -1067,6 +1067,8 @@ private fun List<UIMessagePart>.toWebMessageParts(context: Context): List<WebMes
 
             UIMessagePart.Search -> null
 
+            is UIMessagePart.WebSearch -> null
+
             is UIMessagePart.AskUser -> null
 
             is UIMessagePart.QuotedFollowUp -> WebMessagePartDto.QuotedFollowUp(

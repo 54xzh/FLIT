@@ -17,6 +17,8 @@ import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.WebSearchAction
+import me.rerere.ai.ui.WebSearchStatus
 import me.rerere.ai.util.KeyRoulette
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
@@ -252,6 +254,128 @@ class ResponseAPICodexStateTest {
     }
 
     @Test
+    fun `web search lifecycle updates one persistent search step`() {
+        val state = ResponseStreamState()
+        var message = UIMessage(role = MessageRole.ASSISTANT, parts = emptyList())
+        fun apply(chunk: me.rerere.ai.ui.MessageChunk?) {
+            message = message + (chunk ?: error("search chunk missing"))
+        }
+
+        apply(
+            api.parseResponseDelta(
+                jsonObject(
+                    "type" to JsonPrimitive("response.output_item.added"),
+                    "item" to jsonObject(
+                        "type" to JsonPrimitive("web_search_call"),
+                        "id" to JsonPrimitive("ws_123"),
+                        "action" to jsonObject(
+                            "type" to JsonPrimitive("search"),
+                            "queries" to buildJsonArray {
+                                add(JsonPrimitive("OpenAI Responses API"))
+                                add(JsonPrimitive("Codex web search"))
+                            },
+                        ),
+                    ),
+                ),
+                state,
+            )
+        )
+        apply(
+            api.parseResponseDelta(
+                jsonObject(
+                    "type" to JsonPrimitive("response.web_search_call.searching"),
+                    "item_id" to JsonPrimitive("ws_123"),
+                ),
+                state,
+            )
+        )
+        apply(
+            api.parseResponseDelta(
+                jsonObject(
+                    "type" to JsonPrimitive("response.output_item.done"),
+                    "item" to jsonObject(
+                        "type" to JsonPrimitive("web_search_call"),
+                        "id" to JsonPrimitive("ws_123"),
+                        "status" to JsonPrimitive("completed"),
+                        "action" to jsonObject(
+                            "type" to JsonPrimitive("search"),
+                            "queries" to buildJsonArray {
+                                add(JsonPrimitive("OpenAI Responses API"))
+                                add(JsonPrimitive("Codex web search"))
+                            },
+                            "sources" to buildJsonArray {
+                                add(jsonObject(
+                                    "url" to JsonPrimitive("https://openai.com/api"),
+                                    "title" to JsonPrimitive("OpenAI API"),
+                                ))
+                            },
+                        ),
+                    ),
+                ),
+                state,
+            )
+        )
+
+        val search = message.parts.filterIsInstance<UIMessagePart.WebSearch>().single()
+        assertEquals(WebSearchStatus.Completed, search.status)
+        assertEquals(WebSearchAction.Search, search.action)
+        assertEquals(listOf("OpenAI Responses API", "Codex web search"), search.queries)
+        assertEquals("https://openai.com/api", search.sources.single().url)
+        assertTrue(search.finishedAt != null)
+    }
+
+    @Test
+    fun `web search accepts old query plus page actions and failed status`() {
+        fun completedSearch(action: JsonObject, status: String): UIMessagePart.WebSearch {
+            val chunk = api.parseResponseDelta(
+                jsonObject(
+                    "type" to JsonPrimitive("response.output_item.done"),
+                    "item" to jsonObject(
+                        "type" to JsonPrimitive("web_search_call"),
+                        "id" to JsonPrimitive("ws_${status}_${action["type"]?.jsonPrimitive?.content}"),
+                        "status" to JsonPrimitive(status),
+                        "action" to action,
+                    ),
+                ),
+                ResponseStreamState(),
+            )
+            return chunk?.choices?.first()?.delta?.parts
+                ?.filterIsInstance<UIMessagePart.WebSearch>()
+                ?.single()
+                ?: error("search part missing")
+        }
+
+        val oldSearch = completedSearch(
+            jsonObject(
+                "type" to JsonPrimitive("search"),
+                "query" to JsonPrimitive("legacy query"),
+            ),
+            status = "completed",
+        )
+        val openPage = completedSearch(
+            jsonObject(
+                "type" to JsonPrimitive("open_page"),
+                "url" to JsonPrimitive("https://openai.com/news"),
+            ),
+            status = "failed",
+        )
+        val findInPage = completedSearch(
+            jsonObject(
+                "type" to JsonPrimitive("find_in_page"),
+                "url" to JsonPrimitive("https://openai.com/news"),
+                "pattern" to JsonPrimitive("Responses"),
+            ),
+            status = "completed",
+        )
+
+        assertEquals(listOf("legacy query"), oldSearch.queries)
+        assertEquals(WebSearchAction.OpenPage, openPage.action)
+        assertEquals(WebSearchStatus.Failed, openPage.status)
+        assertEquals(WebSearchAction.FindInPage, findInPage.action)
+        assertEquals("Responses", findInPage.pattern)
+    }
+
+    @Test
     fun `completed message is used when no text deltas arrived`() {
         val done = api.parseResponseDelta(
             jsonObject(
@@ -430,7 +554,38 @@ class ResponseAPICodexStateTest {
             ?.filterIsInstance<UIMessagePart.Reasoning>()
             ?.single()
             ?: error("reasoning part missing")
-        assertEquals("first\nsecond", reasoning.reasoning)
+        assertEquals("first\n\nsecond", reasoning.reasoning)
+    }
+
+    @Test
+    fun `reasoning summary indexes insert a paragraph only between summary parts`() {
+        val state = ResponseStreamState()
+        var message = UIMessage(role = MessageRole.ASSISTANT, parts = emptyList())
+        listOf(
+            jsonObject(
+                "type" to JsonPrimitive("response.reasoning_summary_text.delta"),
+                "item_id" to JsonPrimitive("rs_123"),
+                "summary_index" to JsonPrimitive(0),
+                "delta" to JsonPrimitive("first"),
+            ),
+            jsonObject(
+                "type" to JsonPrimitive("response.reasoning_summary_text.delta"),
+                "item_id" to JsonPrimitive("rs_123"),
+                "summary_index" to JsonPrimitive(0),
+                "delta" to JsonPrimitive(" continued"),
+            ),
+            jsonObject(
+                "type" to JsonPrimitive("response.reasoning_summary_text.delta"),
+                "item_id" to JsonPrimitive("rs_123"),
+                "summary_index" to JsonPrimitive(1),
+                "delta" to JsonPrimitive("second"),
+            ),
+        ).forEach { event ->
+            message = message + (api.parseResponseDelta(event, state) ?: error("reasoning chunk missing"))
+        }
+
+        val reasoning = message.parts.filterIsInstance<UIMessagePart.Reasoning>().single()
+        assertEquals("first continued\n\nsecond", reasoning.reasoning)
     }
 
     @Test

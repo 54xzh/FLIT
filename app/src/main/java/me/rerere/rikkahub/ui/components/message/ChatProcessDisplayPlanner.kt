@@ -19,6 +19,7 @@ internal fun UIMessagePart.isProcessDisplayPart(): Boolean {
     return when (this) {
         is UIMessagePart.Reasoning,
         is UIMessagePart.Thinking,
+        is UIMessagePart.WebSearch,
         is UIMessagePart.ToolCall,
         is UIMessagePart.ToolApproval,
         is UIMessagePart.ToolResult,

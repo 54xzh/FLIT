@@ -88,10 +88,45 @@ data class UIMessage(
                     }
 
                     is UIMessagePart.Reasoning -> {
-                        val existingReasoningIndex = acc.indexOfLast { it is UIMessagePart.Reasoning }
+                        val incomingReasoningId = deltaPart.metadata
+                            ?.get("openai_reasoning_id")
+                            ?.jsonPrimitive
+                            ?.contentOrNull
+                            ?.takeIf { it.isNotBlank() }
+                        val existingReasoningIndex = if (incomingReasoningId == null) {
+                            acc.indexOfLast { it is UIMessagePart.Reasoning }
+                        } else {
+                            acc.indexOfLast { part ->
+                                part is UIMessagePart.Reasoning &&
+                                    part.metadata
+                                        ?.get("openai_reasoning_id")
+                                        ?.jsonPrimitive
+                                        ?.contentOrNull == incomingReasoningId
+                            }
+                        }
                         val existingReasoningPart = acc.getOrNull(existingReasoningIndex) as? UIMessagePart.Reasoning
                         if (existingReasoningPart == null || existingReasoningIndex < 0) {
                             acc + deltaPart
+                        } else if (
+                            incomingReasoningId != null &&
+                            deltaPart.reasoning.isBlank() &&
+                            existingReasoningPart.finishedAt != null
+                        ) {
+                            // Responses 的 output_item.done 在摘要增量之后只带元数据
+                            // （尤其是 encrypted_content）。若搜索节点已收束这个思考块，
+                            // 这里不能把它重新标记为进行中。
+                            acc.mapIndexed { index, part ->
+                                if (index == existingReasoningIndex) {
+                                    existingReasoningPart.copy(
+                                        metadata = mergePartMetadata(
+                                            existing = existingReasoningPart.metadata,
+                                            incoming = deltaPart.metadata,
+                                        ),
+                                    )
+                                } else {
+                                    part
+                                }
+                            }
                         } else {
                             val resumedCreatedAt = if (existingReasoningPart.finishedAt != null) {
                                 val accumulated = existingReasoningPart.finishedAt - existingReasoningPart.createdAt
@@ -103,19 +138,40 @@ data class UIMessage(
                                 reasoning = existingReasoningPart.reasoning + deltaPart.reasoning,
                                 createdAt = resumedCreatedAt,
                                 finishedAt = null,
-                                metadata = existingReasoningPart.metadata,
-                            ).also {
-                                if (deltaPart.metadata != null) {
-                                    it.metadata = deltaPart.metadata // 更新metadata
-                                    if (BuildConfig.DEBUG) println("更新metadata: ${json.encodeToString(deltaPart)}")
-                                }
-                            }
+                                metadata = mergePartMetadata(
+                                    existing = existingReasoningPart.metadata,
+                                    incoming = deltaPart.metadata,
+                                ),
+                            )
                             acc.mapIndexed { index, part ->
                                 if (index == existingReasoningIndex) {
                                     mergedReasoning
                                 } else {
                                     part
                                 }
+                            }
+                        }
+                    }
+
+                    is UIMessagePart.WebSearch -> {
+                        val existingIndex = acc.indexOfLast { part ->
+                            part is UIMessagePart.WebSearch && part.callId == deltaPart.callId
+                        }
+                        val existing = acc.getOrNull(existingIndex) as? UIMessagePart.WebSearch
+                        if (existing == null || existingIndex < 0) {
+                            // 网页搜索是 Responses 输出中的独立过程项。到达时先收束前一个
+                            // 思考块，后续带有新 OpenAI reasoning id 的摘要自然会另起一块，
+                            // 才能按“思考 → 搜索 → 思考”的真实顺序展示。
+                            acc.map { part ->
+                                if (part is UIMessagePart.Reasoning && part.finishedAt == null) {
+                                    part.copy(finishedAt = deltaPart.createdAt)
+                                } else {
+                                    part
+                                }
+                            } + deltaPart
+                        } else {
+                            acc.mapIndexed { index, part ->
+                                if (index == existingIndex) existing.merge(deltaPart) else part
                             }
                         }
                     }
@@ -280,6 +336,18 @@ data class UIMessage(
         return if (prefix.isNotEmpty()) "$prefix" + "base64," else "data:image/png;base64,"
     }
 
+    private fun mergePartMetadata(
+        existing: JsonObject?,
+        incoming: JsonObject?,
+    ): JsonObject? {
+        if (incoming == null) return existing
+        if (existing == null) return incoming
+        return buildJsonObject {
+            existing.forEach { (key, value) -> put(key, value) }
+            incoming.forEach { (key, value) -> put(key, value) }
+        }
+    }
+
     private fun extractBase64Payload(url: String): String {
         return if (url.startsWith("data:image")) {
             url.substringAfter("base64,", missingDelimiterValue = "")
@@ -375,7 +443,7 @@ data class UIMessage(
     fun getToolResults() = parts.filterIsInstance<UIMessagePart.ToolResult>()
 
     fun isValidToUpload() = parts.any {
-        it !is UIMessagePart.Reasoning
+        it !is UIMessagePart.Reasoning && it !is UIMessagePart.WebSearch
     }
 
     inline fun <reified P : UIMessagePart> hasPart(): Boolean {
@@ -1016,6 +1084,55 @@ sealed class UIMessagePart {
         override val priority: Int = -1
     }
 
+    @Serializable
+    data class WebSearch(
+        val callId: String,
+        val status: WebSearchStatus = WebSearchStatus.InProgress,
+        val action: WebSearchAction = WebSearchAction.Unknown,
+        val queries: List<String> = emptyList(),
+        val url: String? = null,
+        val pattern: String? = null,
+        val sources: List<UIMessageAnnotation.UrlCitation> = emptyList(),
+        val createdAt: Instant = Clock.System.now(),
+        val finishedAt: Instant? = null,
+        override var metadata: JsonObject? = null,
+    ) : UIMessagePart() {
+        fun merge(other: WebSearch): WebSearch {
+            return copy(
+                status = other.status,
+                action = if (other.action == WebSearchAction.Unknown) action else other.action,
+                queries = other.queries.takeIf { it.isNotEmpty() } ?: queries,
+                url = other.url?.takeIf { it.isNotBlank() } ?: url,
+                pattern = other.pattern?.takeIf { it.isNotBlank() } ?: pattern,
+                sources = (sources + other.sources).distinctBy { it.url },
+                finishedAt = other.finishedAt ?: finishedAt ?: when (other.status) {
+                    WebSearchStatus.Completed,
+                    WebSearchStatus.Failed,
+                        -> Clock.System.now()
+
+                    WebSearchStatus.InProgress,
+                    WebSearchStatus.Searching,
+                        -> null
+                },
+                metadata = mergeMetadata(metadata, other.metadata),
+            )
+        }
+
+        override val priority: Int = 0
+
+        private fun mergeMetadata(
+            existing: JsonObject?,
+            incoming: JsonObject?,
+        ): JsonObject? {
+            if (incoming == null) return existing
+            if (existing == null) return incoming
+            return buildJsonObject {
+                existing.forEach { (key, value) -> put(key, value) }
+                incoming.forEach { (key, value) -> put(key, value) }
+            }
+        }
+    }
+
     @Deprecated("Deprecated")
     @Serializable
     data object Search : UIMessagePart() {
@@ -1109,6 +1226,22 @@ sealed class UIMessagePart {
     ) : UIMessagePart() {
         override val priority: Int = -2
     }
+}
+
+@Serializable
+enum class WebSearchStatus {
+    InProgress,
+    Searching,
+    Completed,
+    Failed,
+}
+
+@Serializable
+enum class WebSearchAction {
+    Search,
+    OpenPage,
+    FindInPage,
+    Unknown,
 }
 
 const val PERSISTENT_CONTEXT_IMAGE_METADATA_KEY = "persistent_context_image"

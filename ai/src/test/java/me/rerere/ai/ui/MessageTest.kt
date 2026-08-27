@@ -1063,4 +1063,75 @@ class MessageTest {
             .merge(UIMessagePart.ToolCall("", "tool_b", "{}", index = 1))
         assertEquals("tool_b", namedLater.toolName)
     }
+
+    @Test
+    fun `OpenAI reasoning ids stay separate around a web search step`() {
+        fun chunk(part: UIMessagePart) = MessageChunk(
+            id = "chunk",
+            model = "model",
+            choices = listOf(
+                UIMessageChoice(
+                    index = 0,
+                    delta = UIMessage(
+                        role = MessageRole.ASSISTANT,
+                        parts = listOf(part),
+                    ),
+                    message = null,
+                    finishReason = null,
+                )
+            ),
+        )
+        fun reasoning(text: String, id: String) = UIMessagePart.Reasoning(
+            reasoning = text,
+            metadata = buildJsonObject { put("openai_reasoning_id", id) },
+        )
+
+        var message = UIMessage(role = MessageRole.ASSISTANT, parts = emptyList())
+        message += chunk(reasoning("before", "rs_before"))
+        message += chunk(reasoning(" more", "rs_before"))
+        message += chunk(
+            UIMessagePart.WebSearch(
+                callId = "ws_1",
+                status = WebSearchStatus.Searching,
+                action = WebSearchAction.Search,
+                queries = listOf("a query"),
+            )
+        )
+        // output_item.done 只补充同一 reasoning id 的状态信息，不能把搜索前的思考重新打开。
+        message += chunk(reasoning("", "rs_before"))
+        message += chunk(reasoning("after", "rs_after"))
+
+        val reasoningParts = message.parts.filterIsInstance<UIMessagePart.Reasoning>()
+        assertEquals(2, reasoningParts.size)
+        assertEquals("before more", reasoningParts[0].reasoning)
+        assertTrue(reasoningParts[0].finishedAt != null)
+        assertEquals("after", reasoningParts[1].reasoning)
+        assertEquals(
+            listOf("Reasoning", "WebSearch", "Reasoning"),
+            message.parts.map { it::class.simpleName },
+        )
+    }
+
+    @Test
+    fun `web search updates merge by call id and preserve prior details`() {
+        val existing = UIMessagePart.WebSearch(
+            callId = "ws_1",
+            status = WebSearchStatus.InProgress,
+            action = WebSearchAction.Search,
+            queries = listOf("first query"),
+        )
+        val updated = existing.merge(
+            UIMessagePart.WebSearch(
+                callId = "ws_1",
+                status = WebSearchStatus.Completed,
+                sources = listOf(UIMessageAnnotation.UrlCitation("OpenAI", "https://openai.com")),
+            )
+        )
+
+        assertEquals(WebSearchStatus.Completed, updated.status)
+        assertEquals(WebSearchAction.Search, updated.action)
+        assertEquals(listOf("first query"), updated.queries)
+        assertEquals(1, updated.sources.size)
+        assertTrue(updated.finishedAt != null)
+    }
 }
