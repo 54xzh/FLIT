@@ -86,10 +86,13 @@ import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.pages.setting.SettingVM
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.SkillZipImport
+import me.rerere.rikkahub.utils.TextFilePreviewResult
 import me.rerere.rikkahub.utils.WorkspaceFileClassifier
+import me.rerere.rikkahub.utils.readTextFilePreview
 import org.jsoup.Jsoup
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
+import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -117,17 +120,21 @@ class WorkspaceFileViewerState {
         target = ViewerTarget.Reference(workspaceId = workspaceId, path = path, fileName = fileName)
     }
 
+    /** 应用私有目录中的已校验文件（例如已安装 Skill 内的文件）。 */
+    fun showLocalFile(file: File) {
+        target = ViewerTarget.LocalFile(file)
+    }
+
     fun dismiss() {
         target = null
     }
 }
 
 sealed interface ViewerTarget {
-    val workspaceId: String
     val fileName: String
 
     data class WorkspaceEntry(
-        override val workspaceId: String,
+        val workspaceId: String,
         val entry: WorkspaceFileEntry,
         /** 沙盒工作区存储区域；查看器读取/导出时需用同一区域，否则 ROOTFS 文件会读不到。 */
         val area: me.rerere.rikkahub.workspace.SandboxStorageArea = me.rerere.rikkahub.workspace.SandboxStorageArea.FILES,
@@ -136,10 +143,19 @@ sealed interface ViewerTarget {
     }
 
     data class Reference(
-        override val workspaceId: String,
+        val workspaceId: String,
         val path: String,
         override val fileName: String,
     ) : ViewerTarget
+
+    /**
+     * 只能由业务页面在完成根目录校验后创建。查看器只读取该文件，不会做任何目录写入。
+     */
+    data class LocalFile(
+        val file: File,
+    ) : ViewerTarget {
+        override val fileName: String get() = file.name
+    }
 }
 
 /**
@@ -177,11 +193,19 @@ fun WorkspaceFileViewerSheet(
             )
         }
         WorkspaceFileClassifier.Category.SKILL_PACKAGE -> {
-            SkillInstallDialog(
-                target = target,
-                resolveFileUri = resolveFileUri,
-                onDismiss = state::dismiss,
-            )
+            if (target is ViewerTarget.LocalFile) {
+                GenericFileViewerSheet(
+                    target = target,
+                    resolveFileUri = resolveFileUri,
+                    onDismiss = state::dismiss,
+                )
+            } else {
+                SkillInstallDialog(
+                    target = target,
+                    resolveFileUri = resolveFileUri,
+                    onDismiss = state::dismiss,
+                )
+            }
         }
         WorkspaceFileClassifier.Category.DOCX -> {
             DocxViewerSheet(
@@ -251,19 +275,7 @@ private fun HtmlViewerSheet(
         loadState = ContentLoadState.Loading
         previewHtml = null
         val nextState = runCatching {
-            val result = when (target) {
-                is ViewerTarget.WorkspaceEntry -> {
-                    if (target.entry.isDirectory) {
-                        WorkspaceRepository.ReadTextResult.Unavailable
-                    } else {
-                        repository.readWorkspaceFileText(target.workspaceId, target.entry.path, area = target.area)
-                    }
-                }
-                is ViewerTarget.Reference -> {
-                    repository.readWorkspaceFileText(target.workspaceId, target.path)
-                }
-            }
-            ContentLoadState.fromResult(result)
+            ContentLoadState.fromResult(readViewerTargetText(target, repository))
         }.getOrElse { ContentLoadState.Error }
         if (nextState is ContentLoadState.Content) {
             previewHtml = withContext(Dispatchers.Default) {
@@ -541,19 +553,7 @@ private fun TextFileViewerSheet(
     LaunchedEffect(target) {
         loadState = ContentLoadState.Loading
         loadState = runCatching {
-            val result = when (target) {
-                is ViewerTarget.WorkspaceEntry -> {
-                    if (target.entry.isDirectory) {
-                        WorkspaceRepository.ReadTextResult.Unavailable
-                    } else {
-                        repository.readWorkspaceFileText(target.workspaceId, target.entry.path, area = target.area)
-                    }
-                }
-                is ViewerTarget.Reference -> {
-                    repository.readWorkspaceFileText(target.workspaceId, target.path)
-                }
-            }
-            ContentLoadState.fromResult(result)
+            ContentLoadState.fromResult(readViewerTargetText(target, repository))
         }.getOrElse { ContentLoadState.Error }
     }
 
@@ -666,15 +666,7 @@ private fun DocxViewerSheet(
         loadState = runCatching {
             // 读字节 + base64 编码 + 构建 HTML 都在 IO 线程，避免大文档阻塞主线程导致 ANR。
             withContext(Dispatchers.IO) {
-                val bytes = when (target) {
-                    is ViewerTarget.WorkspaceEntry -> {
-                        if (target.entry.isDirectory) null
-                        else repository.readWorkspaceFileBytes(target.workspaceId, target.entry.path, target.area)
-                    }
-                    is ViewerTarget.Reference -> {
-                        repository.readWorkspaceFileBytes(target.workspaceId, target.path)
-                    }
-                } ?: return@withContext DocxLoadState.Error
+                val bytes = readViewerTargetBytes(target, repository) ?: return@withContext DocxLoadState.Error
                 val html = buildDocxPreviewHtml(
                     context = context,
                     docxBase64 = Base64.encode(bytes),
@@ -841,6 +833,8 @@ private fun FileViewerActions(
                                 repository.exportWorkspaceFile(t.workspaceId, t.entry.path, out, t.area)
                             is ViewerTarget.Reference ->
                                 repository.exportWorkspaceFile(t.workspaceId, t.path, out)
+                            is ViewerTarget.LocalFile ->
+                                t.file.inputStream().use { input -> input.copyTo(out) }
                         }
                     }
                 }
@@ -1016,6 +1010,75 @@ private fun buildHtmlPreviewContent(html: String): String {
             """.trimIndent()
         )
     return document.outerHtml()
+}
+
+private suspend fun readViewerTargetText(
+    target: ViewerTarget,
+    repository: WorkspaceRepository,
+): WorkspaceRepository.ReadTextResult = when (target) {
+    is ViewerTarget.WorkspaceEntry -> {
+        if (target.entry.isDirectory) {
+            WorkspaceRepository.ReadTextResult.Unavailable
+        } else {
+            repository.readWorkspaceFileText(target.workspaceId, target.entry.path, area = target.area)
+        }
+    }
+    is ViewerTarget.Reference -> repository.readWorkspaceFileText(target.workspaceId, target.path)
+    is ViewerTarget.LocalFile -> withContext(Dispatchers.IO) {
+        if (!target.file.isFile) return@withContext WorkspaceRepository.ReadTextResult.Unavailable
+        try {
+            target.file.inputStream().use { input ->
+                when (val preview = input.readTextFilePreview()) {
+                    is TextFilePreviewResult.Success -> WorkspaceRepository.ReadTextResult.Success(
+                        content = preview.content,
+                        truncated = preview.truncated,
+                        encodingSuspect = preview.encodingSuspect,
+                    )
+                    TextFilePreviewResult.Binary -> WorkspaceRepository.ReadTextResult.Binary
+                    TextFilePreviewResult.Unavailable -> WorkspaceRepository.ReadTextResult.Unavailable
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            WorkspaceRepository.ReadTextResult.Unavailable
+        }
+    }
+}
+
+private suspend fun readViewerTargetBytes(
+    target: ViewerTarget,
+    repository: WorkspaceRepository,
+    maxBytes: Int = 20 * 1024 * 1024,
+): ByteArray? = when (target) {
+    is ViewerTarget.WorkspaceEntry -> {
+        if (target.entry.isDirectory) null
+        else repository.readWorkspaceFileBytes(target.workspaceId, target.entry.path, target.area, maxBytes)
+    }
+    is ViewerTarget.Reference -> repository.readWorkspaceFileBytes(target.workspaceId, target.path, maxBytes = maxBytes)
+    is ViewerTarget.LocalFile -> withContext(Dispatchers.IO) {
+        readLocalFileBytes(target.file, maxBytes)
+    }
+}
+
+private fun readLocalFileBytes(file: File, maxBytes: Int): ByteArray? {
+    if (!file.isFile || file.length() > maxBytes) return null
+    return try {
+        file.inputStream().use { input ->
+            val output = ByteArrayOutputStream()
+            val chunk = ByteArray(8 * 1024)
+            var total = 0
+            while (total <= maxBytes) {
+                val read = input.read(chunk, 0, minOf(chunk.size, maxBytes + 1 - total))
+                if (read <= 0) break
+                output.write(chunk, 0, read)
+                total += read
+            }
+            if (total > maxBytes) null else output.toByteArray()
+        }
+    } catch (_: Exception) {
+        null
+    }
 }
 
 private sealed interface ContentLoadState {

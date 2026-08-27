@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.SelectAll
@@ -69,12 +70,15 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.data.files.SkillContent
 import me.rerere.rikkahub.data.files.SkillPaths
 import me.rerere.rikkahub.data.model.Skill
 import me.rerere.rikkahub.data.model.SkillFolder
@@ -84,6 +88,7 @@ import me.rerere.rikkahub.ui.components.ui.ItemPosition
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.PhysicsSwipeToDelete
 import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
@@ -95,6 +100,7 @@ import kotlin.uuid.Uuid
 
 @Composable
 fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
+    val navController = LocalNavController.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val conversationRepository = koinInject<me.rerere.rikkahub.data.repository.ConversationRepository>()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -109,7 +115,10 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
     var selectedFolderIds by remember { mutableStateOf<Set<Uuid>>(emptySet()) }
 
     var expandedFolderIds by remember { mutableStateOf<Set<Uuid>>(emptySet()) }
-    var ungroupedExpanded by remember { mutableStateOf(false) }
+    var knownFolderIds by remember { mutableStateOf<Set<Uuid>>(emptySet()) }
+    var foldersInitialized by remember { mutableStateOf(false) }
+    var ungroupedExpanded by remember { mutableStateOf(true) }
+    var skillPreviews by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
 
     var showMoveSheet by remember { mutableStateOf(false) }
     var showBatchDeleteDialog by remember { mutableStateOf(false) }
@@ -118,6 +127,15 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
     var newFolderName by remember { mutableStateOf("") }
     var renamingFolder by remember { mutableStateOf<SkillFolder?>(null) }
     var renameFolderName by remember { mutableStateOf("") }
+
+    LaunchedEffect(settings.skills) {
+        val skillsRoot = File(context.filesDir, "skills")
+        skillPreviews = withContext(Dispatchers.IO) {
+            settings.skills.associate { skill ->
+                skill.name to SkillContent.readPreview(skillsRoot, skill.name)
+            }
+        }
+    }
 
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -286,12 +304,14 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
     }
 
     LaunchedEffect(settings.skillFolders) {
-        if (expandedFolderIds.isEmpty()) return@LaunchedEffect
         val validIds = settings.skillFolders.map { it.id }.toSet()
-        val cleaned = expandedFolderIds.intersect(validIds)
-        if (cleaned != expandedFolderIds) {
-            expandedFolderIds = cleaned
+        expandedFolderIds = if (!foldersInitialized) {
+            foldersInitialized = true
+            validIds
+        } else {
+            expandedFolderIds.intersect(validIds) + (validIds - knownFolderIds)
         }
+        knownFolderIds = validIds
     }
 
     Scaffold(
@@ -571,6 +591,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
 
                                             SkillRow(
                                                 skill = skill,
+                                                preview = skillPreviews[skill.name],
                                                 position = position,
                                                 isSelectionMode = isSelectionMode,
                                                 isSelected = selectedSkillNames.contains(skill.name),
@@ -582,6 +603,10 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                                                     }
                                                 },
                                                 onRequestDelete = { deletingSkill = skill },
+                                                onOpen = {
+                                                    haptics.perform(HapticPattern.Pop)
+                                                    navController.navigate(Screen.SettingSkillDetail(skill.name))
+                                                },
                                             )
                                         }
                                     }
@@ -656,6 +681,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
 
                                         SkillRow(
                                             skill = skill,
+                                            preview = skillPreviews[skill.name],
                                             position = position,
                                             isSelectionMode = isSelectionMode,
                                             isSelected = selectedSkillNames.contains(skill.name),
@@ -667,6 +693,10 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                                                 }
                                             },
                                             onRequestDelete = { deletingSkill = skill },
+                                            onOpen = {
+                                                haptics.perform(HapticPattern.Pop)
+                                                navController.navigate(Screen.SettingSkillDetail(skill.name))
+                                            },
                                         )
                                     }
                                 }
@@ -888,11 +918,13 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
 @Composable
 private fun SkillRow(
     skill: Skill,
+    preview: String?,
     position: ItemPosition,
     isSelectionMode: Boolean,
     isSelected: Boolean,
     onToggleSelected: (Boolean) -> Unit,
     onRequestDelete: () -> Unit,
+    onOpen: () -> Unit,
 ) {
     if (isSelectionMode) {
         ListSelectableItem(
@@ -902,6 +934,7 @@ private fun SkillRow(
         ) {
             SkillRowContent(
                 skill = skill,
+                preview = preview,
             )
         }
         return
@@ -916,6 +949,8 @@ private fun SkillRow(
         SkillCard(
             skill = skill,
             position = position,
+            preview = preview,
+            onClick = onOpen,
         )
     }
 }
@@ -923,23 +958,39 @@ private fun SkillRow(
 @Composable
 private fun SkillRowContent(
     skill: Skill,
+    preview: String?,
 ) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = skill.name.ifBlank { stringResource(R.string.skills_unnamed) },
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
+        Icon(
+            imageVector = Icons.Rounded.Extension,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.primary,
         )
-        Text(
-            text = skill.description.trim().ifBlank { stringResource(R.string.skills_no_description) },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = skill.name.ifBlank { stringResource(R.string.skills_unnamed) },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = preview ?: skill.description.trim().ifBlank { stringResource(R.string.skills_no_description) },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -947,6 +998,8 @@ private fun SkillRowContent(
 private fun SkillCard(
     skill: Skill,
     position: ItemPosition,
+    preview: String?,
+    onClick: () -> Unit,
 ) {
     val cornerRadius = 28.dp
     val smallCorner = 8.dp
@@ -964,6 +1017,7 @@ private fun SkillCard(
     }
 
     androidx.compose.material3.Card(
+        onClick = onClick,
         shape = shape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -971,6 +1025,7 @@ private fun SkillCard(
     ) {
         SkillRowContent(
             skill = skill,
+            preview = preview,
         )
     }
 }

@@ -1967,6 +1967,9 @@
   <string name="skills_manage_title">管理技能</string>
   <string name="skills_move_to_folder_title">移动到文件夹</string>
   <string name="skills_no_description">无描述</string>
+  <string name="skills_detail_empty">该技能文件夹为空或不可用。</string>
+  <string name="skills_file_unavailable">该技能文件已不可用。</string>
+  <string name="skills_toggle_assistants">管理助手</string>
   <string name="skills_page_empty">暂无技能</string>
   <string name="skills_page_empty_hint">导入包含至少一个 SKILL.md 的 zip 文件</string>
   <string name="skills_page_title">技能</string>

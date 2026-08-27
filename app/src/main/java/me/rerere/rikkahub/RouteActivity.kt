@@ -90,6 +90,7 @@ import me.rerere.rikkahub.ui.pages.setting.SettingPromptInjectionsPage
 import me.rerere.rikkahub.ui.pages.setting.SettingModesPage
 import me.rerere.rikkahub.ui.pages.setting.SettingLorebooksPage
 import me.rerere.rikkahub.ui.pages.setting.SettingLorebookDetailPage
+import me.rerere.rikkahub.ui.pages.setting.SettingSkillDetailPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSkillsPage
 import me.rerere.rikkahub.ui.pages.extensions.ExtensionsPage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspacePage
@@ -689,6 +690,11 @@ class RouteActivity : ComponentActivity() {
                         SettingSkillsPage()
                     }
 
+                    composable<Screen.SettingSkillDetail> { backStackEntry ->
+                        val route = backStackEntry.toRoute<Screen.SettingSkillDetail>()
+                        SettingSkillDetailPage(skillName = route.skillName)
+                    }
+
                     composable<Screen.Extensions> {
                         ExtensionsPage()
                     }
@@ -857,6 +863,9 @@ sealed interface Screen {
 
     @Serializable
     data object SettingSkills : Screen
+
+    @Serializable
+    data class SettingSkillDetail(val skillName: String) : Screen
 
     @Serializable
     data object Extensions : Screen

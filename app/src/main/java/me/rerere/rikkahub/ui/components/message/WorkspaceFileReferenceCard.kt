@@ -194,6 +194,7 @@ internal fun WorkspaceFileReferenceCards(
                     fileName = target.fileName,
                 )
                 is ViewerTarget.WorkspaceEntry -> null
+                is ViewerTarget.LocalFile -> null
             }
         },
     )
@@ -249,6 +250,7 @@ internal fun rememberWorkspaceFileReferenceClickHandler(
                     // 聊天侧只用 Reference 形式；entry 形式不应在此出现。
                     null
                 }
+                is ViewerTarget.LocalFile -> null
             }
         },
     )

@@ -540,6 +540,7 @@ fun WorkspaceDetailPage(
                     // 工作区详情页只处理 entry 形式；reference 不应在此出现。
                     null
                 }
+                is ViewerTarget.LocalFile -> null
             }
         },
     )

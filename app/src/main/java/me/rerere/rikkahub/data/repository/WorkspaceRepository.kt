@@ -36,6 +36,8 @@ import me.rerere.rikkahub.data.sync.SANDBOX_RESTORE_SENTINEL
 import me.rerere.rikkahub.data.db.entity.toolDefaultNeedsApproval
 import me.rerere.rikkahub.data.db.entity.workspaceToolNames
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.rikkahub.utils.TextFilePreviewResult
+import me.rerere.rikkahub.utils.readTextFilePreview
 import me.rerere.rikkahub.workspace.SANDBOX_MAX_READ_BYTES
 import me.rerere.rikkahub.workspace.SANDBOX_UPLOAD_MOUNT_TARGET
 import me.rerere.rikkahub.workspace.SandboxCommandResult
@@ -1067,57 +1069,22 @@ class WorkspaceRepository(
 
         if (input == null) return@withContext ReadTextResult.Unavailable
         try {
-            val reader = input.buffered().bufferedReader(Charsets.UTF_8)
-            val buffer = CharArray(8192)
-            val sniffBuf = StringBuilder(minOf(binarySniffBytes, 8192))
-            var totalChars = 0
-            var truncated = false
+            input.use { stream ->
+                when (val preview = stream.readTextFilePreview(maxChars, binarySniffBytes)) {
+                    is TextFilePreviewResult.Success -> ReadTextResult.Success(
+                        content = preview.content,
+                        truncated = preview.truncated,
+                        encodingSuspect = preview.encodingSuspect,
+                    )
 
-            // 先读一小段做二进制嗅探。
-            val sniffRead = reader.read(buffer, 0, minOf(buffer.size, binarySniffBytes))
-            if (sniffRead <= 0) {
-                return@withContext ReadTextResult.Success(
-                    content = "",
-                    truncated = false,
-                    encodingSuspect = false,
-                )
-            }
-            sniffBuf.append(buffer, 0, sniffRead)
-            // NUL 字节（U+0000）经 UTF-8 解码后为 ' '，判定为二进制。
-            if (sniffBuf.indexOf(' ') >= 0) {
-                return@withContext ReadTextResult.Binary
-            }
-            totalChars = sniffRead
-            val builder = StringBuilder().append(sniffBuf)
-
-            while (totalChars < maxChars) {
-                val toRead = minOf(buffer.size, maxChars - totalChars)
-                val read = reader.read(buffer, 0, toRead)
-                if (read <= 0) break
-                builder.append(buffer, 0, read)
-                totalChars += read
-            }
-            if (totalChars >= maxChars) {
-                // 再尝试读一个字符判断是否真的还有更多内容。
-                val extra = reader.read()
-                if (extra >= 0) {
-                    truncated = true
+                    TextFilePreviewResult.Binary -> ReadTextResult.Binary
+                    TextFilePreviewResult.Unavailable -> ReadTextResult.Unavailable
                 }
             }
-
-            val content = builder.toString()
-            val encodingSuspect = content.contains('�')
-
-            ReadTextResult.Success(
-                content = content,
-                truncated = truncated,
-                encodingSuspect = encodingSuspect,
-            )
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             ReadTextResult.Unavailable
         } finally {
-            runCatching { input.close() }
             tempFile?.let { runCatching { it.delete() } }
         }
     }

@@ -884,6 +884,9 @@
   <string name="skills_delete_desc">將從裝置中移除「%1$s」。</string>
   <string name="skills_unnamed">未命名技能</string>
   <string name="skills_no_description">無描述</string>
+  <string name="skills_detail_empty">此技能資料夾為空或無法使用。</string>
+  <string name="skills_file_unavailable">此技能檔案已無法使用。</string>
+  <string name="skills_toggle_assistants">管理助手</string>
   <string name="workspace_root_title">工作區根目錄</string>
   <string name="workspace_root_not_set">未設定</string>
   <string name="workspace_root_set">已設定</string>

@@ -1155,6 +1155,9 @@
     <string name="skills_delete_desc">This will remove “%1$s” from device storage.</string>
     <string name="skills_unnamed">Unnamed skill</string>
     <string name="skills_no_description">No description</string>
+    <string name="skills_detail_empty">This Skill folder is empty or unavailable.</string>
+    <string name="skills_file_unavailable">This Skill file is no longer available.</string>
+    <string name="skills_toggle_assistants">Manage assistants</string>
     <string name="workspace_root_title">Workspace root</string>
     <string name="workspace_root_not_set">Not set</string>
     <string name="workspace_root_set">Set</string>
