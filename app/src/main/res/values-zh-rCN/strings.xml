@@ -1769,6 +1769,11 @@
   <string name="setting_provider_page_test">测试</string>
   <string name="setting_provider_page_test_connection">测试连接</string>
   <string name="setting_provider_page_test_success">测试成功</string>
+  <string name="setting_provider_page_test_non_streaming">非流式</string>
+  <string name="setting_provider_page_test_streaming">流式</string>
+  <string name="setting_provider_page_test_tool_call">工具调用</string>
+  <string name="setting_provider_page_test_tool_called">已调用：%1$s  参数：%2$s</string>
+  <string name="setting_provider_page_test_tool_not_called">工具未被调用，回复：%s</string>
   <string name="setting_provider_page_text">文本</string>
   <string name="setting_provider_page_title">提供商</string>
   <string name="setting_provider_page_tool">工具</string>

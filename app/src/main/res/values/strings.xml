@@ -1337,6 +1337,11 @@
     <string name="setting_provider_page_test">Test</string>
     <string name="setting_provider_page_test_connection">Test Connection</string>
     <string name="setting_provider_page_test_success">Test Success</string>
+    <string name="setting_provider_page_test_non_streaming">Non-streaming</string>
+    <string name="setting_provider_page_test_streaming">Streaming</string>
+    <string name="setting_provider_page_test_tool_call">Tool Call</string>
+    <string name="setting_provider_page_test_tool_called">Called: %1$s  Args: %2$s</string>
+    <string name="setting_provider_page_test_tool_not_called">Tool not called, response: %s</string>
     <string name="setting_provider_page_text">Text</string>
     <string name="setting_provider_page_title">Model Providers</string>
     <string name="setting_provider_page_tool">Tools</string>

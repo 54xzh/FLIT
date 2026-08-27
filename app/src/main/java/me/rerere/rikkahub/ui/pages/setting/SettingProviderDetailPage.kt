@@ -119,7 +119,6 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.ViewModule
 import androidx.compose.material.icons.rounded.Widgets
 import me.rerere.rikkahub.ui.components.ui.ToastType
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Modality
@@ -137,10 +136,8 @@ import me.rerere.ai.provider.providers.codex.CodexCredential
 import me.rerere.ai.provider.providers.codex.CodexQuotaSnapshot
 import me.rerere.ai.provider.providers.codex.CodexQuotaWindow
 import me.rerere.ai.provider.QuotaResetPeriod
-import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.isClaudeBuiltInSearchEnabled
 import me.rerere.ai.registry.ModelRegistry
-import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.codex.CodexAuthService
 import me.rerere.rikkahub.ui.components.ai.ModelAbilityTag
@@ -167,10 +164,10 @@ import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.ui.pages.assistant.detail.CustomBodies
 import me.rerere.rikkahub.ui.pages.assistant.detail.CustomHeaders
 import me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigure
+import me.rerere.rikkahub.ui.pages.setting.components.ProviderConnectionTester
 import me.rerere.rikkahub.ui.pages.setting.components.SettingProviderBalanceOption
 import me.rerere.rikkahub.service.ModelNameGenerationService
 import me.rerere.rikkahub.ui.theme.extendColors
-import me.rerere.rikkahub.utils.UiState
 import me.rerere.rikkahub.utils.plus
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -270,10 +267,7 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                 },
                 actions = {
                     // Test connection button
-                    ConnectionTesterButton(
-                        provider = provider,
-                        scope = scope
-                    )
+                    ProviderConnectionTester(provider = provider)
 
                     if (provider !is ProviderSetting.OpenAICodex) {
                         val shareSheetState = rememberShareSheetState()
@@ -2741,105 +2735,6 @@ private fun SettingProviderProxyPage(
                 Text(stringResource(id = R.string.setting_provider_page_save))
             }
         }
-    }
-}
-
-@Composable
-private fun ConnectionTesterButton(
-    provider: ProviderSetting,
-    scope: CoroutineScope
-) {
-    var showTestDialog by remember { mutableStateOf(false) }
-    val providerManager = koinInject<ProviderManager>()
-    IconButton(
-        onClick = {
-            showTestDialog = true
-        }
-    ) {
-        Icon(Icons.Rounded.NetworkCheck, null)
-    }
-    if (showTestDialog) {
-        var model by remember(provider) {
-            mutableStateOf(provider.models.firstOrNull { it.type == ModelType.CHAT })
-        }
-        var testState: UiState<String> by remember { mutableStateOf(UiState.Idle) }
-        AlertDialog(
-            onDismissRequest = { showTestDialog = false },
-            title = {
-                Text(stringResource(R.string.setting_provider_page_test_connection))
-            },
-            text = {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    ModelSelector(
-                        modelId = model?.id,
-                        providers = listOf(provider),
-                        type = ModelType.CHAT,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        model = it
-                    }
-                    when (testState) {
-                        is UiState.Loading -> {
-                            LinearWavyProgressIndicator()
-                        }
-
-                        is UiState.Success -> {
-                            Text(
-                                text = stringResource(R.string.setting_provider_page_test_success),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.extendColors.green6
-                            )
-                        }
-
-                        is UiState.Error -> {
-                            Text(
-                                text = (testState as UiState.Error).error.message ?: "Error",
-                                color = MaterialTheme.extendColors.red6,
-                                maxLines = 10
-                            )
-                        }
-
-                        else -> {}
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTestDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            },
-            confirmButton = {
-
-                TextButton(
-                    onClick = {
-                        if (model == null) return@TextButton
-                        val providerInstance = providerManager.getProviderByType(provider)
-                        scope.launch {
-                            runCatching {
-                                testState = UiState.Loading
-                                providerInstance.generateText(
-                                    providerSetting = provider,
-                                    messages = listOf(
-                                        UIMessage.user("hello")
-                                    ),
-                                    params = TextGenerationParams(
-                                        model = model!!,
-                                    )
-                                )
-                                testState = UiState.Success("Success")
-                            }.onFailure {
-                                testState = UiState.Error(it)
-                            }
-                        }
-                    }
-                ) {
-                    Text(stringResource(R.string.setting_provider_page_test))
-                }
-            }
-        )
     }
 }
 

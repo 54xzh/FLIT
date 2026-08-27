@@ -123,6 +123,7 @@ fun ModelSelector(
     modifier: Modifier = Modifier,
     onlyIcon: Boolean = false,
     allowClear: Boolean = false,
+    includeDisabledProviders: Boolean = false,
     onClear: (() -> Unit)? = null,
     onSelect: (Model) -> Unit
 ) {
@@ -221,9 +222,11 @@ fun ModelSelector(
                     .imePadding(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                val filteredProviderSettings = providers.fastFilter {
-                    it.enabled && it.models.fastAny { model -> model.type == type }
-                }
+                val filteredProviderSettings = filterModelSelectorProviders(
+                    providers = providers,
+                    type = type,
+                    includeDisabledProviders = includeDisabledProviders,
+                )
                 ModelList(
                     currentModel = modelId,
                     providers = filteredProviderSettings,
@@ -247,6 +250,15 @@ fun ModelSelector(
     }
 }
 
+internal fun filterModelSelectorProviders(
+    providers: List<ProviderSetting>,
+    type: ModelType,
+    includeDisabledProviders: Boolean = false,
+): List<ProviderSetting> = providers.fastFilter { provider ->
+    (includeDisabledProviders || provider.enabled) &&
+        provider.models.fastAny { model -> model.type == type }
+}
+
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 @Composable
 internal fun ColumnScope.ModelList(
@@ -262,9 +274,9 @@ internal fun ColumnScope.ModelList(
         .collectAsStateWithLifecycle()
 
     val favoriteModels = settings.value.favoriteModels.mapNotNull { modelId ->
-        val model = settings.value.providers.findModelById(modelId) ?: return@mapNotNull null
+        val model = providers.findModelById(modelId) ?: return@mapNotNull null
         if (model.type != modelType) return@mapNotNull null
-        val provider = model.findProvider(providers = settings.value.providers, checkOverwrite = false) ?: return@mapNotNull null
+        val provider = model.findProvider(providers = providers, checkOverwrite = false) ?: return@mapNotNull null
         model to provider
     }
 

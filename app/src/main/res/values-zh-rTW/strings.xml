@@ -1057,6 +1057,11 @@
   <string name="setting_provider_page_test">測試</string>
   <string name="setting_provider_page_test_connection">測試連接</string>
   <string name="setting_provider_page_test_success">測試成功</string>
+  <string name="setting_provider_page_test_non_streaming">非串流</string>
+  <string name="setting_provider_page_test_streaming">串流</string>
+  <string name="setting_provider_page_test_tool_call">工具呼叫</string>
+  <string name="setting_provider_page_test_tool_called">已呼叫：%1$s  參數：%2$s</string>
+  <string name="setting_provider_page_test_tool_not_called">工具未被呼叫，回應：%s</string>
   <string name="setting_provider_page_text">文字</string>
   <string name="setting_provider_page_title">提供商</string>
   <string name="setting_provider_page_tool">工具</string>
