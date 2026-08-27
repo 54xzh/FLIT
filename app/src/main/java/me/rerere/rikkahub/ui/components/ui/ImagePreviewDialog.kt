@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AddLink
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,6 +51,7 @@ fun ImagePreviewDialog(
     images: List<String>,
     onDismissRequest: () -> Unit,
     prompt: String? = null, // Optional prompt to display
+    onReferenceImage: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val state = rememberZoomablePagerState { images.size }
@@ -119,11 +121,31 @@ fun ImagePreviewDialog(
                         )
                     }
                     
-                    // Save button row - aligned to the right
+                    // Action buttons - aligned to the right
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
+                        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
                     ) {
+                        if (onReferenceImage != null) {
+                            Surface(
+                                onClick = {
+                                    onReferenceImage(images[state.currentPage])
+                                    onDismissRequest()
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Rounded.AddLink,
+                                        contentDescription = stringResource(R.string.reference_image),
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                        }
                         Surface(
                             onClick = {
                                 scope.launch {

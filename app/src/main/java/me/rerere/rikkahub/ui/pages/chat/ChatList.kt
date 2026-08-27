@@ -384,6 +384,7 @@ internal fun ChatList(
     sendScrollRequest: ChatSendScrollRequest? = null,
     onSendScrollRequestHandled: (Long) -> Unit = {},
     onQuoteFollowUp: (String) -> Unit = {},
+    onReferenceImage: (UIMessagePart.Image) -> Unit = {},
 ) {
     val initialWorkspaceFileReferenceEntryKeys = remember(
         conversation.id,
@@ -454,6 +455,7 @@ internal fun ChatList(
                         sendScrollRequest = sendScrollRequest,
                         onSendScrollRequestHandled = onSendScrollRequestHandled,
                         onQuoteFollowUp = onQuoteFollowUp,
+                        onReferenceImage = onReferenceImage,
                         animatedVisibilityScope = this@AnimatedContent,
                     )
                 }
@@ -567,6 +569,7 @@ private fun SharedTransitionScope.ChatListNormal(
     sendScrollRequest: ChatSendScrollRequest?,
     onSendScrollRequestHandled: (Long) -> Unit,
     onQuoteFollowUp: (String) -> Unit,
+    onReferenceImage: (UIMessagePart.Image) -> Unit,
     animatedVisibilityScope: AnimatedVisibilityScope,
 ) {
     val scope = rememberCoroutineScope()
@@ -595,6 +598,7 @@ private fun SharedTransitionScope.ChatListNormal(
     val onUpdateMessageUpdated by rememberUpdatedState(onUpdateMessage)
     val onUpdateConversationUpdated by rememberUpdatedState(onUpdateConversation)
     val onQuoteFollowUpUpdated by rememberUpdatedState(onQuoteFollowUp)
+    val onReferenceImageUpdated by rememberUpdatedState(onReferenceImage)
     val onAssistantAvatarLongPressUpdated by rememberUpdatedState(onAssistantAvatarLongPress)
     val context = LocalContext.current
     val navController = LocalNavController.current
@@ -1410,6 +1414,7 @@ private fun SharedTransitionScope.ChatListNormal(
                                 },
                                 streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
                                 onQuoteFollowUp = { onQuoteFollowUpUpdated(it) },
+                                onReferenceImage = { onReferenceImageUpdated(it) },
                             )
                         }
                     }

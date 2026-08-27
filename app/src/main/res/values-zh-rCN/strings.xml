@@ -553,6 +553,7 @@
   <string name="workspace_file_reference_info">%1$s · %2$s</string>
   <string name="workspace_file_reference_unknown_type">文件</string>
   <string name="workspace_file_reference_open">打开</string>
+  <string name="reference_image">引用图片</string>
   <string name="workspace_file_reference_save">保存副本</string>
   <string name="workspace_file_reference_saved">文件已保存</string>
   <string name="workspace_file_reference_unavailable">文件已不可用，可能已被删除或移动</string>

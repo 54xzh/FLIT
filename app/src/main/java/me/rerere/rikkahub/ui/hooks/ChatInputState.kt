@@ -128,9 +128,18 @@ class ChatInputState {
     fun addImages(uris: List<Uri>) {
         val newMessage = messageContent.toMutableList()
         uris.forEach { uri ->
-            newMessage.add(UIMessagePart.Image(uri.toString()))
+            val image = UIMessagePart.Image(uri.toString())
+            if (newMessage.none { it is UIMessagePart.Image && it.url == image.url }) {
+                newMessage.add(image)
+            }
         }
         messageContent = newMessage
+    }
+
+    fun addImageReference(image: UIMessagePart.Image) {
+        if (messageContent.none { it is UIMessagePart.Image && it.url == image.url }) {
+            messageContent = messageContent + image
+        }
     }
 
     fun addVideos(uris: List<Uri>) {

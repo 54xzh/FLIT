@@ -344,6 +344,7 @@
   <string name="workspace_file_reference_info">%1$s · %2$s</string>
   <string name="workspace_file_reference_unknown_type">檔案</string>
   <string name="workspace_file_reference_open">開啟</string>
+  <string name="reference_image">引用圖片</string>
   <string name="workspace_file_reference_save">儲存副本</string>
   <string name="workspace_file_reference_saved">檔案已儲存</string>
   <string name="workspace_file_reference_unavailable">檔案已無法使用，可能已被刪除或移動</string>

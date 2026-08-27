@@ -108,8 +108,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.asTransientImageReference
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.service.selectWelcomePhrase
 import me.rerere.rikkahub.service.WelcomePhrasesService
@@ -180,6 +182,25 @@ private enum class EmptyChatOverlay {
 
 private val EmptyChatOverlayBottomPaddingFallback = 140.dp
 private val EmptyChatOverlayContentYOffset = (-16).dp
+
+private fun Conversation.latestAssistantImage(): UIMessagePart.Image? {
+    return messageNodes
+        .asReversed()
+        .asSequence()
+        .map { it.currentMessage }
+        .filter { it.role == MessageRole.ASSISTANT }
+        .mapNotNull { message ->
+            message.parts.filterIsInstance<UIMessagePart.Image>().lastOrNull()
+        }
+        .firstOrNull()
+}
+
+private fun List<UIMessagePart>.withLatestGeneratedImageReference(
+    image: UIMessagePart.Image?,
+): List<UIMessagePart> {
+    if (image == null || any { it is UIMessagePart.Image && it.url == image.url }) return this
+    return this + image.asTransientImageReference()
+}
 
 private data class Grapheme(
     val text: String,
@@ -1073,7 +1094,13 @@ private fun ChatPageContent(
                         return true
                     }
 
-                    val content = inputState.getContents()
+                    val content = inputState.getContents().let { input ->
+                        if (currentChatModel?.findProvider(setting.providers) is ProviderSetting.OpenAICodex) {
+                            input.withLatestGeneratedImageReference(conversation.latestAssistantImage())
+                        } else {
+                            input
+                        }
+                    }
                     val groupTemplate = groupChatTemplate
                     if (groupTemplate != null) {
                         val userText = content
@@ -1201,6 +1228,10 @@ private fun ChatPageContent(
                         }
                     } else {
                         null
+                    },
+                    onReferenceImage = { image ->
+                        inputState.addImageReference(image)
+                        inputState.requestFocus()
                     },
                     onRegenerate = {
                         vm.regenerateAtMessage(it)

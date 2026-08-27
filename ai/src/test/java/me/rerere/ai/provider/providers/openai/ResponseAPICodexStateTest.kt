@@ -17,6 +17,7 @@ import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.asTransientImageReference
 import me.rerere.ai.util.KeyRoulette
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
@@ -148,6 +149,59 @@ class ResponseAPICodexStateTest {
             ?.single()
             ?: error("generated image missing")
         assertEquals("data:image/webp;base64,aGVsbG8=", image.url)
+    }
+
+    @Test
+    fun `generated assistant image is omitted from the next Responses input`() {
+        val body = buildResponseRequest(
+            messages = listOf(
+                UIMessage(
+                    role = MessageRole.ASSISTANT,
+                    parts = listOf(
+                        UIMessagePart.Text("Here is the image."),
+                        UIMessagePart.Image("data:image/png;base64,aGVsbG8="),
+                    ),
+                ),
+                UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("edit it"))),
+            ),
+            params = TextGenerationParams(model = Model(modelId = "gpt-codex")),
+            stream = true,
+        )
+
+        val input = body["input"]?.jsonArray ?: error("input missing")
+        val assistant = input.first().jsonObject
+        assertEquals("assistant", assistant["role"]?.jsonPrimitive?.content)
+        assertEquals("Here is the image.", assistant["content"]?.jsonPrimitive?.content)
+        assertEquals(2, input.size)
+        assertEquals("user", input.last().jsonObject["role"]?.jsonPrimitive?.content)
+        assertEquals("edit it", input.last().jsonObject["content"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `transient image reference is sent only with its current user message`() {
+        val reference = UIMessagePart.Image("data:image/png;base64,aGVsbG8=")
+            .asTransientImageReference()
+        val body = buildResponseRequest(
+            messages = listOf(
+                UIMessage(
+                    role = MessageRole.USER,
+                    parts = listOf(UIMessagePart.Text("first edit"), reference),
+                ),
+                UIMessage(
+                    role = MessageRole.USER,
+                    parts = listOf(UIMessagePart.Text("follow-up"), reference),
+                ),
+            ),
+            params = TextGenerationParams(model = Model(modelId = "gpt-codex")),
+            stream = true,
+        )
+
+        val input = body["input"]?.jsonArray ?: error("input missing")
+        assertEquals("first edit", input.first().jsonObject["content"]?.jsonPrimitive?.content)
+        val currentContent = input.last().jsonObject["content"]?.jsonArray
+            ?: error("current content missing")
+        assertEquals("input_text", currentContent.first().jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("input_image", currentContent.last().jsonObject["type"]?.jsonPrimitive?.content)
     }
 
     @Test

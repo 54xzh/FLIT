@@ -30,6 +30,7 @@ fun ZoomableAsyncImage(
     alignment: Alignment = Alignment.Center,
     contentScale: ContentScale = ContentScale.Fit,
     alpha: Float = DefaultAlpha,
+    onReferenceImage: ((String) -> Unit)? = null,
 ) {
     var showImageViewer by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -66,7 +67,8 @@ fun ZoomableAsyncImage(
     if (showImageViewer) {
         ImagePreviewDialog(
             images = listOf(model ?: ""),
-            onDismissRequest = { showImageViewer = false }
+            onDismissRequest = { showImageViewer = false },
+            onReferenceImage = onReferenceImage,
         )
     }
 }

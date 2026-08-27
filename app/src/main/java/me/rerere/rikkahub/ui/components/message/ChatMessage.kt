@@ -282,6 +282,7 @@ internal fun ChatMessage(
     onDeleteSessionMemory: ((memoryId: Int) -> Unit)? = null,
     streamingContentUpdateIntervalMs: Long = 0L,
     onQuoteFollowUp: (String) -> Unit = {},
+    onReferenceImage: (UIMessagePart.Image) -> Unit = {},
 ) {
     val rawMessage = node.messages[node.selectIndex]
     val displayInput = rememberThrottledStreamingValue(
@@ -393,6 +394,7 @@ internal fun ChatMessage(
                 showTokenUsage = settings.showTokenUsage && showInlineTokenUsage,
                 streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
                 onQuoteFollowUp = onQuoteFollowUp,
+                onReferenceImage = onReferenceImage,
             )
         }
 
@@ -538,6 +540,7 @@ private fun MessagePartsBlock(
     showTokenUsage: Boolean = false,
     streamingContentUpdateIntervalMs: Long = 0L,
     onQuoteFollowUp: (String) -> Unit = {},
+    onReferenceImage: (UIMessagePart.Image) -> Unit = {},
 ) {
     val contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
 
@@ -622,7 +625,7 @@ private fun MessagePartsBlock(
             }
 
             is MessageRenderBlock.ImageGroup -> {
-                ImagePartsBlock(parts = block.parts)
+                ImagePartsBlock(parts = block.parts, onReferenceImage = onReferenceImage)
             }
 
             is MessageRenderBlock.VideoGroup -> {
@@ -945,7 +948,10 @@ private fun SelectableMessageMarkdown(
 }
 
 @Composable
-private fun ImagePartsBlock(parts: List<UIMessagePart.Image>) {
+private fun ImagePartsBlock(
+    parts: List<UIMessagePart.Image>,
+    onReferenceImage: (UIMessagePart.Image) -> Unit,
+) {
     if (parts.isEmpty()) return
 
     FlowRow(
@@ -955,6 +961,7 @@ private fun ImagePartsBlock(parts: List<UIMessagePart.Image>) {
             ZoomableAsyncImage(
                 model = image.url,
                 contentDescription = null,
+                onReferenceImage = { onReferenceImage(image) },
                 modifier = Modifier
                     .clip(MaterialTheme.shapes.medium)
                     .height(72.dp)

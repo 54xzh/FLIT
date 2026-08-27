@@ -9,6 +9,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.BuildConfig
 import me.rerere.ai.core.MessageRole
@@ -1107,6 +1109,28 @@ sealed class UIMessagePart {
     ) : UIMessagePart() {
         override val priority: Int = -2
     }
+}
+
+/**
+ * 标记仅供当前轮请求使用的图片引用。它会保存在消息中以便界面恢复，
+ * 但支持该标记的 provider 不会在之后的历史请求里再次发送它。
+ */
+const val TRANSIENT_IMAGE_REFERENCE_METADATA_KEY = "transient_image_reference"
+
+fun UIMessagePart.Image.asTransientImageReference(): UIMessagePart.Image {
+    return copy(
+        metadata = buildJsonObject {
+            metadata?.forEach { (key, value) -> put(key, value) }
+            put(TRANSIENT_IMAGE_REFERENCE_METADATA_KEY, true)
+        }
+    )
+}
+
+fun UIMessagePart.Image.isTransientImageReference(): Boolean {
+    return metadata?.get(TRANSIENT_IMAGE_REFERENCE_METADATA_KEY)
+        ?.jsonPrimitive
+        ?.contentOrNull
+        ?.toBoolean() == true
 }
 
 fun List<UIMessagePart>.toSortedMessageParts(): List<UIMessagePart> {

@@ -486,6 +486,7 @@
     <string name="workspace_file_reference_info">%1$s · %2$s</string>
     <string name="workspace_file_reference_unknown_type">File</string>
     <string name="workspace_file_reference_open">Open</string>
+    <string name="reference_image">Reference image</string>
     <string name="workspace_file_reference_save">Save copy</string>
     <string name="workspace_file_reference_saved">File saved</string>
     <string name="workspace_file_reference_unavailable">This file is no longer available</string>
