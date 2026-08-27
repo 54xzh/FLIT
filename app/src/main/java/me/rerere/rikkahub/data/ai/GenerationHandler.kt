@@ -50,6 +50,7 @@ import me.rerere.ai.ui.UsedLorebookEntry
 import me.rerere.ai.ui.UsedMemory
 import me.rerere.ai.ui.UsedMode
 import me.rerere.ai.ui.UsedSessionMemory
+import me.rerere.ai.ui.asPersistentContextImage
 import me.rerere.ai.ui.handleMessageChunk
 import me.rerere.ai.ui.limitContext
 import me.rerere.ai.ui.repairToolCallMessageSequence
@@ -1472,6 +1473,7 @@ class GenerationHandler(
             mode.attachments.map { attachment ->
                 when (attachment.type) {
                     ModeAttachmentType.IMAGE -> UIMessagePart.Image(url = attachment.url)
+                        .asPersistentContextImage()
                     ModeAttachmentType.VIDEO -> UIMessagePart.Video(url = attachment.url)
                     ModeAttachmentType.AUDIO -> UIMessagePart.Audio(url = attachment.url)
                     ModeAttachmentType.DOCUMENT -> UIMessagePart.Document(
@@ -1488,6 +1490,7 @@ class GenerationHandler(
             entry.attachments.map { attachment ->
                 when (attachment.type) {
                     ModeAttachmentType.IMAGE -> UIMessagePart.Image(url = attachment.url)
+                        .asPersistentContextImage()
                     ModeAttachmentType.VIDEO -> UIMessagePart.Video(url = attachment.url)
                     ModeAttachmentType.AUDIO -> UIMessagePart.Audio(url = attachment.url)
                     ModeAttachmentType.DOCUMENT -> UIMessagePart.Document(

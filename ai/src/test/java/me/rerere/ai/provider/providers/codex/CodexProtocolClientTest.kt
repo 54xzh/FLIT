@@ -14,6 +14,7 @@ import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.asPersistentContextImage
 import me.rerere.ai.util.json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -131,6 +132,168 @@ class CodexProtocolClientTest {
         assertEquals("provider-id", metadata["x-codex-installation-id"]?.jsonPrimitive?.content)
         assertEquals(headers["session-id"], metadata["session_id"]?.jsonPrimitive?.content)
         assertEquals(headers["thread-id"], metadata["thread_id"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `only the immediate previous assistant image is attached to the current user turn`() {
+        val provider = OpenAICodexProvider(
+            client = OkHttpClient(),
+            sessionProvider = object : CodexSessionProvider {
+                override suspend fun getCredential(providerId: kotlin.uuid.Uuid): CodexCredential? = null
+
+                override suspend fun requireValidCredential(
+                    providerSetting: me.rerere.ai.provider.ProviderSetting.OpenAICodex,
+                ): CodexCredential = error("not used")
+
+                override suspend fun forceRefreshCredential(
+                    providerSetting: me.rerere.ai.provider.ProviderSetting.OpenAICodex,
+                    failedAccessToken: String?,
+                ): CodexCredential = error("not used")
+            },
+        )
+        val messages = listOf(
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(UIMessagePart.Image("data:image/png;base64,aGVsbG8=")),
+            ),
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("add a flower crown"))),
+        )
+        val method = OpenAICodexProvider::class.java.getDeclaredMethod(
+            "prepareImageInputsForCurrentTurn",
+            List::class.java,
+        ).apply { isAccessible = true }
+
+        @Suppress("UNCHECKED_CAST")
+        val requestMessages = method.invoke(provider, messages) as List<UIMessage>
+        val currentParts = requestMessages.last().parts
+        assertEquals(3, currentParts.size)
+        assertEquals(
+            "Previous-turn generated image:",
+            (currentParts[1] as UIMessagePart.Text).text,
+        )
+        assertEquals(
+            "data:image/png;base64,aGVsbG8=",
+            (currentParts.last() as UIMessagePart.Image).url,
+        )
+        assertEquals(
+            "[Output images]",
+            (requestMessages.first().parts.single() as UIMessagePart.Text).text,
+        )
+        assertEquals(1, messages.last().parts.size)
+
+        val manuallyReferenced = messages.dropLast(1) + UIMessage(
+            role = MessageRole.USER,
+            parts = listOf(
+                UIMessagePart.Text("edit this"),
+                UIMessagePart.Image("data:image/png;base64,bWFudWFs"),
+            ),
+        )
+        @Suppress("UNCHECKED_CAST")
+        val requestWithManualImage = method.invoke(provider, manuallyReferenced) as List<UIMessage>
+        assertEquals(4, requestWithManualImage.last().parts.size)
+        assertEquals(
+            "Previous-turn generated image:",
+            (requestWithManualImage.last().parts[2] as UIMessagePart.Text).text,
+        )
+        assertEquals(
+            "data:image/png;base64,aGVsbG8=",
+            (requestWithManualImage.last().parts.last() as UIMessagePart.Image).url,
+        )
+
+        val sameImageReferenced = messages.dropLast(1) + UIMessage(
+            role = MessageRole.USER,
+            parts = listOf(
+                UIMessagePart.Text("edit this"),
+                UIMessagePart.Image("data:image/png;base64,aGVsbG8="),
+            ),
+        )
+        @Suppress("UNCHECKED_CAST")
+        val requestWithSameImage = method.invoke(provider, sameImageReferenced) as List<UIMessage>
+        assertEquals(2, requestWithSameImage.last().parts.size)
+
+        val imageInOlderUserTurn = listOf(
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(UIMessagePart.Image("data:image/png;base64,b2xk")),
+            ),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(UIMessagePart.Image("data:image/png;base64,b2xkLWFzc2lzdGFudA==")),
+            ),
+            UIMessage(role = MessageRole.ASSISTANT, parts = listOf(UIMessagePart.Text("done"))),
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("continue"))),
+        )
+        @Suppress("UNCHECKED_CAST")
+        val requestWithoutFallback = method.invoke(provider, imageInOlderUserTurn) as List<UIMessage>
+        assertEquals(
+            "[Output images]",
+            (requestWithoutFallback.first().parts.single() as UIMessagePart.Text).text,
+        )
+        assertEquals(
+            "[Output images]",
+            (requestWithoutFallback[1].parts.single() as UIMessagePart.Text).text,
+        )
+        assertEquals(1, requestWithoutFallback.last().parts.size)
+
+        val assistantImageWithInsertedUserContext = listOf(
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(UIMessagePart.Image("data:image/png;base64,Y29udGV4dC1pbWFnZQ==")),
+            ),
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("current date context"))),
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("continue"))),
+        )
+        @Suppress("UNCHECKED_CAST")
+        val requestWithInsertedContext = method.invoke(provider, assistantImageWithInsertedUserContext) as List<UIMessage>
+        assertEquals(3, requestWithInsertedContext.last().parts.size)
+        assertEquals(
+            "data:image/png;base64,Y29udGV4dC1pbWFnZQ==",
+            (requestWithInsertedContext.last().parts.last() as UIMessagePart.Image).url,
+        )
+
+        val assistantImageWithTrailingToolResult = listOf(
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(UIMessagePart.Image("data:image/png;base64,dG9vbC1pbWFnZQ==")),
+            ),
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(
+                    UIMessagePart.ToolResult(
+                        toolCallId = "call-1",
+                        toolName = "local_tool",
+                        content = JsonPrimitive("done"),
+                        arguments = JsonPrimitive("{}"),
+                    ),
+                ),
+            ),
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("continue"))),
+        )
+        @Suppress("UNCHECKED_CAST")
+        val requestWithTrailingToolResult = method.invoke(
+            provider,
+            assistantImageWithTrailingToolResult,
+        ) as List<UIMessage>
+        assertEquals(3, requestWithTrailingToolResult.last().parts.size)
+        assertEquals(
+            "data:image/png;base64,dG9vbC1pbWFnZQ==",
+            (requestWithTrailingToolResult.last().parts.last() as UIMessagePart.Image).url,
+        )
+
+        val persistentContextImage = listOf(
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(
+                    UIMessagePart.Image("data:image/png;base64,cGVyc2lzdGVudA==")
+                        .asPersistentContextImage(),
+                ),
+            ),
+            UIMessage(role = MessageRole.ASSISTANT, parts = listOf(UIMessagePart.Text("done"))),
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("continue"))),
+        )
+        @Suppress("UNCHECKED_CAST")
+        val requestWithPersistentContext = method.invoke(provider, persistentContextImage) as List<UIMessage>
+        assertTrue(requestWithPersistentContext.first().parts.single() is UIMessagePart.Image)
     }
 
     @Test

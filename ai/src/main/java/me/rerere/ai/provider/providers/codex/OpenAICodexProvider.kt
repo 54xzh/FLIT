@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import me.rerere.ai.core.MessageRole
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.CustomBody
 import me.rerere.ai.provider.CustomHeader
@@ -21,6 +22,8 @@ import me.rerere.ai.ui.ImageGenerationResult
 import me.rerere.ai.ui.MessageChunk
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageChoice
+import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.isPersistentContextImage
 import me.rerere.ai.util.HttpStatusException
 import me.rerere.ai.util.KeyRoulette
 import okhttp3.OkHttpClient
@@ -48,13 +51,14 @@ class OpenAICodexProvider(
         while (true) {
             var emitted = false
             try {
+                val requestMessages = messages.prepareImageInputsForCurrentTurn()
                 responseApi.streamText(
                     providerSetting = transportSetting(providerSetting, credential),
-                    messages = messages.ensureSystemInstructions(),
+                    messages = requestMessages.ensureSystemInstructions(),
                     params = codexParams(
                         params = params,
                         credential = credential,
-                        messages = messages,
+                        messages = requestMessages,
                         installationId = providerSetting.id.toString(),
                     ),
                 ).collect { chunk ->
@@ -72,6 +76,61 @@ class OpenAICodexProvider(
                     continue
                 }
                 throw error
+            }
+        }
+    }
+
+    /**
+     * Images in normal history are replaced in place with a marker instead of being replayed.
+     * Reference images injected from modes and lorebooks remain in every request. For the current
+     * request only, append the last image from the nearest earlier assistant turn, skipping
+     * inserted user-role context and trailing tool results. This copy never reaches conversation
+     * storage or the UI.
+     */
+    private fun List<UIMessage>.prepareImageInputsForCurrentTurn(): List<UIMessage> {
+        val currentUserIndex = indexOfLast { it.role == MessageRole.USER }
+        if (currentUserIndex < 0) return this
+
+        val currentUserMessage = get(currentUserIndex)
+        val generatedImage = (currentUserIndex - 1 downTo 0)
+            .asSequence()
+            .map(::get)
+            .dropWhile { it.role == MessageRole.USER || it.role == MessageRole.TOOL }
+            .firstOrNull()
+            ?.takeIf { it.role == MessageRole.ASSISTANT }
+            ?.parts
+            ?.filterIsInstance<UIMessagePart.Image>()
+            ?.lastOrNull()
+
+        return mapIndexed { index, message ->
+            when {
+                index == currentUserIndex && generatedImage != null &&
+                    currentUserMessage.parts.none {
+                        it is UIMessagePart.Image && it.url == generatedImage.url
+                    } -> {
+                    currentUserMessage.copy(
+                        parts = currentUserMessage.parts + listOf(
+                            UIMessagePart.Text("Previous-turn generated image:"),
+                            generatedImage,
+                        ),
+                    )
+                }
+
+                index == currentUserIndex -> currentUserMessage
+
+                index != currentUserIndex && message.parts.any { it is UIMessagePart.Image } -> {
+                    message.copy(
+                        parts = message.parts.flatMap { part ->
+                            if (part is UIMessagePart.Image && !part.isPersistentContextImage()) {
+                                listOf(UIMessagePart.Text("[Output images]"))
+                            } else {
+                                listOf(part)
+                            }
+                        },
+                    )
+                }
+
+                else -> message
             }
         }
     }

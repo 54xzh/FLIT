@@ -1111,23 +1111,19 @@ sealed class UIMessagePart {
     }
 }
 
-/**
- * 标记仅供当前轮请求使用的图片引用。它会保存在消息中以便界面恢复，
- * 但支持该标记的 provider 不会在之后的历史请求里再次发送它。
- */
-const val TRANSIENT_IMAGE_REFERENCE_METADATA_KEY = "transient_image_reference"
+const val PERSISTENT_CONTEXT_IMAGE_METADATA_KEY = "persistent_context_image"
 
-fun UIMessagePart.Image.asTransientImageReference(): UIMessagePart.Image {
+fun UIMessagePart.Image.asPersistentContextImage(): UIMessagePart.Image {
     return copy(
         metadata = buildJsonObject {
             metadata?.forEach { (key, value) -> put(key, value) }
-            put(TRANSIENT_IMAGE_REFERENCE_METADATA_KEY, true)
-        }
+            put(PERSISTENT_CONTEXT_IMAGE_METADATA_KEY, true)
+        },
     )
 }
 
-fun UIMessagePart.Image.isTransientImageReference(): Boolean {
-    return metadata?.get(TRANSIENT_IMAGE_REFERENCE_METADATA_KEY)
+fun UIMessagePart.Image.isPersistentContextImage(): Boolean {
+    return metadata?.get(PERSISTENT_CONTEXT_IMAGE_METADATA_KEY)
         ?.jsonPrimitive
         ?.contentOrNull
         ?.toBoolean() == true

@@ -36,7 +36,6 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.UIMessagePart
-import me.rerere.ai.ui.isTransientImageReference
 import me.rerere.ai.util.configureClientWithProxy
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.encodeBase64
@@ -403,7 +402,6 @@ class ResponseAPI(
     }
 
     private fun buildMessages(messages: List<UIMessage>) = buildJsonArray {
-        val latestUserMessageIndex = messages.indexOfLast { it.role == MessageRole.USER }
         messages
             .filter { message ->
                 message.role != MessageRole.SYSTEM && (
@@ -447,8 +445,7 @@ class ResponseAPI(
                 }
                 val contentParts = message.parts.filter {
                     it is UIMessagePart.Text ||
-                        (it is UIMessagePart.Image && message.role != MessageRole.ASSISTANT &&
-                            (!it.isTransientImageReference() || index == latestUserMessageIndex)) ||
+                        (it is UIMessagePart.Image && message.role == MessageRole.USER) ||
                         it is UIMessagePart.Audio
                 }
                 if (contentParts.isNotEmpty()) add(buildJsonObject {

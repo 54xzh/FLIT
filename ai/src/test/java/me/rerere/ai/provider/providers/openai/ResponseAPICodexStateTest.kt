@@ -17,7 +17,6 @@ import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
-import me.rerere.ai.ui.asTransientImageReference
 import me.rerere.ai.util.KeyRoulette
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
@@ -178,30 +177,33 @@ class ResponseAPICodexStateTest {
     }
 
     @Test
-    fun `transient image reference is sent only with its current user message`() {
-        val reference = UIMessagePart.Image("data:image/png;base64,aGVsbG8=")
-            .asTransientImageReference()
+    fun `user referenced image is sent as an input image`() {
         val body = buildResponseRequest(
             messages = listOf(
                 UIMessage(
                     role = MessageRole.USER,
-                    parts = listOf(UIMessagePart.Text("first edit"), reference),
-                ),
-                UIMessage(
-                    role = MessageRole.USER,
-                    parts = listOf(UIMessagePart.Text("follow-up"), reference),
+                    parts = listOf(
+                        UIMessagePart.Text("add a flower crown"),
+                        UIMessagePart.Image("data:image/png;base64,aGVsbG8="),
+                    ),
                 ),
             ),
             params = TextGenerationParams(model = Model(modelId = "gpt-codex")),
             stream = true,
         )
 
-        val input = body["input"]?.jsonArray ?: error("input missing")
-        assertEquals("first edit", input.first().jsonObject["content"]?.jsonPrimitive?.content)
-        val currentContent = input.last().jsonObject["content"]?.jsonArray
-            ?: error("current content missing")
-        assertEquals("input_text", currentContent.first().jsonObject["type"]?.jsonPrimitive?.content)
-        assertEquals("input_image", currentContent.last().jsonObject["type"]?.jsonPrimitive?.content)
+        val content = body["input"]?.jsonArray
+            ?.single()
+            ?.jsonObject
+            ?.get("content")
+            ?.jsonArray
+            ?: error("input content missing")
+        assertEquals("input_text", content.first().jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("input_image", content.last().jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals(
+            "data:image/png;base64,aGVsbG8=",
+            content.last().jsonObject["image_url"]?.jsonPrimitive?.content,
+        )
     }
 
     @Test
