@@ -48,6 +48,7 @@ import me.rerere.ai.ui.AskUserState
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UsedLorebookEntry
 import me.rerere.ai.ui.UsedMemory
+import me.rerere.ai.ui.UsedMemorySummary
 import me.rerere.ai.ui.UsedMode
 import me.rerere.ai.ui.UsedSessionMemory
 import me.rerere.ai.ui.asPersistentContextImage
@@ -144,6 +145,7 @@ private const val STREAM_UI_UPDATE_FIRST_INTERVAL_MS = 120L
 private const val STREAM_UI_UPDATE_SECOND_INTERVAL_MS = 180L
 private const val STREAM_UI_UPDATE_THIRD_INTERVAL_MS = 260L
 private const val STREAM_UI_UPDATE_MAX_INTERVAL_MS = 360L
+private const val MEMORY_SUMMARY_CONTEXT_PREVIEW_LIMIT = 200
 
 internal fun shouldIncludeCurrentDateSection(toolNames: Iterable<String>): Boolean {
     return toolNames.any { it in SEARCH_TOOL_NAMES }
@@ -158,6 +160,7 @@ data class BuildMessagesResult(
     val usedModes: List<UsedMode> = emptyList(),
     val usedMemories: List<UsedMemory> = emptyList(),
     val usedSessionMemories: List<UsedSessionMemory> = emptyList(),
+    val usedMemorySummary: UsedMemorySummary? = null,
 )
 
 @Serializable
@@ -279,6 +282,7 @@ private fun List<UIMessage>.withContextSources(
     usedModes: List<UsedMode>,
     usedMemories: List<UsedMemory>,
     usedSessionMemories: List<UsedSessionMemory>,
+    usedMemorySummary: UsedMemorySummary?,
 ): List<UIMessage> {
     return mapIndexed { index, message ->
         if (index == lastIndex && message.role == MessageRole.ASSISTANT) {
@@ -287,6 +291,7 @@ private fun List<UIMessage>.withContextSources(
                 usedModes = usedModes.ifEmpty { null },
                 usedMemories = usedMemories.ifEmpty { null },
                 usedSessionMemories = usedSessionMemories.ifEmpty { null },
+                usedMemorySummary = usedMemorySummary,
             )
         } else {
             message
@@ -1614,6 +1619,16 @@ class GenerationHandler(
                 },
             )
         }
+        val usedMemorySummary = memorySummary
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { summary ->
+                UsedMemorySummary(
+                    content = summary.take(MEMORY_SUMMARY_CONTEXT_PREVIEW_LIMIT).let { preview ->
+                        if (summary.length > preview.length) "$preview..." else preview
+                    },
+                )
+            }
 
         return BuildMessagesResult(
             messages = builtMessages,
@@ -1621,6 +1636,7 @@ class GenerationHandler(
             usedModes = usedModes,
             usedMemories = usedMemories,
             usedSessionMemories = usedSessionMemories,
+            usedMemorySummary = usedMemorySummary,
         )
     }
 
@@ -1675,7 +1691,9 @@ class GenerationHandler(
         val usedModes = buildResult.usedModes
         val usedMemories = buildResult.usedMemories
         val usedSessionMemories = buildResult.usedSessionMemories
-        val hasContextSources = usedLorebookEntries.isNotEmpty() ||
+        val usedMemorySummary = buildResult.usedMemorySummary
+        val hasContextSources = usedMemorySummary != null ||
+            usedLorebookEntries.isNotEmpty() ||
             usedModes.isNotEmpty() ||
             usedMemories.isNotEmpty() ||
             usedSessionMemories.isNotEmpty()
@@ -1779,6 +1797,7 @@ class GenerationHandler(
                         usedModes = usedModes,
                         usedMemories = usedMemories,
                         usedSessionMemories = usedSessionMemories,
+                        usedMemorySummary = usedMemorySummary,
                     )
                 }
                 onUpdateMessages(messages, emptySet())
@@ -1842,6 +1861,7 @@ class GenerationHandler(
                                 usedModes = usedModes,
                                 usedMemories = usedMemories,
                                 usedSessionMemories = usedSessionMemories,
+                                usedMemorySummary = usedMemorySummary,
                             )
                         }
                         val finishReasons = when {

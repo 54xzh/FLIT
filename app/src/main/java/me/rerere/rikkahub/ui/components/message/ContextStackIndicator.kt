@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material3.Icon
@@ -39,6 +40,7 @@ import coil3.compose.AsyncImage
 import kotlinx.serialization.json.Json
 import me.rerere.ai.ui.UsedLorebookEntry
 import me.rerere.ai.ui.UsedMemory
+import me.rerere.ai.ui.UsedMemorySummary
 import me.rerere.ai.ui.UsedMode
 import me.rerere.ai.ui.UsedSessionMemory
 import me.rerere.rikkahub.R
@@ -64,6 +66,10 @@ private sealed class ContextStackItem {
     data class SessionMemory(val memory: UsedSessionMemory) : ContextStackItem() {
         override val priority: Int get() = memory.priority
     }
+
+    data class MemorySummary(val summary: UsedMemorySummary) : ContextStackItem() {
+        override val priority: Int = Int.MAX_VALUE
+    }
     
     data class Lorebook(val entry: UsedLorebookEntry) : ContextStackItem() {
         override val priority: Int get() = entry.priority
@@ -81,6 +87,7 @@ fun ContextStackIndicator(
     modes: List<UsedMode> = emptyList(),
     memories: List<UsedMemory> = emptyList(),
     sessionMemories: List<UsedSessionMemory> = emptyList(),
+    memorySummary: UsedMemorySummary? = null,
     entries: List<UsedLorebookEntry> = emptyList(),
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -88,8 +95,9 @@ fun ContextStackIndicator(
     val isDarkMode = LocalDarkMode.current
     
     // Combine all items and sort by priority
-    val allItems = remember(modes, memories, sessionMemories, entries) {
+    val allItems = remember(modes, memories, sessionMemories, memorySummary, entries) {
         buildList {
+            memorySummary?.let { add(ContextStackItem.MemorySummary(it)) }
             modes.forEach { add(ContextStackItem.Mode(it)) }
             sessionMemories.forEach { add(ContextStackItem.SessionMemory(it)) }
             memories.forEach { add(ContextStackItem.Memory(it)) }
@@ -170,6 +178,17 @@ fun ContextStackIndicator(
                             .height(bookHeight)
                     )
                 }
+                is ContextStackItem.MemorySummary -> {
+                    MemorySummaryCover(
+                        overlayColor = overlayColor,
+                        overlayAlpha = overlayAlpha,
+                        modifier = Modifier
+                            .offset(x = overlap * index)
+                            .zIndex((displayItems.size - index).toFloat())
+                            .width(bookWidth)
+                            .height(bookHeight)
+                    )
+                }
                 is ContextStackItem.Lorebook -> {
                     val cover = remember(item.entry.lorebookCover) {
                         item.entry.lorebookCover?.let { coverJson ->
@@ -216,6 +235,38 @@ fun ContextStackIndicator(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun MemorySummaryCover(
+    overlayColor: Color,
+    overlayAlpha: Float,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.tertiaryContainer)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(6.dp),
+            )
+            .drawWithContent {
+                drawContent()
+                if (overlayAlpha > 0f) {
+                    drawRect(overlayColor.copy(alpha = overlayAlpha))
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.AutoAwesome,
+            contentDescription = stringResource(R.string.context_sources_section_memory_summary),
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+        )
     }
 }
 

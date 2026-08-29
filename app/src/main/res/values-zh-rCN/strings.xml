@@ -692,6 +692,7 @@
     <string name="context_sources_mode_label">提示词预设</string>
     <string name="context_sources_section_lorebook_entries">世界书条目</string>
     <string name="context_sources_section_memories">记忆</string>
+    <string name="context_sources_section_memory_summary">记忆摘要</string>
     <string name="context_sources_section_modes">提示词预设</string>
     <string name="context_sources_section_session_memories">会话记忆</string>
     <string name="context_sources_title">上下文来源</string>
@@ -2460,12 +2461,18 @@
     <string name="assistant_page_memory_summary_settings_title">记忆摘要设置</string>
     <string name="assistant_page_memory_summary_auto_update">自动更新摘要</string>
     <string name="assistant_page_memory_summary_auto_update_desc">记忆变化足够多且达到最短间隔后自动更新。</string>
-    <string name="assistant_page_memory_summary_change_threshold">记忆变化门槛：%1$d</string>
-    <string name="assistant_page_memory_summary_change_progress">已变化记忆：%1$d / %2$d</string>
-    <string name="assistant_page_memory_summary_interval">最短更新间隔：%1$d 天</string>
+    <string name="assistant_page_memory_summary_change_threshold">记忆变化条数</string>
+    <string name="assistant_page_memory_summary_change_count_value">%1$d 条</string>
+    <string name="assistant_page_memory_summary_change_progress">已变化记忆 %1$d / %2$d</string>
+    <string name="assistant_page_memory_summary_interval">最短更新间隔</string>
+    <string name="assistant_page_memory_summary_interval_value">%1$d 天</string>
     <string name="assistant_page_memory_summary_last_updated">上次更新：%1$s</string>
-    <string name="assistant_page_memory_summary_update_now">立即更新</string>
+    <string name="assistant_page_memory_summary_update_now">立即更新记忆摘要</string>
+    <string name="assistant_page_memory_summary_update_dialog_title">选择更新方式</string>
+    <string name="assistant_page_memory_summary_update_dialog_desc">选择新摘要的生成方式。全量重建仅使用当前记忆库，不会向模型提供旧摘要。</string>
+    <string name="assistant_page_memory_summary_update_by_changes">增量更新</string>
     <string name="assistant_page_memory_summary_full_update">全量更新</string>
+    <string name="assistant_page_memory_summary_rebuild">全量重建</string>
     <string name="assistant_page_memory_summary_tab">记忆摘要</string>
     <string name="assistant_page_memory_summary_active_version">当前生效版本</string>
     <string name="assistant_page_memory_summary_history_version">历史版本</string>
@@ -2474,5 +2481,6 @@
     <string name="assistant_page_memory_summary_empty">暂无记忆摘要。</string>
     <string name="assistant_page_memory_summary_update_started">已开始更新记忆摘要</string>
     <string name="assistant_page_memory_summary_full_update_started">已开始全量更新记忆摘要</string>
+    <string name="assistant_page_memory_summary_rebuild_started">已开始全量重建记忆摘要</string>
     <string name="request_log_source_memory_summary">记忆摘要</string>
 </resources>

@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Memory
@@ -56,6 +57,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import me.rerere.ai.ui.UsedLorebookEntry
 import me.rerere.ai.ui.UsedMemory
+import me.rerere.ai.ui.UsedMemorySummary
 import me.rerere.ai.ui.UsedMode
 import me.rerere.ai.ui.UsedSessionMemory
 import me.rerere.rikkahub.R
@@ -79,6 +81,7 @@ fun ContextSourcesSheet(
     modes: List<UsedMode> = emptyList(),
     memories: List<UsedMemory> = emptyList(),
     sessionMemories: List<UsedSessionMemory> = emptyList(),
+    memorySummary: UsedMemorySummary? = null,
     currentSessionMemories: List<SessionMemory> = emptyList(),
     entries: List<UsedLorebookEntry> = emptyList(),
     onModeClick: ((UsedMode) -> Unit)? = null,
@@ -193,6 +196,12 @@ fun ContextSourcesSheet(
                 }
                 
                 // Memories Section
+                memorySummary?.let { summary ->
+                    item { SectionHeader(stringResource(R.string.context_sources_section_memory_summary)) }
+                    item { MemorySummaryItem(summary) }
+                    item { Spacer(Modifier.height(12.dp)) }
+                }
+
                 if (sortedMemories.isNotEmpty()) {
                     item { SectionHeader(stringResource(R.string.context_sources_section_memories)) }
                     itemsIndexed(sortedMemories) { index, memory ->
@@ -223,6 +232,44 @@ fun ContextSourcesSheet(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MemorySummaryItem(summary: UsedMemorySummary) {
+    Surface(
+        shape = RoundedCornerShape(groupCornerRadius),
+        color = if (LocalDarkMode.current) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(45.dp)
+                    .height(60.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.tertiaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
+            Text(
+                text = summary.content,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

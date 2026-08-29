@@ -12,6 +12,7 @@ import me.rerere.rikkahub.data.ai.AIRequestLogManager
 import me.rerere.rikkahub.data.ai.AIRequestSource
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_FULL_MEMORY_SUMMARY_PROMPT
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_INCREMENTAL_MEMORY_SUMMARY_PROMPT
+import me.rerere.rikkahub.data.ai.prompts.DEFAULT_REBUILD_MEMORY_SUMMARY_PROMPT
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.findModelById
@@ -49,6 +50,7 @@ class MemorySummaryWorker(
         if (assistantId.isBlank()) return
         val forceManual = inputData.getBoolean(INPUT_FORCE_MANUAL, false)
         val forceFull = inputData.getBoolean(INPUT_FORCE_FULL, false)
+        val forceRebuild = inputData.getBoolean(INPUT_FORCE_REBUILD, false)
         val parsedId = runCatching { kotlin.uuid.Uuid.parse(assistantId) }.getOrNull() ?: return
         val settings = settingsStore.settingsFlow.value
         val assistant = settings.getAssistantById(parsedId) ?: return
@@ -77,15 +79,15 @@ class MemorySummaryWorker(
             }
         }
 
-        val isFullUpdate = summaryRepository.shouldUseFullUpdate(
+        val isFullUpdate = forceRebuild || summaryRepository.shouldUseFullUpdate(
             activeVersion = activeVersion,
             changes = changes,
             forceFull = forceFull,
         )
-        val updateMode = if (isFullUpdate) {
-            MemorySummaryUpdateMode.FULL
-        } else {
-            MemorySummaryUpdateMode.INCREMENTAL
+        val updateMode = when {
+            forceRebuild -> MemorySummaryUpdateMode.REBUILD
+            isFullUpdate -> MemorySummaryUpdateMode.FULL
+            else -> MemorySummaryUpdateMode.INCREMENTAL
         }
         val sources = if (isFullUpdate) {
             summaryRepository.getAllSources(assistantId)
@@ -111,14 +113,19 @@ class MemorySummaryWorker(
         val model = settings.findModelById(modelId) ?: return
         val provider = model.findProvider(settings.providers) ?: return
         val providerHandler = providerManager.getProviderByType(provider)
-        val prompt = if (isFullUpdate) {
-            DEFAULT_FULL_MEMORY_SUMMARY_PROMPT.applyPlaceholders(
+        val prompt = when {
+            forceRebuild -> DEFAULT_REBUILD_MEMORY_SUMMARY_PROMPT.applyPlaceholders(
+                "current_date" to LocalDate.now().toString(),
+                "all_memories" to summaryRepository.formatSources(sources),
+            )
+
+            isFullUpdate -> DEFAULT_FULL_MEMORY_SUMMARY_PROMPT.applyPlaceholders(
                 "current_date" to LocalDate.now().toString(),
                 "previous_summary" to activeVersion?.content.orEmpty(),
                 "all_memories" to summaryRepository.formatSources(sources),
             )
-        } else {
-            DEFAULT_INCREMENTAL_MEMORY_SUMMARY_PROMPT.applyPlaceholders(
+
+            else -> DEFAULT_INCREMENTAL_MEMORY_SUMMARY_PROMPT.applyPlaceholders(
                 "current_date" to LocalDate.now().toString(),
                 "previous_summary" to activeVersion?.content.orEmpty(),
                 "new_memories" to summaryRepository.formatSources(sources),
@@ -167,6 +174,7 @@ class MemorySummaryWorker(
         const val INPUT_ASSISTANT_ID = "ASSISTANT_ID"
         const val INPUT_FORCE_MANUAL = "FORCE_MANUAL"
         const val INPUT_FORCE_FULL = "FORCE_FULL"
+        const val INPUT_FORCE_REBUILD = "FORCE_REBUILD"
         private const val TAG = "MemorySummaryWorker"
     }
 }

@@ -2097,6 +2097,7 @@
     <string name="context_sources_section_modes">Preset Prompts</string>
     <string name="context_sources_section_session_memories">Session Memories</string>
     <string name="context_sources_section_memories">Memories</string>
+    <string name="context_sources_section_memory_summary">Memory Summary</string>
     <string name="context_sources_section_lorebook_entries">Lorebook Entries</string>
     <string name="context_sources_mode_label">Preset Prompt</string>
     <string name="used_lorebooks_title">Lorebook Entries Used</string>
@@ -2537,12 +2538,18 @@
     <string name="assistant_page_memory_summary_settings_title">Memory Summary Settings</string>
     <string name="assistant_page_memory_summary_auto_update">Automatically update summary</string>
     <string name="assistant_page_memory_summary_auto_update_desc">Update after enough memories change and the minimum interval has passed.</string>
-    <string name="assistant_page_memory_summary_change_threshold">Memory change threshold: %1$d</string>
-    <string name="assistant_page_memory_summary_change_progress">Changed memories: %1$d / %2$d</string>
-    <string name="assistant_page_memory_summary_interval">Minimum update interval: %1$d days</string>
+    <string name="assistant_page_memory_summary_change_threshold">Memory change count</string>
+    <string name="assistant_page_memory_summary_change_count_value">%1$d memories</string>
+    <string name="assistant_page_memory_summary_change_progress">Changed memories %1$d / %2$d</string>
+    <string name="assistant_page_memory_summary_interval">Minimum update interval</string>
+    <string name="assistant_page_memory_summary_interval_value">%1$d days</string>
     <string name="assistant_page_memory_summary_last_updated">Last updated: %1$s</string>
-    <string name="assistant_page_memory_summary_update_now">Update now</string>
+    <string name="assistant_page_memory_summary_update_now">Update memory summary now</string>
+    <string name="assistant_page_memory_summary_update_dialog_title">Choose update method</string>
+    <string name="assistant_page_memory_summary_update_dialog_desc">Choose how to generate the new summary. Full rebuild uses only the current memory library and does not send the previous summary to the model.</string>
+    <string name="assistant_page_memory_summary_update_by_changes">Incremental update</string>
     <string name="assistant_page_memory_summary_full_update">Full update</string>
+    <string name="assistant_page_memory_summary_rebuild">Full rebuild</string>
     <string name="assistant_page_memory_summary_tab">Memory Summary</string>
     <string name="assistant_page_memory_summary_active_version">Current version</string>
     <string name="assistant_page_memory_summary_history_version">History version</string>
@@ -2551,5 +2558,6 @@
     <string name="assistant_page_memory_summary_empty">No memory summary yet.</string>
     <string name="assistant_page_memory_summary_update_started">Memory summary update started</string>
     <string name="assistant_page_memory_summary_full_update_started">Memory summary full update started</string>
+    <string name="assistant_page_memory_summary_rebuild_started">Memory summary full rebuild started</string>
     <string name="request_log_source_memory_summary">Memory Summary</string>
 </resources>

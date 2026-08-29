@@ -14,7 +14,13 @@ class MemorySummaryScheduler(
     private val context: Context,
 ) {
     fun enqueueAutomatic(assistantId: String, delayMillis: Long = 0L) {
-        val request = request(assistantId, forceManual = false, forceFull = false, delayMillis = delayMillis)
+        val request = request(
+            assistantId,
+            forceManual = false,
+            forceFull = false,
+            forceRebuild = false,
+            delayMillis = delayMillis,
+        )
         WorkManager.getInstance(context).enqueueUniqueWork(
             automaticWorkName(assistantId),
             // A worker scheduling the future eligibility check is itself still running.
@@ -25,8 +31,14 @@ class MemorySummaryScheduler(
         )
     }
 
-    fun enqueueManual(assistantId: String, forceFull: Boolean) {
-        val request = request(assistantId, forceManual = true, forceFull = forceFull, delayMillis = 0L)
+    fun enqueueManual(assistantId: String, forceFull: Boolean, forceRebuild: Boolean) {
+        val request = request(
+            assistantId,
+            forceManual = true,
+            forceFull = forceFull,
+            forceRebuild = forceRebuild,
+            delayMillis = 0L,
+        )
         WorkManager.getInstance(context).enqueueUniqueWork(
             automaticWorkName(assistantId),
             ExistingWorkPolicy.REPLACE,
@@ -38,6 +50,7 @@ class MemorySummaryScheduler(
         assistantId: String,
         forceManual: Boolean,
         forceFull: Boolean,
+        forceRebuild: Boolean,
         delayMillis: Long,
     ) = OneTimeWorkRequestBuilder<MemorySummaryWorker>()
         .setInputData(
@@ -45,6 +58,7 @@ class MemorySummaryScheduler(
                 MemorySummaryWorker.INPUT_ASSISTANT_ID to assistantId,
                 MemorySummaryWorker.INPUT_FORCE_MANUAL to forceManual,
                 MemorySummaryWorker.INPUT_FORCE_FULL to forceFull,
+                MemorySummaryWorker.INPUT_FORCE_REBUILD to forceRebuild,
             )
         )
         .setConstraints(

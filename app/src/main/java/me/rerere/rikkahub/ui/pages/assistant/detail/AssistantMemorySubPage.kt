@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -33,6 +34,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -95,6 +97,7 @@ import me.rerere.rikkahub.data.db.entity.MemorySummaryUpdateMode
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 import me.rerere.rikkahub.data.repository.MemoryRetrievalHit
 import me.rerere.rikkahub.ui.components.ui.Select
+import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.ui.theme.AppShapes
@@ -941,8 +944,10 @@ private fun MemorySummarySettingsCard(
     assistant: Assistant,
     status: MemorySummaryStatus,
     onUpdateAssistant: (Assistant) -> Unit,
-    onUpdateSummary: (Boolean) -> Unit,
+    onUpdateSummary: (forceFull: Boolean, forceRebuild: Boolean) -> Unit,
 ) {
+    var showUpdateModeDialog by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier.clip(RoundedCornerShape(24.dp)),
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -975,13 +980,23 @@ private fun MemorySummarySettingsCard(
             shape = RoundedCornerShape(10.dp),
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    stringResource(
-                        R.string.assistant_page_memory_summary_change_threshold,
-                        assistant.memorySummaryChangeThreshold,
-                    ),
-                    style = MaterialTheme.typography.titleMedium,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        stringResource(R.string.assistant_page_memory_summary_change_threshold),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        stringResource(
+                            R.string.assistant_page_memory_summary_change_count_value,
+                            assistant.memorySummaryChangeThreshold,
+                        ),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Text(
                     stringResource(
                         R.string.assistant_page_memory_summary_change_progress,
@@ -997,7 +1012,8 @@ private fun MemorySummarySettingsCard(
                         onUpdateAssistant(assistant.copy(memorySummaryChangeThreshold = it.roundToInt().coerceIn(1, 100)))
                     },
                     valueRange = 1f..100f,
-                    steps = 98,
+                    steps = 19,
+                    modifier = Modifier.padding(top = 8.dp),
                 )
             }
         }
@@ -1006,13 +1022,23 @@ private fun MemorySummarySettingsCard(
             shape = RoundedCornerShape(10.dp),
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    stringResource(
-                        R.string.assistant_page_memory_summary_interval,
-                        assistant.memorySummaryIntervalDays,
-                    ),
-                    style = MaterialTheme.typography.titleMedium,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        stringResource(R.string.assistant_page_memory_summary_interval),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        stringResource(
+                            R.string.assistant_page_memory_summary_interval_value,
+                            assistant.memorySummaryIntervalDays,
+                        ),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Slider(
                     value = assistant.memorySummaryIntervalDays.toFloat(),
                     onValueChange = {
@@ -1020,6 +1046,7 @@ private fun MemorySummarySettingsCard(
                     },
                     valueRange = 1f..30f,
                     steps = 28,
+                    modifier = Modifier.padding(top = 8.dp),
                 )
                 status.activeVersion?.let { version ->
                     val time = java.time.Instant.ofEpochMilli(version.generatedAt)
@@ -1035,10 +1062,10 @@ private fun MemorySummarySettingsCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        if (version.updateMode == MemorySummaryUpdateMode.FULL) {
-                            stringResource(R.string.assistant_page_memory_summary_mode_full)
-                        } else {
-                            stringResource(R.string.assistant_page_memory_summary_mode_incremental)
+                        when (version.updateMode) {
+                            MemorySummaryUpdateMode.REBUILD -> stringResource(R.string.assistant_page_memory_summary_rebuild)
+                            MemorySummaryUpdateMode.FULL -> stringResource(R.string.assistant_page_memory_summary_mode_full)
+                            else -> stringResource(R.string.assistant_page_memory_summary_mode_incremental)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1050,18 +1077,60 @@ private fun MemorySummarySettingsCard(
             color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
             shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp, topStart = 10.dp, topEnd = 10.dp),
         ) {
-            Row(
+            Button(
+                onClick = { showUpdateModeDialog = true },
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Button(onClick = { onUpdateSummary(false) }, modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.assistant_page_memory_summary_update_now))
-                }
-                Button(onClick = { onUpdateSummary(true) }, modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.assistant_page_memory_summary_full_update))
-                }
+                Text(stringResource(R.string.assistant_page_memory_summary_update_now))
             }
         }
+    }
+
+    if (showUpdateModeDialog) {
+        AlertDialog(
+            onDismissRequest = { showUpdateModeDialog = false },
+            title = { Text(stringResource(R.string.assistant_page_memory_summary_update_dialog_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.assistant_page_memory_summary_update_dialog_desc),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(
+                        onClick = {
+                            showUpdateModeDialog = false
+                            onUpdateSummary(false, false)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.assistant_page_memory_summary_update_by_changes))
+                    }
+                    Button(
+                        onClick = {
+                            showUpdateModeDialog = false
+                            onUpdateSummary(true, false)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.assistant_page_memory_summary_full_update))
+                    }
+                    Button(
+                        onClick = {
+                            showUpdateModeDialog = false
+                            onUpdateSummary(true, true)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.assistant_page_memory_summary_rebuild))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showUpdateModeDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 }
 
@@ -1530,29 +1599,48 @@ private fun ManageMemoriesSection(
     }
 
     selectedSummaryVersion?.let { version ->
-        AlertDialog(
+        val sheetState = androidx.compose.material3.rememberModalBottomSheetState(
+            skipPartiallyExpanded = true,
+        )
+        androidx.compose.material3.ModalBottomSheet(
             onDismissRequest = { selectedSummaryVersion = null },
-            title = {
+            sheetState = sheetState,
+            shape = AppShapes.BottomSheet,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 640.dp)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Text(
-                    if (version == summaryVersions.firstOrNull()) {
+                    text = if (version == summaryVersions.firstOrNull()) {
                         stringResource(R.string.assistant_page_memory_summary_active_version)
                     } else {
                         stringResource(R.string.assistant_page_memory_summary_history_version)
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    SelectionContainer {
+                        MarkdownBlock(
+                            content = version.content.ifBlank {
+                                stringResource(R.string.assistant_page_memory_summary_empty)
+                            },
+                        )
                     }
-                )
-            },
-            text = {
-                Text(
-                    text = version.content.ifBlank { stringResource(R.string.assistant_page_memory_summary_empty) },
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { selectedSummaryVersion = null }) {
-                    Text(stringResource(R.string.assistant_page_confirm))
                 }
-            },
-        )
+            }
+        }
     }
 }
 
@@ -1592,10 +1680,10 @@ private fun MemorySummaryVersionsList(
                         color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        if (version.updateMode == MemorySummaryUpdateMode.FULL) {
-                            stringResource(R.string.assistant_page_memory_summary_mode_full)
-                        } else {
-                            stringResource(R.string.assistant_page_memory_summary_mode_incremental)
+                        when (version.updateMode) {
+                            MemorySummaryUpdateMode.REBUILD -> stringResource(R.string.assistant_page_memory_summary_rebuild)
+                            MemorySummaryUpdateMode.FULL -> stringResource(R.string.assistant_page_memory_summary_mode_full)
+                            else -> stringResource(R.string.assistant_page_memory_summary_mode_incremental)
                         },
                         style = MaterialTheme.typography.labelSmall,
                     )

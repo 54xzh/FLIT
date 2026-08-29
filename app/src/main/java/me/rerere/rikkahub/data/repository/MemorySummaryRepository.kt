@@ -192,8 +192,8 @@ class MemorySummaryRepository(
         }
     }
 
-    fun requestManualUpdate(assistantId: String, forceFull: Boolean) {
-        scheduler.enqueueManual(assistantId, forceFull)
+    fun requestManualUpdate(assistantId: String, forceFull: Boolean, forceRebuild: Boolean) {
+        scheduler.enqueueManual(assistantId, forceFull, forceRebuild)
     }
 
     fun scheduleAutomaticCheck(assistantId: String) {

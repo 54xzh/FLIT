@@ -8,6 +8,7 @@ import androidx.room.PrimaryKey
 object MemorySummaryUpdateMode {
     const val INCREMENTAL = 0
     const val FULL = 1
+    const val REBUILD = 2
 }
 
 object MemorySummaryChangeType {

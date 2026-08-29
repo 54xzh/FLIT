@@ -490,13 +490,13 @@ class AssistantDetailVM(
         _snackbarMessage.value = "Memory consolidation started (Full Scan: $isFullScan)"
     }
 
-    fun updateMemorySummary(forceFull: Boolean) {
-        memorySummaryRepository.requestManualUpdate(assistantId.toString(), forceFull)
+    fun updateMemorySummary(forceFull: Boolean, forceRebuild: Boolean) {
+        memorySummaryRepository.requestManualUpdate(assistantId.toString(), forceFull, forceRebuild)
         _snackbarMessage.value = context.getString(
-            if (forceFull) {
-                R.string.assistant_page_memory_summary_full_update_started
-            } else {
-                R.string.assistant_page_memory_summary_update_started
+            when {
+                forceRebuild -> R.string.assistant_page_memory_summary_rebuild_started
+                forceFull -> R.string.assistant_page_memory_summary_full_update_started
+                else -> R.string.assistant_page_memory_summary_update_started
             },
         )
     }

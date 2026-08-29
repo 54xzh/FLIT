@@ -116,7 +116,9 @@ fun ColumnScope.ChatMessageActionButtons(
     val usedModes = message.usedModes ?: emptyList()
     val usedMemories = message.usedMemories ?: emptyList()
     val usedSessionMemories = message.usedSessionMemories ?: emptyList()
-    val hasContextSources = usedEntries.isNotEmpty() ||
+    val usedMemorySummary = message.usedMemorySummary
+    val hasContextSources = usedMemorySummary != null ||
+        usedEntries.isNotEmpty() ||
         usedModes.isNotEmpty() ||
         usedMemories.isNotEmpty() ||
         usedSessionMemories.isNotEmpty()
@@ -157,6 +159,7 @@ fun ColumnScope.ChatMessageActionButtons(
             modes = usedModes,
             memories = usedMemories,
             sessionMemories = usedSessionMemories,
+            memorySummary = usedMemorySummary,
             currentSessionMemories = currentSessionMemories,
             entries = usedEntries,
             onModeClick = { mode ->
@@ -187,6 +190,7 @@ fun ColumnScope.ChatMessageActionButtons(
                 modes = usedModes,
                 memories = usedMemories,
                 sessionMemories = usedSessionMemories,
+                memorySummary = usedMemorySummary,
                 entries = usedEntries,
                 onClick = { showContextSheet = true },
                 modifier = Modifier.padding(start = 4.dp)
