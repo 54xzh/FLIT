@@ -373,6 +373,17 @@ class AssistantDetailVM(
         }
     }
 
+    fun applyMemorySummaryPromptToAll(prompt: String) {
+        viewModelScope.launch {
+            val currentSettings = settingsStore.settingsFlow.value
+            settingsStore.update(
+                settings = currentSettings.copy(
+                    assistants = currentSettings.assistants.map { it.copy(memorySummaryPrompt = prompt) }
+                )
+            )
+        }
+    }
+
     fun applyContextSummaryPromptToAll(prompt: String) {
         viewModelScope.launch {
             val currentSettings = settingsStore.settingsFlow.value

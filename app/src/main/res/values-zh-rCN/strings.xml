@@ -123,13 +123,14 @@
     <string name="assistant_page_consolidation_enable_desc">允许助手形成长期记忆</string>
     <string name="assistant_page_consolidation_human_like">类人记忆</string>
     <string name="assistant_page_consolidation_human_like_desc">启用重要性评分和反思</string>
+    <string name="assistant_page_consolidation_prompt_tab">记忆整合提示词</string>
     <string name="assistant_page_consolidation_prompt_vars">变量：{context_section}、{messages_text}</string>
     <string name="assistant_page_consolidation_reflection_interval">反思间隔</string>
     <string name="assistant_page_consolidation_reflection_interval_desc">多久反思一次情景记忆以形成核心记忆</string>
     <string name="assistant_page_consolidation_reflection_interval_value">反思间隔: %d 小时</string>
     <string name="assistant_page_consolidation_settings_title">记忆整合设置</string>
-    <string name="assistant_page_consolidation_summarizer_model">记忆整合模型</string>
-    <string name="assistant_page_consolidation_summarizer_model_desc">用于记忆整合任务的模型</string>
+    <string name="assistant_page_consolidation_summarizer_model">记忆整合与摘要模型</string>
+    <string name="assistant_page_consolidation_summarizer_model_desc">用于记忆整合与记忆摘要任务的模型</string>
     <string name="assistant_page_consolidation_track_a">记忆整合 (Track A)</string>
     <string name="assistant_page_consolidation_track_b">记忆反思 (Track B)</string>
   <string name="assistant_page_context_message_count">上下文消息数量: %d</string>
@@ -2489,6 +2490,8 @@
     <string name="assistant_page_memory_summary_history_version">历史版本</string>
     <string name="assistant_page_memory_summary_mode_incremental">增量更新</string>
     <string name="assistant_page_memory_summary_mode_full">全量更新</string>
+    <string name="assistant_page_memory_summary_prompt_tab">记忆摘要提示词</string>
+    <string name="assistant_page_memory_summary_prompt_vars">变量：{current_date}、{previous_summary_section}、{memory_section}、{update_instructions}</string>
     <string name="assistant_page_memory_summary_empty">暂无记忆摘要。</string>
     <string name="assistant_page_memory_summary_update_started">已开始更新记忆摘要</string>
     <string name="assistant_page_memory_summary_full_update_started">已开始全量更新记忆摘要</string>

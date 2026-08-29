@@ -82,6 +82,7 @@ data class Assistant(
     val summarizerModelId: Uuid? = null, // Model used for memory consolidation
     val contextSummarizerModelId: Uuid? = null, // Model used for context summarization
     val consolidationPrompt: String = "", // Memory consolidation prompt
+    val memorySummaryPrompt: String = "", // Long-term memory summary prompt
     val contextSummaryPrompt: String = "", // Context summarization prompt
     val streamOutput: Boolean = true,
     val enableMemory: Boolean = false,

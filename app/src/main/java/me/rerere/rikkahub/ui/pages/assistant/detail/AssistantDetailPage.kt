@@ -206,6 +206,7 @@ fun AssistantDetailPage(
                     onUpdate = { onUpdate(it) },
                     onApplyBackgroundPromptToAll = { vm.applyBackgroundPromptToAll(it) },
                     onApplyConsolidationPromptToAll = { vm.applyConsolidationPromptToAll(it) },
+                    onApplyMemorySummaryPromptToAll = { vm.applyMemorySummaryPromptToAll(it) },
                     onApplyContextSummaryPromptToAll = { vm.applyContextSummaryPromptToAll(it) },
                 )
             }

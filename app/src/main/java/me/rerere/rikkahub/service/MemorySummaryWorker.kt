@@ -10,9 +10,9 @@ import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.data.ai.AIRequestLogManager
 import me.rerere.rikkahub.data.ai.AIRequestSource
-import me.rerere.rikkahub.data.ai.prompts.DEFAULT_FULL_MEMORY_SUMMARY_PROMPT
-import me.rerere.rikkahub.data.ai.prompts.DEFAULT_INCREMENTAL_MEMORY_SUMMARY_PROMPT
-import me.rerere.rikkahub.data.ai.prompts.DEFAULT_REBUILD_MEMORY_SUMMARY_PROMPT
+import me.rerere.rikkahub.data.ai.prompts.DEFAULT_MEMORY_SUMMARY_PROMPT
+import me.rerere.rikkahub.data.ai.prompts.MemorySummaryPromptMode
+import me.rerere.rikkahub.data.ai.prompts.buildMemorySummaryPrompt
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.findModelById
@@ -20,7 +20,6 @@ import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.db.entity.MemorySummaryUpdateMode
 import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.data.repository.MemorySummaryScheduler
-import me.rerere.rikkahub.utils.applyPlaceholders
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.time.LocalDate
@@ -113,24 +112,18 @@ class MemorySummaryWorker(
         val model = settings.findModelById(modelId) ?: return
         val provider = model.findProvider(settings.providers) ?: return
         val providerHandler = providerManager.getProviderByType(provider)
-        val prompt = when {
-            forceRebuild -> DEFAULT_REBUILD_MEMORY_SUMMARY_PROMPT.applyPlaceholders(
-                "current_date" to LocalDate.now().toString(),
-                "all_memories" to summaryRepository.formatSources(sources),
-            )
-
-            isFullUpdate -> DEFAULT_FULL_MEMORY_SUMMARY_PROMPT.applyPlaceholders(
-                "current_date" to LocalDate.now().toString(),
-                "previous_summary" to activeVersion?.content.orEmpty(),
-                "all_memories" to summaryRepository.formatSources(sources),
-            )
-
-            else -> DEFAULT_INCREMENTAL_MEMORY_SUMMARY_PROMPT.applyPlaceholders(
-                "current_date" to LocalDate.now().toString(),
-                "previous_summary" to activeVersion?.content.orEmpty(),
-                "new_memories" to summaryRepository.formatSources(sources),
-            )
+        val promptMode = when {
+            forceRebuild -> MemorySummaryPromptMode.REBUILD
+            isFullUpdate -> MemorySummaryPromptMode.FULL
+            else -> MemorySummaryPromptMode.INCREMENTAL
         }
+        val prompt = buildMemorySummaryPrompt(
+            promptTemplate = assistant.memorySummaryPrompt.ifBlank { DEFAULT_MEMORY_SUMMARY_PROMPT },
+            mode = promptMode,
+            currentDate = LocalDate.now().toString(),
+            previousSummary = activeVersion?.content.orEmpty(),
+            memories = summaryRepository.formatSources(sources),
+        )
         val requestMessages = listOf(UIMessage.user(prompt))
         var requestBodyJson: String? = null
         val params = TextGenerationParams(model = model, onRequestBody = { requestBodyJson = it })

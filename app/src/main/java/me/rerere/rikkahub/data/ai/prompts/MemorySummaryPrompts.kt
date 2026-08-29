@@ -1,25 +1,20 @@
 package me.rerere.rikkahub.data.ai.prompts
 
-internal val DEFAULT_INCREMENTAL_MEMORY_SUMMARY_PROMPT = """
+import me.rerere.rikkahub.utils.applyPlaceholders
+
+internal val DEFAULT_MEMORY_SUMMARY_PROMPT = """
     You maintain a long-term memory summary for an AI assistant.
 
     Current date:
     {current_date}
 
-    Previous memory summary:
-    <previous_summary>
-    {previous_summary}
-    </previous_summary>
+    {previous_summary_section}
 
-    New memories added since the previous successful update:
-    <new_memories>
-    {new_memories}
-    </new_memories>
+    {memory_section}
 
-    Update the previous summary using the new memories and return the complete updated summary.
+    {update_instructions}
 
     Requirements:
-    - Preserve useful information from the previous summary unless a newer memory replaces it.
     - Use memory timestamps to judge whether an event is recent, ongoing, or historical.
     - Judge relevance from the content and timestamps.
     - When memories conflict, prefer the newer explicit memory.
@@ -42,82 +37,68 @@ internal val DEFAULT_INCREMENTAL_MEMORY_SUMMARY_PROMPT = """
     Return only the complete Markdown summary.
 """.trimIndent()
 
-internal val DEFAULT_FULL_MEMORY_SUMMARY_PROMPT = """
-    You maintain a long-term memory summary for an AI assistant.
+internal enum class MemorySummaryPromptMode {
+    INCREMENTAL,
+    FULL,
+    REBUILD,
+}
 
-    Current date:
-    {current_date}
+internal fun buildMemorySummaryPrompt(
+    promptTemplate: String,
+    mode: MemorySummaryPromptMode,
+    currentDate: String,
+    previousSummary: String,
+    memories: String,
+): String {
+    val previousSummarySection = if (mode == MemorySummaryPromptMode.REBUILD) {
+        ""
+    } else {
+        """
+        Previous memory summary:
+        <previous_summary>
+        $previousSummary
+        </previous_summary>
+        """.trimIndent()
+    }
+    val memorySection = when (mode) {
+        MemorySummaryPromptMode.INCREMENTAL -> """
+            New memories added since the previous successful update:
+            <new_memories>
+            $memories
+            </new_memories>
+        """.trimIndent()
 
-    Previous memory summary:
-    <previous_summary>
-    {previous_summary}
-    </previous_summary>
+        MemorySummaryPromptMode.FULL,
+        MemorySummaryPromptMode.REBUILD,
+            -> """
+                Current complete memory library:
+                <all_memories>
+                $memories
+                </all_memories>
+            """.trimIndent()
+    }
+    val updateInstructions = when (mode) {
+        MemorySummaryPromptMode.INCREMENTAL -> """
+            Update the previous summary using the new memories and return the complete updated summary.
+            - Preserve useful information from the previous summary unless a newer memory replaces it.
+        """.trimIndent()
 
-    Current complete memory library:
-    <all_memories>
-    {all_memories}
-    </all_memories>
+        MemorySummaryPromptMode.FULL -> """
+            Rebuild the complete memory summary from the current memory library.
+            - Use the previous summary only to preserve useful wording and continuity.
+            - Do not retain information supported only by the previous summary.
+        """.trimIndent()
 
-    Rebuild the complete memory summary from the current memory library.
+        MemorySummaryPromptMode.REBUILD -> """
+            Rebuild the complete memory summary from the current memory library.
+            - Do not use or rely on any previous memory summary.
+        """.trimIndent()
+    }
 
-    Requirements:
-    - Use the previous summary only to preserve useful wording and continuity.
-    - Do not retain information supported only by the previous summary.
-    - Use memory timestamps to judge whether an event is recent, ongoing, or historical.
-    - Judge relevance from the content and timestamps.
-    - When memories conflict, prefer the newer explicit memory.
-    - If the conflict cannot be resolved, omit the information.
-    - Include only information supported by the current memory library.
-    - Use Markdown headings and bullet points.
-    - Omit empty sections.
-    - Do not include an introduction, explanation, or closing paragraph.
-    - Write in the language used by the user. If languages are mixed, prefer the language of the newer memories.
-    - Keep the summary between 400 and 800 words.
-
-    Useful sections may include:
-    - Personal Profile
-    - Preferences
-    - Long-term Goals
-    - Current Focus
-    - Recent Important Events
-    - Important People and Relationships
-
-    Return only the complete Markdown summary.
-""".trimIndent()
-
-internal val DEFAULT_REBUILD_MEMORY_SUMMARY_PROMPT = """
-    You maintain a long-term memory summary for an AI assistant.
-
-    Current date:
-    {current_date}
-
-    Current complete memory library:
-    <all_memories>
-    {all_memories}
-    </all_memories>
-
-    Rebuild the complete memory summary from the current memory library.
-
-    Requirements:
-    - Do not use or rely on any previous memory summary.
-    - Use memory timestamps to judge whether an event is recent, ongoing, or historical.
-    - Judge relevance from the content and timestamps.
-    - When memories conflict, prefer the newer explicit memory.
-    - If the conflict cannot be resolved, omit the information.
-    - Include only information supported by the current memory library.
-    - Use Markdown headings and bullet points.
-    - Omit empty sections.
-    - Do not include an introduction, explanation, or closing paragraph.
-    - Write in the language used by the user. If languages are mixed, prefer the language of the newer memories.
-    - Keep the summary between 400 and 800 words.
-
-    Useful sections may include:
-    - Personal Profile
-    - Preferences
-    - Long-term Goals
-    - Current Focus
-    - Recent Important Events
-    - Important People and Relationships
-
-    Return only the complete Markdown summary.
-""".trimIndent()
+    return promptTemplate.applyPlaceholders(
+        "current_date" to currentDate,
+        "previous_summary_section" to previousSummarySection,
+        "memory_section" to memorySection,
+        "update_instructions" to updateInstructions,
+    )
+}

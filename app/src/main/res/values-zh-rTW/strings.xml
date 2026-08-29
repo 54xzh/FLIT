@@ -1381,8 +1381,8 @@
   <string name="assistant_page_consolidation_enable_desc">允許助手形成長期記憶</string>
   <string name="assistant_page_consolidation_human_like">類人記憶</string>
   <string name="assistant_page_consolidation_human_like_desc">啟用重要性評分和反思</string>
-  <string name="assistant_page_consolidation_summarizer_model">記憶整合模型</string>
-  <string name="assistant_page_consolidation_summarizer_model_desc">用於記憶整合任務的模型</string>
+  <string name="assistant_page_consolidation_summarizer_model">記憶整合與摘要模型</string>
+  <string name="assistant_page_consolidation_summarizer_model_desc">用於記憶整合與記憶摘要任務的模型</string>
   <string name="assistant_page_context_summarizer_model">上下文總結模型</string>
   <string name="assistant_page_context_summarizer_model_desc">用於上下文總結任務的模型</string>
   <string name="assistant_page_consolidation_delay">整合延遲</string>
@@ -1479,6 +1479,7 @@
   <string name="assistant_page_custom_prompt_desc">自發消息的指令。可使用 {{history}} 與 {{memories}}。</string>
   <string name="assistant_page_custom_prompt_title">自定義提示詞</string>
   <string name="assistant_page_background_prompt_vars">變數：{assistant_name}、{last_notification_info}、{{history}}、{{memories}}</string>
+  <string name="assistant_page_consolidation_prompt_tab">記憶整合提示詞</string>
   <string name="assistant_page_consolidation_prompt_vars">變數：{context_section}、{messages_text}</string>
   <string name="assistant_page_context_summary_prompt_vars">變數：{previous_summary_section}、{messages_count}、{messages_text}</string>
   <string name="assistant_page_apply_to_global">應用到全域</string>
@@ -2556,6 +2557,8 @@
     <string name="assistant_page_memory_summary_history_version">歷史版本</string>
     <string name="assistant_page_memory_summary_mode_incremental">增量更新</string>
     <string name="assistant_page_memory_summary_mode_full">全量更新</string>
+    <string name="assistant_page_memory_summary_prompt_tab">記憶摘要提示詞</string>
+    <string name="assistant_page_memory_summary_prompt_vars">變數：{current_date}、{previous_summary_section}、{memory_section}、{update_instructions}</string>
     <string name="assistant_page_memory_summary_empty">暫無記憶摘要。</string>
     <string name="assistant_page_memory_summary_update_started">已開始更新記憶摘要</string>
     <string name="assistant_page_memory_summary_full_update_started">已開始全量更新記憶摘要</string>
