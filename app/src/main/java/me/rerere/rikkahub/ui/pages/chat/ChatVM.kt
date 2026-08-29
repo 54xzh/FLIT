@@ -54,6 +54,7 @@ import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.replaceRegexes
 import me.rerere.rikkahub.data.model.id
 import me.rerere.rikkahub.data.repository.ConversationRepository
+import me.rerere.rikkahub.data.repository.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.repository.ModelQuotaRepository
 import me.rerere.rikkahub.data.repository.QuotaUsageResult
 import me.rerere.rikkahub.service.ChatService
@@ -83,6 +84,7 @@ class ChatVM(
     private val modelQuotaRepo: ModelQuotaRepository,
 ) : ViewModel() {
     private val _conversationId: Uuid = Uuid.parse(id)
+    private val memoryConsolidationScheduler = MemoryConsolidationScheduler(context)
     val conversationId: Uuid
         get() = _conversationId
     val conversation: StateFlow<Conversation> = chatService.getConversationFlow(_conversationId)
@@ -104,6 +106,10 @@ class ChatVM(
 
     // Track recently restored conversations for fade-in animation
     val recentlyRestoredIds: StateFlow<Set<Uuid>> = chatService.recentlyRestoredIds
+
+    val manualMemoryConsolidationConversationIds: StateFlow<Set<Uuid>> = memoryConsolidationScheduler
+        .observeRunningConversationIds()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptySet())
 
     // Track recently restored message nodes for fade-in animation
     private val _recentlyRestoredNodeIds = MutableStateFlow<Set<Uuid>>(emptySet())
@@ -912,17 +918,15 @@ class ChatVM(
         viewModelScope.launch {
             // Mark conversation as not consolidated so it will be picked up by the worker
             conversationRepo.markAsNotConsolidated(conversation.id)
-            
-            // Trigger a consolidation run with specific conversation ID
-            val request = androidx.work.OneTimeWorkRequestBuilder<me.rerere.rikkahub.service.MemoryConsolidationWorker>()
-                .setInputData(
-                    androidx.work.workDataOf(
-                        "FORCE_CONVERSATION_ID" to conversation.id.toString()
-                    )
-                )
-                .build()
-            androidx.work.WorkManager.getInstance(context).enqueue(request)
+            memoryConsolidationScheduler.enqueueConversation(
+                conversationId = conversation.id.toString(),
+                assistantId = conversation.assistantId.toString(),
+            )
         }
+    }
+
+    fun cancelConversationConsolidation(conversation: Conversation) {
+        memoryConsolidationScheduler.cancelConversation(conversation.id.toString())
     }
 
     fun generateSuggestion(conversation: Conversation) {

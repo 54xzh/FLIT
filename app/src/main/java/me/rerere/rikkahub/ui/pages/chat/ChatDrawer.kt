@@ -117,6 +117,8 @@ fun ChatDrawerContent(
     val conversationJobs by vm.conversationJobs.collectAsStateWithLifecycle(
         initialValue = emptyMap(),
     )
+    val manualMemoryConsolidationConversationIds by vm.manualMemoryConsolidationConversationIds
+        .collectAsStateWithLifecycle()
 
     val recentlyRestoredIds by vm.recentlyRestoredIds.collectAsStateWithLifecycle()
 
@@ -179,6 +181,7 @@ fun ChatDrawerContent(
             )
         )
     }
+    var consolidationTarget by remember { mutableStateOf<Conversation?>(null) }
 
     ModalDrawerSheet(
         modifier = Modifier.width(300.dp),
@@ -272,6 +275,7 @@ fun ChatDrawerContent(
                 currentExistsInStorage = currentExistsInStorage,
                 conversations = conversations,
                 conversationJobs = conversationJobs.keys,
+                manualMemoryConsolidationConversationIds = manualMemoryConsolidationConversationIds,
                 recentlyRestoredIds = recentlyRestoredIds,
                 searchQuery = searchQuery,
                 onSearchQueryChange = { vm.updateSearchQuery(it) },
@@ -289,7 +293,13 @@ fun ChatDrawerContent(
                     vm.generateTitle(it, true)
                 },
                 onConsolidate = {
-                    vm.consolidateConversation(it)
+                    consolidationTarget = it
+                },
+                onCancelConsolidation = {
+                    vm.cancelConversationConsolidation(it)
+                    toaster.show(
+                        message = context.getString(R.string.chat_page_consolidation_cancelled),
+                    )
                 },
                 onDelete = {
                     vm.deleteConversation(it)
@@ -403,6 +413,36 @@ fun ChatDrawerContent(
                 )
             }
         }
+    }
+
+    consolidationTarget?.let { conversation ->
+        AlertDialog(
+            onDismissRequest = { consolidationTarget = null },
+            title = { Text(stringResource(R.string.chat_page_consolidate_confirm_title)) },
+            text = { Text(stringResource(R.string.chat_page_consolidate_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        consolidationTarget = null
+                        vm.consolidateConversation(conversation)
+                        toaster.show(
+                            message = context.getString(R.string.chat_page_consolidation_started),
+                            action = me.rerere.rikkahub.ui.components.ui.ToastAction(
+                                label = context.getString(R.string.chat_page_consolidation_cancel),
+                                onClick = { vm.cancelConversationConsolidation(conversation) },
+                            ),
+                        )
+                    },
+                ) {
+                    Text(stringResource(R.string.assistant_page_memory_consolidation_start))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { consolidationTarget = null }) {
+                    Text(stringResource(R.string.chat_page_cancel))
+                }
+            },
+        )
     }
 
     // 昵称编辑对话框

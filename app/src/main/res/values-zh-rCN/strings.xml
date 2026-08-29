@@ -224,6 +224,12 @@
   <string name="assistant_page_mcp_servers_desc">启用外部工具服务器</string>
   <string name="assistant_page_memory">记忆</string>
     <string name="assistant_page_memory_consolidate_now">立即整合所有记忆</string>
+    <string name="assistant_page_memory_consolidation_confirm_title">整合所有记忆？</string>
+    <string name="assistant_page_memory_consolidation_confirm_message">这会处理所有符合条件的历史会话，可能消耗较多 Token。</string>
+    <string name="assistant_page_memory_consolidation_start">开始整合</string>
+    <string name="assistant_page_memory_consolidation_cancel">取消整合</string>
+    <string name="assistant_page_memory_consolidation_started">已开始记忆整合</string>
+    <string name="assistant_page_memory_consolidation_cancelled">已取消记忆整合</string>
   <string name="assistant_page_memory_count">记忆: %d</string>
     <string name="assistant_page_memory_debugger_title">记忆调试器</string>
   <string name="assistant_page_memory_desc">启用记忆后，模型在与你对话时尝试主动记录你的信息，并在后续其他对话中使用，此功能需要模型支持工具调用才能正常工作</string>
@@ -565,6 +571,11 @@
   <string name="chat_page_clear_context_confirm_message">这会从当前上下文中移除之前的消息，是否继续？</string>
   <string name="chat_page_clear_context_confirm_title">确认清空上下文？</string>
     <string name="chat_page_consolidate">整合</string>
+    <string name="chat_page_consolidate_confirm_title">整合此对话？</string>
+    <string name="chat_page_consolidate_confirm_message">这会将该对话发送给记忆模型并消耗 Token。启动后仍可取消未完成的部分。</string>
+    <string name="chat_page_consolidation_started">已开始记忆整合</string>
+    <string name="chat_page_consolidation_cancel">取消整合</string>
+    <string name="chat_page_consolidation_cancelled">已取消记忆整合</string>
     <string name="chat_page_context_compressed">已压缩上下文</string>
     <string name="chat_page_context_compressing">正在压缩上下文</string>
   <string name="chat_page_date_format_different_year">%1$d年%2$d月%3$d日</string>

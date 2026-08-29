@@ -39,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.History
@@ -155,6 +156,9 @@ fun AssistantMemorySettings(
     initialMemoryTab: Int? = null,  // 0 = Core, 1 = Episodic
     scrollToMemoryId: Int? = null
 ) {
+    val isManualMemoryConsolidationRunning by assistantDetailVM
+        .isManualMemoryConsolidationRunning
+        .collectAsStateWithLifecycle()
     val memoryDialogState = useEditState<AssistantMemory> {
         if (it.id == 0) {
             onAddMemory(it)
@@ -485,7 +489,9 @@ fun AssistantMemorySettings(
                 ConsolidationSettingsCard(
                     assistant = assistant,
                     onUpdateAssistant = onUpdateAssistant,
-                    onConsolidate = { assistantDetailVM.consolidateMemories(true) }
+                    isManualConsolidationRunning = isManualMemoryConsolidationRunning,
+                    onConsolidate = assistantDetailVM::consolidateAllMemories,
+                    onCancelConsolidation = assistantDetailVM::cancelMemoryConsolidation,
                 )
             }
         }
@@ -831,8 +837,11 @@ private fun RagSettingsCard(
 private fun ConsolidationSettingsCard(
     assistant: Assistant,
     onUpdateAssistant: (Assistant) -> Unit,
-    onConsolidate: () -> Unit
+    isManualConsolidationRunning: Boolean,
+    onConsolidate: () -> Unit,
+    onCancelConsolidation: () -> Unit,
 ) {
+    var showConsolidationConfirmation by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier.clip(RoundedCornerShape(24.dp)),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -915,12 +924,30 @@ private fun ConsolidationSettingsCard(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = onConsolidate,
-                    modifier = Modifier.fillMaxWidth()
+                    onClick = {
+                        if (isManualConsolidationRunning) {
+                            onCancelConsolidation()
+                        } else {
+                            showConsolidationConfirmation = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.Rounded.Psychology, null, modifier = Modifier.size(18.dp))
+                    Icon(
+                        imageVector = if (isManualConsolidationRunning) Icons.Rounded.Close else Icons.Rounded.Psychology,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
                     Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.assistant_page_memory_consolidate_now))
+                    Text(
+                        stringResource(
+                            if (isManualConsolidationRunning) {
+                                R.string.assistant_page_memory_consolidation_cancel
+                            } else {
+                                R.string.assistant_page_memory_consolidate_now
+                            }
+                        )
+                    )
                 }
                 
                 if (assistant.lastConsolidationTime > 0) {
@@ -936,6 +963,29 @@ private fun ConsolidationSettingsCard(
                 }
             }
         }
+    }
+
+    if (showConsolidationConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showConsolidationConfirmation = false },
+            title = { Text(stringResource(R.string.assistant_page_memory_consolidation_confirm_title)) },
+            text = { Text(stringResource(R.string.assistant_page_memory_consolidation_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showConsolidationConfirmation = false
+                        onConsolidate()
+                    },
+                ) {
+                    Text(stringResource(R.string.assistant_page_memory_consolidation_start))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConsolidationConfirmation = false }) {
+                    Text(stringResource(R.string.assistant_page_cancel))
+                }
+            },
+        )
     }
 }
 

@@ -31,6 +31,7 @@ import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.Tag
 import me.rerere.rikkahub.data.repository.AssistantMemoryStats
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.data.repository.MemorySummaryStatus
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
@@ -56,6 +57,7 @@ class AssistantDetailVM(
     private val providerManager: me.rerere.ai.provider.ProviderManager,
 ) : ViewModel() {
     private val assistantId = Uuid.parse(id)
+    private val memoryConsolidationScheduler = MemoryConsolidationScheduler(context)
 
     val settings: StateFlow<Settings> =
         settingsStore.settingsFlow.stateIn(viewModelScope, SharingStarted.Lazily, Settings.dummy())
@@ -116,6 +118,10 @@ class AssistantDetailVM(
     val memorySummaryVersions: StateFlow<List<MemorySummaryVersionEntity>> = memorySummaryRepository
         .observeVersions(assistantId.toString())
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    val isManualMemoryConsolidationRunning: StateFlow<Boolean> = memoryConsolidationScheduler
+        .observeFullScan(assistantId.toString())
+        .stateIn(viewModelScope, SharingStarted.Lazily, false)
 
     // Current embedding model ID for this assistant (for detecting model mismatch)
     val currentEmbeddingModelId: StateFlow<String> = combine(
@@ -480,14 +486,14 @@ class AssistantDetailVM(
         }
     }
 
-    fun consolidateMemories(isFullScan: Boolean) {
-        val request = androidx.work.OneTimeWorkRequestBuilder<me.rerere.rikkahub.service.MemoryConsolidationWorker>()
-            .setInputData(
-                androidx.work.workDataOf("FULL_SCAN" to isFullScan)
-            )
-            .build()
-        androidx.work.WorkManager.getInstance(context).enqueue(request)
-        _snackbarMessage.value = "Memory consolidation started (Full Scan: $isFullScan)"
+    fun consolidateAllMemories() {
+        memoryConsolidationScheduler.enqueueFullScan(assistantId.toString())
+        _snackbarMessage.value = context.getString(R.string.assistant_page_memory_consolidation_started)
+    }
+
+    fun cancelMemoryConsolidation() {
+        memoryConsolidationScheduler.cancelFullScan(assistantId.toString())
+        _snackbarMessage.value = context.getString(R.string.assistant_page_memory_consolidation_cancelled)
     }
 
     fun updateMemorySummary(forceFull: Boolean, forceRebuild: Boolean) {

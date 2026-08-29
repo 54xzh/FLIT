@@ -49,9 +49,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.workDataOf
+import kotlinx.coroutines.flow.flowOf
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.supportsBuiltInSearch
 import me.rerere.ai.provider.ModelType
@@ -66,7 +64,7 @@ import me.rerere.rikkahub.data.model.withBuiltInSearchDisabled
 import me.rerere.rikkahub.data.model.GroupChatSeat
 import me.rerere.rikkahub.data.model.GroupChatSeatOverrides
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
-import me.rerere.rikkahub.service.MemoryConsolidationWorker
+import me.rerere.rikkahub.data.repository.MemoryConsolidationScheduler
 import me.rerere.rikkahub.ui.components.ai.McpPickerButton
 import me.rerere.rikkahub.ui.components.ai.ModelSelector
 import me.rerere.rikkahub.ui.components.ai.ReasoningButton
@@ -102,6 +100,11 @@ fun GroupChatTemplateDetailPage(
     val context = LocalContext.current
 
     val haptics = rememberPremiumHaptics()
+    val memoryConsolidationScheduler = remember(context) { MemoryConsolidationScheduler(context) }
+    val templateId = currentTemplate?.id?.toString()
+    val isManualMemoryConsolidationRunning by remember(templateId) {
+        templateId?.let(memoryConsolidationScheduler::observeGroupFullScan) ?: flowOf(false)
+    }.collectAsStateWithLifecycle(initialValue = false)
     val defaultName = stringResource(R.string.group_chat_default_name)
     val defaultAssistantName = stringResource(R.string.assistant_page_default_assistant)
 
@@ -112,6 +115,7 @@ fun GroupChatTemplateDetailPage(
     var showHostPromptDialog by remember(template?.id) { mutableStateOf(false) }
     var showSeatPromptDialog by remember(template?.id) { mutableStateOf(false) }
     var seatPromptDialogSeatId by remember(template?.id) { mutableStateOf<Uuid?>(null) }
+    var showConsolidationConfirmation by remember(template?.id) { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -365,28 +369,60 @@ fun GroupChatTemplateDetailPage(
                     ) {
                         Button(
                             onClick = {
-                                haptics.perform(HapticPattern.Thud)
-                                val request = OneTimeWorkRequestBuilder<MemoryConsolidationWorker>()
-                                    .setInputData(
-                                        workDataOf(
-                                            "FULL_SCAN" to true,
-                                            "GROUP_CHAT_TEMPLATE_ID" to currentTemplate.id.toString(),
-                                        )
-                                    )
-                                    .build()
-                                WorkManager.getInstance(context).enqueue(request)
+                                if (isManualMemoryConsolidationRunning) {
+                                    haptics.perform(HapticPattern.Thud)
+                                    memoryConsolidationScheduler.cancelGroupFullScan(currentTemplate.id.toString())
+                                } else {
+                                    haptics.perform(HapticPattern.Pop)
+                                    showConsolidationConfirmation = true
+                                }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = canConsolidateAll,
+                            enabled = canConsolidateAll || isManualMemoryConsolidationRunning,
                         ) {
-                            Icon(Icons.Rounded.Psychology, null, modifier = Modifier.size(18.dp))
+                            Icon(
+                                imageVector = if (isManualMemoryConsolidationRunning) Icons.Rounded.Close else Icons.Rounded.Psychology,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
                             Spacer(Modifier.width(8.dp))
-                            Text(stringResource(R.string.assistant_page_memory_consolidate_now))
+                            Text(
+                                stringResource(
+                                    if (isManualMemoryConsolidationRunning) {
+                                        R.string.assistant_page_memory_consolidation_cancel
+                                    } else {
+                                        R.string.assistant_page_memory_consolidate_now
+                                    }
+                                )
+                            )
                         }
                     }
                 }
             }
         }
+    }
+
+    if (showConsolidationConfirmation && currentTemplate != null) {
+        AlertDialog(
+            onDismissRequest = { showConsolidationConfirmation = false },
+            title = { Text(stringResource(R.string.assistant_page_memory_consolidation_confirm_title)) },
+            text = { Text(stringResource(R.string.assistant_page_memory_consolidation_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showConsolidationConfirmation = false
+                        memoryConsolidationScheduler.enqueueGroupFullScan(currentTemplate.id.toString())
+                    },
+                ) {
+                    Text(stringResource(R.string.assistant_page_memory_consolidation_start))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConsolidationConfirmation = false }) {
+                    Text(stringResource(R.string.assistant_page_cancel))
+                }
+            },
+        )
     }
 
     if (showDeleteDialog) {

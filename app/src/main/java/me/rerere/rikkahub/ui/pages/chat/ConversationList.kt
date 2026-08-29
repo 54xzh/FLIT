@@ -109,6 +109,7 @@ fun ColumnScope.ConversationList(
     currentExistsInStorage: Boolean,
     conversations: LazyPagingItems<ConversationListItem>,
     conversationJobs: Collection<Uuid>,
+    manualMemoryConsolidationConversationIds: Set<Uuid> = emptySet(),
     recentlyRestoredIds: Set<Uuid> = emptySet(),
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
@@ -118,6 +119,7 @@ fun ColumnScope.ConversationList(
     onDelete: (Conversation) -> Unit = {},
     onRegenerateTitle: (Conversation) -> Unit = {},
     onConsolidate: (Conversation) -> Unit = {},
+    onCancelConsolidation: (Conversation) -> Unit = {},
     onPin: (Conversation) -> Unit = {},
     onExportConversationJson: (Conversation) -> Unit = {},
     showConsolidateOption: Boolean = false,
@@ -390,11 +392,13 @@ fun ColumnScope.ConversationList(
                             conversation = item.conversation,
                             selected = item.conversation.id == currentId,
                             loading = item.conversation.id in conversationJobs,
+                            isManualConsolidationRunning = item.conversation.id in manualMemoryConsolidationConversationIds,
                             isRecentlyRestored = item.conversation.id in recentlyRestoredIds,
                             onClick = onClick,
                             onDelete = onDelete,
                             onRegenerateTitle = onRegenerateTitle,
                             onConsolidate = onConsolidate,
+                            onCancelConsolidation = onCancelConsolidation,
                             onPin = onPin,
                             onExportConversationJson = onExportConversationJson,
                             showConsolidateOption = showConsolidateOption,
@@ -530,11 +534,13 @@ private fun ConversationItem(
     conversation: Conversation,
     selected: Boolean,
     loading: Boolean,
+    isManualConsolidationRunning: Boolean,
     isRecentlyRestored: Boolean = false,
     modifier: Modifier = Modifier,
     onDelete: (Conversation) -> Unit = {},
     onRegenerateTitle: (Conversation) -> Unit = {},
     onConsolidate: (Conversation) -> Unit = {},
+    onCancelConsolidation: (Conversation) -> Unit = {},
     onPin: (Conversation) -> Unit = {},
     onExportConversationJson: (Conversation) -> Unit = {},
     showConsolidateOption: Boolean = false,
@@ -699,7 +705,21 @@ private fun ConversationItem(
                     )
                 }
 
-                if (showConsolidateOption && !conversation.isConsolidated) {
+                if (showConsolidateOption && isManualConsolidationRunning) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(stringResource(id = R.string.chat_page_consolidation_cancel))
+                        },
+                        onClick = {
+                            haptics.perform(HapticPattern.Thud)
+                            onCancelConsolidation(conversation)
+                            showDropdownMenu = false
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Rounded.Close, null)
+                        }
+                    )
+                } else if (showConsolidateOption && !conversation.isConsolidated) {
                     DropdownMenuItem(
                         text = {
                             Text(stringResource(id = R.string.chat_page_consolidate))

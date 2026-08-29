@@ -4,7 +4,10 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -66,9 +69,23 @@ class MemoryConsolidationWorker(
         try {
             consolidateMemories()
             Result.success()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("MemoryConsolidation", "Error consolidating memories", e)
             Result.retry()
+        }
+    }
+
+    /**
+     * WorkManager cancellation is cooperative. Check it between model calls and
+     * before database writes so one cancelled manual run cannot continue spending
+     * tokens on later conversations.
+     */
+    private suspend fun ensureNotCancelled() {
+        currentCoroutineContext().ensureActive()
+        if (isStopped) {
+            throw CancellationException("Memory consolidation was cancelled")
         }
     }
 
@@ -126,9 +143,9 @@ class MemoryConsolidationWorker(
 
     private suspend fun consolidateMemories() {
         val settings = settingsStore.settingsFlow.value
-        val isFullScan = inputData.getBoolean("FULL_SCAN", false)
-        val forceConversationId = inputData.getString("FORCE_CONVERSATION_ID")
-        val groupChatTemplateId = inputData.getString("GROUP_CHAT_TEMPLATE_ID")
+        val isFullScan = inputData.getBoolean(INPUT_FULL_SCAN, false)
+        val forceConversationId = inputData.getString(INPUT_FORCE_CONVERSATION_ID)
+        val groupChatTemplateId = inputData.getString(INPUT_GROUP_CHAT_TEMPLATE_ID)
 
         if (!groupChatTemplateId.isNullOrBlank()) {
             val templateId = runCatching { kotlin.uuid.Uuid.parse(groupChatTemplateId) }.getOrNull()
@@ -163,8 +180,12 @@ class MemoryConsolidationWorker(
             }
         }
 
-        val assistant = settings.getCurrentAssistant()
-        val assistantId = settings.assistantId.toString()
+        val requestedAssistantId = inputData.getString(INPUT_ASSISTANT_ID)
+            ?.let { id -> runCatching { kotlin.uuid.Uuid.parse(id) }.getOrNull() }
+        val assistant = requestedAssistantId
+            ?.let { id -> settings.getAssistantById(id) }
+            ?: settings.getCurrentAssistant()
+        val assistantId = assistant.id.toString()
 
         if (!assistant.enableMemory) {
             if (!isFullScan && forceConversationId.isNullOrBlank()) {
@@ -192,12 +213,13 @@ class MemoryConsolidationWorker(
                 val targetConversation = conversationRepository.getConversationById(kotlin.uuid.Uuid.parse(forceConversationId))
                 if (targetConversation != null) listOf(targetConversation) else emptyList()
             } else if (isFullScan) {
-                conversationRepository.getConversationsOfAssistant(settings.assistantId).first()
+                conversationRepository.getConversationsOfAssistant(assistant.id).first()
             } else {
                 conversationRepository.getRecentConversations(settings.assistantId, 10)
             }
             
             for (conversation in conversationsToProcess) {
+            ensureNotCancelled()
             // Skip conversations without at least one user & one assistant message
             val allMessages = getMessagesForConsolidationOrNull(conversation) ?: continue
 
@@ -276,6 +298,7 @@ class MemoryConsolidationWorker(
                     messages = requestMessages,
                     params = params,
                 )
+                ensureNotCancelled()
                 rawResponseText = response.rawResponse.orEmpty()
                 responseText = response.choices.firstOrNull()?.message?.toContentText().orEmpty()
                 if (responseText.isBlank()) continue
@@ -319,6 +342,7 @@ class MemoryConsolidationWorker(
                 val summaryEmbedding = summaryEmbeddingResult?.embeddings?.firstOrNull()
                 val embeddingModelId = summaryEmbeddingResult?.modelId
 
+                ensureNotCancelled()
                 if (!canProcessConversation(assistant.id, conversation.updateAt.toEpochMilli(), isManual)) {
                     continue
                 }
@@ -375,6 +399,7 @@ class MemoryConsolidationWorker(
                 conversationRepository.markAsConsolidated(conversation.id)
                 trackACount++
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 failure = t
                 Log.e("MemoryConsolidation", "Failed to process conversation ${conversation.id}", t)
             } finally {
@@ -401,7 +426,7 @@ class MemoryConsolidationWorker(
             settingsStore.update { currentSettings ->
                 currentSettings.copy(
                     assistants = currentSettings.assistants.map { 
-                        if (it.id == settings.assistantId) {
+                        if (it.id == assistant.id) {
                             it.copy(
                                 lastConsolidationTime = now,
                                 lastConsolidationResult = resultMsg
@@ -416,10 +441,12 @@ class MemoryConsolidationWorker(
         // =========================================================================================
         // PRUNING: The "Throw Out" Mechanism
         // =========================================================================================
+        ensureNotCancelled()
         val allEpisodes = chatEpisodeDAO.getEpisodesOfAssistant(assistantId)
         
         var prunedCount = 0
         for (episode in allEpisodes) {
+            ensureNotCancelled()
             val age = now - episode.startTime
             val timeSinceAccess = now - episode.lastAccessedAt
             
@@ -450,10 +477,13 @@ class MemoryConsolidationWorker(
         // =========================================================================================
         if (isVectorMemoryEnabled(assistant.id)) {
             try {
+                ensureNotCancelled()
                 val (fixed, failed) = memoryRepository.embedMissingMemories(assistantId)
                 if (fixed > 0 || failed > 0) {
                     Log.i("MemoryConsolidation", "Auto-embedded $fixed memories ($failed failed)")
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("MemoryConsolidation", "Error auto-embedding memories", e)
             }
@@ -531,6 +561,7 @@ class MemoryConsolidationWorker(
         val isManual = isManualConsolidation(isFullScan, forcedConversationId)
 
         for (conversation in conversationsToProcess) {
+            ensureNotCancelled()
             val allMessages = getMessagesForConsolidationOrNull(conversation) ?: continue
 
             val eligibleTargetAssistants = targetAssistants.filter { targetAssistant ->
@@ -623,6 +654,7 @@ class MemoryConsolidationWorker(
                     messages = requestMessages,
                     params = params,
                 )
+                ensureNotCancelled()
                 rawResponseText = response.rawResponse.orEmpty()
                 responseText = response.choices.firstOrNull()?.message?.toContentText().orEmpty()
                 if (responseText.isBlank()) continue
@@ -651,6 +683,7 @@ class MemoryConsolidationWorker(
                 var insertedCount = 0
 
                 eligibleTargetAssistants.forEach { targetAssistant ->
+                    ensureNotCancelled()
                     if (!canProcessConversation(
                             assistantId = targetAssistant.id,
                             conversationUpdateAt = conversation.updateAt.toEpochMilli(),
@@ -675,6 +708,7 @@ class MemoryConsolidationWorker(
                     val summaryEmbedding = summaryEmbeddingResult?.embeddings?.firstOrNull()
                     val embeddingModelId = summaryEmbeddingResult?.modelId
 
+                    ensureNotCancelled()
                     if (!canProcessConversation(
                             assistantId = targetAssistant.id,
                             conversationUpdateAt = conversation.updateAt.toEpochMilli(),
@@ -737,6 +771,7 @@ class MemoryConsolidationWorker(
                     conversationRepository.markAsConsolidated(conversation.id)
                 }
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 failure = t
                 Log.e("MemoryConsolidation", "Failed to process group chat conversation ${conversation.id}", t)
             } finally {
@@ -756,5 +791,12 @@ class MemoryConsolidationWorker(
                 )
             }
         }
+    }
+
+    companion object {
+        const val INPUT_FULL_SCAN = "FULL_SCAN"
+        const val INPUT_FORCE_CONVERSATION_ID = "FORCE_CONVERSATION_ID"
+        const val INPUT_GROUP_CHAT_TEMPLATE_ID = "GROUP_CHAT_TEMPLATE_ID"
+        const val INPUT_ASSISTANT_ID = "ASSISTANT_ID"
     }
 }

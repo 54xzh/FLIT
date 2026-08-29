@@ -1218,6 +1218,11 @@
     <string name="message_delete_confirm_title">刪除這則訊息？</string>
     <string name="message_delete_confirm_message">這則訊息將從對話中移除，操作無法復原。</string>
     <string name="chat_page_consolidate">整合</string>
+    <string name="chat_page_consolidate_confirm_title">整合此對話？</string>
+    <string name="chat_page_consolidate_confirm_message">這會將該對話傳送給記憶模型並消耗 Token。啟動後仍可取消未完成的部分。</string>
+    <string name="chat_page_consolidation_started">已開始記憶整合</string>
+    <string name="chat_page_consolidation_cancel">取消整合</string>
+    <string name="chat_page_consolidation_cancelled">已取消記憶整合</string>
     <string name="mermaid_diagram">Mermaid 圖表</string>
     <string name="mermaid_preview">預覽</string>
     <string name="setting_provider_page_image_method">生成方式</string>
@@ -1361,7 +1366,13 @@
   <string name="assistant_page_memory_track_b">反思 (Track B)</string>
   <string name="assistant_page_memory_last_run">上次運行: %s</string>
   <string name="assistant_page_memory_no_run">暫無運行記錄</string>
-  <string name="assistant_page_memory_consolidate_now">立即整合所有記憶</string>
+    <string name="assistant_page_memory_consolidate_now">立即整合所有記憶</string>
+    <string name="assistant_page_memory_consolidation_confirm_title">整合所有記憶？</string>
+    <string name="assistant_page_memory_consolidation_confirm_message">這會處理所有符合條件的歷史會話，可能消耗較多 Token。</string>
+    <string name="assistant_page_memory_consolidation_start">開始整合</string>
+    <string name="assistant_page_memory_consolidation_cancel">取消整合</string>
+    <string name="assistant_page_memory_consolidation_started">已開始記憶整合</string>
+    <string name="assistant_page_memory_consolidation_cancelled">已取消記憶整合</string>
   <string name="assistant_page_memory_episodes_title">最近記憶片段</string>
   <string name="assistant_page_memory_episodes_count">共記錄 %d 個片段</string>
   <string name="assistant_page_memory_debugger_title">記憶調試器</string>

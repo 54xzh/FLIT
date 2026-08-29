@@ -560,6 +560,11 @@
     <string name="workdir_picker_new_folder_create">Create</string>
     <string name="workdir_picker_new_folder_failed">Failed to create folder</string>
     <string name="chat_page_consolidate">Consolidate</string>
+    <string name="chat_page_consolidate_confirm_title">Consolidate this conversation?</string>
+    <string name="chat_page_consolidate_confirm_message">This sends the conversation to the memory model and uses tokens. You can cancel the remaining work after it starts.</string>
+    <string name="chat_page_consolidation_started">Memory consolidation started</string>
+    <string name="chat_page_consolidation_cancel">Cancel consolidation</string>
+    <string name="chat_page_consolidation_cancelled">Memory consolidation cancelled</string>
     <string name="chat_page_save">Save</string>
     <string name="chat_page_load_older_messages">Load older messages</string>
     <string name="chat_page_loading_older_messages">Loading older messages…</string>
@@ -1521,6 +1526,12 @@
     <string name="assistant_page_memory_last_run">Last Run: %s</string>
     <string name="assistant_page_memory_no_run">No run recorded yet</string>
     <string name="assistant_page_memory_consolidate_now">Consolidate All Memories Now</string>
+    <string name="assistant_page_memory_consolidation_confirm_title">Consolidate all memories?</string>
+    <string name="assistant_page_memory_consolidation_confirm_message">This will process all eligible conversations and use model tokens. You can cancel the remaining work after it starts.</string>
+    <string name="assistant_page_memory_consolidation_start">Start consolidation</string>
+    <string name="assistant_page_memory_consolidation_cancel">Cancel consolidation</string>
+    <string name="assistant_page_memory_consolidation_started">Memory consolidation started</string>
+    <string name="assistant_page_memory_consolidation_cancelled">Memory consolidation cancelled</string>
     <string name="assistant_page_memory_episodes_title">Recent Memory Episodes</string>
     <string name="assistant_page_memory_episodes_count">%d total episodes recorded</string>
     <string name="assistant_page_memory_debugger_title">Memory Debugger</string>
