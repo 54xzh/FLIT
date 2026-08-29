@@ -2522,4 +2522,24 @@
     <string name="setting_mcp_page_error_details">錯誤詳情</string>
     <string name="mcp_status_rootfs_not_ready">沙盒環境尚未就緒，請先安裝 Rootfs。</string>
     <string name="mcp_status_workspace_missing">綁定的沙盒已不存在，請重新選擇。</string>
+    <string name="assistant_page_memory_summary_title">記憶摘要</string>
+    <string name="assistant_page_memory_summary_desc">根據記憶生成長期概覽，並始終注入上下文。</string>
+    <string name="assistant_page_memory_summary_settings_title">記憶摘要設置</string>
+    <string name="assistant_page_memory_summary_auto_update">自動更新摘要</string>
+    <string name="assistant_page_memory_summary_auto_update_desc">記憶變化足夠多且達到最短間隔後自動更新。</string>
+    <string name="assistant_page_memory_summary_change_threshold">記憶變化門檻：%1$d</string>
+    <string name="assistant_page_memory_summary_change_progress">已變化記憶：%1$d / %2$d</string>
+    <string name="assistant_page_memory_summary_interval">最短更新間隔：%1$d 天</string>
+    <string name="assistant_page_memory_summary_last_updated">上次更新：%1$s</string>
+    <string name="assistant_page_memory_summary_update_now">立即更新</string>
+    <string name="assistant_page_memory_summary_full_update">全量更新</string>
+    <string name="assistant_page_memory_summary_tab">記憶摘要</string>
+    <string name="assistant_page_memory_summary_active_version">目前生效版本</string>
+    <string name="assistant_page_memory_summary_history_version">歷史版本</string>
+    <string name="assistant_page_memory_summary_mode_incremental">增量更新</string>
+    <string name="assistant_page_memory_summary_mode_full">全量更新</string>
+    <string name="assistant_page_memory_summary_empty">暫無記憶摘要。</string>
+    <string name="assistant_page_memory_summary_update_started">已開始更新記憶摘要</string>
+    <string name="assistant_page_memory_summary_full_update_started">已開始全量更新記憶摘要</string>
+    <string name="request_log_source_memory_summary">記憶摘要</string>
 </resources>

@@ -8,6 +8,7 @@ enum class AIRequestSource {
     GROUP_CHAT_ROUTING,
     WELCOME_PHRASES,
     MEMORY_CONSOLIDATION,
+    MEMORY_SUMMARY,
     MEMORY_EMBEDDING,
     MEMORY_RETRIEVAL,
     TOOL_RESULT_EMBEDDING,
@@ -31,6 +32,7 @@ fun AIRequestSource.displayNameZh(): String {
         AIRequestSource.GROUP_CHAT_ROUTING -> "群聊路由"
         AIRequestSource.WELCOME_PHRASES -> "欢迎词"
         AIRequestSource.MEMORY_CONSOLIDATION -> "记忆整合"
+        AIRequestSource.MEMORY_SUMMARY -> "记忆摘要"
         AIRequestSource.MEMORY_EMBEDDING -> "记忆嵌入"
         AIRequestSource.MEMORY_RETRIEVAL -> "记忆检索"
         AIRequestSource.TOOL_RESULT_EMBEDDING -> "工具结果嵌入"

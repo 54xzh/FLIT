@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.TextGenerationParams
@@ -19,6 +21,7 @@ import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRetrievalRequest
 import me.rerere.rikkahub.data.repository.MemoryRetrievalService
+import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -32,6 +35,7 @@ class ScheduledMessageWorker(
     private val settingsStore: SettingsStore by inject()
     private val conversationRepository: ConversationRepository by inject()
     private val memoryRetrievalService: MemoryRetrievalService by inject()
+    private val memorySummaryRepository: MemorySummaryRepository by inject()
     private val providerManager: me.rerere.ai.provider.ProviderManager by inject()
 
     override suspend fun doWork(): Result {
@@ -70,6 +74,14 @@ class ScheduledMessageWorker(
                 emptyList()
             }
             val memoryContext = memories.joinToString("\n") { "- ${it.content}" }
+            val memorySummary = if (assistant.enableMemory && assistant.enableMemorySummary) {
+                withContext(Dispatchers.IO) {
+                    memorySummaryRepository.getActiveContent(assistant.id.toString())
+                }
+            } else ""
+            val memorySummarySection = memorySummary.trim().takeIf { it.isNotEmpty() }?.let {
+                "Memory Summary:\n$it\n"
+            }.orEmpty()
 
             val prompt = """
                 You are ${assistant.name}.
@@ -79,7 +91,8 @@ class ScheduledMessageWorker(
                 
                 Recent Chat History:
                 $history
-                
+
+                $memorySummarySection
                 Relevant Memories:
                 $memoryContext
                 

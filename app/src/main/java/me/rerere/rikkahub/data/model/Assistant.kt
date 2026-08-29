@@ -96,6 +96,10 @@ data class Assistant(
     val ragIncludeCore: Boolean = true, // Include core memories in RAG
     val enableRagLogging: Boolean = false, // Enable detailed RAG logging
     val enableMemoryConsolidation: Boolean = false, // Enable episodic memory creation from chats (requires RAG)
+    val enableMemorySummary: Boolean = false,
+    val enableAutoMemorySummary: Boolean = true,
+    val memorySummaryChangeThreshold: Int = 10,
+    val memorySummaryIntervalDays: Int = 3,
 
     // Spontaneous Notification Settings
     val notificationStartHour: Int = 7, // Hour when notifications can start (0-23)

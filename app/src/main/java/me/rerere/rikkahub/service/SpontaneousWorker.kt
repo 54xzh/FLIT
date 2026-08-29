@@ -3,7 +3,9 @@ package me.rerere.rikkahub.service
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
@@ -21,6 +23,7 @@ import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRetrievalRequest
 import me.rerere.rikkahub.data.repository.MemoryRetrievalService
+import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import me.rerere.ai.core.MessageRole
 import me.rerere.rikkahub.utils.applyPlaceholders
@@ -36,6 +39,7 @@ class SpontaneousWorker(
     private val settingsStore: SettingsStore by inject()
     private val conversationRepository: ConversationRepository by inject()
     private val memoryRetrievalService: MemoryRetrievalService by inject()
+    private val memorySummaryRepository: MemorySummaryRepository by inject()
     private val providerManager: me.rerere.ai.provider.ProviderManager by inject()
 
     override suspend fun doWork(): Result {
@@ -98,6 +102,11 @@ class SpontaneousWorker(
                 emptyList()
             }
             val memoryContext = memories.joinToString("\n") { "- ${it.content}" }
+            val memorySummary = if (assistant.enableMemory && assistant.enableMemorySummary) {
+                withContext(Dispatchers.IO) {
+                    memorySummaryRepository.getActiveContent(assistant.id.toString())
+                }
+            } else ""
             
             val customPrompt = assistant.backgroundPrompt
                 .ifBlank { DEFAULT_BACKGROUND_PROMPT }
@@ -107,9 +116,18 @@ class SpontaneousWorker(
                 )
 
             val history = conversation.currentMessages.takeLast(5).joinToString("\n") { "${it.role}: ${it.toText()}" }
-            val prompt = customPrompt
+            val promptWithSummary = when {
+                memorySummary.isBlank() -> customPrompt
+                    .replace("\n\nMemory Summary:\n{{memory_summary}}", "")
+                    .replace("Memory Summary:\n{{memory_summary}}\n", "")
+                    .replace("{{memory_summary}}", "")
+                "{{memory_summary}}" in customPrompt -> customPrompt
+                else -> "$customPrompt\n\nMemory Summary:\n{{memory_summary}}"
+            }
+            val prompt = promptWithSummary
                 .replace("{{history}}", history)
                 .replace("{{memories}}", memoryContext)
+                .replace("{{memory_summary}}", memorySummary)
 
             val result = providerHandler.generateText(
                 providerSetting = provider,

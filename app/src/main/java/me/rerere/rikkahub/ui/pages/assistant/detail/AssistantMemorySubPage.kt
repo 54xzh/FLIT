@@ -90,6 +90,9 @@ import me.rerere.rikkahub.data.model.MemoryRetrievalMode
 import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import me.rerere.rikkahub.data.model.requiresEmbedding
 import me.rerere.rikkahub.data.repository.AssistantMemoryStats
+import me.rerere.rikkahub.data.repository.MemorySummaryStatus
+import me.rerere.rikkahub.data.db.entity.MemorySummaryUpdateMode
+import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 import me.rerere.rikkahub.data.repository.MemoryRetrievalHit
 import me.rerere.rikkahub.ui.components.ui.Select
 import me.rerere.rikkahub.ui.hooks.EditStateContent
@@ -249,6 +252,8 @@ fun AssistantMemorySettings(
 
     val memorySearchQuery by assistantDetailVM.memorySearchQuery.collectAsState()
     val currentEmbeddingModelId by assistantDetailVM.currentEmbeddingModelId.collectAsState()
+    val memorySummaryStatus by assistantDetailVM.memorySummaryStatus.collectAsState()
+    val memorySummaryVersions by assistantDetailVM.memorySummaryVersions.collectAsState()
     val currentMode = getMemoryMode(assistant)
     
     Column(
@@ -379,6 +384,26 @@ fun AssistantMemorySettings(
                 )
             }
 
+            AnimatedVisibility(
+                visible = assistant.enableMemory,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                MemorySettingsItem(
+                    title = stringResource(R.string.assistant_page_memory_summary_title),
+                    subtitle = stringResource(R.string.assistant_page_memory_summary_desc),
+                    position = "MIDDLE",
+                    trailing = {
+                        HapticSwitch(
+                            checked = assistant.enableMemorySummary,
+                            onCheckedChange = { enabled ->
+                                onUpdateAssistant(assistant.copy(enableMemorySummary = enabled))
+                            },
+                        )
+                    },
+                )
+            }
+
             // Memory Consolidation Toggle (requires dynamic retrieval)
             AnimatedVisibility(
                 visible = assistant.enableMemory && assistant.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.OFF,
@@ -429,6 +454,22 @@ fun AssistantMemorySettings(
         }
 
         // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+        AnimatedVisibility(
+            visible = assistant.enableMemory && assistant.enableMemorySummary,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                SettingsGroupHeader(title = stringResource(R.string.assistant_page_memory_summary_settings_title))
+                MemorySummarySettingsCard(
+                    assistant = assistant,
+                    status = memorySummaryStatus,
+                    onUpdateAssistant = onUpdateAssistant,
+                    onUpdateSummary = assistantDetailVM::updateMemorySummary,
+                )
+            }
+        }
+
         // CONSOLIDATION SETTINGS (when consolidation is enabled)
         // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
         AnimatedVisibility(
@@ -489,6 +530,8 @@ fun AssistantMemorySettings(
                 assistantDetailVM = assistantDetailVM,
                 currentEmbeddingModelId = currentEmbeddingModelId,
                 showMemoryTypes = assistant.enableMemoryConsolidation,
+                summaryVersions = memorySummaryVersions,
+                showSummaryTab = assistant.enableMemorySummary || memorySummaryVersions.isNotEmpty(),
                 initialMemoryTab = initialMemoryTab,
                 scrollToMemoryId = scrollToMemoryId
             )
@@ -894,6 +937,135 @@ private fun ConsolidationSettingsCard(
 }
 
 @Composable
+private fun MemorySummarySettingsCard(
+    assistant: Assistant,
+    status: MemorySummaryStatus,
+    onUpdateAssistant: (Assistant) -> Unit,
+    onUpdateSummary: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier.clip(RoundedCornerShape(24.dp)),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Surface(
+            color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 10.dp, bottomEnd = 10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(stringResource(R.string.assistant_page_memory_summary_auto_update), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        stringResource(R.string.assistant_page_memory_summary_auto_update_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                HapticSwitch(
+                    checked = assistant.enableAutoMemorySummary,
+                    onCheckedChange = { onUpdateAssistant(assistant.copy(enableAutoMemorySummary = it)) },
+                )
+            }
+        }
+        Surface(
+            color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(10.dp),
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    stringResource(
+                        R.string.assistant_page_memory_summary_change_threshold,
+                        assistant.memorySummaryChangeThreshold,
+                    ),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    stringResource(
+                        R.string.assistant_page_memory_summary_change_progress,
+                        status.pendingChangeCount,
+                        assistant.memorySummaryChangeThreshold,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Slider(
+                    value = assistant.memorySummaryChangeThreshold.toFloat(),
+                    onValueChange = {
+                        onUpdateAssistant(assistant.copy(memorySummaryChangeThreshold = it.roundToInt().coerceIn(1, 100)))
+                    },
+                    valueRange = 1f..100f,
+                    steps = 98,
+                )
+            }
+        }
+        Surface(
+            color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(10.dp),
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    stringResource(
+                        R.string.assistant_page_memory_summary_interval,
+                        assistant.memorySummaryIntervalDays,
+                    ),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Slider(
+                    value = assistant.memorySummaryIntervalDays.toFloat(),
+                    onValueChange = {
+                        onUpdateAssistant(assistant.copy(memorySummaryIntervalDays = it.roundToInt().coerceIn(1, 30)))
+                    },
+                    valueRange = 1f..30f,
+                    steps = 28,
+                )
+                status.activeVersion?.let { version ->
+                    val time = java.time.Instant.ofEpochMilli(version.generatedAt)
+                        .atZone(java.time.ZoneId.systemDefault())
+                        .toLocalDateTime()
+                        .toLocalString()
+                    Text(
+                        stringResource(
+                            R.string.assistant_page_memory_summary_last_updated,
+                            time,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        if (version.updateMode == MemorySummaryUpdateMode.FULL) {
+                            stringResource(R.string.assistant_page_memory_summary_mode_full)
+                        } else {
+                            stringResource(R.string.assistant_page_memory_summary_mode_incremental)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        Surface(
+            color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp, topStart = 10.dp, topEnd = 10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(onClick = { onUpdateSummary(false) }, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.assistant_page_memory_summary_update_now))
+                }
+                Button(onClick = { onUpdateSummary(true) }, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.assistant_page_memory_summary_full_update))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun MemoryStatisticsCard(
     assistant: Assistant,
     memoryStats: AssistantMemoryStats,
@@ -1007,12 +1179,17 @@ private fun ManageMemoriesSection(
     assistantDetailVM: AssistantDetailVM,
     currentEmbeddingModelId: String,
     showMemoryTypes: Boolean,
+    summaryVersions: List<MemorySummaryVersionEntity>,
+    showSummaryTab: Boolean,
     initialMemoryTab: Int? = null,
     scrollToMemoryId: Int? = null
 ) {
     var selectedTab by remember { mutableIntStateOf(initialMemoryTab ?: 0) }
     var sortOrder by remember { mutableStateOf(MemorySortOrder.NEWEST_FIRST) }
     var showBottomSheet by remember { mutableStateOf(false) }
+    var selectedSummaryVersion by remember { mutableStateOf<MemorySummaryVersionEntity?>(null) }
+    val summaryTabIndex = if (showMemoryTypes) 2 else 1
+    val isSummaryTab = showSummaryTab && selectedTab == summaryTabIndex
 
     LaunchedEffect(initialMemoryTab) {
         if (initialMemoryTab != null) {
@@ -1031,7 +1208,9 @@ private fun ManageMemoriesSection(
         }
     }
 
-    val displayPreviewMemories = if (showMemoryTypes) {
+    val displayPreviewMemories = if (isSummaryTab) {
+        previewMemories
+    } else if (showMemoryTypes) {
         when (selectedTab) {
             0 -> previewMemories.filter { it.type == 0 }
             else -> previewMemories.filter { it.type == 1 }
@@ -1122,7 +1301,7 @@ private fun ManageMemoriesSection(
         val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
         val scope = androidx.compose.runtime.rememberCoroutineScope()
         var showSortMenu by remember { mutableStateOf(false) }
-        val memoryType = if (showMemoryTypes) {
+        val memoryType = if (showMemoryTypes && !isSummaryTab) {
             when (selectedTab) {
                 0 -> 0
                 else -> 1
@@ -1170,7 +1349,7 @@ private fun ManageMemoriesSection(
                         fontWeight = FontWeight.Bold
                     )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (!isSummaryTab) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
                                 Icon(Icons.Rounded.Sort, contentDescription = stringResource(R.string.assistant_page_sort_content_desc))
@@ -1203,7 +1382,7 @@ private fun ManageMemoriesSection(
                 }
 
                 AnimatedVisibility(
-                    visible = showMemoryTypes,
+                    visible = showMemoryTypes || showSummaryTab,
                     enter = fadeIn() + expandVertically(),
                     exit = fadeOut() + shrinkVertically()
                 ) {
@@ -1212,35 +1391,60 @@ private fun ManageMemoriesSection(
                         containerColor = Color.Transparent,
                         modifier = Modifier.clip(RoundedCornerShape(10.dp))
                     ) {
-                        Tab(
-                            selected = selectedTab == 0,
-                            onClick = { selectedTab = 0 },
-                            text = { Text(tabCoreText) },
-                            icon = { Icon(Icons.Rounded.AutoAwesome, null, modifier = Modifier.size(18.dp)) }
-                        )
-                        Tab(
-                            selected = selectedTab == 1,
-                            onClick = { selectedTab = 1 },
-                            text = { Text(tabEpisodicText) },
-                            icon = { Icon(Icons.Rounded.History, null, modifier = Modifier.size(18.dp)) }
-                        )
+                        if (showMemoryTypes) {
+                            Tab(
+                                selected = selectedTab == 0,
+                                onClick = { selectedTab = 0 },
+                                text = { Text(tabCoreText) },
+                                icon = { Icon(Icons.Rounded.AutoAwesome, null, modifier = Modifier.size(18.dp)) }
+                            )
+                            Tab(
+                                selected = selectedTab == 1,
+                                onClick = { selectedTab = 1 },
+                                text = { Text(tabEpisodicText) },
+                                icon = { Icon(Icons.Rounded.History, null, modifier = Modifier.size(18.dp)) }
+                            )
+                        } else {
+                            Tab(
+                                selected = selectedTab == 0,
+                                onClick = { selectedTab = 0 },
+                                text = { Text(stringResource(R.string.assistant_page_manage_memory_title)) },
+                            )
+                        }
+                        if (showSummaryTab) {
+                            Tab(
+                                selected = selectedTab == summaryTabIndex,
+                                onClick = { selectedTab = summaryTabIndex },
+                                text = { Text(stringResource(R.string.assistant_page_memory_summary_tab)) },
+                                icon = { Icon(Icons.Rounded.History, null, modifier = Modifier.size(18.dp)) },
+                            )
+                        }
                     }
                 }
 
-                TextField(
-                    value = memorySearchQuery,
-                    onValueChange = onSearchQueryChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text(stringResource(R.string.assistant_page_memory_search_placeholder)) },
-                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
+                if (!isSummaryTab) {
+                    TextField(
+                        value = memorySearchQuery,
+                        onValueChange = onSearchQueryChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text(stringResource(R.string.assistant_page_memory_search_placeholder)) },
+                        leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        )
                     )
-                )
+                }
 
+                if (isSummaryTab) {
+                    MemorySummaryVersionsList(
+                        versions = summaryVersions,
+                        onOpen = { selectedSummaryVersion = it },
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                } else {
                 val refreshState = pagedMemories.loadState.refresh
                 when {
                     refreshState is androidx.paging.LoadState.Loading && pagedMemories.itemCount == 0 -> {
@@ -1319,6 +1523,97 @@ private fun ManageMemoriesSection(
                             }
                         }
                     }
+                }
+                }
+            }
+        }
+    }
+
+    selectedSummaryVersion?.let { version ->
+        AlertDialog(
+            onDismissRequest = { selectedSummaryVersion = null },
+            title = {
+                Text(
+                    if (version == summaryVersions.firstOrNull()) {
+                        stringResource(R.string.assistant_page_memory_summary_active_version)
+                    } else {
+                        stringResource(R.string.assistant_page_memory_summary_history_version)
+                    }
+                )
+            },
+            text = {
+                Text(
+                    text = version.content.ifBlank { stringResource(R.string.assistant_page_memory_summary_empty) },
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { selectedSummaryVersion = null }) {
+                    Text(stringResource(R.string.assistant_page_confirm))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun MemorySummaryVersionsList(
+    versions: List<MemorySummaryVersionEntity>,
+    onOpen: (MemorySummaryVersionEntity) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (versions.isEmpty()) {
+        Surface(
+            color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(24.dp),
+            modifier = modifier,
+        ) {
+            Text(
+                text = stringResource(R.string.assistant_page_memory_summary_empty),
+                modifier = Modifier.padding(24.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+    LazyColumn(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        items(versions, key = { it.id }) { version ->
+            val isActive = version == versions.first()
+            Surface(
+                onClick = { onOpen(version) },
+                color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = RoundedCornerShape(20.dp),
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        if (isActive) stringResource(R.string.assistant_page_memory_summary_active_version)
+                        else stringResource(R.string.assistant_page_memory_summary_history_version),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        if (version.updateMode == MemorySummaryUpdateMode.FULL) {
+                            stringResource(R.string.assistant_page_memory_summary_mode_full)
+                        } else {
+                            stringResource(R.string.assistant_page_memory_summary_mode_incremental)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    val time = java.time.Instant.ofEpochMilli(version.generatedAt)
+                        .atZone(java.time.ZoneId.systemDefault())
+                        .toLocalDateTime()
+                        .toLocalString()
+                    Text(
+                        stringResource(R.string.assistant_page_memory_summary_last_updated, time),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        version.content.ifBlank { stringResource(R.string.assistant_page_memory_summary_empty) },
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                 }
             }
         }

@@ -166,6 +166,7 @@ val appModule = module {
             settingsStore = get(),
             providerManager = get(),
             memoryRepository = get(),
+            memorySummaryRepository = get(),
             memoryRetrievalService = get(),
             requestLogManager = get(),
         )
@@ -180,6 +181,7 @@ val appModule = module {
             conversationRepo = get(),
             toolResultArchiveRepository = get(),
             memoryRepository = get(),
+            memorySummaryRepository = get(),
             memoryRetrievalService = get(),
             generationHandler = get(),
             requestLogManager = get(),

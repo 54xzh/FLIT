@@ -21,6 +21,7 @@ import me.rerere.rikkahub.data.db.dao.EmbeddingCacheDAO
 import me.rerere.rikkahub.data.db.dao.LorebookEntryRevisionDao
 import me.rerere.rikkahub.data.db.dao.GenMediaDAO
 import me.rerere.rikkahub.data.db.dao.MemoryDAO
+import me.rerere.rikkahub.data.db.dao.MemorySummaryDao
 import me.rerere.rikkahub.data.db.dao.ScheduledTaskDao
 import me.rerere.rikkahub.data.db.dao.ScheduledTaskRunDao
 import me.rerere.rikkahub.data.db.dao.ToolResultArchiveDao
@@ -38,6 +39,8 @@ import me.rerere.rikkahub.data.db.entity.EmbeddingCacheEntity
 import me.rerere.rikkahub.data.db.entity.GenMediaEntity
 import me.rerere.rikkahub.data.db.entity.LorebookEntryRevisionEntity
 import me.rerere.rikkahub.data.db.entity.MemoryEntity
+import me.rerere.rikkahub.data.db.entity.MemorySummaryChangeEntity
+import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 import me.rerere.rikkahub.data.db.entity.ModelQuotaUsageEntity
 import me.rerere.rikkahub.data.db.entity.ScheduledTaskEntity
 import me.rerere.rikkahub.data.db.entity.ScheduledTaskRunEntity
@@ -73,8 +76,10 @@ import me.rerere.rikkahub.utils.JsonInstant
         SafWorkspaceEntity::class,
         SandboxWorkspaceEntity::class,
         SandboxWorkspaceMountEntity::class,
+        MemorySummaryVersionEntity::class,
+        MemorySummaryChangeEntity::class,
     ],
-    version = 45,
+    version = 46,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -117,6 +122,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 42->43 is manual migration (MIGRATION_42_43) - persists monotonic branch counters
         // 43->44 is manual migration (MIGRATION_43_44) - adds conversation workspace override
         // 44->45 is manual migration (MIGRATION_44_45) - adds sandbox folder mounts
+        // 45->46 is manual migration (MIGRATION_45_46) - adds memory summaries
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -152,6 +158,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun modelQuotaUsageDao(): ModelQuotaUsageDAO
 
     abstract fun workspaceDao(): WorkspaceDao
+
+    abstract fun memorySummaryDao(): MemorySummaryDao
 
     companion object {
         const val TAG = "AppDatabase"
@@ -492,6 +500,42 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workspace_sandbox_mounts_workspace_id_target_path` ON `workspace_sandbox_mounts` (`workspace_id`, `target_path`)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workspace_sandbox_mounts_workspace_id_source_path` ON `workspace_sandbox_mounts` (`workspace_id`, `source_path`)")
                 Log.i(TAG, "migrate: migrate from 44 to 45 success")
+            }
+        }
+
+        val MIGRATION_45_46 = object : Migration(45, 46) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 45 to 46")
+                db.execSQL("ALTER TABLE MemoryEntity ADD COLUMN updated_at INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE ChatEpisodeEntity ADD COLUMN updated_at INTEGER DEFAULT NULL")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memory_summary_versions` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `assistant_id` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `generated_at` INTEGER NOT NULL,
+                        `update_mode` INTEGER NOT NULL,
+                        `source_change_count` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_memory_summary_versions_assistant_id_generated_at` ON `memory_summary_versions` (`assistant_id`, `generated_at`)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memory_summary_changes` (
+                        `assistant_id` TEXT NOT NULL,
+                        `memory_type` INTEGER NOT NULL,
+                        `memory_id` INTEGER NOT NULL,
+                        `change_type` INTEGER NOT NULL,
+                        `changed_at` INTEGER NOT NULL,
+                        `change_token` TEXT NOT NULL,
+                        PRIMARY KEY(`assistant_id`, `memory_type`, `memory_id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_memory_summary_changes_assistant_id_changed_at` ON `memory_summary_changes` (`assistant_id`, `changed_at`)")
+                Log.i(TAG, "migrate: migrate from 45 to 46 success")
             }
         }
     }

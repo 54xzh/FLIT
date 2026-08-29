@@ -26,6 +26,7 @@ internal val DEFAULT_WELCOME_PHRASES_PROMPT = """
     6. Do NOT use # or & inside any greeting text.
 
     Memories (for context only):
+    {memory_summary_section}
     - RAG memories for today's date: {rag_memories}
     - Recent 5 memories: {recent_memories}
 """.trimIndent()

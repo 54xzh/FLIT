@@ -9,6 +9,8 @@ import me.rerere.rikkahub.data.repository.KeywordMemoryTokenizer
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.MemoryKeywordTokenizer
 import me.rerere.rikkahub.data.repository.MemoryRetrievalService
+import me.rerere.rikkahub.data.repository.MemorySummaryRepository
+import me.rerere.rikkahub.data.repository.MemorySummaryScheduler
 import me.rerere.rikkahub.data.repository.ModelCapabilityRepository
 import me.rerere.rikkahub.data.repository.ModelQuotaRepository
 import me.rerere.rikkahub.data.repository.SafRepository
@@ -31,7 +33,7 @@ import java.io.File
 
 val repositoryModule = module {
     single {
-        ConversationRepository(get(), get(), get(), get(), get(), get(), get(), get())
+        ConversationRepository(get(), get(), get(), get(), get(), get(), get(), get(), get())
     }
 
     single {
@@ -43,7 +45,15 @@ val repositoryModule = module {
     }
 
     single {
-        MemoryRepository(get(), get(), get(), get(), get(), get(), get(), get())
+        MemorySummaryScheduler(get())
+    }
+
+    single {
+        MemorySummaryRepository(get(), get(), get(), get(), get())
+    }
+
+    single {
+        MemoryRepository(get(), get(), get(), get(), get(), get(), get(), get(), get())
     }
 
     single<MemoryKeywordTokenizer> {

@@ -24,6 +24,8 @@ data class MemoryEntity(
     val lastAccessedAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "created_at", defaultValue = "0")
     val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "updated_at", defaultValue = "NULL")
+    val updatedAt: Long? = null,
 )
 
 object MemoryType {

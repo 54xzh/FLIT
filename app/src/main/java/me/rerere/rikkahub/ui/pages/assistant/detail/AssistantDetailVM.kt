@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.dao.ChatEpisodeDAO
@@ -30,6 +31,9 @@ import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.Tag
 import me.rerere.rikkahub.data.repository.AssistantMemoryStats
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemorySummaryRepository
+import me.rerere.rikkahub.data.repository.MemorySummaryStatus
+import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 import me.rerere.rikkahub.data.repository.MemoryRetrievalHit
 import me.rerere.rikkahub.data.repository.MemoryRetrievalRequest
 import me.rerere.rikkahub.data.repository.MemoryRetrievalService
@@ -44,6 +48,7 @@ class AssistantDetailVM(
     private val id: String,
     private val settingsStore: SettingsStore,
     private val memoryRepository: MemoryRepository,
+    private val memorySummaryRepository: MemorySummaryRepository,
     private val memoryRetrievalService: MemoryRetrievalService,
     private val conversationRepository: me.rerere.rikkahub.data.repository.ConversationRepository,
     private val context: Application,
@@ -103,6 +108,14 @@ class AssistantDetailVM(
         started = SharingStarted.Lazily,
         initialValue = AssistantMemoryStats()
     )
+
+    val memorySummaryStatus: StateFlow<MemorySummaryStatus> = memorySummaryRepository
+        .observeStatus(assistantId.toString())
+        .stateIn(viewModelScope, SharingStarted.Lazily, MemorySummaryStatus())
+
+    val memorySummaryVersions: StateFlow<List<MemorySummaryVersionEntity>> = memorySummaryRepository
+        .observeVersions(assistantId.toString())
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     // Current embedding model ID for this assistant (for detecting model mismatch)
     val currentEmbeddingModelId: StateFlow<String> = combine(
@@ -245,6 +258,19 @@ class AssistantDetailVM(
                     includeCore = assistant.ragIncludeCore,
                     includeEpisodes = assistant.ragIncludeEpisodes,
                 )
+            }
+            if (
+                assistant.enableMemorySummary &&
+                assistant.enableAutoMemorySummary &&
+                (
+                    previousAssistant?.enableMemory != assistant.enableMemory ||
+                    previousAssistant?.enableMemorySummary != assistant.enableMemorySummary ||
+                        previousAssistant?.enableAutoMemorySummary != assistant.enableAutoMemorySummary ||
+                        previousAssistant?.memorySummaryChangeThreshold != assistant.memorySummaryChangeThreshold ||
+                        previousAssistant?.memorySummaryIntervalDays != assistant.memorySummaryIntervalDays
+                    )
+            ) {
+                memorySummaryRepository.scheduleAutomaticCheck(assistant.id.toString())
             }
         }
     }
@@ -462,6 +488,17 @@ class AssistantDetailVM(
             .build()
         androidx.work.WorkManager.getInstance(context).enqueue(request)
         _snackbarMessage.value = "Memory consolidation started (Full Scan: $isFullScan)"
+    }
+
+    fun updateMemorySummary(forceFull: Boolean) {
+        memorySummaryRepository.requestManualUpdate(assistantId.toString(), forceFull)
+        _snackbarMessage.value = context.getString(
+            if (forceFull) {
+                R.string.assistant_page_memory_summary_full_update_started
+            } else {
+                R.string.assistant_page_memory_summary_update_started
+            },
+        )
     }
 
     fun checkAvatarDelete(old: Assistant, new: Assistant) {

@@ -34,6 +34,8 @@ object DatabaseSanitizer {
         "workspace_saf_details",
         "workspace_sandbox_details",
         "workspace_sandbox_mounts",
+        "memory_summary_versions",
+        "memory_summary_changes",
     )
 
     data class SanitizationResult(

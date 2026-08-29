@@ -67,6 +67,7 @@ class ConversationRepository(
     private val embeddingCacheDAO: EmbeddingCacheDAO,
     private val dailyActivityDAO: DailyActivityDAO,
     private val usageStatsDAO: UsageStatsDAO,
+    private val memorySummaryRepository: MemorySummaryRepository? = null,
 ) {
     private val conversationWriteMutex = Mutex()
     private val unavailableWorkspaceOverrideIds = ConcurrentHashMap.newKeySet<String>()
@@ -304,13 +305,35 @@ class ConversationRepository(
                 // Delete the old episode based on conversation ID if possible.
                 // If deletion by ID returns 0 (e.g. legacy episode without conversationId),
                 // fallback to best-effort deletion based on time range.
+                val removedEpisodes = chatEpisodeDAO.getEpisodesByConversationId(conversationToStore.id.toString())
                 val deletedCount = chatEpisodeDAO.deleteEpisodeByConversationId(conversationToStore.id.toString())
+                removedEpisodes.forEach { episode ->
+                    memorySummaryRepository?.recordChange(
+                        episode.assistantId,
+                        MemoryType.EPISODIC,
+                        episode.id,
+                        me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
+                    )
+                }
                 if (deletedCount == 0) {
+                    val fallbackEpisodes = chatEpisodeDAO.getEpisodesByTimeRange(
+                        assistantId = conversationToStore.assistantId.toString(),
+                        startTime = conversationToStore.createAt.toEpochMilli(),
+                        endTime = Long.MAX_VALUE,
+                    )
                     chatEpisodeDAO.deleteEpisodeByTimeRange(
                         assistantId = conversationToStore.assistantId.toString(),
                         startTime = conversationToStore.createAt.toEpochMilli(),
                         endTime = Long.MAX_VALUE
                     )
+                    fallbackEpisodes.forEach { episode ->
+                        memorySummaryRepository?.recordChange(
+                            episode.assistantId,
+                            MemoryType.EPISODIC,
+                            episode.id,
+                            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
+                        )
+                    }
                 }
             } else {
                 conversationDAO.update(
@@ -390,7 +413,16 @@ class ConversationRepository(
         conversationDAO.delete(
             conversationToConversationEntity(conversation)
         )
+        val removedEpisodes = chatEpisodeDAO.getEpisodesByConversationId(conversation.id.toString())
         chatEpisodeDAO.deleteEpisodeByConversationId(conversation.id.toString())
+        removedEpisodes.forEach { episode ->
+            memorySummaryRepository?.recordChange(
+                episode.assistantId,
+                MemoryType.EPISODIC,
+                episode.id,
+                me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
+            )
+        }
 
         val toolResultIds = toolResultArchiveDao.getIdsByConversationId(conversation.id.toString())
         toolResultArchiveDao.deleteByConversationId(conversation.id.toString())
@@ -417,7 +449,16 @@ class ConversationRepository(
         }
 
         conversationDAO.deleteById(conversationId)
+        val removedEpisodes = chatEpisodeDAO.getEpisodesByConversationId(conversationId)
         chatEpisodeDAO.deleteEpisodeByConversationId(conversationId)
+        removedEpisodes.forEach { episode ->
+            memorySummaryRepository?.recordChange(
+                episode.assistantId,
+                MemoryType.EPISODIC,
+                episode.id,
+                me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
+            )
+        }
 
         val toolResultIds = toolResultArchiveDao.getIdsByConversationId(conversationId)
         toolResultArchiveDao.deleteByConversationId(conversationId)

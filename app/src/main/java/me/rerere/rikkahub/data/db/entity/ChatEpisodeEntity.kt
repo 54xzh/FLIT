@@ -32,4 +32,6 @@ data class ChatEpisodeEntity(
     val significance: Int = 5,
     @ColumnInfo(name = "conversation_id", defaultValue = "")
     val conversationId: String? = null,
+    @ColumnInfo(name = "updated_at", defaultValue = "NULL")
+    val updatedAt: Long? = null,
 )

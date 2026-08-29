@@ -1,0 +1,59 @@
+package me.rerere.rikkahub.data.repository
+
+import android.content.Context
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
+import me.rerere.rikkahub.service.MemorySummaryWorker
+import java.util.concurrent.TimeUnit
+
+class MemorySummaryScheduler(
+    private val context: Context,
+) {
+    fun enqueueAutomatic(assistantId: String, delayMillis: Long = 0L) {
+        val request = request(assistantId, forceManual = false, forceFull = false, delayMillis = delayMillis)
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            automaticWorkName(assistantId),
+            // A worker scheduling the future eligibility check is itself still running.
+            // Appending keeps that delayed check instead of dropping it because of the
+            // currently running worker; ordinary change notifications still coalesce.
+            if (delayMillis > 0L) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP,
+            request,
+        )
+    }
+
+    fun enqueueManual(assistantId: String, forceFull: Boolean) {
+        val request = request(assistantId, forceManual = true, forceFull = forceFull, delayMillis = 0L)
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            automaticWorkName(assistantId),
+            ExistingWorkPolicy.REPLACE,
+            request,
+        )
+    }
+
+    private fun request(
+        assistantId: String,
+        forceManual: Boolean,
+        forceFull: Boolean,
+        delayMillis: Long,
+    ) = OneTimeWorkRequestBuilder<MemorySummaryWorker>()
+        .setInputData(
+            workDataOf(
+                MemorySummaryWorker.INPUT_ASSISTANT_ID to assistantId,
+                MemorySummaryWorker.INPUT_FORCE_MANUAL to forceManual,
+                MemorySummaryWorker.INPUT_FORCE_FULL to forceFull,
+            )
+        )
+        .setConstraints(
+            Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+        )
+        .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
+        .build()
+
+    private fun automaticWorkName(assistantId: String) = "memory_summary_$assistantId"
+}

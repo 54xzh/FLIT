@@ -29,6 +29,7 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.data.repository.MemoryRetrievalRequest
 import me.rerere.rikkahub.data.repository.MemoryRetrievalService
 import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
@@ -44,6 +45,7 @@ class WelcomePhrasesService(
     private val settingsStore: SettingsStore,
     private val providerManager: ProviderManager,
     private val memoryRepository: MemoryRepository,
+    private val memorySummaryRepository: MemorySummaryRepository,
     private val memoryRetrievalService: MemoryRetrievalService,
     private val requestLogManager: AIRequestLogManager,
 ) {
@@ -154,6 +156,7 @@ class WelcomePhrasesService(
                     provider = provider,
                     locale = Locale.getDefault(),
                     enableMemory = assistant.enableMemory,
+                    enableMemorySummary = assistant.enableMemorySummary,
                     ragLimit = assistant.ragLimit.coerceIn(0, 50),
                     ragSimilarityThreshold = assistant.ragSimilarityThreshold,
                     retrievalMode = assistant.effectiveMemoryRetrievalMode(),
@@ -249,6 +252,9 @@ class WelcomePhrasesService(
                 )
 
                 MemoryContext(
+                    summaryText = if (pending.enableMemorySummary) {
+                        memorySummaryRepository.getActiveContent(assistantIdString)
+                    } else "",
                     ragMemoriesText = formatMemoriesForPrompt(ragMemories),
                     recentMemoriesText = formatMemoriesForPrompt(recentMemories),
                 )
@@ -264,6 +270,10 @@ class WelcomePhrasesService(
                     DEFAULT_WELCOME_PHRASES_PROMPT.applyPlaceholders(
                         "locale" to localeHint,
                         "date" to todayHint,
+                        "memory_summary_section" to memoryContext.summaryText.trim()
+                            .takeIf { it.isNotEmpty() }
+                            ?.let { "- Memory summary: $it" }
+                            .orEmpty(),
                         "rag_memories" to memoryContext.ragMemoriesText,
                         "recent_memories" to memoryContext.recentMemoriesText,
                     )
@@ -334,6 +344,7 @@ class WelcomePhrasesService(
         val provider: ProviderSetting,
         val locale: Locale,
         val enableMemory: Boolean,
+        val enableMemorySummary: Boolean,
         val ragLimit: Int,
         val ragSimilarityThreshold: Float,
         val retrievalMode: me.rerere.rikkahub.data.model.MemoryRetrievalMode,
@@ -348,11 +359,13 @@ class WelcomePhrasesService(
     }
 
     private data class MemoryContext(
+        val summaryText: String,
         val ragMemoriesText: String,
         val recentMemoriesText: String,
     ) {
         companion object {
             val EMPTY = MemoryContext(
+                summaryText = "",
                 ragMemoriesText = "none",
                 recentMemoriesText = "none",
             )

@@ -144,6 +144,7 @@ import me.rerere.rikkahub.data.model.toMessageNode
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.LorebookEntryRevisionRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.data.repository.ModelQuotaRepository
 import me.rerere.rikkahub.data.repository.QuotaUsageResult
 import me.rerere.rikkahub.data.repository.ToolResultArchiveRepository
@@ -262,6 +263,7 @@ class ChatService(
     private val conversationRepo: ConversationRepository,
     private val toolResultArchiveRepository: ToolResultArchiveRepository,
     private val memoryRepository: MemoryRepository,
+    private val memorySummaryRepository: MemorySummaryRepository,
     private val memoryRetrievalService: MemoryRetrievalService,
     private val generationHandler: GenerationHandler,
     private val requestLogManager: AIRequestLogManager,
@@ -446,6 +448,16 @@ class ChatService(
 
     private fun buildMemoryCacheKey(conversationId: Uuid, assistantId: String): String {
         return "${conversationId}:${assistantId}"
+    }
+
+    private suspend fun loadMemorySummary(
+        assistant: Assistant,
+        memoryAvailableForRun: Boolean,
+    ): String? {
+        if (!memoryAvailableForRun || !assistant.enableMemory || !assistant.enableMemorySummary) return null
+        return withContext(Dispatchers.IO) {
+            memorySummaryRepository.getActiveContent(assistant.id.toString()).ifBlank { null }
+        }
     }
 
     private fun remainingRetrievalTimeoutMillis(startedAt: Long, totalTimeoutMillis: Long): Long {
@@ -2290,6 +2302,10 @@ class ChatService(
                 conversationId = persistentConversationId,
                 assistant = assistant,
                 workspaceFileReferenceContext = workspaceFileReferenceContext,
+                memorySummary = loadMemorySummary(
+                    assistant = assistant,
+                    memoryAvailableForRun = persistentConversationId != null,
+                ),
                 memories = if (assistant.enableMemory && persistentConversationId != null) {
                     val assistantId = assistant.id.toString()
                     val memoryCacheKey = buildMemoryCacheKey(persistentConversationId, assistantId)
@@ -3151,6 +3167,10 @@ class ChatService(
                 conversationId = conversationId,
                 assistant = seatAssistant,
                 workspaceFileReferenceContext = seatWorkspaceToolSet.referenceContext,
+                memorySummary = loadMemorySummary(
+                    assistant = seatAssistant,
+                    memoryAvailableForRun = !temporaryConversations.contains(conversationId),
+                ),
                 memories = seatMemories,
                 enableMemoryTools = false,
                 sessionMemories = if (seatAssistant.enableSessionMemory) {

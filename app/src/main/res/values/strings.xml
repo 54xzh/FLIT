@@ -2532,4 +2532,24 @@
     <string name="setting_mcp_page_error_details">Error details</string>
     <string name="mcp_status_rootfs_not_ready">Sandbox environment is not ready. Install Rootfs before calling this server.</string>
     <string name="mcp_status_workspace_missing">Bound sandbox is missing. Select another sandbox.</string>
+    <string name="assistant_page_memory_summary_title">Memory Summary</string>
+    <string name="assistant_page_memory_summary_desc">Generate a long-term overview from your memories and always include it in context.</string>
+    <string name="assistant_page_memory_summary_settings_title">Memory Summary Settings</string>
+    <string name="assistant_page_memory_summary_auto_update">Automatically update summary</string>
+    <string name="assistant_page_memory_summary_auto_update_desc">Update after enough memories change and the minimum interval has passed.</string>
+    <string name="assistant_page_memory_summary_change_threshold">Memory change threshold: %1$d</string>
+    <string name="assistant_page_memory_summary_change_progress">Changed memories: %1$d / %2$d</string>
+    <string name="assistant_page_memory_summary_interval">Minimum update interval: %1$d days</string>
+    <string name="assistant_page_memory_summary_last_updated">Last updated: %1$s</string>
+    <string name="assistant_page_memory_summary_update_now">Update now</string>
+    <string name="assistant_page_memory_summary_full_update">Full update</string>
+    <string name="assistant_page_memory_summary_tab">Memory Summary</string>
+    <string name="assistant_page_memory_summary_active_version">Current version</string>
+    <string name="assistant_page_memory_summary_history_version">History version</string>
+    <string name="assistant_page_memory_summary_mode_incremental">Incremental update</string>
+    <string name="assistant_page_memory_summary_mode_full">Full update</string>
+    <string name="assistant_page_memory_summary_empty">No memory summary yet.</string>
+    <string name="assistant_page_memory_summary_update_started">Memory summary update started</string>
+    <string name="assistant_page_memory_summary_full_update_started">Memory summary full update started</string>
+    <string name="request_log_source_memory_summary">Memory Summary</string>
 </resources>

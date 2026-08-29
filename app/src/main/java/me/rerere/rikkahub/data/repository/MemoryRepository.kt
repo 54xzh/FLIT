@@ -103,6 +103,7 @@ class MemoryRepository internal constructor(
     private val database: AppDatabase,
     private val appScope: AppScope,
     private val keywordTokenizer: MemoryKeywordTokenizer,
+    private val memorySummaryRepository: MemorySummaryRepository? = null,
 ) {
     constructor(
         memoryDAO: MemoryDAO,
@@ -628,6 +629,16 @@ class MemoryRepository internal constructor(
         if (episodeIds.isNotEmpty()) {
             episodeIds.chunked(500).forEach { ids -> embeddingCacheDAO.deleteByMemoryIds(MemoryType.EPISODIC, ids) }
         }
+        memoryIds.forEach { id ->
+            memorySummaryRepository?.recordChange(
+                assistantId, MemoryType.CORE, id, me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED
+            )
+        }
+        episodeIds.forEach { id ->
+            memorySummaryRepository?.recordChange(
+                assistantId, MemoryType.EPISODIC, id, me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED
+            )
+        }
         invalidateKeywordMemoryCache(assistantId)
     }
 
@@ -646,6 +657,7 @@ class MemoryRepository internal constructor(
             pinned = pinned,
             embedding = if (contentChanged) null else memory.embedding,
             embeddingModelId = if (contentChanged) null else memory.embeddingModelId,
+            updatedAt = if (contentChanged) System.currentTimeMillis() else memory.updatedAt,
         )
         memoryDAO.updateMemory(newMemory)
 
@@ -659,6 +671,12 @@ class MemoryRepository internal constructor(
                     force = true,
                 )
             }
+            memorySummaryRepository?.recordChange(
+                memory.assistantId,
+                MemoryType.CORE,
+                id,
+                me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED,
+            )
         }
 
         return AssistantMemory(
@@ -679,21 +697,33 @@ class MemoryRepository internal constructor(
         val memory = memoryDAO.getMemoryById(id) ?: error("Memory not found")
         val normalizedContent = content.trim()
         require(normalizedContent.isNotEmpty()) { "Memory content cannot be blank" }
+        val contentChanged = memory.content != normalizedContent
         val newMemory = memory.copy(
             content = normalizedContent,
-            embedding = null,
-            embeddingModelId = null,
+            embedding = if (contentChanged) null else memory.embedding,
+            embeddingModelId = if (contentChanged) null else memory.embeddingModelId,
+            updatedAt = if (contentChanged) System.currentTimeMillis() else memory.updatedAt,
         ) // Invalidate embedding
         memoryDAO.updateMemory(newMemory)
 
-        // Invalidate cache
-        embeddingCacheDAO.deleteByMemoryId(id, MemoryType.CORE)
-        if (generateEmbedding) {
+        if (contentChanged) {
+            // Invalidate cache
+            embeddingCacheDAO.deleteByMemoryId(id, MemoryType.CORE)
+        }
+        if (contentChanged && generateEmbedding) {
             scheduleEmbeddingBackfillIfNeeded(
                 assistantId = memory.assistantId,
                 includeCore = true,
                 includeEpisodes = false,
                 force = true,
+            )
+        }
+        if (contentChanged) {
+            memorySummaryRepository?.recordChange(
+                memory.assistantId,
+                MemoryType.CORE,
+                id,
+                me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED,
             )
         }
 
@@ -719,6 +749,7 @@ class MemoryRepository internal constructor(
             content = normalizedContent,
             embedding = null,
             embeddingModelId = null,
+            updatedAt = System.currentTimeMillis(),
         ) // Invalidate embedding
         chatEpisodeDAO.insertEpisode(newEpisode)
 
@@ -732,6 +763,12 @@ class MemoryRepository internal constructor(
                 force = true,
             )
         }
+        memorySummaryRepository?.recordChange(
+            episode.assistantId,
+            MemoryType.EPISODIC,
+            id,
+            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED,
+        )
 
         return AssistantMemory(
             id = -newEpisode.id,
@@ -780,6 +817,12 @@ class MemoryRepository internal constructor(
         )
         
         val id = memoryDAO.insertMemory(entity)
+        memorySummaryRepository?.recordChange(
+            assistantId,
+            MemoryType.CORE,
+            id.toInt(),
+            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.ADDED,
+        )
         
         // Add to cache immediately if available
         if (embedding != null && embeddingResult != null) {
@@ -811,13 +854,27 @@ class MemoryRepository internal constructor(
     }
 
     suspend fun deleteMemory(id: Int) {
+        val memory = memoryDAO.getMemoryById(id) ?: return
         memoryDAO.deleteMemory(id)
         embeddingCacheDAO.deleteByMemoryId(id, MemoryType.CORE)
+        memorySummaryRepository?.recordChange(
+            memory.assistantId,
+            MemoryType.CORE,
+            id,
+            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
+        )
     }
 
     suspend fun deleteEpisodeMemory(id: Int) {
+        val episode = chatEpisodeDAO.getEpisodeById(id) ?: return
         chatEpisodeDAO.deleteEpisode(id)
         embeddingCacheDAO.deleteByMemoryId(id, MemoryType.EPISODIC)
+        memorySummaryRepository?.recordChange(
+            episode.assistantId,
+            MemoryType.EPISODIC,
+            id,
+            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
+        )
     }
 
     /**

@@ -28,6 +28,7 @@ import me.rerere.rikkahub.data.db.entity.ChatEpisodeEntity
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import org.koin.core.component.KoinComponent
@@ -53,6 +54,7 @@ class MemoryConsolidationWorker(
 
     private val conversationRepository: ConversationRepository by inject()
     private val memoryRepository: MemoryRepository by inject()
+    private val memorySummaryRepository: MemorySummaryRepository by inject()
     private val chatEpisodeDAO: ChatEpisodeDAO by inject()
     private val embeddingCacheDAO: EmbeddingCacheDAO by inject()
     private val settingsStore: SettingsStore by inject()
@@ -337,11 +339,18 @@ class MemoryConsolidationWorker(
                             endTime = conversation.updateAt.toEpochMilli(),
                             lastAccessedAt = System.currentTimeMillis(),
                             significance = significance,
+                            updatedAt = System.currentTimeMillis(),
                         )
+                    )
+                    memorySummaryRepository.recordChange(
+                        assistantId,
+                        MemoryType.EPISODIC,
+                        existingEpisode.id,
+                        me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED,
                     )
                     Log.i("MemoryConsolidation", "Updated episode (sig=$significance) for conversation ${conversation.id}")
                 } else {
-                    chatEpisodeDAO.insertEpisode(
+                    val episodeId = chatEpisodeDAO.insertEpisode(
                         ChatEpisodeEntity(
                             assistantId = assistantId,
                             content = summary,
@@ -353,6 +362,12 @@ class MemoryConsolidationWorker(
                             significance = significance,
                             conversationId = conversationId,
                         )
+                    )
+                    memorySummaryRepository.recordChange(
+                        assistantId,
+                        MemoryType.EPISODIC,
+                        episodeId.toInt(),
+                        me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.ADDED,
                     )
                     Log.i("MemoryConsolidation", "Created episode (sig=$significance) for conversation ${conversation.id}")
                 }
@@ -417,6 +432,12 @@ class MemoryConsolidationWorker(
             if (age > retentionMs && timeSinceAccess > (7L * 24 * 60 * 60 * 1000L)) {
                 embeddingCacheDAO.deleteByMemoryId(episode.id, MemoryType.EPISODIC)
                 chatEpisodeDAO.deleteEpisode(episode.id)
+                memorySummaryRepository.recordChange(
+                    assistantId,
+                    MemoryType.EPISODIC,
+                    episode.id,
+                    me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
+                )
                 prunedCount++
             }
         }
@@ -678,10 +699,17 @@ class MemoryConsolidationWorker(
                                 endTime = conversation.updateAt.toEpochMilli(),
                                 lastAccessedAt = System.currentTimeMillis(),
                                 significance = significance,
+                                updatedAt = System.currentTimeMillis(),
                             )
                         )
+                        memorySummaryRepository.recordChange(
+                            targetAssistantId,
+                            MemoryType.EPISODIC,
+                            existingEpisode.id,
+                            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED,
+                        )
                     } else {
-                        chatEpisodeDAO.insertEpisode(
+                        val episodeId = chatEpisodeDAO.insertEpisode(
                             ChatEpisodeEntity(
                                 assistantId = targetAssistantId,
                                 content = summary,
@@ -693,6 +721,12 @@ class MemoryConsolidationWorker(
                                 significance = significance,
                                 conversationId = conversationId,
                             )
+                        )
+                        memorySummaryRepository.recordChange(
+                            targetAssistantId,
+                            MemoryType.EPISODIC,
+                            episodeId.toInt(),
+                            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.ADDED,
                         )
                     }
 

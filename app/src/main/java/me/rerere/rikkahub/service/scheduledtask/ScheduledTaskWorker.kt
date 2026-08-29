@@ -60,6 +60,7 @@ import me.rerere.rikkahub.data.model.AssistantSearchMode
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.toMessageNode
 import me.rerere.rikkahub.data.repository.ConversationRepository
+import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.utils.JsonInstant
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -83,6 +84,7 @@ class ScheduledTaskWorker(
     private val runDao: ScheduledTaskRunDao by inject()
     private val conversationRepository: ConversationRepository by inject()
     private val memoryRetrievalService: MemoryRetrievalService by inject()
+    private val memorySummaryRepository: MemorySummaryRepository by inject()
     private val generationHandler: GenerationHandler by inject()
     private val templateTransformer: TemplateTransformer by inject()
     private val localTools: LocalTools by inject()
@@ -260,6 +262,9 @@ class ScheduledTaskWorker(
                 conversationId = conversationId,
                 assistant = assistantForRun,
                 workspaceFileReferenceContext = workspaceToolSet.referenceContext,
+                memorySummary = if (assistantForRun.enableMemory && assistantForRun.enableMemorySummary) {
+                    memorySummaryRepository.getActiveContent(assistantForRun.id.toString()).ifBlank { null }
+                } else null,
                 memories = memories,
                 inputTransformers = inputTransformers,
                 outputTransformers = outputTransformers,

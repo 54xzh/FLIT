@@ -5,6 +5,9 @@ internal val DEFAULT_BACKGROUND_PROMPT = """
     
     Recent chat history:
     {{history}}
+
+    Memory Summary:
+    {{memory_summary}}
     
     Relevant Memories:
     {{memories}}
