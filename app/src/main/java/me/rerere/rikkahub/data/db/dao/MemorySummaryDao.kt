@@ -13,6 +13,9 @@ interface MemorySummaryDao {
     @Query("SELECT * FROM memory_summary_versions WHERE assistant_id = :assistantId ORDER BY generated_at DESC, id DESC LIMIT 1")
     suspend fun getActiveVersion(assistantId: String): MemorySummaryVersionEntity?
 
+    @Query("SELECT * FROM memory_summary_versions WHERE assistant_id = :assistantId AND id = :versionId LIMIT 1")
+    suspend fun getVersion(assistantId: String, versionId: Long): MemorySummaryVersionEntity?
+
     @Query("SELECT * FROM memory_summary_versions WHERE assistant_id = :assistantId ORDER BY generated_at DESC, id DESC")
     fun observeVersions(assistantId: String): Flow<List<MemorySummaryVersionEntity>>
 

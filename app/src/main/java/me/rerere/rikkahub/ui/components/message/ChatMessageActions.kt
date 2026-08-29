@@ -94,7 +94,7 @@ fun ColumnScope.ChatMessageActionButtons(
     onWebViewPreview: (() -> Unit)? = null,
     onEditLorebookEntry: ((UsedLorebookEntry) -> Unit)? = null,
     onModeClick: ((me.rerere.ai.ui.UsedMode) -> Unit)? = null,
-    onMemoryClick: ((me.rerere.ai.ui.UsedMemory) -> Unit)? = null,
+    assistantId: String? = null,
     currentSessionMemories: List<SessionMemory> = emptyList(),
     onUpdateSessionMemory: ((memoryId: Int, content: String) -> Unit)? = null,
     onDeleteSessionMemory: ((memoryId: Int) -> Unit)? = null,
@@ -160,15 +160,12 @@ fun ColumnScope.ChatMessageActionButtons(
             memories = usedMemories,
             sessionMemories = usedSessionMemories,
             memorySummary = usedMemorySummary,
+            assistantId = assistantId,
             currentSessionMemories = currentSessionMemories,
             entries = usedEntries,
             onModeClick = { mode ->
                 showContextSheet = false
                 onModeClick?.invoke(mode)
-            },
-            onMemoryClick = { memory ->
-                showContextSheet = false
-                onMemoryClick?.invoke(memory)
             },
             onSessionMemorySave = onUpdateSessionMemory,
             onSessionMemoryDelete = onDeleteSessionMemory,

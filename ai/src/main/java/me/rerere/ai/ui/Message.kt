@@ -528,6 +528,7 @@ data class UsedSessionMemory(
 @Serializable
 data class UsedMemorySummary(
     val content: String,
+    val versionId: Long? = null,
 )
 
 

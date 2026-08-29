@@ -372,6 +372,7 @@ class GenerationHandler(
         assistant: Assistant,
         memories: List<AssistantMemory>? = null,
         memorySummary: String? = null,
+        memorySummaryVersionId: Long? = null,
         sessionMemories: List<SessionMemory> = emptyList(),
         enableSessionMemoryTools: Boolean = false,
         onSessionMemoriesChanged: suspend (List<SessionMemory>) -> Unit = {},
@@ -468,6 +469,7 @@ class GenerationHandler(
                 tools = toolsInternal,
                 memories = memories ?: emptyList(),
                 memorySummary = memorySummary,
+                memorySummaryVersionId = memorySummaryVersionId,
                 sessionMemories = if (assistant.enableSessionMemory) currentSessionMemories else emptyList(),
                 truncateIndex = truncateIndex,
                 stream = assistant.streamOutput,
@@ -926,6 +928,7 @@ class GenerationHandler(
         tools: List<Tool>,
         memories: List<AssistantMemory>,
         memorySummary: String? = null,
+        memorySummaryVersionId: Long? = null,
         sessionMemories: List<SessionMemory>,
         truncateIndex: Int,
         enabledModeIds: Set<Uuid> = emptySet(),
@@ -1627,6 +1630,7 @@ class GenerationHandler(
                     content = summary.take(MEMORY_SUMMARY_CONTEXT_PREVIEW_LIMIT).let { preview ->
                         if (summary.length > preview.length) "$preview..." else preview
                     },
+                    versionId = memorySummaryVersionId,
                 )
             }
 
@@ -1653,6 +1657,7 @@ class GenerationHandler(
         tools: List<Tool>,
         memories: List<AssistantMemory>,
         memorySummary: String?,
+        memorySummaryVersionId: Long?,
         sessionMemories: List<SessionMemory>,
         truncateIndex: Int,
         stream: Boolean,
@@ -1669,6 +1674,7 @@ class GenerationHandler(
             tools = tools,
             memories = memories,
             memorySummary = memorySummary,
+            memorySummaryVersionId = memorySummaryVersionId,
             sessionMemories = sessionMemories,
             truncateIndex = truncateIndex,
             enabledModeIds = enabledModeIds,

@@ -453,10 +453,11 @@ class ChatService(
     private suspend fun loadMemorySummary(
         assistant: Assistant,
         memoryAvailableForRun: Boolean,
-    ): String? {
+    ): me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity? {
         if (!memoryAvailableForRun || !assistant.enableMemory || !assistant.enableMemorySummary) return null
         return withContext(Dispatchers.IO) {
-            memorySummaryRepository.getActiveContent(assistant.id.toString()).ifBlank { null }
+            memorySummaryRepository.getActiveVersion(assistant.id.toString())
+                ?.takeIf { it.content.isNotBlank() }
         }
     }
 
@@ -2293,6 +2294,10 @@ class ChatService(
                 conversationId = conversationId.toString(),
             )
             val workspaceFileReferenceContext = workspaceToolSet.referenceContext
+            val memorySummary = loadMemorySummary(
+                assistant = assistant,
+                memoryAvailableForRun = persistentConversationId != null,
+            )
 
             // start generating
             generationHandler.generateText(
@@ -2302,10 +2307,8 @@ class ChatService(
                 conversationId = persistentConversationId,
                 assistant = assistant,
                 workspaceFileReferenceContext = workspaceFileReferenceContext,
-                memorySummary = loadMemorySummary(
-                    assistant = assistant,
-                    memoryAvailableForRun = persistentConversationId != null,
-                ),
+                memorySummary = memorySummary?.content,
+                memorySummaryVersionId = memorySummary?.id,
                 memories = if (assistant.enableMemory && persistentConversationId != null) {
                     val assistantId = assistant.id.toString()
                     val memoryCacheKey = buildMemoryCacheKey(persistentConversationId, assistantId)
@@ -3159,6 +3162,10 @@ class ChatService(
             } else {
                 null
             }
+            val memorySummary = loadMemorySummary(
+                assistant = seatAssistant,
+                memoryAvailableForRun = !temporaryConversations.contains(conversationId),
+            )
 
             generationHandler.generateText(
                 settings = settings,
@@ -3167,10 +3174,8 @@ class ChatService(
                 conversationId = conversationId,
                 assistant = seatAssistant,
                 workspaceFileReferenceContext = seatWorkspaceToolSet.referenceContext,
-                memorySummary = loadMemorySummary(
-                    assistant = seatAssistant,
-                    memoryAvailableForRun = !temporaryConversations.contains(conversationId),
-                ),
+                memorySummary = memorySummary?.content,
+                memorySummaryVersionId = memorySummary?.id,
                 memories = seatMemories,
                 enableMemoryTools = false,
                 sessionMemories = if (seatAssistant.enableSessionMemory) {

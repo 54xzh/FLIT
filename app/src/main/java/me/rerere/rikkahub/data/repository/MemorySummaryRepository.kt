@@ -50,6 +50,9 @@ class MemorySummaryRepository(
     suspend fun getActiveVersion(assistantId: String): MemorySummaryVersionEntity? =
         summaryDao.getActiveVersion(assistantId)
 
+    suspend fun getVersion(assistantId: String, versionId: Long): MemorySummaryVersionEntity? =
+        summaryDao.getVersion(assistantId, versionId)
+
     suspend fun getActiveContent(assistantId: String): String =
         summaryDao.getActiveVersion(assistantId)?.content.orEmpty()
 

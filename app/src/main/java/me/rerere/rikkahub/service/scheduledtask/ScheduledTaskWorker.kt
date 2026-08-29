@@ -255,6 +255,12 @@ class ScheduledTaskWorker(
 
         return@withContext runCatching {
             var latestMessages: List<UIMessage> = listOf(userMessage)
+            val memorySummary = if (assistantForRun.enableMemory && assistantForRun.enableMemorySummary) {
+                memorySummaryRepository.getActiveVersion(assistantForRun.id.toString())
+                    ?.takeIf { it.content.isNotBlank() }
+            } else {
+                null
+            }
             generationHandler.generateText(
                 settings = settings,
                 model = runtimeModel,
@@ -262,9 +268,8 @@ class ScheduledTaskWorker(
                 conversationId = conversationId,
                 assistant = assistantForRun,
                 workspaceFileReferenceContext = workspaceToolSet.referenceContext,
-                memorySummary = if (assistantForRun.enableMemory && assistantForRun.enableMemorySummary) {
-                    memorySummaryRepository.getActiveContent(assistantForRun.id.toString()).ifBlank { null }
-                } else null,
+                memorySummary = memorySummary?.content,
+                memorySummaryVersionId = memorySummary?.id,
                 memories = memories,
                 inputTransformers = inputTransformers,
                 outputTransformers = outputTransformers,

@@ -1382,18 +1382,6 @@ private fun SharedTransitionScope.ChatListNormal(
                                     // Navigate to Modes page and scroll to the specific mode
                                     navController.navigate(Screen.SettingModes(scrollToModeId = mode.modeId))
                                 },
-                                onMemoryClick = { memory ->
-                                    // Navigate to AssistantDetail memory page
-                                    // memoryType: 0 = CORE, 1 = EPISODIC
-                                    navController.navigate(
-                                        Screen.AssistantDetail(
-                                            id = conversationUpdated.assistantId.toString(),
-                                            startRoute = "memory",
-                                            initialMemoryTab = memory.memoryType,
-                                            scrollToMemoryId = memory.memoryId
-                                        )
-                                    )
-                                },
                                 currentSessionMemories = conversation.sessionMemories,
                                 onUpdateSessionMemory = { memoryId, content ->
                                     val currentConversation = conversationUpdated

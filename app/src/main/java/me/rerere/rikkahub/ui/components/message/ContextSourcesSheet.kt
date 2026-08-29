@@ -2,6 +2,9 @@ package me.rerere.rikkahub.ui.components.message
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,12 +52,15 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import me.rerere.ai.ui.UsedLorebookEntry
 import me.rerere.ai.ui.UsedMemory
@@ -63,10 +70,20 @@ import me.rerere.ai.ui.UsedSessionMemory
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.SessionMemory
+import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemorySummaryRepository
+import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
+import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
+import org.koin.compose.koinInject
 
 private val json = Json { ignoreUnknownKeys = true }
 private const val SESSION_MEMORY_EDITOR_MAX_CHARS = 1000
+
+private data class ContextSourcePreview(
+    val titleRes: Int,
+    val content: String,
+)
 
 // Corner radius values matching PhysicsSwipeToDelete
 private val groupCornerRadius = 24.dp
@@ -82,10 +99,10 @@ fun ContextSourcesSheet(
     memories: List<UsedMemory> = emptyList(),
     sessionMemories: List<UsedSessionMemory> = emptyList(),
     memorySummary: UsedMemorySummary? = null,
+    assistantId: String? = null,
     currentSessionMemories: List<SessionMemory> = emptyList(),
     entries: List<UsedLorebookEntry> = emptyList(),
     onModeClick: ((UsedMode) -> Unit)? = null,
-    onMemoryClick: ((UsedMemory) -> Unit)? = null,
     onSessionMemorySave: ((memoryId: Int, content: String) -> Unit)? = null,
     onSessionMemoryDelete: ((memoryId: Int) -> Unit)? = null,
     onEntryClick: ((UsedLorebookEntry) -> Unit)? = null,
@@ -93,7 +110,11 @@ fun ContextSourcesSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
+    val memoryRepository: MemoryRepository = koinInject()
+    val memorySummaryRepository: MemorySummaryRepository = koinInject()
     var editingSessionMemory by remember { mutableStateOf<UsedSessionMemory?>(null) }
+    var preview by remember { mutableStateOf<ContextSourcePreview?>(null) }
+    var summaryPreviewContent by remember { mutableStateOf<String?>(null) }
     
     val sortedModes = remember(modes) { modes.sortedByDescending { it.priority } }
     val currentSessionMemoryById = remember(currentSessionMemories) {
@@ -126,6 +147,69 @@ fun ContextSourcesSheet(
                 editingSessionMemory = null
             }
         )
+    }
+
+    preview?.let { source ->
+        AlertDialog(
+            onDismissRequest = { preview = null },
+            title = { Text(stringResource(source.titleRes)) },
+            text = {
+                SelectionContainer {
+                    Text(
+                        text = source.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 520.dp)
+                            .verticalScroll(rememberScrollState()),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { preview = null }) {
+                    Text(stringResource(R.string.done))
+                }
+            },
+        )
+    }
+
+    summaryPreviewContent?.let { content ->
+        val summarySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { summaryPreviewContent = null },
+            sheetState = summarySheetState,
+            shape = AppShapes.BottomSheet,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 640.dp)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.context_sources_section_memory_summary),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    SelectionContainer {
+                        MarkdownBlock(
+                            content = content.ifBlank {
+                                stringResource(R.string.assistant_page_memory_summary_empty)
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
     
     ModalBottomSheet(
@@ -198,7 +282,23 @@ fun ContextSourcesSheet(
                 // Memories Section
                 memorySummary?.let { summary ->
                     item { SectionHeader(stringResource(R.string.context_sources_section_memory_summary)) }
-                    item { MemorySummaryItem(summary) }
+                    item {
+                        MemorySummaryItem(
+                            summary = summary,
+                            onClick = {
+                                scope.launch {
+                                    val versionContent = summary.versionId?.let { versionId ->
+                                        assistantId?.let { id ->
+                                            withContext(Dispatchers.IO) {
+                                                memorySummaryRepository.getVersion(id, versionId)?.content
+                                            }
+                                        }
+                                    }
+                                    summaryPreviewContent = versionContent ?: summary.content
+                                }
+                            },
+                        )
+                    }
                     item { Spacer(Modifier.height(12.dp)) }
                 }
 
@@ -211,7 +311,27 @@ fun ContextSourcesSheet(
                             shape = shape,
                             isFirst = index == 0,
                             isLast = index == sortedMemories.lastIndex,
-                            onClick = { onMemoryClick?.invoke(memory) }
+                            onClick = {
+                                scope.launch {
+                                    val currentContent = withContext(Dispatchers.IO) {
+                                        if (memory.memoryType == 0) {
+                                            memoryRepository.getCoreMemoryById(memory.memoryId)?.content
+                                        } else {
+                                            memoryRepository.getEpisodeMemoryById(
+                                                kotlin.math.abs(memory.memoryId)
+                                            )?.content
+                                        }
+                                    }
+                                    preview = ContextSourcePreview(
+                                        titleRes = when {
+                                            memory.memoryType == 0 -> R.string.memory_type_core
+                                            memory.memoryId < 0 -> R.string.memory_type_recent_chat
+                                            else -> R.string.memory_type_episodic
+                                        },
+                                        content = currentContent ?: memory.memoryContent,
+                                    )
+                                }
+                            },
                         )
                     }
                     item { Spacer(Modifier.height(12.dp)) }
@@ -237,8 +357,12 @@ fun ContextSourcesSheet(
 }
 
 @Composable
-private fun MemorySummaryItem(summary: UsedMemorySummary) {
+private fun MemorySummaryItem(
+    summary: UsedMemorySummary,
+    onClick: () -> Unit,
+) {
     Surface(
+        onClick = onClick,
         shape = RoundedCornerShape(groupCornerRadius),
         color = if (LocalDarkMode.current) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
