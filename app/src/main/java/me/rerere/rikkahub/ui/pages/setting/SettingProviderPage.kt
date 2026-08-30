@@ -170,6 +170,7 @@ import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.ui.pages.setting.components.PROVIDER_PRESETS
 import me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigure
+import me.rerere.rikkahub.ui.pages.setting.components.resolveDescription
 import me.rerere.rikkahub.ui.pages.setting.components.toProviderSetting
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.ImageUtils
@@ -426,6 +427,7 @@ private fun ProviderListView(
     onReorder: (Int, Int) -> Unit,
     onAddProvider: (ProviderSetting) -> Unit
 ) {
+    val context = LocalContext.current
     val lazyListState = rememberLazyListState()
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
         onReorder(from.index, to.index)
@@ -439,12 +441,12 @@ private fun ProviderListView(
     val canDelete = allProviders.size > 1
     
     // Check for matching preset when no providers found
-    val matchingPreset = remember(searchQuery, providers) {
+    val matchingPreset = remember(searchQuery, providers, context) {
         if (providers.isEmpty() && searchQuery.isNotBlank()) {
             PROVIDER_PRESETS.find { preset ->
                 !preset.requiresCodexLogin && (
                     preset.name.contains(searchQuery, ignoreCase = true) ||
-                        preset.description.contains(searchQuery, ignoreCase = true)
+                        preset.resolveDescription(context).contains(searchQuery, ignoreCase = true)
                     )
             }
         } else null
@@ -503,7 +505,7 @@ private fun ProviderListView(
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
-                                    text = matchingPreset.description,
+                                    text = stringResource(matchingPreset.descriptionRes),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -793,6 +795,7 @@ private fun AddButton(
     var showCustomProviderDialog by remember { mutableStateOf(false) }
     var codexLoginProvider by remember { mutableStateOf<ProviderSetting.OpenAICodex?>(null) }
     val navController = LocalNavController.current
+    val context = LocalContext.current
     
     // Custom provider dialog state
     val customDialogState = useEditState<ProviderSetting> {
@@ -872,13 +875,13 @@ private fun AddButton(
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 // Filter presets based on search
-                val filteredPresets = remember(searchQuery) {
+                val filteredPresets = remember(searchQuery, context) {
                     if (searchQuery.isBlank()) {
                         PROVIDER_PRESETS
                     } else {
                         PROVIDER_PRESETS.filter { preset ->
                             preset.name.contains(searchQuery, ignoreCase = true) ||
-                            preset.description.contains(searchQuery, ignoreCase = true)
+                            preset.resolveDescription(context).contains(searchQuery, ignoreCase = true)
                         }
                     }
                 }
@@ -1005,11 +1008,7 @@ private fun AddButton(
                                         style = MaterialTheme.typography.titleMedium
                                     )
                                     Text(
-                                        text = if (preset.requiresCodexLogin) {
-                                            stringResource(R.string.codex_provider_preset_description)
-                                        } else {
-                                            preset.description
-                                        },
+                                        text = stringResource(preset.descriptionRes),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
