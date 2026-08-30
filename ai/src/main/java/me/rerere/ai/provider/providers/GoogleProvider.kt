@@ -48,12 +48,14 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.contentForModelInput
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureClientWithProxy
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.encodeBase64
+import me.rerere.ai.util.encodeBase64ForToolResult
 import me.rerere.ai.util.HttpStatusException
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
@@ -269,8 +271,8 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 .build()
         )
 
-        // 请求体可能含 base64 附件（数 MB），发布版不写入日志
-        if (BuildConfig.DEBUG) Log.i(TAG, "streamText: $requestBodyJson")
+        // 请求体可能含 base64 附件（数 MB），任何构建类型都不写入日志。
+        if (BuildConfig.DEBUG) Log.i(TAG, "streamText request body: ${requestBodyJson.length} chars")
         val rawEventBuffer = StringBuilder()
 
         val listener = object : EventSourceListener() {
@@ -486,7 +488,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         // Contents (user messages)
         put(
             "contents",
-            buildContents(messages)
+            buildContents(messages, params.model)
         )
 
         // Tools
@@ -677,7 +679,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         }
     }
 
-    private fun buildContents(messages: List<UIMessage>): JsonArray {
+    private fun buildContents(messages: List<UIMessage>, model: Model): JsonArray {
         return buildJsonArray {
             messages
                 .filter { it.role != MessageRole.SYSTEM && it.isValidToUpload() }
@@ -754,10 +756,26 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                                         put("functionResponse", buildJsonObject {
                                             put("name", part.toolName)
                                             put("response", buildJsonObject {
-                                                put("result", part.content)
+                                                put("result", part.contentForModelInput(model))
                                             })
                                         })
                                     })
+                                    part.images
+                                        .filter { it.includeInModel && Modality.IMAGE in model.inputModalities }
+                                        .forEach { image ->
+                                            image.encodeBase64ForToolResult(withPrefix = false).onSuccess { data ->
+                                                add(buildJsonObject {
+                                                    put("inlineData", buildJsonObject {
+                                                        put("mimeType", image.mimeType)
+                                                        put("data", data)
+                                                    })
+                                                })
+                                            }.onFailure {
+                                                add(buildJsonObject {
+                                                    put("text", "An image returned by ${part.toolName} is no longer available.")
+                                                })
+                                            }
+                                        }
                                 }
 
                                 else -> {

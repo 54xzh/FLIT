@@ -6,8 +6,11 @@ import android.util.Base64
 import androidx.core.net.toUri
 import me.rerere.ai.BuildConfig
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.ToolResultImage
 import java.io.File
 import java.io.FileOutputStream
+import java.net.URI
+import java.util.Base64 as JavaBase64
 
 private val supportedTypes = setOf(
     "image/jpeg",
@@ -44,6 +47,17 @@ fun UIMessagePart.Image.encodeBase64(withPrefix: Boolean = true): Result<String>
         this.url.startsWith("http:") -> url
         else -> throw IllegalArgumentException("Unsupported URL format: $url")
     }
+}
+
+/**
+ * 工具读图专用：按已验证的媒体类型原样读取，不复用会转码甚至改写文件的普通图片编码器。
+ */
+fun ToolResultImage.encodeBase64ForToolResult(withPrefix: Boolean = true): Result<String> = runCatching {
+    require(url.startsWith("file:")) { "Tool result image must be a local file: $url" }
+    val file = File(URI(url))
+    require(file.isFile) { "Tool result image does not exist: $url" }
+    val encoded = JavaBase64.getEncoder().encodeToString(file.readBytes())
+    if (withPrefix) "data:$mimeType;base64,$encoded" else encoded
 }
 
 fun UIMessagePart.Video.encodeBase64(withPrefix: Boolean = true): Result<String> = runCatching {

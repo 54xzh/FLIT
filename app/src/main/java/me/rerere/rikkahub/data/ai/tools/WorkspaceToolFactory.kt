@@ -27,6 +27,8 @@ import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.utils.SkillScriptPathUtils
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import me.rerere.rikkahub.workspace.SandboxWorkspaceManager
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.util.Locale
 
 /**
@@ -56,6 +58,35 @@ internal fun normalizeWorkspaceListToolPath(rawPath: String?): String? {
     while (normalized.startsWith("/")) normalized = normalized.removePrefix("/")
     if (normalized.isBlank()) return ""
     return normalizeWorkspaceToolPath(normalized, allowBlank = true)
+}
+
+private fun InputStream.readWorkspaceToolPrefix(): ByteArray {
+    val buffer = ByteArray(16)
+    val count = read(buffer)
+    return if (count <= 0) ByteArray(0) else buffer.copyOf(count)
+}
+
+/** 返回 null 表示源文件超过限制；不依赖 InputStream.available()。 */
+private fun InputStream.readWorkspaceToolBytes(maxBytes: Long): ByteArray? {
+    val output = ByteArrayOutputStream()
+    val buffer = ByteArray(8 * 1024)
+    var total = 0L
+    while (true) {
+        val read = read(buffer)
+        if (read <= 0) break
+        total += read
+        if (total > maxBytes) return null
+        output.write(buffer, 0, read)
+    }
+    return output.toByteArray()
+}
+
+internal fun workspaceToolImageError(path: String, code: String, message: String): JsonObject = buildJsonObject {
+    put("ok", false)
+    put("path", path)
+    put("kind", "image")
+    put("error_code", code)
+    put("error", message)
 }
 
 internal enum class WorkspaceToolExecutionMode {
@@ -126,8 +157,14 @@ class WorkspaceToolFactory(
                 WorkspaceType.LIGHTWEIGHT -> createWorkspaceFileTools(
                     assistant = workspaceAssistant,
                     settingsSnapshot = settingsSnapshot,
+                    conversationId = conversationId,
                 )
-                WorkspaceType.SANDBOX -> createSandboxWorkspaceTools(workspace.id, workspaceRepository, conversationId)
+                WorkspaceType.SANDBOX -> createSandboxWorkspaceTools(
+                    workspaceId = workspace.id,
+                    workspaceRepository = workspaceRepository,
+                    conversationId = conversationId,
+                    enableConversationUploads = mode == WorkspaceToolExecutionMode.INTERACTIVE,
+                )
             }
         }
         val tools = filterToolsForExecutionMode(allTools, mode)
@@ -212,10 +249,15 @@ class WorkspaceToolFactory(
     private suspend fun createWorkspaceFileTools(
         assistant: Assistant,
         settingsSnapshot: Settings,
+        conversationId: String?,
     ): List<Tool> {
         return listOf(
             createWorkspaceListTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
-            createWorkspaceReadFileTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
+            createWorkspaceReadFileTool(
+                assistant = assistant,
+                settingsSnapshot = settingsSnapshot,
+                conversationId = conversationId,
+            ),
             createWorkspaceWriteFileTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
             createWorkspaceMkdirTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
             createWorkspaceDeleteTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
@@ -439,11 +481,12 @@ class WorkspaceToolFactory(
     private suspend fun createWorkspaceReadFileTool(
         assistant: Assistant,
         settingsSnapshot: Settings,
+        conversationId: String?,
     ): Tool {
         val requiresApproval = toolNeedsApproval(assistant, "workspace_read_file")
         return Tool(
             name = "workspace_read_file",
-            description = "Read a workspace text file.",
+            description = "Read a workspace UTF-8 text file or a JPEG, PNG, GIF, or WebP image (up to 8 MiB).",
             parameters = {
                 InputSchema.Obj(
                     properties = buildJsonObject {
@@ -476,6 +519,55 @@ class WorkspaceToolFactory(
 
                         if (!file.isFile) {
                             return@withContext buildJsonObject { put("ok", false); put("error", "Not a file: $normalizedPath") }
+                        }
+
+                        val fileName = file.name ?: normalizedPath.substringAfterLast('/')
+                        val header = context.contentResolver.openInputStream(file.uri)
+                            ?.use { input -> input.readWorkspaceToolPrefix() }
+                            ?: return@withContext buildJsonObject { put("ok", false); put("error", "Failed to open file: $normalizedPath") }
+                        val imageType = detectWorkspaceImageType(header)
+                        if (imageType != null) {
+                            if (file.length() > WORKSPACE_TOOL_IMAGE_MAX_BYTES) {
+                                return@withContext workspaceToolImageError(
+                                    normalizedPath,
+                                    "image_too_large",
+                                    "Image is larger than the 8 MiB limit: $normalizedPath",
+                                )
+                            }
+                            val bytes = context.contentResolver.openInputStream(file.uri)
+                                ?.use { input -> input.readWorkspaceToolBytes(WORKSPACE_TOOL_IMAGE_MAX_BYTES) }
+                                ?: return@withContext buildJsonObject { put("ok", false); put("error", "Failed to open file: $normalizedPath") }
+                            if (bytes == null) {
+                                return@withContext workspaceToolImageError(
+                                    normalizedPath,
+                                    "image_too_large",
+                                    "Image is larger than the 8 MiB limit: $normalizedPath",
+                                )
+                            }
+                            val image = workspaceRepository.persistToolResultImage(
+                                conversationId = conversationId,
+                                fileName = fileName,
+                                mimeType = imageType.mimeType,
+                                bytes = bytes,
+                            ) ?: return@withContext workspaceToolImageError(
+                                normalizedPath,
+                                "image_materialization_failed",
+                                "Failed to prepare the image for this conversation: $normalizedPath",
+                            )
+                            return@withContext buildJsonObject {
+                                put("ok", true)
+                                put("path", normalizedPath)
+                                put("kind", "image")
+                                put("mime_type", imageType.mimeType)
+                                put("bytes", bytes.size)
+                            }.withToolResultImages(listOf(image))
+                        }
+                        if (isWorkspaceImageFileName(fileName)) {
+                            return@withContext workspaceToolImageError(
+                                normalizedPath,
+                                "unsupported_image_format",
+                                "The image file is invalid or uses an unsupported format: $normalizedPath",
+                            )
                         }
 
                         val input = context.contentResolver.openInputStream(file.uri)

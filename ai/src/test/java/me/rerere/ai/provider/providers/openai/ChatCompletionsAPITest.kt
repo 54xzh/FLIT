@@ -3,16 +3,22 @@ package me.rerere.ai.provider.providers.openai
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.core.MessageRole
+import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.Modality
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.ToolResultImage
 import me.rerere.ai.util.KeyRoulette
 import okhttp3.OkHttpClient
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatCompletionsAPITest {
@@ -24,10 +30,14 @@ class ChatCompletionsAPITest {
         val method = ChatCompletionsAPI::class.java.getDeclaredMethod(
             "buildMessages",
             List::class.java,
-            String::class.java
+            Model::class.java,
         )
         method.isAccessible = true
-        return method.invoke(api, messages, modelId) as JsonArray
+        return method.invoke(
+            api,
+            messages,
+            Model(modelId = modelId, inputModalities = listOf(Modality.TEXT, Modality.IMAGE)),
+        ) as JsonArray
     }
 
     @Test
@@ -178,6 +188,42 @@ class ChatCompletionsAPITest {
         val json = buildMessagesJson(api, messages, modelId = "deepseek-v3.2")
         val assistant = json[1].jsonObject
         assertNull(assistant["reasoning_content"])
+    }
+
+    @Test
+    fun `tool result image is sent after its matching tool result`() {
+        val imageFile = File.createTempFile("tool-result", ".gif").apply {
+            writeBytes("GIF89a".toByteArray())
+            deleteOnExit()
+        }
+        val api = ChatCompletionsAPI(OkHttpClient(), KeyRoulette.default())
+        val messages = listOf(
+            UIMessage(
+                role = MessageRole.TOOL,
+                parts = listOf(
+                    UIMessagePart.ToolResult(
+                        toolCallId = "call_1",
+                        toolName = "workspace_read_file",
+                        content = JsonPrimitive("ok"),
+                        arguments = JsonObject(emptyMap()),
+                        images = listOf(
+                            ToolResultImage(
+                                url = imageFile.toURI().toString(),
+                                mimeType = "image/gif",
+                                fileName = "diagram.gif",
+                            )
+                        ),
+                    )
+                ),
+            ),
+        )
+
+        val json = buildMessagesJson(api, messages, modelId = "gpt-4o-mini")
+        assertEquals("call_1", json[0].jsonObject["tool_call_id"]?.jsonPrimitive?.content)
+        val content = json[1].jsonObject["content"]?.jsonArray ?: error("missing image message content")
+        val imageUrl = content[1].jsonObject["image_url"]?.jsonObject
+            ?.get("url")?.jsonPrimitive?.content ?: error("missing image url")
+        assertTrue(imageUrl.startsWith("data:image/gif;base64,"))
     }
 
     private fun toolCallConversation(

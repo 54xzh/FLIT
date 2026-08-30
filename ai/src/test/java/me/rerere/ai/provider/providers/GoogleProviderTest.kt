@@ -7,9 +7,13 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.core.MessageRole
+import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.Modality
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.ToolResultImage
 import okhttp3.OkHttpClient
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -21,9 +25,14 @@ class GoogleProviderTest {
         val method = GoogleProvider::class.java.getDeclaredMethod(
             "buildContents",
             List::class.java,
+            Model::class.java,
         )
         method.isAccessible = true
-        return method.invoke(GoogleProvider(OkHttpClient()), messages) as JsonArray
+        return method.invoke(
+            GoogleProvider(OkHttpClient()),
+            messages,
+            Model(inputModalities = listOf(Modality.TEXT, Modality.IMAGE)),
+        ) as JsonArray
     }
 
     @Test
@@ -90,5 +99,41 @@ class GoogleProviderTest {
         assertEquals("AAAA", inlineData["data"]!!.jsonPrimitive.content)
         assertFalse(imagePart.containsKey("inline_data"))
         assertFalse(inlineData.containsKey("mime_type"))
+    }
+
+    @Test
+    fun `tool result image follows its function response with actual media type`() {
+        val imageFile = File.createTempFile("tool-result", ".webp").apply {
+            writeBytes("RIFFxxxxWEBP".toByteArray())
+            deleteOnExit()
+        }
+        val contents = buildContents(
+            listOf(
+                UIMessage(
+                    role = MessageRole.TOOL,
+                    parts = listOf(
+                        UIMessagePart.ToolResult(
+                            toolCallId = "call_1",
+                            toolName = "sandbox_read_file",
+                            content = JsonPrimitive("ok"),
+                            arguments = JsonObject(emptyMap()),
+                            images = listOf(
+                                ToolResultImage(
+                                    url = imageFile.toURI().toString(),
+                                    mimeType = "image/webp",
+                                    fileName = "diagram.webp",
+                                )
+                            ),
+                        )
+                    ),
+                ),
+            )
+        )
+
+        val parts = contents.single().jsonObject["parts"]?.jsonArray ?: error("missing tool parts")
+        assertNotNull(parts[0].jsonObject["functionResponse"])
+        val inlineData = parts[1].jsonObject["inlineData"]?.jsonObject ?: error("missing inline data")
+        assertEquals("image/webp", inlineData["mimeType"]?.jsonPrimitive?.content)
+        assertEquals("UklGRnh4eHhXRUJQ", inlineData["data"]?.jsonPrimitive?.content)
     }
 }

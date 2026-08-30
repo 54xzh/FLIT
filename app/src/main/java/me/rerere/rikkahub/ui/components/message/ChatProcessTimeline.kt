@@ -65,6 +65,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
@@ -86,6 +87,7 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.AskUserState
 import me.rerere.ai.ui.ToolApprovalState
+import me.rerere.ai.ui.ToolResultImage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.WebSearchAction
 import me.rerere.ai.ui.WebSearchStatus
@@ -97,6 +99,7 @@ import me.rerere.rikkahub.data.model.AssistantAffectScope
 import me.rerere.rikkahub.data.model.replaceRegexes
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
+import me.rerere.rikkahub.ui.components.richtext.ZoomableAsyncImage
 import me.rerere.rikkahub.ui.components.ui.Favicon
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
@@ -322,6 +325,14 @@ private fun ProcessTimelineStep(
     assistant: Assistant?,
     streamingContentUpdateIntervalMs: Long,
 ) {
+    // 图片缩略图会将工具行固定撑到 36dp；读取图片工具没有副标题，标题随行居中后，
+    // 左侧时间线图标也需要同步下移，才能和标题保持在同一条中线上。
+    val timelineIconTopPadding = if (part is UIMessagePart.ToolResult && part.images.isNotEmpty()) {
+        12.dp
+    } else {
+        5.75.dp
+    }
+
     Box(
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -374,6 +385,7 @@ private fun ProcessTimelineStep(
                             arguments = parsedArguments,
                             content = null,
                             metadata = null,
+                            images = emptyList(),
                             onOpenToolPreview = onOpenToolPreview,
                             loading = loading,
                         )
@@ -386,6 +398,7 @@ private fun ProcessTimelineStep(
                             arguments = part.arguments,
                             content = part.content,
                             metadata = part.metadata,
+                            images = part.images,
                             onOpenToolPreview = onOpenToolPreview,
                             loading = false,
                         )
@@ -424,7 +437,7 @@ private fun ProcessTimelineStep(
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
-                        .padding(top = 5.75.dp)
+                        .padding(top = timelineIconTopPadding)
                         .size(14.dp),
                 )
                 if (!isLast) {
@@ -673,6 +686,7 @@ private fun CompactToolTimelineItem(
     arguments: JsonElement,
     content: JsonElement?,
     metadata: JsonObject?,
+    images: List<ToolResultImage>,
     onOpenToolPreview: (toolCallId: String, toolName: String, hasResult: Boolean) -> Unit,
     loading: Boolean,
 ) {
@@ -714,11 +728,26 @@ private fun CompactToolTimelineItem(
                     color = MaterialTheme.colorScheme.secondary,
                 )
             } else {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    images.firstOrNull()?.let { image ->
+                        ZoomableAsyncImage(
+                            model = image.url,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(MaterialTheme.shapes.small),
+                            onClick = { haptics.perform(HapticPattern.Pop) },
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         },
         onClick = {

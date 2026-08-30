@@ -38,6 +38,8 @@ import me.rerere.rikkahub.data.db.entity.workspaceToolNames
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.TextFilePreviewResult
 import me.rerere.rikkahub.utils.readTextFilePreview
+import me.rerere.rikkahub.utils.createChatUploadFile
+import me.rerere.ai.ui.ToolResultImage
 import me.rerere.rikkahub.workspace.SANDBOX_MAX_READ_BYTES
 import me.rerere.rikkahub.workspace.SANDBOX_UPLOAD_MOUNT_TARGET
 import me.rerere.rikkahub.workspace.SandboxCommandResult
@@ -710,6 +712,65 @@ class WorkspaceRepository(
         val resolved = resolveSandboxMount(dao.getSandboxMounts(id), normalized)
         if (resolved == null) sandboxManager.readText(id, normalized)
         else sandboxManager.readExternalText(mountSourceFile(resolved.mount), resolved.relativePath)
+    }
+
+    /**
+     * 从沙盒工作区或本轮 /upload 读取受限原始字节，供读文件工具识别图片使用。
+     * 不对字节做解码或转码；超过上限会抛出可由工具转换为结构化错误的异常。
+     */
+    suspend fun readSandboxFileBytes(
+        id: String,
+        path: String,
+        conversationId: String? = null,
+        maxBytes: Long = SANDBOX_MAX_READ_BYTES,
+    ): ByteArray = withContext(Dispatchers.IO) {
+        require(maxBytes in 1..Int.MAX_VALUE.toLong()) { "Invalid maximum read size" }
+        requireSandbox(id)
+        if (path == SANDBOX_UPLOAD_MOUNT_TARGET || path.startsWith("$SANDBOX_UPLOAD_MOUNT_TARGET/")) {
+            check(!conversationId.isNullOrBlank()) { "No conversation upload directory is mounted" }
+            val uploadRelative = path.removePrefix(SANDBOX_UPLOAD_MOUNT_TARGET).removePrefix("/")
+            val uploadDir = context.chatUploadDir(conversationId)
+            val file = uploadDir.resolve(normalizeWorkspaceRelativePath(uploadRelative))
+            check(file.isFile) { "File not found: $path" }
+            val canonicalFile = file.canonicalFile
+            val canonicalRoot = uploadDir.canonicalFile
+            check(canonicalFile.path.startsWith("${canonicalRoot.path}${File.separator}")) {
+                "File escapes the upload directory: $path"
+            }
+            check(file.length() <= maxBytes) { "File is too large to read: $path" }
+            return@withContext file.readBytes()
+        }
+
+        val normalized = normalizeWorkspaceRelativePath(path)
+        val entry = resolveSandboxWorkspaceEntry(
+            manager = sandboxManager,
+            workspaceId = id,
+            mounts = dao.getSandboxMounts(id),
+            normalizedPath = normalized,
+            sourceForMount = ::mountSourceFile,
+        ) ?: error("File not found: $path")
+        check(!entry.isDirectory) { "Not a file: $path" }
+        check(entry.sizeBytes <= maxBytes) { "File is too large to read: $path" }
+        val output = ByteArrayOutputStream(entry.sizeBytes.toInt().coerceAtLeast(0))
+        exportSandboxFile(id, normalized, output)
+        output.toByteArray()
+    }
+
+    /** 将读到的图片作为会话托管副本保存，供历史、预览与模型请求共同使用。 */
+    suspend fun persistToolResultImage(
+        conversationId: String?,
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray,
+    ): ToolResultImage? = withContext(Dispatchers.IO) {
+        if (conversationId.isNullOrBlank() || bytes.size.toLong() > SANDBOX_MAX_READ_BYTES) return@withContext null
+        val saved = context.createChatUploadFile(conversationId, fileName) { output -> output.write(bytes) }
+            ?: return@withContext null
+        ToolResultImage(
+            url = saved.uri.toString(),
+            mimeType = mimeType,
+            fileName = saved.fileName,
+        )
     }
 
     suspend fun writeSandboxText(id: String, path: String, text: String, overwrite: Boolean): WorkspaceFileEntry =

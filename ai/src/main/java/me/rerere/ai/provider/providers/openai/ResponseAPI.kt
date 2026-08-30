@@ -28,6 +28,7 @@ import me.rerere.ai.core.parametersOrEmptyObject
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
+import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.registry.ModelRegistry
@@ -38,9 +39,11 @@ import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.WebSearchAction
 import me.rerere.ai.ui.WebSearchStatus
+import me.rerere.ai.ui.contentForModelInput
 import me.rerere.ai.util.configureClientWithProxy
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.encodeBase64
+import me.rerere.ai.util.encodeBase64ForToolResult
 import me.rerere.ai.util.HttpStatusException
 import me.rerere.ai.util.isLikelySsePayload
 import me.rerere.ai.util.KeyRoulette
@@ -100,7 +103,7 @@ class ResponseAPI(
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
 
-        if (BuildConfig.DEBUG) Log.i(TAG, "generateText: $requestBodyJson")
+        if (BuildConfig.DEBUG) Log.i(TAG, "generateText request body: ${requestBodyJson.length} chars")
 
         val response = client.configureClientWithProxy(providerSetting.proxy).newCall(request).await()
         if (!response.isSuccessful) {
@@ -156,7 +159,7 @@ class ResponseAPI(
             .build()
 
         // 请求体可能含 base64 附件（数 MB），发布版不写入日志
-        if (BuildConfig.DEBUG) Log.i(TAG, "streamText: $requestBodyJson")
+        if (BuildConfig.DEBUG) Log.i(TAG, "streamText request body: ${requestBodyJson.length} chars")
         val rawEventBuffer = StringBuilder()
         val streamState = ResponseStreamState()
 
@@ -328,7 +331,7 @@ class ResponseAPI(
             }
 
             // messages
-            put("input", buildMessages(messages))
+            put("input", buildMessages(messages, params.model))
 
             // reasoning
             if (params.model.abilities.contains(ModelAbility.REASONING)) {
@@ -404,7 +407,7 @@ class ResponseAPI(
         }.mergeCustomBody(params.customBody)
     }
 
-    private fun buildMessages(messages: List<UIMessage>) = buildJsonArray {
+    private fun buildMessages(messages: List<UIMessage>, model: Model) = buildJsonArray {
         messages
             .filter { message ->
                 message.role != MessageRole.SYSTEM && (
@@ -423,7 +426,32 @@ class ResponseAPI(
                         add(buildJsonObject {
                             put("type", "function_call_output")
                             put("call_id", result.toolCallId)
-                            put("output", json.encodeToString(result.content))
+                            val images = result.images.filter {
+                                it.includeInModel && Modality.IMAGE in model.inputModalities
+                            }
+                            if (images.isEmpty()) {
+                                put("output", json.encodeToString(result.contentForModelInput(model)))
+                            } else {
+                                putJsonArray("output") {
+                                    add(buildJsonObject {
+                                        put("type", "input_text")
+                                        put("text", json.encodeToString(result.contentForModelInput(model)))
+                                    })
+                                    images.forEach { image ->
+                                        image.encodeBase64ForToolResult().onSuccess { dataUrl ->
+                                            add(buildJsonObject {
+                                                put("type", "input_image")
+                                                put("image_url", dataUrl)
+                                            })
+                                        }.onFailure {
+                                            add(buildJsonObject {
+                                                put("type", "input_text")
+                                                put("text", "Image returned by this tool is no longer available.")
+                                            })
+                                        }
+                                    }
+                                }
+                            }
                         })
                     }
                     return@forEachIndexed

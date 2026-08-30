@@ -190,6 +190,7 @@ private data class ToolPreviewContent(
     val arguments: JsonElement,
     val content: JsonElement,
     val metadata: JsonObject?,
+    val images: List<me.rerere.ai.ui.ToolResultImage> = emptyList(),
     val hasResult: Boolean,
 )
 
@@ -315,6 +316,7 @@ private fun Conversation.findToolPreviewContent(key: String): ToolPreviewContent
             arguments = result.arguments,
             content = result.content,
             metadata = result.metadata,
+            images = result.images,
             hasResult = true,
         )
     }
@@ -331,6 +333,7 @@ private fun Conversation.findToolPreviewContent(key: String): ToolPreviewContent
         arguments = arguments,
         content = EmptyToolPreviewJson,
         metadata = null,
+        images = emptyList(),
         hasResult = false,
     )
 }
@@ -1468,6 +1471,7 @@ private fun SharedTransitionScope.ChatListNormal(
                 arguments = preview.arguments,
                 content = preview.content,
                 metadata = preview.metadata,
+                images = preview.images,
                 hasResult = preview.hasResult,
                 searchAgentSelectedTabStates = toolPreviewTabStates,
                 onDismissRequest = {

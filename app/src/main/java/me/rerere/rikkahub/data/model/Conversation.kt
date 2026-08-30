@@ -21,13 +21,14 @@ internal fun collectChatUploadFileUrls(messageNodes: List<MessageNode>): List<St
         .asSequence()
         .flatMap { node -> node.messages.asSequence() }
         .flatMap { message -> message.parts.asSequence() }
-        .mapNotNull { part ->
+        .flatMap { part ->
             when (part) {
-                is UIMessagePart.Image -> part.url
-                is UIMessagePart.Document -> part.url
-                is UIMessagePart.Video -> part.url
-                is UIMessagePart.Audio -> part.url
-                else -> null
+                is UIMessagePart.Image -> sequenceOf(part.url)
+                is UIMessagePart.Document -> sequenceOf(part.url)
+                is UIMessagePart.Video -> sequenceOf(part.url)
+                is UIMessagePart.Audio -> sequenceOf(part.url)
+                is UIMessagePart.ToolResult -> part.images.asSequence().map { it.url }
+                else -> emptySequence()
             }
         }
         .filter { url ->

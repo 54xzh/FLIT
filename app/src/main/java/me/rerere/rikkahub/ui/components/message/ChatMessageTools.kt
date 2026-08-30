@@ -106,11 +106,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.ui.AskUserState
 import me.rerere.ai.ui.ToolApprovalState
+import me.rerere.ai.ui.ToolResultImage
 import me.rerere.highlight.HighlightText
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
+import me.rerere.rikkahub.ui.components.richtext.ZoomableAsyncImage
 import me.rerere.rikkahub.ui.components.ui.Favicon
 import me.rerere.rikkahub.ui.components.ui.FaviconRow
 import me.rerere.rikkahub.ui.context.LocalNavController
@@ -680,6 +682,7 @@ internal fun ToolCallPreviewSheet(
     arguments: JsonElement,
     content: JsonElement,
     metadata: JsonObject? = null,
+    images: List<ToolResultImage> = emptyList(),
     toolCallId: String = "",
     hasResult: Boolean = true,
     searchAgentSelectedTabStates: SnapshotStateMap<String, Int>? = null,
@@ -1012,6 +1015,30 @@ internal fun ToolCallPreviewSheet(
                                     fontSize = 11.sp,
                                     modifier = Modifier.padding(12.dp)
                                 )
+                            }
+                        }
+
+                        if (images.isNotEmpty()) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.setting_page_message_toolbar_preview),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    images.forEach { image ->
+                                        ZoomableAsyncImage(
+                                            model = image.url,
+                                            contentDescription = null,
+                                            modifier = Modifier
+                                                .size(96.dp)
+                                                .clip(MaterialTheme.shapes.medium),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

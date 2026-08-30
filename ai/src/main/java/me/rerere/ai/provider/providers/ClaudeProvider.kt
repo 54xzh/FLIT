@@ -32,6 +32,7 @@ import me.rerere.ai.provider.ClaudePromptCacheTtl
 import me.rerere.ai.provider.ImageGenerationParams
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
+import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Provider
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
@@ -45,9 +46,11 @@ import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.contentForModelInput
 import me.rerere.ai.util.configureClientWithProxy
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.encodeBase64
+import me.rerere.ai.util.encodeBase64ForToolResult
 import me.rerere.ai.util.HttpStatusException
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.json
@@ -139,7 +142,7 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
 
-        if (BuildConfig.DEBUG) Log.i(TAG, "generateText: $requestBodyJson")
+        if (BuildConfig.DEBUG) Log.i(TAG, "generateText request body: ${requestBodyJson.length} chars")
 
         val response = client.configureClientWithProxy(providerSetting.proxy).newCall(request).await()
         if (!response.isSuccessful) {
@@ -215,12 +218,9 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
 
-        // 请求体可能含 base64 附件（数 MB），发布版不写入日志
+        // 请求体可能含 base64 附件（数 MB），任何构建类型都不写入日志。
         if (BuildConfig.DEBUG) {
-            Log.i(TAG, "streamText: $requestBodyJson")
-            requestBody["messages"]?.jsonArray?.forEach {
-                Log.i(TAG, "streamText: $it")
-            }
+            Log.i(TAG, "streamText request body: ${requestBodyJson.length} chars")
         }
         val rawEventBuffer = StringBuilder()
 
@@ -384,7 +384,12 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             put("model", params.model.modelId)
             put(
                 "messages",
-                buildMessages(messages, providerSetting.promptCaching, providerSetting.promptCacheTtl)
+                buildMessages(
+                    messages = messages,
+                    model = params.model,
+                    promptCaching = providerSetting.promptCaching,
+                    promptCacheTtl = providerSetting.promptCacheTtl,
+                )
             )
             put("max_tokens", params.maxTokens ?: 64_000)
 
@@ -488,6 +493,7 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
 
     private fun buildMessages(
         messages: List<UIMessage>,
+        model: Model,
         promptCaching: Boolean,
         promptCacheTtl: ClaudePromptCacheTtl
     ) = buildJsonArray {
@@ -502,7 +508,36 @@ class ClaudeProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                                 add(buildJsonObject {
                                     put("type", "tool_result")
                                     put("tool_use_id", result.toolCallId)
-                                    put("content", json.encodeToString(result.content))
+                                    val images = result.images.filter {
+                                        it.includeInModel && Modality.IMAGE in model.inputModalities
+                                    }
+                                    if (images.isEmpty()) {
+                                        put("content", json.encodeToString(result.contentForModelInput(model)))
+                                    } else {
+                                        putJsonArray("content") {
+                                            add(buildJsonObject {
+                                                put("type", "text")
+                                                put("text", json.encodeToString(result.contentForModelInput(model)))
+                                            })
+                                            images.forEach { image ->
+                                                image.encodeBase64ForToolResult(withPrefix = false).onSuccess { data ->
+                                                    add(buildJsonObject {
+                                                        put("type", "image")
+                                                        put("source", buildJsonObject {
+                                                            put("type", "base64")
+                                                            put("media_type", image.mimeType)
+                                                            put("data", data)
+                                                        })
+                                                    })
+                                                }.onFailure {
+                                                    add(buildJsonObject {
+                                                        put("type", "text")
+                                                        put("text", "An image returned by this tool is no longer available.")
+                                                    })
+                                                }
+                                            }
+                                        }
+                                    }
                                 })
                             }
                         })

@@ -17,16 +17,17 @@ suspend fun createSandboxWorkspaceTools(
     workspaceId: String,
     workspaceRepository: WorkspaceRepository,
     conversationId: String? = null,
+    enableConversationUploads: Boolean = true,
 ): List<Tool> {
     val overrides = workspaceRepository.getById(workspaceId)?.toolApprovalOverrides().orEmpty()
     fun approval(name: String): Boolean = overrides[name] ?: toolDefaultNeedsApproval(name)
     // 无会话上下文（如定时任务）时不会挂载 /upload，描述里不宣传它，避免模型调用后报错
-    val hasUploads = !conversationId.isNullOrBlank()
+    val hasUploads = enableConversationUploads && !conversationId.isNullOrBlank()
     return listOf(
         sandboxReadTool(workspaceId, workspaceRepository, conversationId, hasUploads, ::approval),
         sandboxWriteTool(workspaceId, workspaceRepository, ::approval),
         sandboxEditTool(workspaceId, workspaceRepository, ::approval),
-        sandboxShellTool(workspaceId, workspaceRepository, conversationId, ::approval),
+        sandboxShellTool(workspaceId, workspaceRepository, conversationId.takeIf { hasUploads }, ::approval),
     )
 }
 
@@ -38,7 +39,7 @@ private fun sandboxReadTool(
     approval: (String) -> Boolean,
 ) = Tool(
     name = "sandbox_read_file",
-    description = "Read a UTF-8 file in the persistent sandbox. The path must be absolute under /workspace" +
+    description = "Read a UTF-8 file or a JPEG, PNG, GIF, or WebP image (up to 8 MiB) in the persistent sandbox. The path must be absolute under /workspace" +
         if (hasUploads) ", or under /upload for files the user uploaded in this conversation." else ".",
     parameters = {
         InputSchema.Obj(properties = buildJsonObject { putSandboxPath(required = true) }, required = listOf("path"))
@@ -46,17 +47,63 @@ private fun sandboxReadTool(
     requiresUserApproval = approval("sandbox_read_file"),
     systemPrompt = { _, _ -> SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE },
     execute = { args ->
-        val path = args.jsonObject.sandboxReadPath("path")
-        buildJsonObject {
-            put("path", path)
-            put(
-                "text",
-                if (path.startsWith("/upload")) {
-                    repository.readSandboxText(id, path, conversationId)
-                } else {
-                    repository.readSandboxText(id, path.removePrefix("/workspace/").removePrefix("/workspace"))
-                }
+        val path = args.jsonObject.sandboxReadPath("path", hasUploads)
+        val relativePath = path.removePrefix("/workspace/").removePrefix("/workspace")
+        val sourceName = path.substringAfterLast('/').ifBlank { "image" }
+        runCatching {
+            val bytes = repository.readSandboxFileBytes(
+                id = id,
+                path = if (path.startsWith("/upload")) path else relativePath,
+                conversationId = conversationId.takeIf { hasUploads },
+                maxBytes = WORKSPACE_TOOL_IMAGE_MAX_BYTES,
             )
+            val imageType = detectWorkspaceImageType(bytes)
+            when {
+                imageType != null -> {
+                    val image = repository.persistToolResultImage(
+                        conversationId = conversationId,
+                        fileName = sourceName,
+                        mimeType = imageType.mimeType,
+                        bytes = bytes,
+                    ) ?: return@runCatching workspaceToolImageError(
+                        path,
+                        "image_materialization_failed",
+                        "Failed to prepare the image for this conversation: $path",
+                    )
+                    buildJsonObject {
+                        put("ok", true)
+                        put("path", path)
+                        put("kind", "image")
+                        put("mime_type", imageType.mimeType)
+                        put("bytes", bytes.size)
+                    }.withToolResultImages(listOf(image))
+                }
+
+                isWorkspaceImageFileName(sourceName) -> workspaceToolImageError(
+                    path,
+                    "unsupported_image_format",
+                    "The image file is invalid or uses an unsupported format: $path",
+                )
+
+                else -> buildJsonObject {
+                    put("path", path)
+                    put("text", bytes.toString(Charsets.UTF_8))
+                }
+            }
+        }.getOrElse { error ->
+            if (isWorkspaceImageFileName(sourceName) && error.message?.contains("too large", ignoreCase = true) == true) {
+                workspaceToolImageError(
+                    path,
+                    "image_too_large",
+                    "Image is larger than the 8 MiB limit: $path",
+                )
+            } else {
+                buildJsonObject {
+                    put("ok", false)
+                    put("path", path)
+                    put("error", error.message ?: "Failed to read file: $path")
+                }
+            }
         }
     },
 )
@@ -180,10 +227,10 @@ private fun JsonObject.sandboxPath(name: String): String {
 }
 
 /** 读文件工具专用：除 /workspace 外还接受会话上传目录 /upload（写工具仍只允许 /workspace）。 */
-private fun JsonObject.sandboxReadPath(name: String): String {
+private fun JsonObject.sandboxReadPath(name: String, hasUploads: Boolean): String {
     val path = string(name)?.trim() ?: error("$name is required")
     val allowed = path == "/workspace" || path.startsWith("/workspace/") ||
-        path == "/upload" || path.startsWith("/upload/")
+        (hasUploads && (path == "/upload" || path.startsWith("/upload/")))
     require(allowed) { "$name must be inside /workspace or /upload" }
     require(!path.contains('\u0000')) { "$name contains an invalid character" }
     return path
@@ -196,6 +243,7 @@ internal const val SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE = """
 You are using a persistent Linux sandbox. Sandbox file tools accept absolute paths under /workspace, and sandbox_read_file also accepts /upload paths.
 /upload contains the files the user uploaded in this conversation. It is read-only input: read files from it, but never modify or delete them, and put any outputs under /workspace.
 If a task requires editing an uploaded file, first copy it into /workspace (e.g. cp /upload/report.docx /workspace/report.docx) and edit the copy there.
+sandbox_read_file reads UTF-8 text and JPEG, PNG, GIF, or WebP images up to 8 MiB. If it reports that the current model does not support image input, explain the limitation instead of retrying the same image; the user can switch to an image-capable model and ask again.
 Use sandbox_shell for commands. The shell can write /workspace, /skills and /tool_outputs; treat /upload as read-only even though the shell can see it.
 Mounted phone folders under /workspace are live and writable; changes affect the original phone files.
 

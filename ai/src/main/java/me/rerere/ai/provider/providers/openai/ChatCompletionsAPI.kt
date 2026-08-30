@@ -39,10 +39,12 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.contentForModelInput
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureClientWithProxy
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.encodeBase64
+import me.rerere.ai.util.encodeBase64ForToolResult
 import me.rerere.ai.util.HttpStatusException
 import me.rerere.ai.util.isLikelySsePayload
 import me.rerere.ai.util.json
@@ -95,7 +97,7 @@ class ChatCompletionsAPI(
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
 
-        if (BuildConfig.DEBUG) Log.i(TAG, "generateText: $requestBodyJson")
+        if (BuildConfig.DEBUG) Log.i(TAG, "generateText request body: ${requestBodyJson.length} chars")
 
         val response = proxyClient.newCall(request).await()
         if (!response.isSuccessful) {
@@ -185,7 +187,7 @@ class ChatCompletionsAPI(
             .build()
 
         // 请求体可能含 base64 附件（数 MB），发布版不写入日志
-        if (BuildConfig.DEBUG) Log.i(TAG, "streamText: $requestBodyJson")
+        if (BuildConfig.DEBUG) Log.i(TAG, "streamText request body: ${requestBodyJson.length} chars")
 
         // just for debugging response body
         // println(client.newCall(request).await().body?.string())
@@ -350,7 +352,7 @@ class ChatCompletionsAPI(
         val host = providerSetting.baseUrl.toHttpUrl().host
         return buildJsonObject {
             put("model", params.model.modelId)
-            put("messages", buildMessages(messages, params.model.modelId))
+            put("messages", buildMessages(messages, params.model))
 
             if (isModelAllowTemperature(params.model)) {
                 if (params.temperature != null) put("temperature", params.temperature)
@@ -420,8 +422,9 @@ class ChatCompletionsAPI(
 
     private fun buildMessages(
         messages: List<UIMessage>,
-        modelId: String
+        model: Model,
     ) = buildJsonArray {
+        val modelId = model.modelId
         val lastUserMessageIndex = messages.indexOfLast { it.role == MessageRole.USER }
         val requireReasoningContentForToolCalls =
             modelId.contains("deepseek", ignoreCase = true) ||
@@ -460,8 +463,39 @@ class ChatCompletionsAPI(
                             put("role", "tool")
                             put("name", result.toolName)
                             put("tool_call_id", result.toolCallId)
-                            put("content", json.encodeToString(result.content))
+                            put("content", json.encodeToString(result.contentForModelInput(model)))
                         })
+                        val images = result.images.filter {
+                            it.includeInModel && Modality.IMAGE in model.inputModalities
+                        }
+                        if (images.isNotEmpty()) {
+                            add(buildJsonObject {
+                                put("role", "user")
+                                putJsonArray("content") {
+                                    add(buildJsonObject {
+                                        put("type", "text")
+                                        put(
+                                            "text",
+                                            "Images returned by ${result.toolName} (${result.toolCallId}): " +
+                                                images.joinToString { it.fileName },
+                                        )
+                                    })
+                                    images.forEach { image ->
+                                        image.encodeBase64ForToolResult().onSuccess { dataUrl ->
+                                            add(buildJsonObject {
+                                                put("type", "image_url")
+                                                put("image_url", buildJsonObject { put("url", dataUrl) })
+                                            })
+                                        }.onFailure {
+                                            add(buildJsonObject {
+                                                put("type", "text")
+                                                put("text", "An image returned by this tool is no longer available.")
+                                            })
+                                        }
+                                    }
+                                }
+                            })
+                        }
                     }
                     return@forEachIndexed
                 }

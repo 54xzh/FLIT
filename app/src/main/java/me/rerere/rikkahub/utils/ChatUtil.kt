@@ -15,6 +15,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.Screen
 import java.io.File
+import java.io.OutputStream
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.uuid.Uuid
@@ -217,6 +218,22 @@ fun Context.createChatUploadFile(
     sourceUri: Uri,
     desiredName: String? = null,
 ): ChatFileUploadResult? {
+    return createChatUploadFile(
+        conversationId = conversationId,
+        desiredName = desiredName?.takeIf { it.isNotBlank() } ?: getFileNameFromUri(sourceUri) ?: "file",
+    ) { output ->
+        contentResolver.openInputStream(sourceUri)?.use { input ->
+            input.copyTo(output)
+        } ?: error("Unable to open input stream for $sourceUri")
+    }
+}
+
+/** 将已受控读取的内容保存为会话托管文件，避免再次读取或改写工作区源文件。 */
+fun Context.createChatUploadFile(
+    conversationId: String,
+    desiredName: String,
+    writeTo: (OutputStream) -> Unit,
+): ChatFileUploadResult? {
     // 会话 id 必须是合法 UUID，防止借 `../` 等做路径穿越
     val safeId = runCatching { Uuid.parse(conversationId) }.getOrNull()?.toString() ?: return null
     val dir = File(filesDir.resolve("chat_uploads"), safeId)
@@ -225,19 +242,15 @@ fun Context.createChatUploadFile(
     }
     val fileName = dedupeUploadFileName(
         dir,
-        sanitizeChatUploadFileName(desiredName?.takeIf { it.isNotBlank() } ?: getFileNameFromUri(sourceUri) ?: "file"),
+        sanitizeChatUploadFileName(desiredName),
     )
     val file = dir.resolve(fileName)
     return runCatching {
-        contentResolver.openInputStream(sourceUri)?.use { inputStream ->
-            file.outputStream().use { outputStream ->
-                inputStream.copyTo(outputStream)
-            }
-        } ?: error("Unable to open input stream for $sourceUri")
+        file.outputStream().use(writeTo)
         ChatFileUploadResult(file.toUri(), fileName)
     }.onFailure {
         it.printStackTrace()
-        Log.e(TAG, "createChatUploadFile: Failed to save file from $sourceUri", it)
+        Log.e(TAG, "createChatUploadFile: Failed to save file", it)
         runCatching { if (file.exists()) file.delete() }
     }.getOrNull()
 }

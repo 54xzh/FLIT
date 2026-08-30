@@ -3,12 +3,18 @@ package me.rerere.ai.ui
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.Modality
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -89,6 +95,46 @@ class MessageMetadataTest {
         )
         val restored = json.decodeFromString<UIMessagePart>(json.encodeToString(part))
         assertEquals("ts-1", restored.metadataAs<GoogleThoughtMetadata>()?.thoughtSignature)
+    }
+
+    @Test
+    fun `old tool result deserializes with an empty image list`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val legacy = UIMessagePart.ToolResult(
+            toolCallId = "call",
+            toolName = "read",
+            content = JsonPrimitive("ok"),
+            arguments = JsonObject(emptyMap()),
+        )
+        val serialized = json.encodeToJsonElement(UIMessagePart.serializer(), legacy).jsonObject
+        val restored = json.decodeFromJsonElement(
+            UIMessagePart.serializer(),
+            JsonObject(serialized.filterKeys { it != "images" }),
+        ) as UIMessagePart.ToolResult
+
+        assertTrue(restored.images.isEmpty())
+    }
+
+    @Test
+    fun `text model receives a stable image capability error without changing stored result`() {
+        val result = UIMessagePart.ToolResult(
+            toolCallId = "call",
+            toolName = "workspace_read_file",
+            content = buildJsonObject { put("ok", true) },
+            arguments = JsonObject(emptyMap()),
+            images = listOf(
+                ToolResultImage(
+                    url = "file:///chat_uploads/1/diagram.png",
+                    mimeType = "image/png",
+                    fileName = "diagram.png",
+                )
+            ),
+        )
+
+        val textContent = result.contentForModelInput(Model(inputModalities = listOf(Modality.TEXT))).jsonObject
+        assertEquals("model_image_input_unsupported", textContent["error_code"]?.jsonPrimitive?.content)
+        assertEquals(result.content, result.contentForModelInput(Model(inputModalities = listOf(Modality.TEXT, Modality.IMAGE))))
+        assertEquals(true, result.content.jsonObject["ok"]?.jsonPrimitive?.boolean)
     }
 
     @Test

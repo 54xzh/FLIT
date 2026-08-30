@@ -231,6 +231,7 @@ class ScheduledTaskWorker(
             assistant = assistantForRun,
             settingsSnapshot = settings,
             mode = WorkspaceToolExecutionMode.SCHEDULED,
+            conversationId = conversationId.toString(),
         )
         val tools = buildTools(
             taskId = task.id,

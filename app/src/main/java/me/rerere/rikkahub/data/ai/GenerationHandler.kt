@@ -35,6 +35,7 @@ import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.CustomBody
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
+import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Provider
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
@@ -46,6 +47,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.AskUserState
 import me.rerere.ai.ui.ToolApprovalState
+import me.rerere.ai.ui.ToolResultImage
 import me.rerere.ai.ui.UsedLorebookEntry
 import me.rerere.ai.ui.UsedMemory
 import me.rerere.ai.ui.UsedMemorySummary
@@ -64,6 +66,7 @@ import me.rerere.rikkahub.data.ai.tools.MEMORY_MANAGEMENT_TOOL_NAME
 import me.rerere.rikkahub.data.ai.tools.SESSION_MEMORY_CONTEXT_VARIABLE
 import me.rerere.rikkahub.data.ai.tools.SESSION_MEMORY_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE
 import me.rerere.rikkahub.data.ai.tools.SESSION_MEMORY_MANAGEMENT_TOOL_NAME
+import me.rerere.rikkahub.data.ai.tools.TOOL_RESULT_IMAGES_KEY
 import me.rerere.rikkahub.data.ai.tools.renderConfiguredToolSystemPrompt
 import me.rerere.rikkahub.data.ai.tools.renderConfiguredSystemPrompt
 import me.rerere.rikkahub.data.ai.transformers.InputMessageTransformer
@@ -835,11 +838,23 @@ class GenerationHandler(
                     }
 
                     val toolOutput = result.extractToolResultMetadata()
+                    val modelSupportsImages = Modality.IMAGE in model.inputModalities
+                    val resultImages = if (modelSupportsImages) {
+                        toolOutput.images
+                    } else {
+                        toolOutput.images.map { image -> image.copy(includeInModel = false) }
+                    }
+                    val resultContent = if (!modelSupportsImages && toolOutput.images.isNotEmpty()) {
+                        toolOutput.content.withImageModelUnsupportedError()
+                    } else {
+                        toolOutput.content
+                    }
                     results += UIMessagePart.ToolResult(
                         toolName = toolCall.toolName,
                         toolCallId = resolvedToolCallId,
-                        content = toolOutput.content,
+                        content = resultContent,
                         arguments = args,
+                        images = resultImages,
                         metadata = mergeToolResultMetadata(toolCall.metadata, toolOutput.metadata)
                     )
                 }.onFailure {
@@ -1916,14 +1931,37 @@ class GenerationHandler(
     private data class ToolExecutionOutput(
         val content: JsonElement,
         val metadata: JsonObject?,
+        val images: List<ToolResultImage>,
     )
 
     private fun JsonElement.extractToolResultMetadata(): ToolExecutionOutput {
-        val obj = this as? JsonObject ?: return ToolExecutionOutput(content = this, metadata = null)
+        val obj = this as? JsonObject ?: return ToolExecutionOutput(content = this, metadata = null, images = emptyList())
         val metadata = obj["_tool_result_metadata"] as? JsonObject
-            ?: return ToolExecutionOutput(content = this, metadata = null)
-        val content = JsonObject(obj.filterKeys { key -> key != "_tool_result_metadata" })
-        return ToolExecutionOutput(content = content, metadata = metadata)
+        val images = (obj[TOOL_RESULT_IMAGES_KEY] as? kotlinx.serialization.json.JsonArray)
+            ?.mapNotNull { image ->
+                runCatching { json.decodeFromJsonElement(ToolResultImage.serializer(), image) }.getOrNull()
+            }
+            .orEmpty()
+        if (metadata == null && images.isEmpty()) {
+            return ToolExecutionOutput(content = this, metadata = null, images = emptyList())
+        }
+        val content = JsonObject(
+            obj.filterKeys { key -> key != "_tool_result_metadata" && key != TOOL_RESULT_IMAGES_KEY },
+        )
+        return ToolExecutionOutput(content = content, metadata = metadata, images = images)
+    }
+
+    private fun JsonElement.withImageModelUnsupportedError(): JsonElement {
+        val original = this as? JsonObject ?: JsonObject(emptyMap())
+        return JsonObject(
+            original + mapOf(
+                "ok" to JsonPrimitive(false),
+                "error_code" to JsonPrimitive("model_image_input_unsupported"),
+                "error" to JsonPrimitive(
+                    "The current model does not support image input. Switch to an image-capable model and call the tool again.",
+                ),
+            ),
+        )
     }
 
     private fun mergeToolResultMetadata(

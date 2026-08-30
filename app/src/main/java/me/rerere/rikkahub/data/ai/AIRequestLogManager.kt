@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -422,6 +423,7 @@ private fun sanitizePartForLog(part: UIMessagePart, system: Boolean): UIMessageP
             toolName = part.toolName.truncateInline(120),
             content = part.content.truncateJsonForLog(REQUEST_LOG_MAX_JSON_ELEMENT_CHARS),
             arguments = part.arguments.truncateJsonForLog(REQUEST_LOG_MAX_JSON_ELEMENT_CHARS),
+            images = part.images.map { image -> image.copy(url = sanitizeUrlForLog(image.url)) },
             metadata = null,
         )
 
@@ -566,7 +568,7 @@ private fun JsonElement.maskSensitiveValues(): JsonElement {
         is JsonObject -> {
             JsonObject(
                 this.entries.associate { (key, value) ->
-                    if (key.isSensitiveName()) {
+                    if (key.isSensitiveName() || value.isLargeBinaryPayload(key)) {
                         key to JsonPrimitive(MASKED_VALUE)
                     } else {
                         key to value.maskSensitiveValues()
@@ -579,4 +581,11 @@ private fun JsonElement.maskSensitiveValues(): JsonElement {
 
         else -> this
     }
+}
+
+/** 请求体可能含图片 base64；日志只保留结构，绝不保留像素内容。 */
+private fun JsonElement.isLargeBinaryPayload(key: String): Boolean {
+    val text = (this as? JsonPrimitive)?.contentOrNull ?: return false
+    if (text.startsWith("data:", ignoreCase = true) && "base64," in text) return true
+    return key.lowercase() in setOf("data", "image_data", "file_data") && text.length > 128
 }

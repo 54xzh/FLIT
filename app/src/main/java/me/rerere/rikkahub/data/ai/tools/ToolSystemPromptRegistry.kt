@@ -494,8 +494,13 @@ fun workspaceToolSystemPromptTemplate(
         """.trimIndent()
 
         "workspace_read_file" -> """
+            ### images
+            - This tool can read JPEG, PNG, GIF, and WebP images up to 8 MiB as well as UTF-8 text files.
+            - If the result says the current model does not support image input, explain that limitation instead of retrying the same image; the user can switch to an image-capable model and ask again.
+
             ### examples
             - Read a file: {"path":"README.md"}
+            - Read an image: {"path":"assets/diagram.png"}
         """.trimIndent()
 
         "workspace_write_file" -> """

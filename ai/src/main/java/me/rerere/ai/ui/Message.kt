@@ -16,6 +16,7 @@ import me.rerere.ai.BuildConfig
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.Modality
 import me.rerere.ai.util.json
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -1215,6 +1216,7 @@ sealed class UIMessagePart {
         val toolName: String,
         val content: JsonElement,
         val arguments: JsonElement,
+        val images: List<ToolResultImage> = emptyList(),
         override var metadata: JsonObject? = null
     ) : UIMessagePart() {
         override val priority: Int = 0
@@ -1233,6 +1235,43 @@ sealed class UIMessagePart {
     ) : UIMessagePart() {
         override val priority: Int = -2
     }
+}
+
+/**
+ * 图片工具结果的本地副本。
+ *
+ * 工具结果本身只保存文件地址和元信息，不把 base64 二进制塞进会话数据库；各 provider
+ * 在组装请求时才按自身协议读取并编码。旧会话反序列化时 [UIMessagePart.ToolResult.images]
+ * 会使用默认空列表。
+ */
+@Serializable
+data class ToolResultImage(
+    val url: String,
+    val mimeType: String,
+    val fileName: String,
+    /** false 表示仅供界面预览（例如本次调用时模型不支持图片输入）。 */
+    val includeInModel: Boolean = true,
+)
+
+/**
+ * 在模型切换为纯文本输入时，保留原始会话数据和界面缩略图，但把发送给模型的结果改成
+ * 可识别的能力错误。这样再次切换回支持图片的模型时，仍可继续发送原图片。
+ */
+fun UIMessagePart.ToolResult.contentForModelInput(model: Model): JsonElement {
+    if (images.isEmpty() || Modality.IMAGE in model.inputModalities) return content
+    val objectContent = content as? JsonObject ?: JsonObject(emptyMap())
+    if (objectContent["error_code"]?.jsonPrimitive?.contentOrNull == "model_image_input_unsupported") {
+        return objectContent
+    }
+    return JsonObject(
+        objectContent + mapOf(
+            "ok" to JsonPrimitive(false),
+            "error_code" to JsonPrimitive("model_image_input_unsupported"),
+            "error" to JsonPrimitive(
+                "The current model does not support image input. Switch to an image-capable model to inspect this image.",
+            ),
+        ),
+    )
 }
 
 @Serializable
