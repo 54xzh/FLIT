@@ -1719,7 +1719,7 @@ private fun MemorySummaryVersionsList(
             val isActive = version == versions.first()
             Surface(
                 onClick = { onOpen(version) },
-                color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 shape = RoundedCornerShape(20.dp),
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1831,7 +1831,7 @@ private fun MemoryItem(
     
     Surface(
         onClick = { onEditMemory(memory) },
-        color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(
             topStart = topCorner,
             topEnd = topCorner,
