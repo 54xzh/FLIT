@@ -148,6 +148,21 @@ private val parser by lazy {
     MarkdownParser(flavour)
 }
 
+@Immutable
+data class MarkdownVersionDiffStyle(
+    val insertedText: Color,
+    val insertedBackground: Color,
+    val deletedText: Color,
+    val deletedBackground: Color,
+)
+
+val LocalMarkdownVersionDiffStyle = compositionLocalOf<MarkdownVersionDiffStyle?> { null }
+
+internal object MarkdownVersionDiffMarkers {
+    const val INSERT_START = "\uE000"
+    const val INSERT_END = "\uE001"
+}
+
 private val INLINE_LATEX_REGEX = Regex("\\\\\\((.+?)\\\\\\)")
 private val BLOCK_LATEX_REGEX = Regex("\\\\\\[(.+?)\\\\\\]", RegexOption.DOT_MATCHES_ALL)
 // Matches <think>...</think> or <thinking>...</thinking> with optional closing tag
@@ -327,9 +342,25 @@ private fun computePatternRegexes(rpStyleRules: List<RpStyleRule>): List<Pattern
  */
 private fun AnnotatedString.Builder.appendTextWithCustomPatterns(
     text: String,
-    rpStyleRules: List<RpStyleRule>
+    rpStyleRules: List<RpStyleRule>,
+    versionDiffStyle: MarkdownVersionDiffStyle? = null,
 ) {
-    val patternRegexes = buildPatternRegexes(rpStyleRules)
+    val patternRegexes = buildPatternRegexes(rpStyleRules) +
+        versionDiffStyle?.let { style ->
+            listOf(
+                PatternRegexStyle(
+                    regex = Regex(
+                        "${Regex.escape(MarkdownVersionDiffMarkers.INSERT_START)}(.+?)" +
+                            Regex.escape(MarkdownVersionDiffMarkers.INSERT_END),
+                        setOf(RegexOption.DOT_MATCHES_ALL),
+                    ),
+                    style = SpanStyle(
+                        color = style.insertedText,
+                        background = style.insertedBackground,
+                    ),
+                ),
+            )
+        }.orEmpty()
     
     if (patternRegexes.isEmpty()) {
         append(text)
@@ -397,6 +428,7 @@ private fun AnnotatedString.Builder.appendInlineChildrenWithFallback(
     onClickCitation: (String) -> Unit,
     onClickWorkspaceFile: (String) -> Unit = {},
     rpStyleRules: List<RpStyleRule>,
+    versionDiffStyle: MarkdownVersionDiffStyle? = null,
 ) {
     val textBuffer = StringBuilder()
 
@@ -406,7 +438,7 @@ private fun AnnotatedString.Builder.appendInlineChildrenWithFallback(
             .toString()
             .let { source -> if (trim) source.trim() else source }
             .replace(BREAK_LINE_REGEX, "\n")
-        appendTextWithCustomPatterns(text, rpStyleRules)
+        appendTextWithCustomPatterns(text, rpStyleRules, versionDiffStyle)
         textBuffer.clear()
     }
 
@@ -425,7 +457,8 @@ private fun AnnotatedString.Builder.appendInlineChildrenWithFallback(
                 style = style,
                 onClickCitation = onClickCitation,
                 onClickWorkspaceFile = onClickWorkspaceFile,
-                rpStyleRules = rpStyleRules
+                rpStyleRules = rpStyleRules,
+                versionDiffStyle = versionDiffStyle,
             )
         }
     }
@@ -1389,8 +1422,12 @@ private fun MarkdownNode(
 
         // GFM 特殊元素
         GFMElementTypes.STRIKETHROUGH -> {
+            val diffStyle = LocalMarkdownVersionDiffStyle.current
             Text(
-                text = node.getTextInNode(content), textDecoration = TextDecoration.LineThrough, modifier = modifier
+                text = node.getTextInNode(content),
+                color = diffStyle?.deletedText ?: Color.Unspecified,
+                textDecoration = TextDecoration.LineThrough,
+                modifier = if (diffStyle == null) modifier else modifier.background(diffStyle.deletedBackground),
             )
         }
 
@@ -1954,6 +1991,7 @@ private fun Paragraph(
     val textStyle = LocalTextStyle.current
     val density = LocalDensity.current
     val rpStyleRules = LocalSettings.current.displaySetting.rpStyleRules
+    val versionDiffStyle = LocalMarkdownVersionDiffStyle.current
     val onClickWorkspaceFile = LocalWorkspaceFileLinkClick.current
     FlowRow(
         modifier = modifier.then(
@@ -1963,7 +2001,7 @@ private fun Paragraph(
     ) {
         // 以段落自身文本为 key：流式追加时只有正在变化的段落重建，其余段落直接复用缓存结果
         val paragraphText = node.getTextInNode(content)
-        val annotatedString = remember(paragraphText, rpStyleRules) {
+        val annotatedString = remember(paragraphText, rpStyleRules, versionDiffStyle) {
             buildAnnotatedString {
                 appendInlineChildrenWithFallback(
                     nodes = node.children,
@@ -1976,6 +2014,7 @@ private fun Paragraph(
                     onClickCitation = onClickCitation,
                     onClickWorkspaceFile = onClickWorkspaceFile,
                     rpStyleRules = rpStyleRules,
+                    versionDiffStyle = versionDiffStyle,
                 )
             }
         }
@@ -2057,6 +2096,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
     onClickCitation: (String) -> Unit = {},
     onClickWorkspaceFile: (String) -> Unit = {},
     rpStyleRules: List<RpStyleRule> = emptyList(),
+    versionDiffStyle: MarkdownVersionDiffStyle? = null,
 ) {
     when {
         node.type == MarkdownTokenTypes.BLOCK_QUOTE -> {}
@@ -2079,7 +2119,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                 }.replace(BREAK_LINE_REGEX, "\n")
             }
             // Use custom pattern scanning for plain text
-            appendTextWithCustomPatterns(text, rpStyleRules)
+            appendTextWithCustomPatterns(text, rpStyleRules, versionDiffStyle)
         }
 
         node.type == MarkdownElementTypes.EMPH -> {
@@ -2097,7 +2137,8 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                         style = style,
                         onClickCitation = onClickCitation,
                         onClickWorkspaceFile = onClickWorkspaceFile,
-                        rpStyleRules = rpStyleRules
+                        rpStyleRules = rpStyleRules,
+                        versionDiffStyle = versionDiffStyle,
                     )
                 }
             }
@@ -2118,7 +2159,8 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                         style = style,
                         onClickCitation = onClickCitation,
                         onClickWorkspaceFile = onClickWorkspaceFile,
-                        rpStyleRules = rpStyleRules
+                        rpStyleRules = rpStyleRules,
+                        versionDiffStyle = versionDiffStyle,
                     )
                 }
             }
@@ -2128,7 +2170,13 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
             // Check for RP color rule for pattern "~~" (strikethrough)
             val strikeRule = rpStyleRules.find { it.pattern == "~~" && it.enabled }
             val strikeColor = strikeRule?.let { runCatching { Color(android.graphics.Color.parseColor(it.colorHex)) }.getOrNull() }
-            withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = strikeColor ?: Color.Unspecified)) {
+            withStyle(
+                SpanStyle(
+                    textDecoration = TextDecoration.LineThrough,
+                    color = versionDiffStyle?.deletedText ?: strikeColor ?: Color.Unspecified,
+                    background = versionDiffStyle?.deletedBackground ?: Color.Unspecified,
+                ),
+            ) {
                 node.children.trim(GFMTokenTypes.TILDE, 2).fastForEach {
                     appendMarkdownNodeContent(
                         node = it,
@@ -2139,7 +2187,8 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                         style = style,
                         onClickCitation = onClickCitation,
                         onClickWorkspaceFile = onClickWorkspaceFile,
-                        rpStyleRules = rpStyleRules
+                        rpStyleRules = rpStyleRules,
+                        versionDiffStyle = versionDiffStyle,
                     )
                 }
             }
@@ -2270,7 +2319,8 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                     style = style,
                     onClickCitation = onClickCitation,
                     onClickWorkspaceFile = onClickWorkspaceFile,
-                    rpStyleRules = rpStyleRules
+                    rpStyleRules = rpStyleRules,
+                    versionDiffStyle = versionDiffStyle,
                 )
             }
         }

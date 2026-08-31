@@ -412,6 +412,7 @@ dependencies {
 
     // Apache Commons Text
     implementation(libs.commons.text)
+    implementation(libs.diff.match.patch)
 
     // Local Chinese word segmentation for keyword memory retrieval
     implementation(libs.jieba.analysis)

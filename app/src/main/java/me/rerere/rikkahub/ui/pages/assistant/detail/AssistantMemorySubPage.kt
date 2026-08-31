@@ -42,6 +42,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.CompareArrows
 import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
@@ -73,6 +74,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -87,10 +89,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import android.widget.Toast
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -109,6 +113,8 @@ import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 import me.rerere.rikkahub.data.repository.MemoryRetrievalHit
 import me.rerere.rikkahub.ui.components.ui.Select
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
+import me.rerere.rikkahub.ui.components.richtext.LocalMarkdownVersionDiffStyle
+import me.rerere.rikkahub.ui.components.richtext.MarkdownVersionDiffStyle
 import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.ui.theme.AppShapes
@@ -1875,7 +1881,12 @@ private fun MemorySummaryVersionsList(
 ) {
     var editingVersion by remember { mutableStateOf<MemorySummaryVersionEntity?>(null) }
     var deletingVersion by remember { mutableStateOf<MemorySummaryVersionEntity?>(null) }
+    var comparisonMarkdown by remember { mutableStateOf<String?>(null) }
     val haptics = rememberPremiumHaptics()
+    val context = LocalContext.current
+    val unchangedComparisonMessage = stringResource(
+        R.string.assistant_page_memory_summary_compare_unchanged,
+    )
     if (versions.isEmpty()) {
         Surface(
             color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1901,6 +1912,11 @@ private fun MemorySummaryVersionsList(
             )
         }
     }
+    val versionsOldestFirst = remember(versions) {
+        versions.sortedWith(
+            compareBy<MemorySummaryVersionEntity> { it.generatedAt }.thenBy { it.id },
+        )
+    }
     val listState = rememberLazyListState()
     LaunchedEffect(scrollToVersionId, sortedVersions) {
         val targetIndex = scrollToVersionId?.let { versionId ->
@@ -1919,6 +1935,8 @@ private fun MemorySummaryVersionsList(
     ) {
         items(sortedVersions, key = { it.id }) { version ->
             val isActive = version.id == activeVersionId
+            val previousVersion = versionsOldestFirst
+                .getOrNull(versionsOldestFirst.indexOfFirst { it.id == version.id } - 1)
             val position = groupedCardPosition(sortedVersions.indexOf(version), sortedVersions.size)
             val topCorner by animateDpAsState(
                 targetValue = when (position) {
@@ -2002,6 +2020,37 @@ private fun MemorySummaryVersionsList(
                             expanded = menuExpanded,
                             onDismissRequest = { menuExpanded = false },
                         ) {
+                            if (previousVersion != null) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            stringResource(
+                                                R.string.assistant_page_memory_summary_compare_versions,
+                                            ),
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.CompareArrows, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        haptics.perform(HapticPattern.Pop)
+                                        val diffMarkdown = buildMemorySummaryVersionDiffMarkdown(
+                                            previous = previousVersion.content,
+                                            current = version.content,
+                                        )
+                                        if (diffMarkdown == null) {
+                                            Toast.makeText(
+                                                context,
+                                                unchangedComparisonMessage,
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        } else {
+                                            comparisonMarkdown = diffMarkdown
+                                        }
+                                    },
+                                )
+                            }
                             if (!isActive) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.assistant_page_memory_summary_set_current)) },
@@ -2042,6 +2091,40 @@ private fun MemorySummaryVersionsList(
                                 )
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    comparisonMarkdown?.let { markdown ->
+        val sheetState = androidx.compose.material3.rememberModalBottomSheetState(
+            skipPartiallyExpanded = true,
+        )
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = { comparisonMarkdown = null },
+            sheetState = sheetState,
+            shape = AppShapes.BottomSheet,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 640.dp)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 16.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                SelectionContainer {
+                    CompositionLocalProvider(
+                        LocalMarkdownVersionDiffStyle provides MarkdownVersionDiffStyle(
+                            insertedText = MaterialTheme.colorScheme.onPrimaryContainer,
+                            insertedBackground = MaterialTheme.colorScheme.primaryContainer,
+                            deletedText = MaterialTheme.colorScheme.onErrorContainer,
+                            deletedBackground = MaterialTheme.colorScheme.errorContainer,
+                        ),
+                    ) {
+                        MarkdownBlock(content = markdown)
                     }
                 }
             }

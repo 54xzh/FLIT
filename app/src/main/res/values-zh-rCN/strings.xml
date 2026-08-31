@@ -2552,6 +2552,8 @@
     <string name="assistant_page_memory_summary_prompt_vars">变量：{current_date}、{previous_summary_section}、{memory_section}、{update_instructions}</string>
     <string name="assistant_page_memory_summary_empty">暂无记忆摘要。</string>
     <string name="assistant_page_memory_summary_set_current">设为当前版本</string>
+    <string name="assistant_page_memory_summary_compare_versions">版本对比</string>
+    <string name="assistant_page_memory_summary_compare_unchanged">与上一版本一致</string>
     <string name="assistant_page_memory_summary_edit_title">编辑记忆摘要</string>
     <string name="assistant_page_memory_summary_edit_hint">记忆摘要</string>
     <string name="assistant_page_memory_summary_delete_confirm">确定删除这个历史版本吗？此操作无法撤销。引用过它的消息仅保留简短预览。</string>
