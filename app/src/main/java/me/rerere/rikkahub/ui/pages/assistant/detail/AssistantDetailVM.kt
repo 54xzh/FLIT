@@ -7,7 +7,9 @@ import androidx.paging.cachedIn
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -39,6 +41,8 @@ import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 import me.rerere.rikkahub.data.repository.MemoryRetrievalHit
 import me.rerere.rikkahub.data.repository.MemoryRetrievalRequest
 import me.rerere.rikkahub.data.repository.MemoryRetrievalService
+import me.rerere.rikkahub.service.MemorySummaryRequirementChangeResult
+import me.rerere.rikkahub.service.MemorySummaryRequirementChangeService
 import me.rerere.rikkahub.utils.deleteChatFiles
 import kotlin.uuid.Uuid
 
@@ -55,7 +59,7 @@ class AssistantDetailVM(
     private val conversationRepository: me.rerere.rikkahub.data.repository.ConversationRepository,
     private val context: Application,
     private val chatEpisodeDAO: ChatEpisodeDAO,
-    private val providerManager: me.rerere.ai.provider.ProviderManager,
+    private val memorySummaryRequirementChangeService: MemorySummaryRequirementChangeService,
 ) : ViewModel() {
     private val assistantId = Uuid.parse(id)
     private val memoryConsolidationScheduler = MemoryConsolidationScheduler(context)
@@ -119,6 +123,88 @@ class AssistantDetailVM(
     val memorySummaryVersions: StateFlow<List<MemorySummaryVersionEntity>> = memorySummaryRepository
         .observeVersions(assistantId.toString())
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    private val _memorySummaryRequirement = MutableStateFlow("")
+    val memorySummaryRequirement = _memorySummaryRequirement.asStateFlow()
+
+    private val _isMemorySummaryRequirementChangeRunning = MutableStateFlow(false)
+    val isMemorySummaryRequirementChangeRunning = _isMemorySummaryRequirementChangeRunning.asStateFlow()
+
+    private val _memorySummaryRequirementChangeSuccessEvent = MutableStateFlow(0)
+    val memorySummaryRequirementChangeSuccessEvent = _memorySummaryRequirementChangeSuccessEvent.asStateFlow()
+
+    private val _latestMemorySummaryRequirementChangeVersionId = MutableStateFlow<Long?>(null)
+    val latestMemorySummaryRequirementChangeVersionId =
+        _latestMemorySummaryRequirementChangeVersionId.asStateFlow()
+
+    private var memorySummaryRequirementChangeJob: Job? = null
+
+    fun updateMemorySummaryRequirement(requirement: String) {
+        if (!_isMemorySummaryRequirementChangeRunning.value) {
+            _memorySummaryRequirement.value = requirement
+        }
+    }
+
+    fun submitMemorySummaryRequirementChange() {
+        val requirement = _memorySummaryRequirement.value.trim()
+        if (requirement.isEmpty() || _isMemorySummaryRequirementChangeRunning.value) return
+        memorySummaryRequirementChangeJob = viewModelScope.launch {
+            _isMemorySummaryRequirementChangeRunning.value = true
+            try {
+                when (val result = memorySummaryRequirementChangeService.revise(
+                    assistantId = assistantId.toString(),
+                    requirement = requirement,
+                )) {
+                    is MemorySummaryRequirementChangeResult.SUCCESS -> {
+                        _memorySummaryRequirement.value = ""
+                        _latestMemorySummaryRequirementChangeVersionId.value = result.versionId
+                        _memorySummaryRequirementChangeSuccessEvent.value += 1
+                        _snackbarMessage.value = context.getString(
+                            R.string.assistant_page_memory_summary_requirement_change_saved,
+                        )
+                    }
+
+                    MemorySummaryRequirementChangeResult.NO_ACTIVE_VERSION -> {
+                        _snackbarMessage.value = context.getString(
+                            R.string.assistant_page_memory_summary_version_not_found,
+                        )
+                    }
+
+                    MemorySummaryRequirementChangeResult.MODEL_NOT_CONFIGURED -> {
+                        _snackbarMessage.value = context.getString(
+                            R.string.assistant_page_memory_summary_requirement_change_model_missing,
+                        )
+                    }
+
+                    MemorySummaryRequirementChangeResult.UNCHANGED_CONTENT -> {
+                        _snackbarMessage.value = context.getString(
+                            R.string.assistant_page_memory_summary_requirement_change_unchanged,
+                        )
+                    }
+
+                    MemorySummaryRequirementChangeResult.STALE_ACTIVE_VERSION -> {
+                        _snackbarMessage.value = context.getString(
+                            R.string.assistant_page_memory_summary_requirement_change_stale,
+                        )
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                Log.e(TAG, "Failed to change memory summary from requirement", error)
+                _snackbarMessage.value = context.getString(
+                    R.string.assistant_page_memory_summary_requirement_change_failed,
+                )
+            } finally {
+                _isMemorySummaryRequirementChangeRunning.value = false
+                memorySummaryRequirementChangeJob = null
+            }
+        }
+    }
+
+    fun cancelMemorySummaryRequirementChange() {
+        memorySummaryRequirementChangeJob?.cancel()
+    }
 
     val isManualMemoryConsolidationRunning: StateFlow<Boolean> = memoryConsolidationScheduler
         .observeFullScan(assistantId.toString())
@@ -564,7 +650,8 @@ class AssistantDetailVM(
                     _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_content_unchanged)
                 }
 
-                MemorySummaryVersionOperationResult.CANNOT_DELETE_ACTIVE -> Unit
+                MemorySummaryVersionOperationResult.CANNOT_DELETE_ACTIVE,
+                MemorySummaryVersionOperationResult.STALE_ACTIVE_VERSION -> Unit
             }
         }
     }

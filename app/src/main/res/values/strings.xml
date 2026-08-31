@@ -2642,5 +2642,16 @@
     <string name="assistant_page_memory_summary_update_started">Memory summary update started</string>
     <string name="assistant_page_memory_summary_full_update_started">Memory summary full update started</string>
     <string name="assistant_page_memory_summary_rebuild_started">Memory summary full rebuild started</string>
+    <string name="assistant_page_memory_summary_mode_requirement_change">Requirement change</string>
+    <string name="assistant_page_memory_summary_requirement_change_hint">Enter change request</string>
+    <string name="assistant_page_memory_summary_requirement_change_send">Submit summary change request</string>
+    <string name="assistant_page_memory_summary_requirement_change_processing_title">Generating a new summary</string>
+    <string name="assistant_page_memory_summary_requirement_change_processing_desc">Generating a new summary</string>
+    <string name="assistant_page_memory_summary_requirement_change_saved">Memory summary updated</string>
+    <string name="assistant_page_memory_summary_requirement_change_model_missing">Set up a summary, background, or chat model first.</string>
+    <string name="assistant_page_memory_summary_requirement_change_unchanged">The summary did not change.</string>
+    <string name="assistant_page_memory_summary_requirement_change_stale">The current summary changed. Submit your request again.</string>
+    <string name="assistant_page_memory_summary_requirement_change_failed">Failed to update memory summary. Try again later.</string>
     <string name="request_log_source_memory_summary">Memory Summary</string>
+    <string name="request_log_source_memory_summary_requirement_change">Memory Summary Requirement Change</string>
 </resources>

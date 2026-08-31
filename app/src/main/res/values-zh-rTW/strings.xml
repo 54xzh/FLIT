@@ -2632,5 +2632,16 @@
     <string name="assistant_page_memory_summary_update_started">已開始更新記憶摘要</string>
     <string name="assistant_page_memory_summary_full_update_started">已開始全量更新記憶摘要</string>
     <string name="assistant_page_memory_summary_rebuild_started">已開始全量重建記憶摘要</string>
+    <string name="assistant_page_memory_summary_mode_requirement_change">要求變更</string>
+    <string name="assistant_page_memory_summary_requirement_change_hint">輸入修改要求</string>
+    <string name="assistant_page_memory_summary_requirement_change_send">提交摘要修改要求</string>
+    <string name="assistant_page_memory_summary_requirement_change_processing_title">正在產生新的摘要</string>
+    <string name="assistant_page_memory_summary_requirement_change_processing_desc">正在產生新的摘要</string>
+    <string name="assistant_page_memory_summary_requirement_change_saved">記憶摘要已更新</string>
+    <string name="assistant_page_memory_summary_requirement_change_model_missing">請先設定摘要模型、背景模型或聊天模型。</string>
+    <string name="assistant_page_memory_summary_requirement_change_unchanged">摘要沒有發生變化。</string>
+    <string name="assistant_page_memory_summary_requirement_change_stale">目前摘要已發生變化，請重新提交修改要求。</string>
+    <string name="assistant_page_memory_summary_requirement_change_failed">修改記憶摘要失敗，請稍後再試。</string>
     <string name="request_log_source_memory_summary">記憶摘要</string>
+    <string name="request_log_source_memory_summary_requirement_change">記憶摘要要求變更</string>
 </resources>

@@ -21,6 +21,7 @@ import me.rerere.rikkahub.data.migration.SkillUuidMigration
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.service.AutoBackupScheduler
 import me.rerere.rikkahub.service.ModelNameGenerationService
+import me.rerere.rikkahub.service.MemorySummaryRequirementChangeService
 import me.rerere.rikkahub.service.WelcomePhrasesService
 import me.rerere.rikkahub.service.scheduledtask.ScheduledTaskScheduler
 import me.rerere.rikkahub.utils.EmojiData
@@ -156,6 +157,15 @@ val appModule = module {
 
     single {
         ModelNameGenerationService(
+            providerManager = get(),
+            requestLogManager = get(),
+        )
+    }
+
+    single {
+        MemorySummaryRequirementChangeService(
+            settingsStore = get(),
+            summaryRepository = get(),
             providerManager = get(),
             requestLogManager = get(),
         )

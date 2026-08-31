@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType
 import me.rerere.rikkahub.data.db.entity.MemorySummaryChangeEntity
+import me.rerere.rikkahub.data.db.entity.MemorySummaryStateEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 
 class MemorySummaryPolicyTest {
@@ -122,5 +123,18 @@ class MemorySummaryPolicyTest {
                 activeVersionId = 1L,
             )
         )
+    }
+
+    @Test
+    fun requirementChangeOnlyPublishesForTheSnapshotItStartedWith() {
+        val state = MemorySummaryStateEntity(
+            assistantId = "assistant",
+            activeVersionId = 4L,
+            revision = 7L,
+        )
+
+        assertTrue(matchesMemorySummaryActiveVersion(state, 4L, 7L))
+        assertFalse(matchesMemorySummaryActiveVersion(state, 3L, 7L))
+        assertFalse(matchesMemorySummaryActiveVersion(state, 4L, 6L))
     }
 }

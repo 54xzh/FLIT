@@ -199,6 +199,9 @@ fun AIRequestSource.displayName(): String {
         AIRequestSource.WELCOME_PHRASES -> stringResource(R.string.request_log_source_welcome_phrases)
         AIRequestSource.MEMORY_CONSOLIDATION -> stringResource(R.string.request_log_source_memory_consolidation)
         AIRequestSource.MEMORY_SUMMARY -> stringResource(R.string.request_log_source_memory_summary)
+        AIRequestSource.MEMORY_SUMMARY_REQUIREMENT_CHANGE -> stringResource(
+            R.string.request_log_source_memory_summary_requirement_change,
+        )
         AIRequestSource.MEMORY_EMBEDDING -> stringResource(R.string.request_log_source_memory_embedding)
         AIRequestSource.MEMORY_RETRIEVAL -> stringResource(R.string.request_log_source_memory_retrieval)
         AIRequestSource.TOOL_RESULT_EMBEDDING -> stringResource(R.string.request_log_source_tool_result_embedding)

@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.repository
 
 import me.rerere.rikkahub.data.db.entity.MemorySummaryChangeEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType
+import me.rerere.rikkahub.data.db.entity.MemorySummaryStateEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 
 internal fun mergeMemorySummaryChangeType(previous: Int?, requested: Int): Int? = when {
@@ -44,3 +45,9 @@ internal fun remainingMemorySummaryDelayMillis(
     now: Long,
 ): Long = ((intervalDays.coerceIn(1, 30) * MemorySummaryRepository.DAY_MILLIS) - (now - lastSuccessAt) + 1L)
     .coerceAtLeast(0L)
+
+internal fun matchesMemorySummaryActiveVersion(
+    state: MemorySummaryStateEntity?,
+    expectedActiveVersionId: Long,
+    expectedRevision: Long,
+): Boolean = state?.activeVersionId == expectedActiveVersionId && state.revision == expectedRevision

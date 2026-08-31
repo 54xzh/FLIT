@@ -31,9 +31,15 @@ data class MemorySummaryActiveSnapshot(
     val requiresFullUpdate: Boolean = false,
 )
 
+data class MemorySummaryRequirementChangePublishResult(
+    val operation: MemorySummaryVersionOperationResult,
+    val versionId: Long? = null,
+)
+
 enum class MemorySummaryVersionOperationResult {
     SUCCESS,
     VERSION_NOT_FOUND,
+    STALE_ACTIVE_VERSION,
     CANNOT_DELETE_ACTIVE,
     EMPTY_CONTENT,
     UNCHANGED_CONTENT,
@@ -356,6 +362,72 @@ class MemorySummaryRepository(
         )
         if (staleIds.isNotEmpty()) summaryDao.deleteVersions(staleIds)
         MemorySummaryVersionOperationResult.SUCCESS
+    }
+
+    /**
+     * Saves a model-generated revision only when the summary that was sent to the model is still
+     * active. Pending memory changes are deliberately left untouched: this operation only revises
+     * the summary, not the memory library it was built from.
+     */
+    suspend fun publishRequirementChangeVersion(
+        assistantId: String,
+        expectedActiveVersionId: Long,
+        expectedRevision: Long,
+        content: String,
+    ): MemorySummaryRequirementChangePublishResult = database.withTransaction {
+        val normalizedContent = content.trim()
+        if (normalizedContent.isEmpty()) {
+            return@withTransaction MemorySummaryRequirementChangePublishResult(
+                operation = MemorySummaryVersionOperationResult.EMPTY_CONTENT,
+            )
+        }
+        val currentState = summaryDao.getState(assistantId)
+        if (
+            !matchesMemorySummaryActiveVersion(
+                state = currentState,
+                expectedActiveVersionId = expectedActiveVersionId,
+                expectedRevision = expectedRevision,
+            )
+        ) {
+            return@withTransaction MemorySummaryRequirementChangePublishResult(
+                operation = MemorySummaryVersionOperationResult.STALE_ACTIVE_VERSION,
+            )
+        }
+        val activeVersion = summaryDao.getVersion(assistantId, expectedActiveVersionId)
+            ?: return@withTransaction MemorySummaryRequirementChangePublishResult(
+                operation = MemorySummaryVersionOperationResult.VERSION_NOT_FOUND,
+            )
+        if (normalizedContent == activeVersion.content.trim()) {
+            return@withTransaction MemorySummaryRequirementChangePublishResult(
+                operation = MemorySummaryVersionOperationResult.UNCHANGED_CONTENT,
+            )
+        }
+        val versionId = summaryDao.insertVersion(
+            MemorySummaryVersionEntity(
+                assistantId = assistantId,
+                content = normalizedContent,
+                generatedAt = System.currentTimeMillis(),
+                updateMode = MemorySummaryUpdateMode.REQUIREMENT_CHANGE,
+                sourceChangeCount = 0,
+            ),
+        )
+        summaryDao.upsertState(
+            MemorySummaryStateEntity(
+                assistantId = assistantId,
+                activeVersionId = versionId,
+                requiresFullUpdate = currentState?.requiresFullUpdate ?: false,
+                revision = (currentState?.revision ?: 0) + 1,
+            ),
+        )
+        val staleIds = memorySummaryVersionIdsToPrune(
+            versionsNewestFirst = summaryDao.getVersions(assistantId),
+            activeVersionId = versionId,
+        )
+        if (staleIds.isNotEmpty()) summaryDao.deleteVersions(staleIds)
+        MemorySummaryRequirementChangePublishResult(
+            operation = MemorySummaryVersionOperationResult.SUCCESS,
+            versionId = versionId,
+        )
     }
 
     suspend fun deleteHistoryVersion(

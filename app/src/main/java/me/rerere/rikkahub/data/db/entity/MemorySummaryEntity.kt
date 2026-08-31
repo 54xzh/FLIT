@@ -11,6 +11,7 @@ object MemorySummaryUpdateMode {
     const val FULL = 1
     const val REBUILD = 2
     const val MANUAL = 3
+    const val REQUIREMENT_CHANGE = 4
 }
 
 object MemorySummaryChangeType {

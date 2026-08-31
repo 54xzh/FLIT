@@ -31,10 +31,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -49,6 +52,7 @@ import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -57,6 +61,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -84,7 +89,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -1142,6 +1149,9 @@ private fun MemorySummarySettingsCard(
                         when (version.updateMode) {
                             MemorySummaryUpdateMode.REBUILD -> stringResource(R.string.assistant_page_memory_summary_rebuild)
                             MemorySummaryUpdateMode.FULL -> stringResource(R.string.assistant_page_memory_summary_mode_full)
+                            MemorySummaryUpdateMode.REQUIREMENT_CHANGE -> stringResource(
+                                R.string.assistant_page_memory_summary_mode_requirement_change,
+                            )
                             else -> stringResource(R.string.assistant_page_memory_summary_mode_incremental)
                         },
                         style = MaterialTheme.typography.bodySmall,
@@ -1336,8 +1346,25 @@ private fun ManageMemoriesSection(
     var summarySortOrder by rememberSaveable { mutableStateOf(MemorySummarySortOrder.NEWEST_FIRST) }
     var showBottomSheet by remember { mutableStateOf(false) }
     var selectedSummaryVersion by remember { mutableStateOf<MemorySummaryVersionEntity?>(null) }
+    val memorySummaryRequirement by assistantDetailVM.memorySummaryRequirement.collectAsStateWithLifecycle()
+    val isMemorySummaryRequirementChangeRunning by assistantDetailVM
+        .isMemorySummaryRequirementChangeRunning
+        .collectAsStateWithLifecycle()
+    val memorySummaryRequirementChangeSuccessEvent by assistantDetailVM
+        .memorySummaryRequirementChangeSuccessEvent
+        .collectAsStateWithLifecycle()
+    val latestMemorySummaryRequirementChangeVersionId by assistantDetailVM
+        .latestMemorySummaryRequirementChangeVersionId
+        .collectAsStateWithLifecycle()
+    val haptics = rememberPremiumHaptics()
     val summaryTabIndex = if (showMemoryTypes) 2 else 1
     val isSummaryTab = showSummaryTab && selectedTab == summaryTabIndex
+
+    LaunchedEffect(memorySummaryRequirementChangeSuccessEvent) {
+        if (memorySummaryRequirementChangeSuccessEvent > 0) {
+            haptics.perform(HapticPattern.Success)
+        }
+    }
 
     LaunchedEffect(initialMemoryTab) {
         if (initialMemoryTab != null) {
@@ -1597,6 +1624,51 @@ private fun ManageMemoriesSection(
                             unfocusedIndicatorColor = Color.Transparent
                         )
                     )
+                } else {
+                    val canEditRequirement =
+                        summaryActiveVersionId != null && !isMemorySummaryRequirementChangeRunning
+                    val canSubmitRequirement = canEditRequirement && memorySummaryRequirement.trim().isNotEmpty()
+                    TextField(
+                        value = memorySummaryRequirement,
+                        onValueChange = assistantDetailVM::updateMemorySummaryRequirement,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = canEditRequirement,
+                        placeholder = {
+                            Text(stringResource(R.string.assistant_page_memory_summary_requirement_change_hint))
+                        },
+                        leadingIcon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
+                        trailingIcon = {
+                            IconButton(
+                                enabled = canSubmitRequirement,
+                                onClick = {
+                                    haptics.perform(HapticPattern.Pop)
+                                    assistantDetailVM.submitMemorySummaryRequirementChange()
+                                },
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Send,
+                                    contentDescription = stringResource(
+                                        R.string.assistant_page_memory_summary_requirement_change_send,
+                                    ),
+                                )
+                            }
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(
+                            onSend = {
+                                if (canSubmitRequirement) {
+                                    haptics.perform(HapticPattern.Pop)
+                                    assistantDetailVM.submitMemorySummaryRequirementChange()
+                                }
+                            },
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                        ),
+                    )
                 }
 
                 if (isSummaryTab) {
@@ -1608,6 +1680,7 @@ private fun ManageMemoriesSection(
                         onActivate = assistantDetailVM::activateMemorySummaryVersion,
                         onSaveManualVersion = assistantDetailVM::saveManualMemorySummaryVersion,
                         onDelete = assistantDetailVM::deleteMemorySummaryHistoryVersion,
+                        scrollToVersionId = latestMemorySummaryRequirementChangeVersionId,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
                 } else {
@@ -1689,6 +1762,58 @@ private fun ManageMemoriesSection(
         }
     }
 
+    if (showBottomSheet && isMemorySummaryRequirementChangeRunning) {
+        AlertDialog(
+            onDismissRequest = {},
+            modifier = Modifier.padding(horizontal = 24.dp),
+            shape = RoundedCornerShape(28.dp),
+            containerColor = if (LocalDarkMode.current) {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            },
+            title = {
+                Text(
+                    stringResource(
+                        R.string.assistant_page_memory_summary_requirement_change_processing_title,
+                    ),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 170.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        LoadingIndicator()
+                        Text(
+                            text = stringResource(
+                                R.string.assistant_page_memory_summary_requirement_change_processing_desc,
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = assistantDetailVM::cancelMemorySummaryRequirementChange) {
+                    Text(stringResource(R.string.assistant_page_cancel))
+                }
+            },
+        )
+    }
+
     selectedSummaryVersion?.let { version ->
         val sheetState = androidx.compose.material3.rememberModalBottomSheetState(
             skipPartiallyExpanded = true,
@@ -1730,6 +1855,7 @@ private fun ManageMemoriesSection(
                         )
                     }
                 }
+
             }
         }
     }
@@ -1744,6 +1870,7 @@ private fun MemorySummaryVersionsList(
     onActivate: (Long) -> Unit,
     onSaveManualVersion: (Long, String) -> Unit,
     onDelete: (Long) -> Unit,
+    scrollToVersionId: Long?,
     modifier: Modifier = Modifier,
 ) {
     var editingVersion by remember { mutableStateOf<MemorySummaryVersionEntity?>(null) }
@@ -1774,10 +1901,20 @@ private fun MemorySummaryVersionsList(
             )
         }
     }
+    val listState = rememberLazyListState()
+    LaunchedEffect(scrollToVersionId, sortedVersions) {
+        val targetIndex = scrollToVersionId?.let { versionId ->
+            sortedVersions.indexOfFirst { it.id == versionId }
+        } ?: -1
+        if (targetIndex >= 0) {
+            listState.animateScrollToItem(targetIndex)
+        }
+    }
     LazyColumn(
         modifier = modifier
             .clip(RoundedCornerShape(24.dp))
             .animateContentSize(),
+        state = listState,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         items(sortedVersions, key = { it.id }) { version ->
