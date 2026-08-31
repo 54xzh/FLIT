@@ -110,6 +110,7 @@ class AIRequestLogManager(
         latencyMs: Long?,
         durationMs: Long?,
         error: Throwable? = null,
+        metadata: Map<String, String> = emptyMap(),
     ) = withContext(Dispatchers.IO) {
         runCatching {
             val paramsJson = buildTextGenerationParamsJson(params)
@@ -155,6 +156,10 @@ class AIRequestLogManager(
                     responseText = normalizedResponseText.truncateTo(REQUEST_LOG_MAX_JSON_CHARS),
                     responseRawText = normalizedRawResponseText.truncateTo(REQUEST_LOG_MAX_JSON_CHARS),
                     error = error?.let { "[${it.javaClass.simpleName}] ${it.message}".take(800) },
+                    metadataJson = metadata
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { JsonInstant.encodeToString(it) }
+                        ?.truncateTo(REQUEST_LOG_MAX_JSON_CHARS),
                 )
             )
             dao.pruneKeepLatest(REQUEST_LOG_KEEP_LATEST)

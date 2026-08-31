@@ -38,6 +38,21 @@
     <string name="developer_option_model_capability_refresh_loading">Refreshing…</string>
     <string name="developer_option_model_capability_refresh_success">Model capability database refreshed</string>
     <string name="developer_option_model_capability_refresh_failed">Failed to refresh model capability database: %1$s</string>
+    <string name="developer_option_cancel_manual_consolidation_title">Cancel all manual memory consolidation</string>
+    <string name="developer_option_cancel_manual_consolidation_desc">%1$d manual consolidation tasks are running.</string>
+    <string name="developer_option_cancel_manual_consolidation_action">Cancel all</string>
+    <string name="developer_option_cancel_manual_consolidation_success">Cancelled %1$d manual consolidation tasks.</string>
+    <string name="developer_option_cancel_manual_consolidation_failed">Failed to cancel manual consolidation: %1$s</string>
+    <string name="developer_option_old_episodes_cleanup_title">Clear episodic memories older than 30 days</string>
+    <string name="developer_option_old_episodes_cleanup_desc">Deletes episodic memories from conversations last updated over 30 days ago.</string>
+    <string name="developer_option_old_episodes_cleanup_blocked">Cancel running manual consolidation before clearing old episodic memories.</string>
+    <string name="developer_option_old_episodes_cleanup_action">Preview cleanup</string>
+    <string name="developer_option_old_episodes_cleanup_loading">Checking…</string>
+    <string name="developer_option_old_episodes_cleanup_confirm_title">Clear old episodic memories?</string>
+    <string name="developer_option_old_episodes_cleanup_confirm_message">This will delete %1$d episodic memories across %2$d assistants. Time range: %3$s. Conversations and core memories will be kept.</string>
+    <string name="developer_option_old_episodes_cleanup_confirm_action">Clear</string>
+    <string name="developer_option_old_episodes_cleanup_success">Cleared %1$d old episodic memories.</string>
+    <string name="developer_option_old_episodes_cleanup_failed">Failed to clear old episodic memories: %1$s</string>
     <string name="setting_request_logs_desc">View AI request logs.</string>
     <string name="setting_request_logs_enable_developer_mode_first">Enable Developer Mode to view logs.</string>
     <string name="request_log_status_ok">OK</string>
@@ -68,6 +83,7 @@
     <string name="request_log_field_stream">Stream</string>
     <string name="request_log_field_url">URL</string>
     <string name="request_log_field_error">Message</string>
+    <string name="request_log_field_metadata">Metadata</string>
 
     <string name="request_log_source_chat">Chat</string>
     <string name="request_log_source_title_summary">Title Summary</string>

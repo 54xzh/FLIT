@@ -91,6 +91,8 @@ val viewModelModule = module {
             settingsStore = get(),
             context = get(),
             updateChecker = get(),
+            memoryRepository = get(),
+            memorySummaryRepository = get(),
         )
     }
     viewModelOf(::MenuVM)

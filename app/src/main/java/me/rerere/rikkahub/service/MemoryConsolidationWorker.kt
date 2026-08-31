@@ -6,10 +6,12 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import androidx.room.withTransaction
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
@@ -26,8 +28,12 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.db.dao.ChatEpisodeDAO
+import me.rerere.rikkahub.data.db.dao.MemoryConsolidationDao
+import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.dao.EmbeddingCacheDAO
 import me.rerere.rikkahub.data.db.entity.ChatEpisodeEntity
+import me.rerere.rikkahub.data.db.entity.MemoryConsolidationClaimEntity
+import me.rerere.rikkahub.data.db.entity.MemoryConsolidationRecordEntity
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
@@ -49,6 +55,7 @@ import me.rerere.rikkahub.data.model.requiresEmbedding
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.rikkahub.utils.applyPlaceholders
+import java.util.UUID
 
 class MemoryConsolidationWorker(
     context: Context,
@@ -59,6 +66,8 @@ class MemoryConsolidationWorker(
     private val memoryRepository: MemoryRepository by inject()
     private val memorySummaryRepository: MemorySummaryRepository by inject()
     private val chatEpisodeDAO: ChatEpisodeDAO by inject()
+    private val memoryConsolidationDao: MemoryConsolidationDao by inject()
+    private val database: AppDatabase by inject()
     private val embeddingCacheDAO: EmbeddingCacheDAO by inject()
     private val settingsStore: SettingsStore by inject()
     private val embeddingService: EmbeddingService by inject()
@@ -87,6 +96,120 @@ class MemoryConsolidationWorker(
         if (isStopped) {
             throw CancellationException("Memory consolidation was cancelled")
         }
+    }
+
+    private suspend fun isAlreadyConsolidated(
+        conversation: Conversation,
+        targetAssistantId: String,
+    ): Boolean {
+        val conversationId = conversation.id.toString()
+        if (memoryConsolidationDao.hasRecord(conversationId, targetAssistantId)) return true
+
+        // Existing rows predate durable history. Backfill them without paying for
+        // another model request. The legacy flag covers already-pruned episodes,
+        // but only while this conversation has no per-target history at all:
+        // one completed group-chat target must not make a newly added target look
+        // completed too.
+        val hasLegacyEpisode = chatEpisodeDAO
+            .getEpisodeByConversationIdAndAssistantId(conversationId, targetAssistantId) != null
+        val hasLegacyEvidence = hasLegacyEpisode || (
+            conversation.isConsolidated && !memoryConsolidationDao.hasRecordsOfConversation(conversationId)
+        )
+        if (!hasLegacyEvidence) return false
+
+        database.withTransaction {
+            memoryConsolidationDao.upsertRecord(
+                MemoryConsolidationRecordEntity(
+                    conversationId = conversationId,
+                    assistantId = targetAssistantId,
+                    completedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+        conversationRepository.markAsConsolidated(conversation.id)
+        return true
+    }
+
+    private suspend fun claimConversation(conversationId: String): String? {
+        val now = System.currentTimeMillis()
+        val token = UUID.randomUUID().toString()
+        return database.withTransaction {
+            val existing = memoryConsolidationDao.getClaim(conversationId)
+            if (existing != null) {
+                if (now - existing.claimedAt < CLAIM_TIMEOUT_MILLIS) return@withTransaction null
+                memoryConsolidationDao.deleteClaim(conversationId)
+            }
+            val inserted = memoryConsolidationDao.insertClaim(
+                MemoryConsolidationClaimEntity(
+                    conversationId = conversationId,
+                    claimToken = token,
+                    claimedAt = now,
+                ),
+            )
+            token.takeIf { inserted != -1L }
+        }
+    }
+
+    private suspend fun releaseClaim(conversationId: String, claimToken: String) {
+        memoryConsolidationDao.deleteClaimIfTokenMatches(conversationId, claimToken)
+    }
+
+    /**
+     * The old conversation-level flag had no group-chat target information. If
+     * it is the only evidence left, treat all targets that existed in this
+     * template scan as legacy-completed in one step. Subsequent scans use the
+     * durable per-target rows, so adding a seat later still processes it.
+     */
+    private suspend fun backfillLegacyGroupRecordsIfNeeded(
+        conversation: Conversation,
+        targetAssistantIds: List<String>,
+    ) {
+        if (!conversation.isConsolidated || targetAssistantIds.isEmpty()) return
+        val conversationId = conversation.id.toString()
+        if (memoryConsolidationDao.hasRecordsOfConversation(conversationId)) return
+        database.withTransaction {
+            if (!memoryConsolidationDao.hasRecordsOfConversation(conversationId)) {
+                memoryConsolidationDao.upsertRecords(
+                    targetAssistantIds.map { targetAssistantId ->
+                        MemoryConsolidationRecordEntity(
+                            conversationId = conversationId,
+                            assistantId = targetAssistantId,
+                            completedAt = System.currentTimeMillis(),
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    private suspend fun isConversationStillCurrent(conversation: Conversation): Boolean {
+        val latest = conversationRepository.getConversationById(conversation.id) ?: return false
+        return latest.assistantId == conversation.assistantId &&
+            latest.messageNodes == conversation.messageNodes &&
+            latest.truncateIndex == conversation.truncateIndex
+    }
+
+    private fun consolidationLogMetadata(
+        conversationId: String,
+        assistantId: String,
+        isFullScan: Boolean,
+        forceConversationId: String?,
+        groupTemplateId: String? = null,
+    ): Map<String, String> = buildMap {
+        put(
+            "trigger",
+            when {
+                groupTemplateId != null && forceConversationId != null -> "manual_single_conversation"
+                groupTemplateId != null && isFullScan -> "manual_group_full_scan"
+                forceConversationId != null -> "manual_single_conversation"
+                isFullScan -> "manual_full_scan"
+                else -> "automatic"
+            },
+        )
+        put("work_id", id.toString())
+        put("assistant_id", assistantId)
+        put("conversation_id", conversationId)
+        groupTemplateId?.let { put("group_chat_template_id", it) }
     }
 
     private fun getMessagesForConsolidationOrNull(conversation: Conversation): List<UIMessage>? {
@@ -227,28 +350,18 @@ class MemoryConsolidationWorker(
                 continue
             }
             
-            // Check if already consolidated (unless forced or full scan)
-            if (conversation.isConsolidated && !isFullScan && forceConversationId == null) continue
+            if (forceConversationId == null && isAlreadyConsolidated(conversation, assistantId)) continue
             
             // CHECK DELAY: Only consolidate if enough time has passed since last update
             // (Skip delay check for forced/manual consolidation)
             val delayMs = assistant.consolidationDelayMinutes * 60 * 1000L
-            if (forceConversationId == null && now - conversation.updateAt.toEpochMilli() < delayMs && !isFullScan) {
+            if (!isManual && now - conversation.updateAt.toEpochMilli() < delayMs) {
                 Log.i("MemoryConsolidation", "Skipping conversation ${conversation.id} (waiting for delay)")
                 continue
             }
-            
-            // Double check with DAO if we are doing a full scan (heuristic fallback)
-            if (isFullScan) {
-                val existingEpisodes = chatEpisodeDAO.getEpisodesOfAssistant(assistantId)
-                val isProcessed = existingEpisodes.any { 
-                    kotlin.math.abs(it.endTime - conversation.updateAt.toEpochMilli()) < 1000 * 60 
-                }
-                if (isProcessed) {
-                    conversationRepository.markAsConsolidated(conversation.id)
-                    continue
-                }
-            }
+
+            val conversationId = conversation.id.toString()
+            val claimToken = claimConversation(conversationId) ?: continue
 
             // Summarize into an episode with Significance Score
             // Only process messages after the last summary index to avoid redundant processing
@@ -347,76 +460,95 @@ class MemoryConsolidationWorker(
                     continue
                 }
 
-                val conversationId = conversation.id.toString()
+                if (!isConversationStillCurrent(conversation)) {
+                    continue
+                }
                 val existingEpisode = chatEpisodeDAO.getEpisodeByConversationIdAndAssistantId(
                     conversationId = conversationId,
                     assistantId = assistantId,
                 )
 
-                if (existingEpisode != null) {
-                    embeddingCacheDAO.deleteByMemoryId(existingEpisode.id, MemoryType.EPISODIC)
-                    chatEpisodeDAO.insertEpisode(
-                        existingEpisode.copy(
-                            content = summary,
-                            embedding = summaryEmbedding?.let { JsonInstant.encodeToString(it) },
-                            embeddingModelId = embeddingModelId,
-                            endTime = conversation.updateAt.toEpochMilli(),
-                            lastAccessedAt = System.currentTimeMillis(),
-                            significance = significance,
-                            updatedAt = System.currentTimeMillis(),
+                var episodeChangeType = me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.ADDED
+                var episodeId = 0
+                database.withTransaction {
+                    if (existingEpisode != null) {
+                        embeddingCacheDAO.deleteByMemoryId(existingEpisode.id, MemoryType.EPISODIC)
+                        chatEpisodeDAO.insertEpisode(
+                            existingEpisode.copy(
+                                content = summary,
+                                embedding = summaryEmbedding?.let { JsonInstant.encodeToString(it) },
+                                embeddingModelId = embeddingModelId,
+                                endTime = conversation.updateAt.toEpochMilli(),
+                                lastAccessedAt = System.currentTimeMillis(),
+                                significance = significance,
+                                updatedAt = System.currentTimeMillis(),
+                            )
                         )
-                    )
-                    memorySummaryRepository.recordChange(
-                        assistantId,
-                        MemoryType.EPISODIC,
-                        existingEpisode.id,
-                        me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED,
-                    )
-                    Log.i("MemoryConsolidation", "Updated episode (sig=$significance) for conversation ${conversation.id}")
-                } else {
-                    val episodeId = chatEpisodeDAO.insertEpisode(
-                        ChatEpisodeEntity(
-                            assistantId = assistantId,
-                            content = summary,
-                            embedding = summaryEmbedding?.let { JsonInstant.encodeToString(it) },
-                            embeddingModelId = embeddingModelId,
-                            startTime = conversation.createAt.toEpochMilli(),
-                            endTime = conversation.updateAt.toEpochMilli(),
-                            lastAccessedAt = System.currentTimeMillis(),
-                            significance = significance,
+                        episodeId = existingEpisode.id
+                        episodeChangeType = me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED
+                    } else {
+                        episodeId = chatEpisodeDAO.insertEpisode(
+                            ChatEpisodeEntity(
+                                assistantId = assistantId,
+                                content = summary,
+                                embedding = summaryEmbedding?.let { JsonInstant.encodeToString(it) },
+                                embeddingModelId = embeddingModelId,
+                                startTime = conversation.createAt.toEpochMilli(),
+                                endTime = conversation.updateAt.toEpochMilli(),
+                                lastAccessedAt = System.currentTimeMillis(),
+                                significance = significance,
+                                conversationId = conversationId,
+                            )
+                        ).toInt()
+                    }
+                    memoryConsolidationDao.upsertRecord(
+                        MemoryConsolidationRecordEntity(
                             conversationId = conversationId,
-                        )
+                            assistantId = assistantId,
+                            completedAt = System.currentTimeMillis(),
+                        ),
                     )
-                    memorySummaryRepository.recordChange(
-                        assistantId,
-                        MemoryType.EPISODIC,
-                        episodeId.toInt(),
-                        me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.ADDED,
-                    )
-                    Log.i("MemoryConsolidation", "Created episode (sig=$significance) for conversation ${conversation.id}")
                 }
-
+                memorySummaryRepository.recordChange(
+                    assistantId,
+                    MemoryType.EPISODIC,
+                    episodeId,
+                    episodeChangeType,
+                )
                 conversationRepository.markAsConsolidated(conversation.id)
                 trackACount++
             } catch (t: Throwable) {
-                if (t is CancellationException) throw t
+                if (t is CancellationException) {
+                    failure = t
+                    throw t
+                }
                 failure = t
                 Log.e("MemoryConsolidation", "Failed to process conversation ${conversation.id}", t)
             } finally {
-                val durationMs = System.currentTimeMillis() - startAt
-                requestLogManager.logTextGeneration(
-                    source = AIRequestSource.MEMORY_CONSOLIDATION,
-                    providerSetting = provider,
-                    params = params,
-                    requestMessages = requestMessages,
-                    requestBodyJson = requestBodyJson,
-                    responseText = responseText,
-                    responseRawText = rawResponseText,
-                    stream = false,
-                    latencyMs = durationMs,
-                    durationMs = durationMs,
-                    error = failure,
-                )
+                withContext(NonCancellable) {
+                    runCatching { releaseClaim(conversationId, claimToken) }
+                        .onFailure { Log.w("MemoryConsolidation", "Failed to release conversation claim", it) }
+                    val durationMs = System.currentTimeMillis() - startAt
+                    requestLogManager.logTextGeneration(
+                        source = AIRequestSource.MEMORY_CONSOLIDATION,
+                        providerSetting = provider,
+                        params = params,
+                        requestMessages = requestMessages,
+                        requestBodyJson = requestBodyJson,
+                        responseText = responseText,
+                        responseRawText = rawResponseText,
+                        stream = false,
+                        latencyMs = durationMs,
+                        durationMs = durationMs,
+                        error = failure,
+                        metadata = consolidationLogMetadata(
+                            conversationId = conversationId,
+                            assistantId = assistantId,
+                            isFullScan = isFullScan,
+                            forceConversationId = forceConversationId,
+                        ),
+                    )
+                }
             }
         }
         
@@ -447,7 +579,9 @@ class MemoryConsolidationWorker(
         var prunedCount = 0
         for (episode in allEpisodes) {
             ensureNotCancelled()
-            val age = now - episode.startTime
+            // An episode represents the latest state of a conversation. Using the
+            // creation time punished long-lived chats even when they were updated recently.
+            val age = now - episode.endTime
             val timeSinceAccess = now - episode.lastAccessedAt
             
             // Default 30 days retention
@@ -573,15 +707,29 @@ class MemoryConsolidationWorker(
             }
             if (eligibleTargetAssistants.isEmpty()) continue
 
-            if (conversation.isConsolidated && !isFullScan && forcedConversation == null) continue
+            if (forcedConversation == null) {
+                backfillLegacyGroupRecordsIfNeeded(
+                    conversation = conversation,
+                    targetAssistantIds = targetAssistants.map { it.id.toString() },
+                )
+            }
+
+            val targetAssistantsToProcess = if (forcedConversation != null) {
+                eligibleTargetAssistants
+            } else {
+                eligibleTargetAssistants.filterNot { targetAssistant ->
+                    isAlreadyConsolidated(conversation, targetAssistant.id.toString())
+                }
+            }
+            if (targetAssistantsToProcess.isEmpty()) continue
 
             val delayMs = template.consolidationDelayMinutes * 60 * 1000L
-            if (forcedConversation == null &&
-                !isFullScan &&
-                now - conversation.updateAt.toEpochMilli() < delayMs
-            ) {
+            if (!isManual && now - conversation.updateAt.toEpochMilli() < delayMs) {
                 continue
             }
+
+            val conversationId = conversation.id.toString()
+            val claimToken = claimConversation(conversationId) ?: continue
 
             val lastSummaryIndex = conversation.contextSummaryUpToIndex
             val hasSummary = !conversation.contextSummary.isNullOrBlank() && lastSummaryIndex >= 0
@@ -679,10 +827,12 @@ class MemoryConsolidationWorker(
                 summary = summary.trim()
                 if (summary.isEmpty()) continue
 
-                val conversationId = conversation.id.toString()
+                if (!isConversationStillCurrent(conversation)) {
+                    continue
+                }
                 var insertedCount = 0
 
-                eligibleTargetAssistants.forEach { targetAssistant ->
+                targetAssistantsToProcess.forEach { targetAssistant ->
                     ensureNotCancelled()
                     if (!canProcessConversation(
                             assistantId = targetAssistant.id,
@@ -723,46 +873,53 @@ class MemoryConsolidationWorker(
                         assistantId = targetAssistantId,
                     )
 
-                    if (existingEpisode != null) {
-                        embeddingCacheDAO.deleteByMemoryId(existingEpisode.id, MemoryType.EPISODIC)
-                        chatEpisodeDAO.insertEpisode(
-                            existingEpisode.copy(
-                                content = summary,
-                                embedding = summaryEmbedding?.let { JsonInstant.encodeToString(it) },
-                                embeddingModelId = embeddingModelId,
-                                endTime = conversation.updateAt.toEpochMilli(),
-                                lastAccessedAt = System.currentTimeMillis(),
-                                significance = significance,
-                                updatedAt = System.currentTimeMillis(),
+                    var episodeChangeType = me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.ADDED
+                    var episodeId = 0
+                    database.withTransaction {
+                        if (existingEpisode != null) {
+                            embeddingCacheDAO.deleteByMemoryId(existingEpisode.id, MemoryType.EPISODIC)
+                            chatEpisodeDAO.insertEpisode(
+                                existingEpisode.copy(
+                                    content = summary,
+                                    embedding = summaryEmbedding?.let { JsonInstant.encodeToString(it) },
+                                    embeddingModelId = embeddingModelId,
+                                    endTime = conversation.updateAt.toEpochMilli(),
+                                    lastAccessedAt = System.currentTimeMillis(),
+                                    significance = significance,
+                                    updatedAt = System.currentTimeMillis(),
+                                )
                             )
-                        )
-                        memorySummaryRepository.recordChange(
-                            targetAssistantId,
-                            MemoryType.EPISODIC,
-                            existingEpisode.id,
-                            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED,
-                        )
-                    } else {
-                        val episodeId = chatEpisodeDAO.insertEpisode(
-                            ChatEpisodeEntity(
-                                assistantId = targetAssistantId,
-                                content = summary,
-                                embedding = summaryEmbedding?.let { JsonInstant.encodeToString(it) },
-                                embeddingModelId = embeddingModelId,
-                                startTime = conversation.createAt.toEpochMilli(),
-                                endTime = conversation.updateAt.toEpochMilli(),
-                                lastAccessedAt = System.currentTimeMillis(),
-                                significance = significance,
+                            episodeId = existingEpisode.id
+                            episodeChangeType = me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED
+                        } else {
+                            episodeId = chatEpisodeDAO.insertEpisode(
+                                ChatEpisodeEntity(
+                                    assistantId = targetAssistantId,
+                                    content = summary,
+                                    embedding = summaryEmbedding?.let { JsonInstant.encodeToString(it) },
+                                    embeddingModelId = embeddingModelId,
+                                    startTime = conversation.createAt.toEpochMilli(),
+                                    endTime = conversation.updateAt.toEpochMilli(),
+                                    lastAccessedAt = System.currentTimeMillis(),
+                                    significance = significance,
+                                    conversationId = conversationId,
+                                )
+                            ).toInt()
+                        }
+                        memoryConsolidationDao.upsertRecord(
+                            MemoryConsolidationRecordEntity(
                                 conversationId = conversationId,
-                            )
-                        )
-                        memorySummaryRepository.recordChange(
-                            targetAssistantId,
-                            MemoryType.EPISODIC,
-                            episodeId.toInt(),
-                            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.ADDED,
+                                assistantId = targetAssistantId,
+                                completedAt = System.currentTimeMillis(),
+                            ),
                         )
                     }
+                    memorySummaryRepository.recordChange(
+                        targetAssistantId,
+                        MemoryType.EPISODIC,
+                        episodeId,
+                        episodeChangeType,
+                    )
 
                     insertedCount++
                 }
@@ -771,29 +928,44 @@ class MemoryConsolidationWorker(
                     conversationRepository.markAsConsolidated(conversation.id)
                 }
             } catch (t: Throwable) {
-                if (t is CancellationException) throw t
+                if (t is CancellationException) {
+                    failure = t
+                    throw t
+                }
                 failure = t
                 Log.e("MemoryConsolidation", "Failed to process group chat conversation ${conversation.id}", t)
             } finally {
-                val durationMs = System.currentTimeMillis() - startAt
-                requestLogManager.logTextGeneration(
-                    source = AIRequestSource.MEMORY_CONSOLIDATION,
-                    providerSetting = provider,
-                    params = params,
-                    requestMessages = requestMessages,
-                    requestBodyJson = requestBodyJson,
-                    responseText = responseText,
-                    responseRawText = rawResponseText,
-                    stream = false,
-                    latencyMs = durationMs,
-                    durationMs = durationMs,
-                    error = failure,
-                )
+                withContext(NonCancellable) {
+                    runCatching { releaseClaim(conversationId, claimToken) }
+                        .onFailure { Log.w("MemoryConsolidation", "Failed to release conversation claim", it) }
+                    val durationMs = System.currentTimeMillis() - startAt
+                    requestLogManager.logTextGeneration(
+                        source = AIRequestSource.MEMORY_CONSOLIDATION,
+                        providerSetting = provider,
+                        params = params,
+                        requestMessages = requestMessages,
+                        requestBodyJson = requestBodyJson,
+                        responseText = responseText,
+                        responseRawText = rawResponseText,
+                        stream = false,
+                        latencyMs = durationMs,
+                        durationMs = durationMs,
+                        error = failure,
+                        metadata = consolidationLogMetadata(
+                            conversationId = conversationId,
+                            assistantId = targetAssistantsToProcess.joinToString(",") { it.id.toString() },
+                            isFullScan = isFullScan,
+                            forceConversationId = forcedConversationId,
+                            groupTemplateId = template.id.toString(),
+                        ),
+                    )
+                }
             }
         }
     }
 
     companion object {
+        private const val CLAIM_TIMEOUT_MILLIS = 30L * 60L * 1000L
         const val INPUT_FULL_SCAN = "FULL_SCAN"
         const val INPUT_FORCE_CONVERSATION_ID = "FORCE_CONVERSATION_ID"
         const val INPUT_GROUP_CHAT_TEMPLATE_ID = "GROUP_CHAT_TEMPLATE_ID"

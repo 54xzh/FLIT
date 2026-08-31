@@ -504,8 +504,10 @@ class AssistantDetailVM(
     }
 
     fun cancelMemoryConsolidation() {
-        memoryConsolidationScheduler.cancelFullScan(assistantId.toString())
-        _snackbarMessage.value = context.getString(R.string.assistant_page_memory_consolidation_cancelled)
+        viewModelScope.launch {
+            memoryConsolidationScheduler.cancelFullScan(assistantId.toString())
+            _snackbarMessage.value = context.getString(R.string.assistant_page_memory_consolidation_cancelled)
+        }
     }
 
     fun updateMemorySummary(forceFull: Boolean, forceRebuild: Boolean) {

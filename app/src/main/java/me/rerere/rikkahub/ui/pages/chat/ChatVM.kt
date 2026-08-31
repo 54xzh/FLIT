@@ -916,8 +916,8 @@ class ChatVM(
 
     fun consolidateConversation(conversation: Conversation) {
         viewModelScope.launch {
-            // Mark conversation as not consolidated so it will be picked up by the worker
-            conversationRepo.markAsNotConsolidated(conversation.id)
+            // A single-conversation request is explicitly forced by its work input;
+            // keep the durable completion state until the replacement succeeds.
             memoryConsolidationScheduler.enqueueConversation(
                 conversationId = conversation.id.toString(),
                 assistantId = conversation.assistantId.toString(),
@@ -926,7 +926,9 @@ class ChatVM(
     }
 
     fun cancelConversationConsolidation(conversation: Conversation) {
-        memoryConsolidationScheduler.cancelConversation(conversation.id.toString())
+        viewModelScope.launch {
+            memoryConsolidationScheduler.cancelConversation(conversation.id.toString())
+        }
     }
 
     fun generateSuggestion(conversation: Conversation) {

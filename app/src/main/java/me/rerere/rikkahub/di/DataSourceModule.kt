@@ -71,6 +71,8 @@ val dataSourceModule = module {
                 AppDatabase.MIGRATION_44_45,
                 AppDatabase.MIGRATION_45_46,
                 AppDatabase.MIGRATION_46_47,
+                AppDatabase.MIGRATION_47_48,
+                AppDatabase.MIGRATION_48_49,
             )
             .build()
     }
@@ -155,6 +157,10 @@ val dataSourceModule = module {
 
     single {
         get<AppDatabase>().memorySummaryDao()
+    }
+
+    single {
+        get<AppDatabase>().memoryConsolidationDao()
     }
 
     single { AppEventBus() }

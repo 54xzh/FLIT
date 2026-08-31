@@ -324,6 +324,8 @@ class SettingsStore(
         // Background Worker
         val CONSOLIDATION_WORKER_INTERVAL = intPreferencesKey("consolidation_worker_interval")
         val CONSOLIDATION_REQUIRES_DEVICE_IDLE = booleanPreferencesKey("consolidation_requires_device_idle")
+        val LEGACY_MEMORY_CONSOLIDATION_CANCELLATION_APPLIED =
+            booleanPreferencesKey("legacy_memory_consolidation_cancellation_applied")
 
         // Prompt Injections
         val MODES = stringPreferencesKey("modes")
@@ -1082,6 +1084,15 @@ class SettingsStore(
         settingsFlow.first { !it.init }
         updateMutex.withLock {
             updateLocked(fn(settingsFlow.value))
+        }
+    }
+
+    suspend fun isLegacyMemoryConsolidationCancellationApplied(): Boolean =
+        dataStore.data.first()[LEGACY_MEMORY_CONSOLIDATION_CANCELLATION_APPLIED] == true
+
+    suspend fun markLegacyMemoryConsolidationCancellationApplied() {
+        dataStore.edit { preferences ->
+            preferences[LEGACY_MEMORY_CONSOLIDATION_CANCELLATION_APPLIED] = true
         }
     }
 

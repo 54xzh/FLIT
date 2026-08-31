@@ -42,4 +42,7 @@ data class AIRequestLogEntity(
     val responseRawText: String,
     @ColumnInfo(name = "error")
     val error: String?,
+    /** Context supplied by the feature that made the request, when available. */
+    @ColumnInfo(name = "metadata_json")
+    val metadataJson: String? = null,
 )

@@ -5,8 +5,11 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
+import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.service.MemoryConsolidationWorker
 import kotlin.uuid.Uuid
 
@@ -52,16 +55,35 @@ class MemoryConsolidationScheduler(
         )
     }
 
-    fun cancelFullScan(assistantId: String) {
-        workManager.cancelUniqueWork(fullScanWorkName(assistantId))
+    suspend fun cancelFullScan(assistantId: String) {
+        awaitCancellation(workManager.cancelUniqueWork(fullScanWorkName(assistantId)))
     }
 
-    fun cancelConversation(conversationId: String) {
-        workManager.cancelUniqueWork(conversationWorkName(conversationId))
+    suspend fun cancelConversation(conversationId: String) {
+        awaitCancellation(workManager.cancelUniqueWork(conversationWorkName(conversationId)))
     }
 
-    fun cancelGroupFullScan(templateId: String) {
-        workManager.cancelUniqueWork(groupFullScanWorkName(templateId))
+    suspend fun cancelGroupFullScan(templateId: String) {
+        awaitCancellation(workManager.cancelUniqueWork(groupFullScanWorkName(templateId)))
+    }
+
+    suspend fun cancelAllManual(): Int = withContext(Dispatchers.IO) {
+        val runningCount = workManager.getWorkInfosByTag(MANUAL_CONSOLIDATION_TAG)
+            .get()
+            .count { !it.state.isFinished }
+        workManager.cancelAllWorkByTag(MANUAL_CONSOLIDATION_TAG).result.get()
+        runningCount
+    }
+
+    suspend fun cancelLegacyConsolidationWorkIfNeeded(settingsStore: SettingsStore): Boolean {
+        if (settingsStore.isLegacyMemoryConsolidationCancellationApplied()) return false
+        // WorkManager automatically tags every request with its worker class name.
+        // This catches anonymous requests created before manual jobs had their own tag.
+        awaitCancellation(
+            workManager.cancelAllWorkByTag(MemoryConsolidationWorker::class.java.name),
+        )
+        settingsStore.markLegacyMemoryConsolidationCancellationApplied()
+        return true
     }
 
     fun observeFullScan(assistantId: String): Flow<Boolean> =
@@ -80,6 +102,15 @@ class MemoryConsolidationScheduler(
                 .mapNotNull { id -> runCatching { Uuid.parse(id) }.getOrNull() }
                 .toSet()
         }
+
+    fun observeManualWorkCount(): Flow<Int> =
+        workManager.getWorkInfosByTagFlow(MANUAL_CONSOLIDATION_TAG).map { workInfos ->
+            workInfos.count { !it.state.isFinished }
+        }
+
+    private suspend fun awaitCancellation(operation: androidx.work.Operation) = withContext(Dispatchers.IO) {
+        operation.result.get()
+    }
 
     private fun enqueue(
         workName: String,

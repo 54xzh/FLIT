@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FontDownload
 import androidx.compose.material.icons.rounded.History
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -30,6 +32,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -144,6 +147,9 @@ private fun DeveloperToolsPage(vm: DeveloperVM) {
     val ipv6DebugState by vm.ipv6DebugState.collectAsStateWithLifecycle()
     val updateState by vm.updateState.collectAsStateWithLifecycle()
     val selectedSource by vm.selectedSource.collectAsStateWithLifecycle()
+    val manualConsolidationWorkCount by vm.manualConsolidationWorkCount.collectAsStateWithLifecycle(initialValue = 0)
+    val manualConsolidationCancellationState by vm.manualConsolidationCancellationState.collectAsStateWithLifecycle()
+    val oldEpisodeCleanupState by vm.oldEpisodeCleanupState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val toaster = LocalToaster.current
     val haptics = rememberPremiumHaptics()
@@ -151,6 +157,7 @@ private fun DeveloperToolsPage(vm: DeveloperVM) {
     val modelCapabilityRepository = koinInject<ModelCapabilityRepository>()
     var showUpdateDetail by remember { mutableStateOf(false) }
     var isRefreshingModelCapabilities by remember { mutableStateOf(false) }
+    var showOldEpisodeCleanupConfirmation by remember { mutableStateOf(false) }
     val updateInfo = (updateState as? UiState.Success)?.data
 
     LaunchedEffect(updateState) {
@@ -159,6 +166,47 @@ private fun DeveloperToolsPage(vm: DeveloperVM) {
             if (info != null && info.downloads.isNotEmpty()) {
                 showUpdateDetail = true
             }
+        }
+    }
+
+    LaunchedEffect(oldEpisodeCleanupState.preview) {
+        if (oldEpisodeCleanupState.preview != null) {
+            showOldEpisodeCleanupConfirmation = true
+        }
+    }
+    LaunchedEffect(oldEpisodeCleanupState.result) {
+        oldEpisodeCleanupState.result?.let { result ->
+            toaster.show(
+                context.getString(R.string.developer_option_old_episodes_cleanup_success, result.deletedCount),
+                type = ToastType.Success,
+            )
+            vm.clearOldEpisodeCleanupResult()
+        }
+    }
+    LaunchedEffect(oldEpisodeCleanupState.error) {
+        oldEpisodeCleanupState.error?.let { error ->
+            toaster.show(
+                context.getString(R.string.developer_option_old_episodes_cleanup_failed, error),
+                type = ToastType.Error,
+            )
+        }
+    }
+    LaunchedEffect(manualConsolidationCancellationState.cancelledCount) {
+        manualConsolidationCancellationState.cancelledCount?.let { cancelledCount ->
+            toaster.show(
+                context.getString(R.string.developer_option_cancel_manual_consolidation_success, cancelledCount),
+                type = ToastType.Success,
+            )
+            vm.clearManualConsolidationCancellationResult()
+        }
+    }
+    LaunchedEffect(manualConsolidationCancellationState.error) {
+        manualConsolidationCancellationState.error?.let { error ->
+            toaster.show(
+                context.getString(R.string.developer_option_cancel_manual_consolidation_failed, error),
+                type = ToastType.Error,
+            )
+            vm.clearManualConsolidationCancellationResult()
         }
     }
 
@@ -222,6 +270,63 @@ private fun DeveloperToolsPage(vm: DeveloperVM) {
                 },
                 onClick = null
             )
+        }
+
+        item {
+            SettingGroupInputItem(
+                title = stringResource(R.string.developer_option_cancel_manual_consolidation_title),
+                subtitle = stringResource(
+                    R.string.developer_option_cancel_manual_consolidation_desc,
+                    manualConsolidationWorkCount,
+                ),
+                icon = {
+                    Icon(Icons.Rounded.DeleteSweep, contentDescription = null)
+                },
+            ) {
+                FilledTonalButton(
+                    onClick = {
+                        haptics.perform(HapticPattern.Thud)
+                        vm.cancelAllManualConsolidations()
+                    },
+                    enabled = manualConsolidationWorkCount > 0 && !manualConsolidationCancellationState.isCancelling,
+                ) {
+                    Text(stringResource(R.string.developer_option_cancel_manual_consolidation_action))
+                }
+            }
+        }
+
+        item {
+            SettingGroupInputItem(
+                title = stringResource(R.string.developer_option_old_episodes_cleanup_title),
+                subtitle = stringResource(
+                    if (manualConsolidationWorkCount > 0) {
+                        R.string.developer_option_old_episodes_cleanup_blocked
+                    } else {
+                        R.string.developer_option_old_episodes_cleanup_desc
+                    },
+                ),
+                icon = {
+                    Icon(Icons.Rounded.DeleteSweep, contentDescription = null)
+                },
+            ) {
+                FilledTonalButton(
+                    onClick = {
+                        haptics.perform(HapticPattern.Thud)
+                        vm.previewOldEpisodes()
+                    },
+                    enabled = manualConsolidationWorkCount == 0 && !oldEpisodeCleanupState.isLoading,
+                ) {
+                    Text(
+                        stringResource(
+                            if (oldEpisodeCleanupState.isLoading) {
+                                R.string.developer_option_old_episodes_cleanup_loading
+                            } else {
+                                R.string.developer_option_old_episodes_cleanup_action
+                            },
+                        ),
+                    )
+                }
+            }
         }
 
         item {
@@ -488,6 +593,51 @@ private fun DeveloperToolsPage(vm: DeveloperVM) {
                 }
             }
         }
+    }
+    val cleanupPreview = oldEpisodeCleanupState.preview
+    if (showOldEpisodeCleanupConfirmation && cleanupPreview != null) {
+        val timeRange = listOfNotNull(
+            cleanupPreview.oldestEndTime?.let { java.time.Instant.ofEpochMilli(it).toLocalDateTime() },
+            cleanupPreview.newestEndTime?.let { java.time.Instant.ofEpochMilli(it).toLocalDateTime() },
+        ).joinToString(" – ").ifBlank { "-" }
+        AlertDialog(
+            onDismissRequest = {
+                showOldEpisodeCleanupConfirmation = false
+                vm.clearOldEpisodeCleanupResult()
+            },
+            title = { Text(stringResource(R.string.developer_option_old_episodes_cleanup_confirm_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.developer_option_old_episodes_cleanup_confirm_message,
+                        cleanupPreview.count,
+                        cleanupPreview.assistantCount,
+                        timeRange,
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        haptics.perform(HapticPattern.Thud)
+                        showOldEpisodeCleanupConfirmation = false
+                        vm.deleteOldEpisodes()
+                    },
+                ) {
+                    Text(stringResource(R.string.developer_option_old_episodes_cleanup_confirm_action))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showOldEpisodeCleanupConfirmation = false
+                        vm.clearOldEpisodeCleanupResult()
+                    },
+                ) {
+                    Text(stringResource(R.string.assistant_page_cancel))
+                }
+            },
+        )
     }
     }
 }

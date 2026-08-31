@@ -382,6 +382,7 @@ private data class RequestLogExportItem(
     val responseText: String,
     val responseRawText: String,
     val error: String?,
+    val metadataJson: String?,
 )
 
 private fun AIRequestLogEntity.toExportItem(): RequestLogExportItem = RequestLogExportItem(
@@ -403,4 +404,5 @@ private fun AIRequestLogEntity.toExportItem(): RequestLogExportItem = RequestLog
     responseText = responseText,
     responseRawText = responseRawText,
     error = error,
+    metadataJson = metadataJson,
 )

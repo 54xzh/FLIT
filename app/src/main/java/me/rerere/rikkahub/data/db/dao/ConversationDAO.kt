@@ -203,6 +203,9 @@ interface ConversationDAO {
     @Query("UPDATE conversationentity SET is_consolidated = :isConsolidated WHERE id = :id")
     suspend fun updateConsolidatedStatus(id: String, isConsolidated: Boolean)
 
+    @Query("SELECT is_consolidated FROM conversationentity WHERE id = :id LIMIT 1")
+    suspend fun getConsolidatedStatus(id: String): Boolean?
+
     // Stats queries for MenuVM optimization
     @Query("SELECT COUNT(*) FROM conversationentity")
     fun getConversationCountFlow(): Flow<Int>

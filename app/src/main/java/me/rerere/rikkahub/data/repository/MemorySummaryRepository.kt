@@ -193,6 +193,54 @@ class MemorySummaryRepository(
     }
 
     /**
+     * Records a large episodic deletion in one transaction. The caller decides
+     * whether a summary job should be scheduled now; bulk maintenance uses the
+     * next normal cycle to avoid an unexpected second model bill.
+     */
+    suspend fun recordEpisodeDeletions(
+        episodeIdsByAssistant: Map<String, List<Int>>,
+        scheduleAutomatically: Boolean,
+    ) {
+        if (episodeIdsByAssistant.isEmpty()) return
+        database.withTransaction {
+            episodeIdsByAssistant.forEach { (assistantId, episodeIds) ->
+                episodeIds.distinct().forEach { episodeId ->
+                    val existing = summaryDao.getChange(
+                        assistantId,
+                        MemoryType.EPISODIC,
+                        episodeId,
+                    )
+                    val mergedType = mergeMemorySummaryChangeType(
+                        existing?.changeType,
+                        MemorySummaryChangeType.DELETED,
+                    )
+                    if (mergedType == null) {
+                        summaryDao.deleteChange(assistantId, MemoryType.EPISODIC, episodeId)
+                    } else {
+                        summaryDao.upsertChange(
+                            MemorySummaryChangeEntity(
+                                assistantId = assistantId,
+                                memoryType = MemoryType.EPISODIC,
+                                memoryId = episodeId,
+                                changeType = mergedType,
+                                changedAt = System.currentTimeMillis(),
+                                changeToken = UUID.randomUUID().toString(),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        if (scheduleAutomatically) {
+            episodeIdsByAssistant.keys.forEach(scheduler::enqueueAutomatic)
+        }
+    }
+
+    fun scheduleAutomaticAfter(assistantId: String, delayMillis: Long) {
+        scheduler.enqueueAutomatic(assistantId, delayMillis.coerceAtLeast(0L))
+    }
+
+    /**
      * Persists a generated version only when the active selection has not changed since generation
      * began. A stale response is discarded so explicit user choices always win.
      */

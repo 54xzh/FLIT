@@ -42,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -50,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.supportsBuiltInSearch
 import me.rerere.ai.provider.ModelType
@@ -98,6 +100,7 @@ fun GroupChatTemplateDetailPage(
     val currentTemplate = template
     val navController = LocalNavController.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     val haptics = rememberPremiumHaptics()
     val memoryConsolidationScheduler = remember(context) { MemoryConsolidationScheduler(context) }
@@ -371,7 +374,9 @@ fun GroupChatTemplateDetailPage(
                             onClick = {
                                 if (isManualMemoryConsolidationRunning) {
                                     haptics.perform(HapticPattern.Thud)
-                                    memoryConsolidationScheduler.cancelGroupFullScan(currentTemplate.id.toString())
+                                    scope.launch {
+                                        memoryConsolidationScheduler.cancelGroupFullScan(currentTemplate.id.toString())
+                                    }
                                 } else {
                                     haptics.perform(HapticPattern.Pop)
                                     showConsolidationConfirmation = true

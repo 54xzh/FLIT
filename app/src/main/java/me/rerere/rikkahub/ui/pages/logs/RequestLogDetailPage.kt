@@ -145,6 +145,7 @@ private fun RequestLogBasicTab(log: AIRequestLogEntity?) {
                     stringResource(R.string.request_log_field_duration) to (log.durationMs?.let { "${it}ms" } ?: "-"),
                     stringResource(R.string.request_log_field_stream) to log.stream.toString(),
                     stringResource(R.string.request_log_field_url) to log.requestUrl.ifBlank { "-" },
+                    stringResource(R.string.request_log_field_metadata) to log.metadataJson.orEmpty().ifBlank { "-" },
                 )
             )
         }

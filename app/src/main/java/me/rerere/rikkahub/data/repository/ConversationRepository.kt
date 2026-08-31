@@ -32,6 +32,7 @@ import me.rerere.rikkahub.data.db.dao.ChatSearchResultRow
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.DailyActivityDAO
 import me.rerere.rikkahub.data.db.dao.EmbeddingCacheDAO
+import me.rerere.rikkahub.data.db.dao.MemoryConsolidationDao
 import me.rerere.rikkahub.data.db.dao.ToolResultArchiveDao
 import me.rerere.rikkahub.data.db.dao.ToolResultArchiveChunkDao
 import me.rerere.rikkahub.data.db.dao.UsageStatsDAO
@@ -62,6 +63,7 @@ class ConversationRepository(
     private val context: Context,
     private val conversationDAO: ConversationDAO,
     private val chatEpisodeDAO: me.rerere.rikkahub.data.db.dao.ChatEpisodeDAO,
+    private val memoryConsolidationDao: MemoryConsolidationDao,
     private val toolResultArchiveDao: ToolResultArchiveDao,
     private val toolResultArchiveChunkDao: ToolResultArchiveChunkDao,
     private val embeddingCacheDAO: EmbeddingCacheDAO,
@@ -282,16 +284,19 @@ class ConversationRepository(
         val preparedConversation = prepareConversationForStorage(conversation)
         conversationWriteMutex.withLock {
             val conversationToStore = sanitizeWorkspaceOverride(preparedConversation)
-            // 仅「已固化」会话需要读出旧内容判断是否作废整合结果；普通保存
-            // （含生成中的草稿节流保存）跳过这次整行读取 + 全量 JSON 解码
-            val shouldInvalidateConsolidation = conversationToStore.isConsolidated &&
-                conversationDAO.getConversationById(conversation.id.toString())
-                    ?.let { entity ->
-                        hasConversationContentChanged(
-                            conversationEntityToConversation(entity),
-                            conversationToStore,
-                        )
-                    } == true
+            val conversationId = conversation.id.toString()
+            val persistedConsolidated = conversationDAO.getConsolidatedStatus(conversationId) == true
+            val hasConsolidationHistory = memoryConsolidationDao.hasRecordsOfConversation(conversationId)
+            // A worker updates the database directly. Any later UI snapshot may still
+            // carry false, so consult persisted state before deciding whether it changed.
+            val previous = if (conversationToStore.isConsolidated || persistedConsolidated || hasConsolidationHistory) {
+                conversationDAO.getConversationById(conversationId)
+                    ?.let(::conversationEntityToConversation)
+            } else {
+                null
+            }
+            val shouldInvalidateConsolidation = (persistedConsolidated || hasConsolidationHistory) &&
+                previous?.let { hasConversationContentChanged(it, conversationToStore) } == true
 
             // Invalidation Logic: If a consolidated conversation is updated (e.g. new message),
             // we must invalidate the old memory episode to allow re-consolidation.
@@ -308,6 +313,7 @@ class ConversationRepository(
                 val removedEpisodes = chatEpisodeDAO.getEpisodesByConversationId(conversationToStore.id.toString())
                 val deletedCount = chatEpisodeDAO.deleteEpisodeByConversationId(conversationToStore.id.toString())
                 removedEpisodes.forEach { episode ->
+                    embeddingCacheDAO.deleteByMemoryId(episode.id, MemoryType.EPISODIC)
                     memorySummaryRepository?.recordChange(
                         episode.assistantId,
                         MemoryType.EPISODIC,
@@ -327,6 +333,7 @@ class ConversationRepository(
                         endTime = Long.MAX_VALUE
                     )
                     fallbackEpisodes.forEach { episode ->
+                        embeddingCacheDAO.deleteByMemoryId(episode.id, MemoryType.EPISODIC)
                         memorySummaryRepository?.recordChange(
                             episode.assistantId,
                             MemoryType.EPISODIC,
@@ -335,9 +342,17 @@ class ConversationRepository(
                         )
                     }
                 }
+                memoryConsolidationDao.deleteRecordsOfConversation(conversationId)
             } else {
+                val statePreservingConversation = if (
+                    (persistedConsolidated || hasConsolidationHistory) && !conversationToStore.isConsolidated
+                ) {
+                    conversationToStore.copy(isConsolidated = true)
+                } else {
+                    conversationToStore
+                }
                 conversationDAO.update(
-                    conversationToConversationEntity(conversationToStore)
+                    conversationToConversationEntity(statePreservingConversation)
                 )
             }
         }
@@ -416,6 +431,7 @@ class ConversationRepository(
         val removedEpisodes = chatEpisodeDAO.getEpisodesByConversationId(conversation.id.toString())
         chatEpisodeDAO.deleteEpisodeByConversationId(conversation.id.toString())
         removedEpisodes.forEach { episode ->
+            embeddingCacheDAO.deleteByMemoryId(episode.id, MemoryType.EPISODIC)
             memorySummaryRepository?.recordChange(
                 episode.assistantId,
                 MemoryType.EPISODIC,
@@ -423,6 +439,7 @@ class ConversationRepository(
                 me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
             )
         }
+        memoryConsolidationDao.deleteRecordsOfConversation(conversation.id.toString())
 
         val toolResultIds = toolResultArchiveDao.getIdsByConversationId(conversation.id.toString())
         toolResultArchiveDao.deleteByConversationId(conversation.id.toString())
@@ -452,6 +469,7 @@ class ConversationRepository(
         val removedEpisodes = chatEpisodeDAO.getEpisodesByConversationId(conversationId)
         chatEpisodeDAO.deleteEpisodeByConversationId(conversationId)
         removedEpisodes.forEach { episode ->
+            embeddingCacheDAO.deleteByMemoryId(episode.id, MemoryType.EPISODIC)
             memorySummaryRepository?.recordChange(
                 episode.assistantId,
                 MemoryType.EPISODIC,
@@ -459,6 +477,7 @@ class ConversationRepository(
                 me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
             )
         }
+        memoryConsolidationDao.deleteRecordsOfConversation(conversationId)
 
         val toolResultIds = toolResultArchiveDao.getIdsByConversationId(conversationId)
         toolResultArchiveDao.deleteByConversationId(conversationId)

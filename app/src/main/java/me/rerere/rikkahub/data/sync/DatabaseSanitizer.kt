@@ -37,6 +37,7 @@ object DatabaseSanitizer {
         "memory_summary_versions",
         "memory_summary_state",
         "memory_summary_changes",
+        "memory_consolidation_records",
     )
 
     data class SanitizationResult(

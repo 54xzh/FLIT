@@ -45,6 +45,20 @@ data class AssistantMemoryStats(
     val totalCount: Int = 0,
 )
 
+data class OldEpisodeCleanupPreview(
+    val count: Int = 0,
+    val assistantCount: Int = 0,
+    val oldestEndTime: Long? = null,
+    val newestEndTime: Long? = null,
+)
+
+data class OldEpisodeCleanupResult(
+    val deletedCount: Int = 0,
+    val assistantIds: Set<String> = emptySet(),
+    val oldestEndTime: Long? = null,
+    val newestEndTime: Long? = null,
+)
+
 internal fun mergeKeywordMemoryHits(
     rows: List<MemoryRetrievalRow>,
     matchedHits: List<KeywordSearchHit>,
@@ -874,6 +888,50 @@ class MemoryRepository internal constructor(
             MemoryType.EPISODIC,
             id,
             me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
+        )
+    }
+
+    suspend fun previewOldEpisodes(cutoffMillis: Long): OldEpisodeCleanupPreview = withContext(Dispatchers.IO) {
+        val episodes = chatEpisodeDAO.getEpisodesEndingBefore(cutoffMillis)
+        OldEpisodeCleanupPreview(
+            count = episodes.size,
+            assistantCount = episodes.map { it.assistantId }.distinct().size,
+            oldestEndTime = episodes.minOfOrNull { it.endTime },
+            newestEndTime = episodes.maxOfOrNull { it.endTime },
+        )
+    }
+
+    /** Removes old episodic data only. Conversation and consolidation history are intentionally retained. */
+    suspend fun deleteOldEpisodes(cutoffMillis: Long): OldEpisodeCleanupResult = withContext(Dispatchers.IO) {
+        val episodes = chatEpisodeDAO.getEpisodesEndingBefore(cutoffMillis)
+        if (episodes.isEmpty()) return@withContext OldEpisodeCleanupResult()
+
+        val episodeIds = episodes.map { it.id }
+        val episodeIdsByAssistant = episodes
+            .groupBy { it.assistantId }
+            .mapValues { (_, values) -> values.map { it.id } }
+        database.withTransaction {
+            oldEpisodeCleanupBatches(episodeIds).forEach { ids ->
+                embeddingCacheDAO.deleteByMemoryIds(MemoryType.EPISODIC, ids)
+                chatEpisodeDAO.deleteEpisodesByIds(ids)
+            }
+            // Keep the deletion and its deferred summary change in the same
+            // transaction: an error must leave both data sets untouched.
+            memorySummaryRepository?.recordEpisodeDeletions(
+                episodeIdsByAssistant = episodeIdsByAssistant,
+                scheduleAutomatically = false,
+            )
+        }
+
+        for (assistantId in episodeIdsByAssistant.keys) {
+            invalidateKeywordMemoryCache(assistantId)
+        }
+
+        OldEpisodeCleanupResult(
+            deletedCount = episodes.size,
+            assistantIds = episodeIdsByAssistant.keys,
+            oldestEndTime = episodes.minOf { it.endTime },
+            newestEndTime = episodes.maxOf { it.endTime },
         )
     }
 

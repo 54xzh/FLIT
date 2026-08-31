@@ -105,6 +105,9 @@ interface ChatEpisodeDAO {
     @Query("DELETE FROM ChatEpisodeEntity WHERE id = :id")
     suspend fun deleteEpisode(id: Int)
 
+    @Query("DELETE FROM ChatEpisodeEntity WHERE id IN (:ids)")
+    suspend fun deleteEpisodesByIds(ids: List<Int>)
+
     @Query("DELETE FROM ChatEpisodeEntity WHERE assistant_id = :assistantId")
     suspend fun deleteEpisodesOfAssistant(assistantId: String)
 
@@ -130,6 +133,9 @@ interface ChatEpisodeDAO {
 
     @Query("SELECT * FROM chatepisodeentity WHERE conversation_id = :conversationId AND assistant_id = :assistantId LIMIT 1")
     suspend fun getEpisodeByConversationIdAndAssistantId(conversationId: String, assistantId: String): ChatEpisodeEntity?
+
+    @Query("SELECT * FROM ChatEpisodeEntity WHERE end_time < :cutoffMillis ORDER BY end_time ASC")
+    suspend fun getEpisodesEndingBefore(cutoffMillis: Long): List<ChatEpisodeEntity>
 
     @Query("SELECT * FROM chatepisodeentity WHERE id = :id")
     suspend fun getEpisodeById(id: Int): ChatEpisodeEntity?

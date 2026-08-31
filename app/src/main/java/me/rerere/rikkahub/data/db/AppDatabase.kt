@@ -21,6 +21,7 @@ import me.rerere.rikkahub.data.db.dao.EmbeddingCacheDAO
 import me.rerere.rikkahub.data.db.dao.LorebookEntryRevisionDao
 import me.rerere.rikkahub.data.db.dao.GenMediaDAO
 import me.rerere.rikkahub.data.db.dao.MemoryDAO
+import me.rerere.rikkahub.data.db.dao.MemoryConsolidationDao
 import me.rerere.rikkahub.data.db.dao.MemorySummaryDao
 import me.rerere.rikkahub.data.db.dao.ScheduledTaskDao
 import me.rerere.rikkahub.data.db.dao.ScheduledTaskRunDao
@@ -39,6 +40,8 @@ import me.rerere.rikkahub.data.db.entity.EmbeddingCacheEntity
 import me.rerere.rikkahub.data.db.entity.GenMediaEntity
 import me.rerere.rikkahub.data.db.entity.LorebookEntryRevisionEntity
 import me.rerere.rikkahub.data.db.entity.MemoryEntity
+import me.rerere.rikkahub.data.db.entity.MemoryConsolidationClaimEntity
+import me.rerere.rikkahub.data.db.entity.MemoryConsolidationRecordEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryChangeEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryStateEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
@@ -80,8 +83,10 @@ import me.rerere.rikkahub.utils.JsonInstant
         MemorySummaryVersionEntity::class,
         MemorySummaryStateEntity::class,
         MemorySummaryChangeEntity::class,
+        MemoryConsolidationRecordEntity::class,
+        MemoryConsolidationClaimEntity::class,
     ],
-    version = 47,
+    version = 49,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -126,6 +131,8 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 44->45 is manual migration (MIGRATION_44_45) - adds sandbox folder mounts
         // 45->46 is manual migration (MIGRATION_45_46) - adds memory summaries
         // 46->47 is manual migration (MIGRATION_46_47) - adds active memory summary state
+        // 47->48 is manual migration (MIGRATION_47_48) - adds durable consolidation history
+        // 48->49 is manual migration (MIGRATION_48_49) - adds request log metadata
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -163,6 +170,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun workspaceDao(): WorkspaceDao
 
     abstract fun memorySummaryDao(): MemorySummaryDao
+
+    abstract fun memoryConsolidationDao(): MemoryConsolidationDao
 
     companion object {
         const val TAG = "AppDatabase"
@@ -573,6 +582,62 @@ abstract class AppDatabase : RoomDatabase() {
                     """.trimIndent(),
                 )
                 Log.i(TAG, "migrate: migrate from 46 to 47 success")
+            }
+        }
+
+        val MIGRATION_47_48 = object : Migration(47, 48) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 47 to 48")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memory_consolidation_records` (
+                        `conversation_id` TEXT NOT NULL,
+                        `assistant_id` TEXT NOT NULL,
+                        `completed_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`conversation_id`, `assistant_id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_memory_consolidation_records_assistant_id` " +
+                        "ON `memory_consolidation_records` (`assistant_id`)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memory_consolidation_claims` (
+                        `conversation_id` TEXT NOT NULL,
+                        `claim_token` TEXT NOT NULL,
+                        `claimed_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`conversation_id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_memory_consolidation_claims_claimed_at` " +
+                        "ON `memory_consolidation_claims` (`claimed_at`)",
+                )
+                // Existing episodes are proof that the corresponding target assistant has
+                // already been processed. Expired episodes are handled lazily from the legacy
+                // conversation flag when first encountered.
+                db.execSQL(
+                    """
+                    INSERT OR IGNORE INTO memory_consolidation_records
+                        (conversation_id, assistant_id, completed_at)
+                    SELECT conversation_id, assistant_id,
+                        CASE WHEN updated_at IS NOT NULL THEN updated_at ELSE end_time END
+                    FROM ChatEpisodeEntity
+                    WHERE conversation_id IS NOT NULL AND trim(conversation_id) <> ''
+                    """.trimIndent(),
+                )
+                Log.i(TAG, "migrate: migrate from 47 to 48 success")
+            }
+        }
+
+        val MIGRATION_48_49 = object : Migration(48, 49) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 48 to 49")
+                db.execSQL("ALTER TABLE AIRequestLogEntity ADD COLUMN metadata_json TEXT")
+                Log.i(TAG, "migrate: migrate from 48 to 49 success")
             }
         }
     }

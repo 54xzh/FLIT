@@ -29,6 +29,7 @@ import me.rerere.rikkahub.di.repositoryModule
 import me.rerere.rikkahub.di.viewModelModule
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.ModelCapabilityRepository
+import me.rerere.rikkahub.data.repository.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.migration.WorkspaceMigration
 import me.rerere.rikkahub.data.migration.SkillUuidMigration
@@ -151,9 +152,18 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
                 .build()
         )
 
-        // Schedule Memory Consolidation Worker dynamically
+        // Cancel anonymous pre-cancellation jobs once, then restore exactly one
+        // periodic worker from the current settings.
         get<AppScope>().launch {
-            get<SettingsStore>().settingsFlow
+            val settingsStore = get<SettingsStore>()
+            runCatching {
+                MemoryConsolidationScheduler(this@LastChatApp)
+                    .cancelLegacyConsolidationWorkIfNeeded(settingsStore)
+            }.onFailure { error ->
+                Log.e(TAG, "Failed to cancel legacy memory consolidation work", error)
+            }
+
+            settingsStore.settingsFlow
                 .map { it.consolidationWorkerIntervalMinutes to it.consolidationRequiresDeviceIdle }
                 .distinctUntilChanged()
                 .collect { (interval, idle) ->
