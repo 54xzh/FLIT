@@ -82,9 +82,9 @@ internal fun buildMemorySummaryVersionDiffMarkdown(
                 append("#".repeat(block.headingLevel ?: 1))
                 append(' ')
                 if (block.operation == MemorySummaryTextDiffOperation.DELETE) {
-                    append("~~")
-                    append(title)
-                    append("~~")
+                    append(MarkdownVersionDiffMarkers.DELETE_START)
+                    append(MarkdownVersionDiffMarkers.encodeDeletedText(title))
+                    append(MarkdownVersionDiffMarkers.DELETE_END)
                 } else {
                     append(title)
                 }
@@ -93,7 +93,9 @@ internal fun buildMemorySummaryVersionDiffMarkdown(
             block.parts.forEach { part ->
                 when (part.operation) {
                     MemorySummaryTextDiffOperation.DELETE -> {
-                        appendDeletedMarkdown(part.text)
+                        append(MarkdownVersionDiffMarkers.DELETE_START)
+                        append(MarkdownVersionDiffMarkers.encodeDeletedText(part.text))
+                        append(MarkdownVersionDiffMarkers.DELETE_END)
                     }
 
                     MemorySummaryTextDiffOperation.EQUAL,
@@ -109,18 +111,6 @@ internal fun buildMemorySummaryVersionDiffMarkdown(
         }.trim()
     }
 
-private fun StringBuilder.appendDeletedMarkdown(text: String) {
-    text.splitToSequence("\n").forEachIndexed { index, line ->
-        if (index > 0) append('\n')
-        if (line.isBlank()) {
-            append(line)
-        } else {
-            append("~~")
-            append(line)
-            append("~~")
-        }
-    }
-}
 
 private fun parseMemorySummaryMarkdownBlocks(content: String): List<MemorySummaryMarkdownBlock> {
     val headings = Regex("^(#{1,6})\\s+(.+?)\\s*#*\\s*$")

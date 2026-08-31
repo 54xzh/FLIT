@@ -159,8 +159,22 @@ data class MarkdownVersionDiffStyle(
 val LocalMarkdownVersionDiffStyle = compositionLocalOf<MarkdownVersionDiffStyle?> { null }
 
 internal object MarkdownVersionDiffMarkers {
-    const val INSERT_START = "\uE000"
-    const val INSERT_END = "\uE001"
+    const val INSERT_START = "\u2063"
+    const val INSERT_END = "\u2064"
+    const val DELETE_START = "\u2061"
+    const val DELETE_END = "\u2062"
+
+    fun encodeDeletedText(text: String): String = buildString(text.length * 4) {
+        text.forEach { character ->
+            append(character.code.toString(16).padStart(4, '0'))
+        }
+    }
+
+    fun decodeDeletedText(encoded: String): String = buildString(encoded.length / 4) {
+        encoded.chunked(4).forEach { chunk ->
+            append(chunk.toIntOrNull(16)?.toChar() ?: return@forEach)
+        }
+    }
 }
 
 private val INLINE_LATEX_REGEX = Regex("\\\\\\((.+?)\\\\\\)")
@@ -252,7 +266,8 @@ private val FALLBACK_WRAPPING_PATTERNS = listOf("***", "**", "*", "~~", "`")
 
 private data class PatternRegexStyle(
     val regex: Regex,
-    val style: SpanStyle
+    val style: SpanStyle,
+    val transform: (String) -> String = { it },
 )
 
 private fun parseRpColor(colorHex: String): Color? {
@@ -359,6 +374,19 @@ private fun AnnotatedString.Builder.appendTextWithCustomPatterns(
                         background = style.insertedBackground,
                     ),
                 ),
+                PatternRegexStyle(
+                    regex = Regex(
+                        "${Regex.escape(MarkdownVersionDiffMarkers.DELETE_START)}([0-9a-fA-F]+)" +
+                            Regex.escape(MarkdownVersionDiffMarkers.DELETE_END),
+                        setOf(RegexOption.DOT_MATCHES_ALL),
+                    ),
+                    style = SpanStyle(
+                        color = style.deletedText,
+                        background = style.deletedBackground,
+                        textDecoration = TextDecoration.LineThrough,
+                    ),
+                    transform = MarkdownVersionDiffMarkers::decodeDeletedText,
+                ),
             )
         }.orEmpty()
     
@@ -375,7 +403,7 @@ private fun AnnotatedString.Builder.appendTextWithCustomPatterns(
         val regex = patternRegex.regex
         val style = patternRegex.style
         regex.findAll(text).forEach { matchResult ->
-            val content = matchResult.groups[1]?.value ?: return@forEach
+            val content = matchResult.groups[1]?.value?.let(patternRegex.transform) ?: return@forEach
             allMatches.add(Match(
                 range = matchResult.range,
                 content = content,
@@ -1422,12 +1450,10 @@ private fun MarkdownNode(
 
         // GFM 特殊元素
         GFMElementTypes.STRIKETHROUGH -> {
-            val diffStyle = LocalMarkdownVersionDiffStyle.current
             Text(
                 text = node.getTextInNode(content),
-                color = diffStyle?.deletedText ?: Color.Unspecified,
                 textDecoration = TextDecoration.LineThrough,
-                modifier = if (diffStyle == null) modifier else modifier.background(diffStyle.deletedBackground),
+                modifier = modifier,
             )
         }
 
@@ -2170,13 +2196,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
             // Check for RP color rule for pattern "~~" (strikethrough)
             val strikeRule = rpStyleRules.find { it.pattern == "~~" && it.enabled }
             val strikeColor = strikeRule?.let { runCatching { Color(android.graphics.Color.parseColor(it.colorHex)) }.getOrNull() }
-            withStyle(
-                SpanStyle(
-                    textDecoration = TextDecoration.LineThrough,
-                    color = versionDiffStyle?.deletedText ?: strikeColor ?: Color.Unspecified,
-                    background = versionDiffStyle?.deletedBackground ?: Color.Unspecified,
-                ),
-            ) {
+            withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough, color = strikeColor ?: Color.Unspecified)) {
                 node.children.trim(GFMTokenTypes.TILDE, 2).fastForEach {
                     appendMarkdownNodeContent(
                         node = it,

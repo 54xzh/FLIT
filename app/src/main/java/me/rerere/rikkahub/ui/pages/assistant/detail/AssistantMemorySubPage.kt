@@ -1884,6 +1884,7 @@ private fun MemorySummaryVersionsList(
     var comparisonMarkdown by remember { mutableStateOf<String?>(null) }
     val haptics = rememberPremiumHaptics()
     val context = LocalContext.current
+    val isDarkMode = LocalDarkMode.current
     val unchangedComparisonMessage = stringResource(
         R.string.assistant_page_memory_summary_compare_unchanged,
     )
@@ -2118,8 +2119,8 @@ private fun MemorySummaryVersionsList(
                 SelectionContainer {
                     CompositionLocalProvider(
                         LocalMarkdownVersionDiffStyle provides MarkdownVersionDiffStyle(
-                            insertedText = MaterialTheme.colorScheme.onPrimaryContainer,
-                            insertedBackground = MaterialTheme.colorScheme.primaryContainer,
+                            insertedText = if (isDarkMode) Color(0xFFC1F7C8) else Color(0xFF004D1A),
+                            insertedBackground = if (isDarkMode) Color(0xFF0F5928) else Color(0xFFB9F6C4),
                             deletedText = MaterialTheme.colorScheme.onErrorContainer,
                             deletedBackground = MaterialTheme.colorScheme.errorContainer,
                         ),
