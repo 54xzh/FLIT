@@ -91,7 +91,6 @@ fun AssistantDetailPage(
     val currentRoute = navBackStackEntry?.destination?.route
     val mcpServerConfigs by vm.mcpServerConfigs.collectAsStateWithLifecycle()
     val assistant by vm.assistant.collectAsStateWithLifecycle()
-    val memories by vm.memories.collectAsStateWithLifecycle()
     val memoryStats by vm.memoryStats.collectAsStateWithLifecycle()
     val providers by vm.providers.collectAsStateWithLifecycle()
     val tags by vm.tags.collectAsStateWithLifecycle()
@@ -257,7 +256,6 @@ fun AssistantDetailPage(
                 val retrievalResults by vm.retrievalResults.collectAsStateWithLifecycle()
                 AssistantMemorySettings(
                     assistant = assistant,
-                    memories = memories,
                     memoryStats = memoryStats,
                     onUpdateAssistant = { assistant -> onUpdate(assistant) },
                     onDeleteMemory = { memory -> vm.deleteMemory(memory) },

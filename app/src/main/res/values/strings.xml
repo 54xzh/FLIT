@@ -1536,6 +1536,7 @@
     <string name="assistant_page_memory_statistics_title">Memory Statistics</string>
     <string name="assistant_page_memory_stats_core">Core Memories</string>
     <string name="assistant_page_memory_stats_episodic">Episodic Memories</string>
+    <string name="assistant_page_memory_stats_summary">Memory Summaries</string>
     <string name="assistant_page_memory_recent_activity">Recent Activity</string>
     <string name="assistant_page_memory_track_a">Consolidation (Track A)</string>
     <string name="assistant_page_memory_track_b">Reflection (Track B)</string>

@@ -1361,6 +1361,7 @@
   <string name="assistant_page_memory_statistics_title">記憶統計</string>
   <string name="assistant_page_memory_stats_core">核心記憶</string>
   <string name="assistant_page_memory_stats_episodic">情景記憶</string>
+  <string name="assistant_page_memory_stats_summary">記憶摘要</string>
   <string name="assistant_page_memory_recent_activity">最近活動</string>
   <string name="assistant_page_memory_track_a">整合 (Track A)</string>
   <string name="assistant_page_memory_track_b">反思 (Track B)</string>

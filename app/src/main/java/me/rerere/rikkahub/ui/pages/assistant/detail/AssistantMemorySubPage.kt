@@ -156,7 +156,6 @@ private enum class MemoryMode(
 @Composable
 fun AssistantMemorySettings(
     assistant: Assistant,
-    memories: List<AssistantMemory>,
     memoryStats: AssistantMemoryStats,
     onUpdateAssistant: (Assistant) -> Unit,
     onAddMemory: (AssistantMemory) -> Unit,
@@ -278,6 +277,18 @@ fun AssistantMemorySettings(
     val memorySummaryStatus by assistantDetailVM.memorySummaryStatus.collectAsState()
     val memorySummaryVersions by assistantDetailVM.memorySummaryVersions.collectAsState()
     val currentMode = getMemoryMode(assistant)
+    var showMemoryManager by remember { mutableStateOf(false) }
+
+    LaunchedEffect(scrollToMemoryId, initialMemoryTab) {
+        if (scrollToMemoryId != null) {
+            showMemoryManager = true
+            assistantDetailVM.resolveMemoryByRoute(scrollToMemoryId, initialMemoryTab) { resolved ->
+                if (resolved != null) {
+                    memoryDialogState.open(resolved)
+                }
+            }
+        }
+    }
     
     Column(
         modifier = Modifier
@@ -525,20 +536,16 @@ fun AssistantMemorySettings(
             MemoryStatisticsCard(
                 assistant = assistant,
                 memoryStats = memoryStats,
-                estimatedMemoryCapacity = estimatedMemoryCapacity
+                estimatedMemoryCapacity = estimatedMemoryCapacity,
+                summaryCount = memorySummaryVersions.size,
+                onViewAllMemories = { showMemoryManager = true },
             )
         }
 
-        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
-        // MANAGE MEMORIES (when memory is enabled)
-        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
-        AnimatedVisibility(
-            visible = assistant.enableMemory,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            ManageMemoriesSection(
-                previewMemories = memories,
+        if (assistant.enableMemory) {
+            MemoryManagerSheet(
+                visible = showMemoryManager,
+                onDismiss = { showMemoryManager = false },
                 memoryStats = memoryStats,
                 assistant = assistant,
                 onAddMemory = { memoryDialogState.open(AssistantMemory(0, "")) },
@@ -559,7 +566,6 @@ fun AssistantMemorySettings(
                 summaryActiveVersionId = memorySummaryStatus.activeVersion?.id,
                 showSummaryTab = assistant.enableMemorySummary || memorySummaryVersions.isNotEmpty(),
                 initialMemoryTab = initialMemoryTab,
-                scrollToMemoryId = scrollToMemoryId
             )
         }
 
@@ -1231,7 +1237,9 @@ private fun MemorySummarySettingsCard(
 private fun MemoryStatisticsCard(
     assistant: Assistant,
     memoryStats: AssistantMemoryStats,
-    estimatedMemoryCapacity: Int
+    estimatedMemoryCapacity: Int,
+    summaryCount: Int,
+    onViewAllMemories: () -> Unit,
 ) {
     val coreMemories = memoryStats.coreCount
     val episodicMemories = memoryStats.episodicCount
@@ -1292,6 +1300,12 @@ private fun MemoryStatisticsCard(
                             MaterialTheme.colorScheme.tertiary
                     )
                 }
+
+                StatItem(
+                    value = summaryCount.toString(),
+                    label = stringResource(R.string.assistant_page_memory_stats_summary),
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
             }
 
             AnimatedVisibility(visible = assistant.effectiveMemoryRetrievalMode().requiresEmbedding) {
@@ -1300,6 +1314,14 @@ private fun MemoryStatisticsCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.secondary
                 )
+            }
+
+            Button(
+                onClick = onViewAllMemories,
+                modifier = Modifier.fillMaxWidth(),
+                shape = AppShapes.ButtonPill,
+            ) {
+                Text(stringResource(R.string.assistant_page_view_all_memories))
             }
         }
     }
@@ -1327,8 +1349,9 @@ private fun StatItem(
 }
 
 @Composable
-private fun ManageMemoriesSection(
-    previewMemories: List<AssistantMemory>,
+private fun MemoryManagerSheet(
+    visible: Boolean,
+    onDismiss: () -> Unit,
     memoryStats: AssistantMemoryStats,
     assistant: Assistant,
     onAddMemory: () -> Unit,
@@ -1345,12 +1368,10 @@ private fun ManageMemoriesSection(
     summaryActiveVersionId: Long?,
     showSummaryTab: Boolean,
     initialMemoryTab: Int? = null,
-    scrollToMemoryId: Int? = null
 ) {
     var selectedTab by remember { mutableIntStateOf(initialMemoryTab ?: 0) }
     var sortOrder by remember { mutableStateOf(MemorySortOrder.NEWEST_FIRST) }
     var summarySortOrder by rememberSaveable { mutableStateOf(MemorySummarySortOrder.NEWEST_FIRST) }
-    var showBottomSheet by remember { mutableStateOf(false) }
     var selectedSummaryVersion by remember { mutableStateOf<MemorySummaryVersionEntity?>(null) }
     val memorySummaryRequirement by assistantDetailVM.memorySummaryRequirement.collectAsStateWithLifecycle()
     val isMemorySummaryRequirementChangeRunning by assistantDetailVM
@@ -1378,101 +1399,14 @@ private fun ManageMemoriesSection(
         }
     }
 
-    LaunchedEffect(scrollToMemoryId, initialMemoryTab) {
-        if (scrollToMemoryId != null) {
-            showBottomSheet = true
-            assistantDetailVM.resolveMemoryByRoute(scrollToMemoryId, initialMemoryTab) { resolved ->
-                if (resolved != null) {
-                    onEditMemory(resolved)
-                }
-            }
-        }
+    LaunchedEffect(visible) {
+        if (!visible) selectedSummaryVersion = null
     }
-
-    val displayPreviewMemories = if (isSummaryTab) {
-        previewMemories
-    } else if (showMemoryTypes) {
-        when (selectedTab) {
-            0 -> previewMemories.filter { it.type == 0 }
-            else -> previewMemories.filter { it.type == 1 }
-        }.sortedByDescending { it.timestamp }
-    } else {
-        previewMemories.sortedByDescending { it.timestamp }
-    }.take(3)
 
     val tabCoreText = stringResource(R.string.assistant_page_badge_core) + " (${memoryStats.coreCount})"
     val tabEpisodicText = stringResource(R.string.assistant_page_badge_episodic) + " (${memoryStats.episodicCount})"
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = stringResource(R.string.assistant_page_recent_memories_title),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (onRegenerateEmbeddings != null && assistant.effectiveMemoryRetrievalMode().requiresEmbedding && needsEmbeddingRegeneration) {
-                    IconButton(onClick = onRegenerateEmbeddings) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.assistant_page_regenerate_embeddings_content_desc))
-                    }
-                }
-                IconButton(onClick = onAddMemory) {
-                    Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.assistant_page_add_memory_content_desc))
-                }
-            }
-        }
-
-        if (displayPreviewMemories.isEmpty()) {
-            Surface(
-                color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
-                shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = stringResource(R.string.assistant_page_no_memories),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(24.dp)
-                )
-            }
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
-                    .animateContentSize(),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                displayPreviewMemories.forEachIndexed { index, memory ->
-                    MemoryItem(
-                        memory = memory,
-                        onEditMemory = onEditMemory,
-                        onDeleteMemory = onDeleteMemory,
-                        useRagMemoryRetrieval = assistant.effectiveMemoryRetrievalMode().requiresEmbedding,
-                        currentEmbeddingModelId = currentEmbeddingModelId,
-                        showType = showMemoryTypes,
-                        position = groupedCardPosition(index, displayPreviewMemories.size)
-                    )
-                }
-            }
-        }
-
-        Button(
-            onClick = { showBottomSheet = true },
-            modifier = Modifier.fillMaxWidth(),
-            shape = AppShapes.ButtonPill
-        ) {
-            Text(stringResource(R.string.assistant_page_view_all_memories))
-        }
-    }
-
-    if (showBottomSheet) {
+    if (visible) {
         val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
         val scope = androidx.compose.runtime.rememberCoroutineScope()
         var showSortMenu by remember { mutableStateOf(false) }
@@ -1497,7 +1431,7 @@ private fun ManageMemoriesSection(
             onDismissRequest = {
                 scope.launch {
                     sheetState.hide()
-                    showBottomSheet = false
+                    onDismiss()
                 }
             },
             sheetState = sheetState,
@@ -1568,6 +1502,11 @@ private fun ManageMemoriesSection(
                         }
 
                         if (!isSummaryTab) {
+                            if (onRegenerateEmbeddings != null && assistant.effectiveMemoryRetrievalMode().requiresEmbedding && needsEmbeddingRegeneration) {
+                                IconButton(onClick = onRegenerateEmbeddings) {
+                                    Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.assistant_page_regenerate_embeddings_content_desc))
+                                }
+                            }
                             IconButton(onClick = onAddMemory) {
                                 Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.assistant_page_add_memory_content_desc))
                             }
@@ -1768,7 +1707,7 @@ private fun ManageMemoriesSection(
         }
     }
 
-    if (showBottomSheet && isMemorySummaryRequirementChangeRunning) {
+    if (visible && isMemorySummaryRequirementChangeRunning) {
         AlertDialog(
             onDismissRequest = {},
             modifier = Modifier.padding(horizontal = 24.dp),

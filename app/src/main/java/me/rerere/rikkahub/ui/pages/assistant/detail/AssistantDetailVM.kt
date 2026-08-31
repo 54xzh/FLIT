@@ -106,10 +106,6 @@ class AssistantDetailVM(
         contentPreviewLimit = UI_EPISODE_CONTENT_PREVIEW_LIMIT,
     )
 
-    val memories = memoryRepository.getMemoryPreviewFlow(assistantId.toString()).stateIn(
-        scope = viewModelScope, started = SharingStarted.Lazily, initialValue = emptyList()
-    )
-
     val memoryStats = memoryRepository.getAssistantMemoryStatsFlow(assistantId.toString()).stateIn(
         scope = viewModelScope,
         started = SharingStarted.Lazily,

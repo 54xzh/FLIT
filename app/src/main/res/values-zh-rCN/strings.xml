@@ -263,6 +263,7 @@
     <string name="assistant_page_memory_stats_core">核心记忆</string>
     <string name="assistant_page_memory_stats_embedded">已嵌入</string>
     <string name="assistant_page_memory_stats_episodic">情景记忆</string>
+    <string name="assistant_page_memory_stats_summary">记忆摘要</string>
     <string name="assistant_page_memory_stats_total">总计</string>
     <string name="assistant_page_memory_track_a">整合 (Track A)</string>
     <string name="assistant_page_memory_track_b">反思 (Track B)</string>
