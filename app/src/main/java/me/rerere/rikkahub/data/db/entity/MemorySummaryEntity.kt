@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.db.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -9,6 +10,7 @@ object MemorySummaryUpdateMode {
     const val INCREMENTAL = 0
     const val FULL = 1
     const val REBUILD = 2
+    const val MANUAL = 3
 }
 
 object MemorySummaryChangeType {
@@ -17,7 +19,7 @@ object MemorySummaryChangeType {
     const val DELETED = 2
 }
 
-/** A saved summary version. The newest version of an assistant is the active one. */
+/** An immutable saved summary version. Its active state is stored separately. */
 @Entity(
     tableName = "memory_summary_versions",
     indices = [Index(value = ["assistant_id", "generated_at"])],
@@ -35,6 +37,31 @@ data class MemorySummaryVersionEntity(
     val updateMode: Int,
     @ColumnInfo(name = "source_change_count")
     val sourceChangeCount: Int,
+)
+
+/** The active summary selection for one assistant. No row exists until a version is available. */
+@Entity(
+    tableName = "memory_summary_state",
+    foreignKeys = [
+        ForeignKey(
+            entity = MemorySummaryVersionEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["active_version_id"],
+            onDelete = ForeignKey.RESTRICT,
+        ),
+    ],
+    indices = [Index(value = ["active_version_id"], unique = true)],
+)
+data class MemorySummaryStateEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "assistant_id")
+    val assistantId: String,
+    @ColumnInfo(name = "active_version_id")
+    val activeVersionId: Long,
+    @ColumnInfo(name = "requires_full_update")
+    val requiresFullUpdate: Boolean = false,
+    @ColumnInfo(name = "revision")
+    val revision: Long = 0,
 )
 
 /** One pending change per memory. changeToken prevents a running summary task from clearing newer changes. */

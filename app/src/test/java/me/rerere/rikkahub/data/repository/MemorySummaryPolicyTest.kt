@@ -81,4 +81,46 @@ class MemorySummaryPolicyTest {
         assertTrue(shouldUseFullMemorySummaryUpdate(active, listOf(edit), forceFull = false))
         assertFalse(shouldUseFullMemorySummaryUpdate(active, listOf(addition), forceFull = false))
     }
+
+    @Test
+    fun restoredVersionRequiresAFullUpdate() {
+        val active = MemorySummaryVersionEntity(
+            assistantId = "assistant",
+            content = "summary",
+            generatedAt = 1L,
+            updateMode = 0,
+            sourceChangeCount = 1,
+        )
+
+        assertTrue(
+            shouldUseFullMemorySummaryUpdate(
+                activeVersion = active,
+                changes = emptyList(),
+                forceFull = false,
+                requiresFullUpdate = true,
+            )
+        )
+    }
+
+    @Test
+    fun retentionKeepsTheActiveVersionEvenWhenItIsOld() {
+        val versions = (1L..11L).reversed().map { id ->
+            MemorySummaryVersionEntity(
+                id = id,
+                assistantId = "assistant",
+                content = "summary $id",
+                generatedAt = id,
+                updateMode = 0,
+                sourceChangeCount = 0,
+            )
+        }
+
+        assertEquals(
+            listOf(2L),
+            memorySummaryVersionIdsToPrune(
+                versionsNewestFirst = versions,
+                activeVersionId = 1L,
+            )
+        )
+    }
 }

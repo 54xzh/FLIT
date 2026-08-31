@@ -56,7 +56,8 @@ class MemorySummaryWorker(
         if (!assistant.enableMemory || !assistant.enableMemorySummary) return
         if (!forceManual && !assistant.enableAutoMemorySummary) return
 
-        val activeVersion = summaryRepository.getActiveVersion(assistantId)
+        val activeSnapshot = summaryRepository.getActiveSnapshot(assistantId)
+        val activeVersion = activeSnapshot.activeVersion
         val changes = summaryRepository.getPendingChanges(assistantId)
         val currentMemoryCount = summaryRepository.getCurrentMemoryCount(assistantId)
         if (!forceManual && !summaryRepository.hasEnoughChanges(
@@ -78,10 +79,11 @@ class MemorySummaryWorker(
             }
         }
 
-        val isFullUpdate = forceRebuild || summaryRepository.shouldUseFullUpdate(
+        val isFullUpdate = summaryRepository.shouldUseFullUpdate(
             activeVersion = activeVersion,
             changes = changes,
-            forceFull = forceFull,
+            forceFull = forceFull || forceRebuild,
+            requiresFullUpdate = activeSnapshot.requiresFullUpdate,
         )
         val updateMode = when {
             forceRebuild -> MemorySummaryUpdateMode.REBUILD
@@ -95,12 +97,15 @@ class MemorySummaryWorker(
         }
 
         if (isFullUpdate && sources.isEmpty()) {
-            summaryRepository.publishVersion(
+            val published = summaryRepository.publishVersion(
                 assistantId = assistantId,
                 content = "",
                 updateMode = updateMode,
                 snapshotChanges = changes,
+                expectedActiveVersionId = activeVersion?.id,
+                expectedRevision = activeSnapshot.revision,
             )
+            if (!published) summaryRepository.scheduleAutomaticCheck(assistantId)
             return
         }
         // An explicit immediate update is allowed to refresh an existing incremental
@@ -136,12 +141,15 @@ class MemorySummaryWorker(
             rawResponse = response.rawResponse.orEmpty()
             responseText = response.choices.firstOrNull()?.message?.toContentText().orEmpty().trim()
             check(responseText.isNotBlank()) { "Memory summary response is empty" }
-            summaryRepository.publishVersion(
+            val published = summaryRepository.publishVersion(
                 assistantId = assistantId,
                 content = responseText,
                 updateMode = updateMode,
                 snapshotChanges = changes,
+                expectedActiveVersionId = activeVersion?.id,
+                expectedRevision = activeSnapshot.revision,
             )
+            if (!published) summaryRepository.scheduleAutomaticCheck(assistantId)
         } catch (error: Throwable) {
             failure = error
             throw error

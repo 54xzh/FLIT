@@ -2520,7 +2520,7 @@
     <string name="assistant_page_memory_summary_change_progress">已变化记忆 %1$d / %2$d</string>
     <string name="assistant_page_memory_summary_interval">最短更新间隔</string>
     <string name="assistant_page_memory_summary_interval_value">%1$d 天</string>
-    <string name="assistant_page_memory_summary_last_updated">上次更新：%1$s</string>
+    <string name="assistant_page_memory_summary_last_updated">更新时间：%1$s</string>
     <string name="assistant_page_memory_summary_update_now">立即更新记忆摘要</string>
     <string name="assistant_page_memory_summary_update_dialog_title">选择更新方式</string>
     <string name="assistant_page_memory_summary_update_dialog_desc">选择新摘要的生成方式。全量重建仅使用当前记忆库，不会向模型提供旧摘要。</string>
@@ -2535,6 +2535,17 @@
     <string name="assistant_page_memory_summary_prompt_tab">记忆摘要提示词</string>
     <string name="assistant_page_memory_summary_prompt_vars">变量：{current_date}、{previous_summary_section}、{memory_section}、{update_instructions}</string>
     <string name="assistant_page_memory_summary_empty">暂无记忆摘要。</string>
+    <string name="assistant_page_memory_summary_set_current">设为当前版本</string>
+    <string name="assistant_page_memory_summary_edit_title">编辑记忆摘要</string>
+    <string name="assistant_page_memory_summary_edit_hint">记忆摘要</string>
+    <string name="assistant_page_memory_summary_delete_confirm">确定删除这个历史版本吗？此操作无法撤销。引用过它的消息仅保留简短预览。</string>
+    <string name="assistant_page_memory_summary_version_activated">已设为当前版本</string>
+    <string name="assistant_page_memory_summary_version_saved">已保存为新的当前版本</string>
+    <string name="assistant_page_memory_summary_version_deleted">历史版本已删除</string>
+    <string name="assistant_page_memory_summary_version_not_found">该版本已不存在</string>
+    <string name="assistant_page_memory_summary_cannot_delete_active">当前版本不能删除</string>
+    <string name="assistant_page_memory_summary_content_empty">记忆摘要不能为空</string>
+    <string name="assistant_page_memory_summary_content_unchanged">没有可保存的修改</string>
     <string name="assistant_page_memory_summary_update_started">已开始更新记忆摘要</string>
     <string name="assistant_page_memory_summary_full_update_started">已开始全量更新记忆摘要</string>
     <string name="assistant_page_memory_summary_rebuild_started">已开始全量重建记忆摘要</string>

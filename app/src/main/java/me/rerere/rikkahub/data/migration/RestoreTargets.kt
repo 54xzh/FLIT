@@ -53,6 +53,7 @@ class RestoreTargets(
                 AppDatabase.MIGRATION_43_44,
                 AppDatabase.MIGRATION_44_45,
                 AppDatabase.MIGRATION_45_46,
+                AppDatabase.MIGRATION_46_47,
             )
             .allowMainThreadQueries() // 仅用于恢复期一次性迁移
             .build()

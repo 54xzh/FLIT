@@ -40,6 +40,7 @@ import me.rerere.rikkahub.data.db.entity.GenMediaEntity
 import me.rerere.rikkahub.data.db.entity.LorebookEntryRevisionEntity
 import me.rerere.rikkahub.data.db.entity.MemoryEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryChangeEntity
+import me.rerere.rikkahub.data.db.entity.MemorySummaryStateEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 import me.rerere.rikkahub.data.db.entity.ModelQuotaUsageEntity
 import me.rerere.rikkahub.data.db.entity.ScheduledTaskEntity
@@ -77,9 +78,10 @@ import me.rerere.rikkahub.utils.JsonInstant
         SandboxWorkspaceEntity::class,
         SandboxWorkspaceMountEntity::class,
         MemorySummaryVersionEntity::class,
+        MemorySummaryStateEntity::class,
         MemorySummaryChangeEntity::class,
     ],
-    version = 46,
+    version = 47,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -123,6 +125,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 43->44 is manual migration (MIGRATION_43_44) - adds conversation workspace override
         // 44->45 is manual migration (MIGRATION_44_45) - adds sandbox folder mounts
         // 45->46 is manual migration (MIGRATION_45_46) - adds memory summaries
+        // 46->47 is manual migration (MIGRATION_46_47) - adds active memory summary state
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -536,6 +539,40 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_memory_summary_changes_assistant_id_changed_at` ON `memory_summary_changes` (`assistant_id`, `changed_at`)")
                 Log.i(TAG, "migrate: migrate from 45 to 46 success")
+            }
+        }
+
+        val MIGRATION_46_47 = object : Migration(46, 47) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 46 to 47")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memory_summary_state` (
+                        `assistant_id` TEXT NOT NULL,
+                        `active_version_id` INTEGER NOT NULL,
+                        `requires_full_update` INTEGER NOT NULL,
+                        `revision` INTEGER NOT NULL,
+                        PRIMARY KEY(`assistant_id`),
+                        FOREIGN KEY(`active_version_id`) REFERENCES `memory_summary_versions`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_memory_summary_state_active_version_id` ON `memory_summary_state` (`active_version_id`)")
+                db.execSQL(
+                    """
+                    INSERT INTO memory_summary_state (assistant_id, active_version_id, requires_full_update, revision)
+                    SELECT versions.assistant_id, versions.id, 0, 0
+                    FROM memory_summary_versions AS versions
+                    WHERE versions.id = (
+                        SELECT candidate.id
+                        FROM memory_summary_versions AS candidate
+                        WHERE candidate.assistant_id = versions.assistant_id
+                        ORDER BY candidate.generated_at DESC, candidate.id DESC
+                        LIMIT 1
+                    )
+                    """.trimIndent(),
+                )
+                Log.i(TAG, "migrate: migrate from 46 to 47 success")
             }
         }
     }

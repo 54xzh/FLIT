@@ -2599,7 +2599,7 @@
     <string name="assistant_page_memory_summary_change_progress">Changed memories %1$d / %2$d</string>
     <string name="assistant_page_memory_summary_interval">Minimum update interval</string>
     <string name="assistant_page_memory_summary_interval_value">%1$d days</string>
-    <string name="assistant_page_memory_summary_last_updated">Last updated: %1$s</string>
+    <string name="assistant_page_memory_summary_last_updated">Updated: %1$s</string>
     <string name="assistant_page_memory_summary_update_now">Update memory summary now</string>
     <string name="assistant_page_memory_summary_update_dialog_title">Choose update method</string>
     <string name="assistant_page_memory_summary_update_dialog_desc">Choose how to generate the new summary. Full rebuild uses only the current memory library and does not send the previous summary to the model.</string>
@@ -2612,6 +2612,17 @@
     <string name="assistant_page_memory_summary_mode_incremental">Incremental update</string>
     <string name="assistant_page_memory_summary_mode_full">Full update</string>
     <string name="assistant_page_memory_summary_empty">No memory summary yet.</string>
+    <string name="assistant_page_memory_summary_set_current">Set as current version</string>
+    <string name="assistant_page_memory_summary_edit_title">Edit memory summary</string>
+    <string name="assistant_page_memory_summary_edit_hint">Memory summary</string>
+    <string name="assistant_page_memory_summary_delete_confirm">Delete this history version? This cannot be undone. Messages that used it will keep only their short preview.</string>
+    <string name="assistant_page_memory_summary_version_activated">Set as current version</string>
+    <string name="assistant_page_memory_summary_version_saved">Saved as a new current version</string>
+    <string name="assistant_page_memory_summary_version_deleted">History version deleted</string>
+    <string name="assistant_page_memory_summary_version_not_found">This version is no longer available</string>
+    <string name="assistant_page_memory_summary_cannot_delete_active">The current version cannot be deleted</string>
+    <string name="assistant_page_memory_summary_content_empty">Memory summary cannot be empty</string>
+    <string name="assistant_page_memory_summary_content_unchanged">No changes to save</string>
     <string name="assistant_page_memory_summary_update_started">Memory summary update started</string>
     <string name="assistant_page_memory_summary_full_update_started">Memory summary full update started</string>
     <string name="assistant_page_memory_summary_rebuild_started">Memory summary full rebuild started</string>

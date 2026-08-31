@@ -35,6 +35,7 @@ object DatabaseSanitizer {
         "workspace_sandbox_details",
         "workspace_sandbox_mounts",
         "memory_summary_versions",
+        "memory_summary_state",
         "memory_summary_changes",
     )
 

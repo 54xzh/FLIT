@@ -38,11 +38,13 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Refresh
@@ -73,6 +75,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -540,6 +543,7 @@ fun AssistantMemorySettings(
                 currentEmbeddingModelId = currentEmbeddingModelId,
                 showMemoryTypes = assistant.enableMemoryConsolidation,
                 summaryVersions = memorySummaryVersions,
+                summaryActiveVersionId = memorySummaryStatus.activeVersion?.id,
                 showSummaryTab = assistant.enableMemorySummary || memorySummaryVersions.isNotEmpty(),
                 initialMemoryTab = initialMemoryTab,
                 scrollToMemoryId = scrollToMemoryId
@@ -732,6 +736,29 @@ private enum class MemorySortOrder(@androidx.annotation.StringRes val displayNam
     OLDEST_FIRST(R.string.assistant_page_sort_oldest),
     ALPHABETICAL(R.string.assistant_page_sort_alphabetical),
 }
+
+private enum class MemorySummarySortOrder(@androidx.annotation.StringRes val displayNameRes: Int) {
+    NEWEST_FIRST(R.string.assistant_page_sort_newest),
+    OLDEST_FIRST(R.string.assistant_page_sort_oldest),
+}
+
+private enum class GroupedCardPosition {
+    ONLY,
+    FIRST,
+    MIDDLE,
+    LAST,
+}
+
+private fun groupedCardPosition(index: Int, total: Int): GroupedCardPosition = when {
+    total <= 1 -> GroupedCardPosition.ONLY
+    index == 0 -> GroupedCardPosition.FIRST
+    index == total - 1 -> GroupedCardPosition.LAST
+    else -> GroupedCardPosition.MIDDLE
+}
+
+private fun String.toCardPreview(): String = lineSequence()
+    .filterNot { it.isBlank() }
+    .joinToString("\n") { it.trimEnd() }
 
 @Composable
 private fun RagSettingsCard(
@@ -1299,12 +1326,14 @@ private fun ManageMemoriesSection(
     currentEmbeddingModelId: String,
     showMemoryTypes: Boolean,
     summaryVersions: List<MemorySummaryVersionEntity>,
+    summaryActiveVersionId: Long?,
     showSummaryTab: Boolean,
     initialMemoryTab: Int? = null,
     scrollToMemoryId: Int? = null
 ) {
     var selectedTab by remember { mutableIntStateOf(initialMemoryTab ?: 0) }
     var sortOrder by remember { mutableStateOf(MemorySortOrder.NEWEST_FIRST) }
+    var summarySortOrder by rememberSaveable { mutableStateOf(MemorySummarySortOrder.NEWEST_FIRST) }
     var showBottomSheet by remember { mutableStateOf(false) }
     var selectedSummaryVersion by remember { mutableStateOf<MemorySummaryVersionEntity?>(null) }
     val summaryTabIndex = if (showMemoryTypes) 2 else 1
@@ -1388,12 +1417,6 @@ private fun ManageMemoriesSection(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 displayPreviewMemories.forEachIndexed { index, memory ->
-                    val position = when {
-                        displayPreviewMemories.size == 1 -> "ONLY"
-                        index == 0 -> "FIRST"
-                        index == displayPreviewMemories.size - 1 -> "LAST"
-                        else -> "MIDDLE"
-                    }
                     MemoryItem(
                         memory = memory,
                         onEditMemory = onEditMemory,
@@ -1401,7 +1424,7 @@ private fun ManageMemoriesSection(
                         useRagMemoryRetrieval = assistant.effectiveMemoryRetrievalMode().requiresEmbedding,
                         currentEmbeddingModelId = currentEmbeddingModelId,
                         showType = showMemoryTypes,
-                        position = position
+                        position = groupedCardPosition(index, displayPreviewMemories.size)
                     )
                 }
             }
@@ -1468,7 +1491,7 @@ private fun ManageMemoriesSection(
                         fontWeight = FontWeight.Bold
                     )
 
-                    if (!isSummaryTab) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
                                 Icon(Icons.Rounded.Sort, contentDescription = stringResource(R.string.assistant_page_sort_content_desc))
@@ -1477,25 +1500,44 @@ private fun ManageMemoriesSection(
                                 expanded = showSortMenu,
                                 onDismissRequest = { showSortMenu = false }
                             ) {
-                                MemorySortOrder.entries.forEach { order ->
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(order.displayNameRes)) },
-                                        onClick = {
-                                            sortOrder = order
-                                            showSortMenu = false
-                                        },
-                                        leadingIcon = {
-                                            if (sortOrder == order) {
-                                                Icon(Icons.Rounded.Checklist, null, tint = MaterialTheme.colorScheme.primary)
+                                if (isSummaryTab) {
+                                    MemorySummarySortOrder.entries.forEach { order ->
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(order.displayNameRes)) },
+                                            onClick = {
+                                                summarySortOrder = order
+                                                showSortMenu = false
+                                            },
+                                            leadingIcon = {
+                                                if (summarySortOrder == order) {
+                                                    Icon(Icons.Rounded.Checklist, null, tint = MaterialTheme.colorScheme.primary)
+                                                }
                                             }
-                                        }
-                                    )
+                                        )
+                                    }
+                                } else {
+                                    MemorySortOrder.entries.forEach { order ->
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(order.displayNameRes)) },
+                                            onClick = {
+                                                sortOrder = order
+                                                showSortMenu = false
+                                            },
+                                            leadingIcon = {
+                                                if (sortOrder == order) {
+                                                    Icon(Icons.Rounded.Checklist, null, tint = MaterialTheme.colorScheme.primary)
+                                                }
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
 
-                        IconButton(onClick = onAddMemory) {
-                            Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.assistant_page_add_memory_content_desc))
+                        if (!isSummaryTab) {
+                            IconButton(onClick = onAddMemory) {
+                                Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.assistant_page_add_memory_content_desc))
+                            }
                         }
                     }
                 }
@@ -1560,7 +1602,12 @@ private fun ManageMemoriesSection(
                 if (isSummaryTab) {
                     MemorySummaryVersionsList(
                         versions = summaryVersions,
+                        activeVersionId = summaryActiveVersionId,
+                        sortOrder = summarySortOrder,
                         onOpen = { selectedSummaryVersion = it },
+                        onActivate = assistantDetailVM::activateMemorySummaryVersion,
+                        onSaveManualVersion = assistantDetailVM::saveManualMemorySummaryVersion,
+                        onDelete = assistantDetailVM::deleteMemorySummaryHistoryVersion,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
                 } else {
@@ -1608,12 +1655,6 @@ private fun ManageMemoriesSection(
                                 key = pagedMemories.itemKey { item -> item.id }
                             ) { index ->
                                 val memory = pagedMemories[index] ?: return@items
-                                val position = when {
-                                    pagedMemories.itemCount == 1 -> "ONLY"
-                                    index == 0 -> "FIRST"
-                                    index == pagedMemories.itemCount - 1 -> "LAST"
-                                    else -> "MIDDLE"
-                                }
                                 MemoryItem(
                                     memory = memory,
                                     onEditMemory = onEditMemory,
@@ -1621,7 +1662,7 @@ private fun ManageMemoriesSection(
                                     useRagMemoryRetrieval = assistant.effectiveMemoryRetrievalMode().requiresEmbedding,
                                     currentEmbeddingModelId = currentEmbeddingModelId,
                                     showType = showMemoryTypes,
-                                    position = position
+                                    position = groupedCardPosition(index, pagedMemories.itemCount)
                                 )
                             }
 
@@ -1667,7 +1708,7 @@ private fun ManageMemoriesSection(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    text = if (version == summaryVersions.firstOrNull()) {
+                    text = if (version.id == summaryActiveVersionId) {
                         stringResource(R.string.assistant_page_memory_summary_active_version)
                     } else {
                         stringResource(R.string.assistant_page_memory_summary_history_version)
@@ -1697,9 +1738,17 @@ private fun ManageMemoriesSection(
 @Composable
 private fun MemorySummaryVersionsList(
     versions: List<MemorySummaryVersionEntity>,
+    activeVersionId: Long?,
+    sortOrder: MemorySummarySortOrder,
     onOpen: (MemorySummaryVersionEntity) -> Unit,
+    onActivate: (Long) -> Unit,
+    onSaveManualVersion: (Long, String) -> Unit,
+    onDelete: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var editingVersion by remember { mutableStateOf<MemorySummaryVersionEntity?>(null) }
+    var deletingVersion by remember { mutableStateOf<MemorySummaryVersionEntity?>(null) }
+    val haptics = rememberPremiumHaptics()
     if (versions.isEmpty()) {
         Surface(
             color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1714,47 +1763,217 @@ private fun MemorySummaryVersionsList(
         }
         return
     }
-    LazyColumn(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        items(versions, key = { it.id }) { version ->
-            val isActive = version == versions.first()
+    val sortedVersions = remember(versions, sortOrder) {
+        when (sortOrder) {
+            MemorySummarySortOrder.NEWEST_FIRST -> versions.sortedWith(
+                compareByDescending<MemorySummaryVersionEntity> { it.generatedAt }.thenByDescending { it.id },
+            )
+
+            MemorySummarySortOrder.OLDEST_FIRST -> versions.sortedWith(
+                compareBy<MemorySummaryVersionEntity> { it.generatedAt }.thenBy { it.id },
+            )
+        }
+    }
+    LazyColumn(
+        modifier = modifier
+            .clip(RoundedCornerShape(24.dp))
+            .animateContentSize(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        items(sortedVersions, key = { it.id }) { version ->
+            val isActive = version.id == activeVersionId
+            val position = groupedCardPosition(sortedVersions.indexOf(version), sortedVersions.size)
+            val topCorner by animateDpAsState(
+                targetValue = when (position) {
+                    GroupedCardPosition.ONLY, GroupedCardPosition.FIRST -> 24.dp
+                    else -> 10.dp
+                },
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = 200f),
+                label = "summaryTopCorner",
+            )
+            val bottomCorner by animateDpAsState(
+                targetValue = when (position) {
+                    GroupedCardPosition.ONLY, GroupedCardPosition.LAST -> 24.dp
+                    else -> 10.dp
+                },
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = 200f),
+                label = "summaryBottomCorner",
+            )
+            var menuExpanded by remember(version.id) { mutableStateOf(false) }
             Surface(
                 onClick = { onOpen(version) },
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(
+                    topStart = topCorner,
+                    topEnd = topCorner,
+                    bottomStart = bottomCorner,
+                    bottomEnd = bottomCorner,
+                ),
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        if (isActive) stringResource(R.string.assistant_page_memory_summary_active_version)
-                        else stringResource(R.string.assistant_page_memory_summary_history_version),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        when (version.updateMode) {
-                            MemorySummaryUpdateMode.REBUILD -> stringResource(R.string.assistant_page_memory_summary_rebuild)
-                            MemorySummaryUpdateMode.FULL -> stringResource(R.string.assistant_page_memory_summary_mode_full)
-                            else -> stringResource(R.string.assistant_page_memory_summary_mode_incremental)
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                    val time = java.time.Instant.ofEpochMilli(version.generatedAt)
-                        .atZone(java.time.ZoneId.systemDefault())
-                        .toLocalDateTime()
-                        .toLocalString()
-                    Text(
-                        stringResource(R.string.assistant_page_memory_summary_last_updated, time),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        version.content.ifBlank { stringResource(R.string.assistant_page_memory_summary_empty) },
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (isActive) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                shape = MaterialTheme.shapes.extraSmall,
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.assistant_page_memory_summary_active_version),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                )
+                            }
+                        }
+                        Text(
+                            text = version.content.toCardPreview().ifBlank {
+                                stringResource(R.string.assistant_page_memory_summary_empty)
+                            },
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        val time = java.time.Instant.ofEpochMilli(version.generatedAt)
+                            .atZone(java.time.ZoneId.systemDefault())
+                            .toLocalDateTime()
+                            .toLocalString()
+                        Text(
+                            text = stringResource(R.string.assistant_page_memory_summary_last_updated, time),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Box(
+                        modifier = Modifier.align(Alignment.CenterVertically),
+                    ) {
+                        IconButton(
+                            onClick = {
+                                haptics.perform(HapticPattern.Pop)
+                                menuExpanded = true
+                            },
+                        ) {
+                            Icon(Icons.Rounded.MoreVert, contentDescription = null)
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            if (!isActive) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.assistant_page_memory_summary_set_current)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.CheckCircle, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        haptics.perform(HapticPattern.Success)
+                                        onActivate(version.id)
+                                    },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.edit)) },
+                                leadingIcon = {
+                                    Icon(Icons.Rounded.Edit, contentDescription = null)
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    editingVersion = version
+                                },
+                            )
+                            if (!isActive) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.assistant_page_delete)) },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Rounded.Delete,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        deletingVersion = version
+                                    },
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+
+    editingVersion?.let { version ->
+        var content by remember(version.id) { mutableStateOf(version.content) }
+        val canSave = content.trim().isNotEmpty() && content.trim() != version.content.trim()
+        AlertDialog(
+            onDismissRequest = { editingVersion = null },
+            title = { Text(stringResource(R.string.assistant_page_memory_summary_edit_title)) },
+            text = {
+                TextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    label = { Text(stringResource(R.string.assistant_page_memory_summary_edit_hint)) },
+                    minLines = 4,
+                    maxLines = 12,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = canSave,
+                    onClick = {
+                        haptics.perform(HapticPattern.Success)
+                        onSaveManualVersion(version.id, content)
+                        editingVersion = null
+                    },
+                ) {
+                    Text(stringResource(R.string.assistant_page_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingVersion = null }) {
+                    Text(stringResource(R.string.assistant_page_cancel))
+                }
+            },
+        )
+    }
+
+    deletingVersion?.let { version ->
+        val preview = version.content.toCardPreview().take(100)
+        AlertDialog(
+            onDismissRequest = { deletingVersion = null },
+            title = { Text(stringResource(R.string.assistant_page_delete)) },
+            text = {
+                Text(
+                    text = stringResource(R.string.assistant_page_memory_summary_delete_confirm) +
+                        "\n\n\"$preview${if (version.content.length > preview.length) "…" else ""}\"",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        haptics.perform(HapticPattern.Thud)
+                        onDelete(version.id)
+                        deletingVersion = null
+                    },
+                ) {
+                    Text(stringResource(R.string.assistant_page_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingVersion = null }) {
+                    Text(stringResource(R.string.assistant_page_cancel))
+                }
+            },
+        )
     }
 }
 
@@ -1772,7 +1991,7 @@ private fun MemoryItem(
     useRagMemoryRetrieval: Boolean = false,
     currentEmbeddingModelId: String = "",
     showType: Boolean = false,
-    position: String = "MIDDLE"
+    position: GroupedCardPosition = GroupedCardPosition.MIDDLE,
 ) {
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     val haptics = rememberPremiumHaptics()
@@ -1787,7 +2006,7 @@ private fun MemoryItem(
     
     val topCorner by animateDpAsState(
         targetValue = when (position) {
-            "ONLY", "FIRST" -> 24.dp
+            GroupedCardPosition.ONLY, GroupedCardPosition.FIRST -> 24.dp
             else -> 10.dp
         },
         animationSpec = spring(dampingRatio = 0.8f, stiffness = 200f),
@@ -1795,7 +2014,7 @@ private fun MemoryItem(
     )
     val bottomCorner by animateDpAsState(
         targetValue = when (position) {
-            "ONLY", "LAST" -> 24.dp
+            GroupedCardPosition.ONLY, GroupedCardPosition.LAST -> 24.dp
             else -> 10.dp
         },
         animationSpec = spring(dampingRatio = 0.8f, stiffness = 200f),
@@ -1913,7 +2132,7 @@ private fun MemoryItem(
                 }
                 
                 Text(
-                    text = memory.content,
+                    text = memory.content.toCardPreview(),
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium

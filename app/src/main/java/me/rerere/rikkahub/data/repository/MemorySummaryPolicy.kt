@@ -17,9 +17,19 @@ internal fun shouldUseFullMemorySummaryUpdate(
     activeVersion: MemorySummaryVersionEntity?,
     changes: List<MemorySummaryChangeEntity>,
     forceFull: Boolean,
-): Boolean = forceFull || activeVersion == null || changes.any {
+    requiresFullUpdate: Boolean = false,
+): Boolean = forceFull || requiresFullUpdate || activeVersion == null || changes.any {
     it.changeType != MemorySummaryChangeType.ADDED
 }
+
+internal fun memorySummaryVersionIdsToPrune(
+    versionsNewestFirst: List<MemorySummaryVersionEntity>,
+    activeVersionId: Long,
+    maxVersionCount: Int = 10,
+): List<Long> = versionsNewestFirst
+    .filterNot { it.id == activeVersionId }
+    .drop((maxVersionCount - 1).coerceAtLeast(0))
+    .map { it.id }
 
 internal fun hasEnoughMemorySummaryChanges(
     activeVersion: MemorySummaryVersionEntity?,

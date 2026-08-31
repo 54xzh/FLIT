@@ -34,6 +34,7 @@ import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.data.repository.MemorySummaryStatus
+import me.rerere.rikkahub.data.repository.MemorySummaryVersionOperationResult
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 import me.rerere.rikkahub.data.repository.MemoryRetrievalHit
 import me.rerere.rikkahub.data.repository.MemoryRetrievalRequest
@@ -516,6 +517,76 @@ class AssistantDetailVM(
                 else -> R.string.assistant_page_memory_summary_update_started
             },
         )
+    }
+
+    fun activateMemorySummaryVersion(versionId: Long) {
+        viewModelScope.launch {
+            when (withContext(Dispatchers.IO) {
+                memorySummaryRepository.activateVersion(assistantId.toString(), versionId)
+            }) {
+                MemorySummaryVersionOperationResult.SUCCESS -> {
+                    _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_version_activated)
+                }
+
+                MemorySummaryVersionOperationResult.VERSION_NOT_FOUND -> {
+                    _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_version_not_found)
+                }
+
+                else -> Unit
+            }
+        }
+    }
+
+    fun saveManualMemorySummaryVersion(baseVersionId: Long, content: String) {
+        viewModelScope.launch {
+            when (withContext(Dispatchers.IO) {
+                memorySummaryRepository.createManualVersion(
+                    assistantId = assistantId.toString(),
+                    baseVersionId = baseVersionId,
+                    content = content,
+                )
+            }) {
+                MemorySummaryVersionOperationResult.SUCCESS -> {
+                    _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_version_saved)
+                }
+
+                MemorySummaryVersionOperationResult.VERSION_NOT_FOUND -> {
+                    _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_version_not_found)
+                }
+
+                MemorySummaryVersionOperationResult.EMPTY_CONTENT -> {
+                    _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_content_empty)
+                }
+
+                MemorySummaryVersionOperationResult.UNCHANGED_CONTENT -> {
+                    _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_content_unchanged)
+                }
+
+                MemorySummaryVersionOperationResult.CANNOT_DELETE_ACTIVE -> Unit
+            }
+        }
+    }
+
+    fun deleteMemorySummaryHistoryVersion(versionId: Long) {
+        viewModelScope.launch {
+            when (withContext(Dispatchers.IO) {
+                memorySummaryRepository.deleteHistoryVersion(assistantId.toString(), versionId)
+            }) {
+                MemorySummaryVersionOperationResult.SUCCESS -> {
+                    _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_version_deleted)
+                }
+
+                MemorySummaryVersionOperationResult.CANNOT_DELETE_ACTIVE -> {
+                    _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_cannot_delete_active)
+                }
+
+                MemorySummaryVersionOperationResult.VERSION_NOT_FOUND -> {
+                    _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_version_not_found)
+                }
+
+                else -> Unit
+            }
+        }
     }
 
     fun checkAvatarDelete(old: Assistant, new: Assistant) {
