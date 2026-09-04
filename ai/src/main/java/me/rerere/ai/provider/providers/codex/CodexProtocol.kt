@@ -37,7 +37,7 @@ import kotlin.time.Clock
 /** Constants belonging to the upstream Codex protocol are deliberately kept in one place. */
 object CodexProtocolConfig {
     const val CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
-    const val COMPATIBILITY_VERSION = "0.144.5"
+    const val COMPATIBILITY_VERSION = "0.153.4"
     const val AUTH_BASE_URL = "https://auth.openai.com"
     const val CHATGPT_BACKEND_URL = "https://chatgpt.com/backend-api"
     const val RESPONSES_BASE_URL = "$CHATGPT_BACKEND_URL/codex"
