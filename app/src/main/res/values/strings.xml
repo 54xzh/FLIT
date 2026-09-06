@@ -2642,9 +2642,10 @@
     <string name="assistant_page_memory_summary_edit_title">Edit memory summary</string>
     <string name="assistant_page_memory_summary_edit_hint">Memory summary</string>
     <string name="assistant_page_memory_summary_delete_confirm">Delete this history version? This cannot be undone. Messages that used it will keep only their short preview.</string>
+    <string name="assistant_page_memory_summary_delete_active_confirm">Delete the currently active memory summary version? This cannot be undone. The previous version will be restored as active, or the summary will be cleared if no other versions exist.</string>
     <string name="assistant_page_memory_summary_version_activated">Set as current version</string>
     <string name="assistant_page_memory_summary_version_saved">Saved as a new current version</string>
-    <string name="assistant_page_memory_summary_version_deleted">History version deleted</string>
+    <string name="assistant_page_memory_summary_version_deleted">Memory summary version deleted</string>
     <string name="assistant_page_memory_summary_version_not_found">This version is no longer available</string>
     <string name="assistant_page_memory_summary_cannot_delete_active">The current version cannot be deleted</string>
     <string name="assistant_page_memory_summary_content_empty">Memory summary cannot be empty</string>

@@ -8,11 +8,17 @@ import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 internal fun normalizeManualMemorySummaryUpdateOptions(
     options: MemorySummaryUpdateOptions,
     hasActiveSummary: Boolean,
+    requiresFullUpdate: Boolean = false,
 ): MemorySummaryUpdateOptions {
     val includeActiveSummary = options.includeActiveSummary && hasActiveSummary
+    val memoryScope = when {
+        !includeActiveSummary -> MemorySummaryMemoryScope.ALL
+        requiresFullUpdate -> MemorySummaryMemoryScope.ALL
+        else -> options.memoryScope
+    }
     return options.copy(
         includeActiveSummary = includeActiveSummary,
-        memoryScope = if (includeActiveSummary) options.memoryScope else MemorySummaryMemoryScope.ALL,
+        memoryScope = memoryScope,
     )
 }
 
@@ -48,7 +54,8 @@ internal fun hasEnoughMemorySummaryChanges(
     pendingChanges: Int,
     currentMemoryCount: Int,
     threshold: Int,
-): Boolean = (if (activeVersion == null) currentMemoryCount else pendingChanges) > threshold
+    requiresFullUpdate: Boolean = false,
+): Boolean = requiresFullUpdate || (if (activeVersion == null) currentMemoryCount else pendingChanges) > threshold
 
 internal fun remainingMemorySummaryDelayMillis(
     lastSuccessAt: Long,

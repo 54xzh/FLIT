@@ -1239,8 +1239,8 @@ private fun MemorySummarySettingsCard(
     if (showUpdateSummaryDialog) {
         var includeActiveSummary by remember(activeVersionId) { mutableStateOf(hasActiveSummary) }
         var includeRecentRequirements by remember { mutableStateOf(true) }
-        var memoryScope by remember(activeVersionId) {
-            mutableStateOf(if (hasActiveSummary) MemorySummaryMemoryScope.ADDED else MemorySummaryMemoryScope.ALL)
+        var memoryScope by remember(activeVersionId, status.requiresFullUpdate) {
+            mutableStateOf(if (hasActiveSummary && !status.requiresFullUpdate) MemorySummaryMemoryScope.ADDED else MemorySummaryMemoryScope.ALL)
         }
         val scopeOptions = listOf(
             MemorySummaryMemoryScope.ADDED to
@@ -2120,22 +2120,20 @@ private fun MemorySummaryVersionsList(
                                     editingVersion = version
                                 },
                             )
-                            if (!isActive) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.assistant_page_delete)) },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Rounded.Delete,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.error,
-                                        )
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        deletingVersion = version
-                                    },
-                                )
-                            }
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.assistant_page_delete)) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Rounded.Delete,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    deletingVersion = version
+                                },
+                            )
                         }
                     }
                 }
@@ -2214,12 +2212,18 @@ private fun MemorySummaryVersionsList(
 
     deletingVersion?.let { version ->
         val preview = version.content.toCardPreview().take(100)
+        val isActive = version.id == activeVersionId
+        val confirmText = if (isActive) {
+            stringResource(R.string.assistant_page_memory_summary_delete_active_confirm)
+        } else {
+            stringResource(R.string.assistant_page_memory_summary_delete_confirm)
+        }
         AlertDialog(
             onDismissRequest = { deletingVersion = null },
             title = { Text(stringResource(R.string.assistant_page_delete)) },
             text = {
                 Text(
-                    text = stringResource(R.string.assistant_page_memory_summary_delete_confirm) +
+                    text = confirmText +
                         "\n\n\"$preview${if (version.content.length > preview.length) "…" else ""}\"",
                 )
             },

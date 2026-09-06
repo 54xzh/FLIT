@@ -2565,9 +2565,10 @@
     <string name="assistant_page_memory_summary_edit_title">编辑记忆摘要</string>
     <string name="assistant_page_memory_summary_edit_hint">记忆摘要</string>
     <string name="assistant_page_memory_summary_delete_confirm">确定删除这个历史版本吗？此操作无法撤销。引用过它的消息仅保留简短预览。</string>
+    <string name="assistant_page_memory_summary_delete_active_confirm">确定删除当前正在使用的记忆摘要版本吗？此操作无法撤销。删除后将回退至上一个版本，若无其他版本则清空摘要。</string>
     <string name="assistant_page_memory_summary_version_activated">已设为当前版本</string>
     <string name="assistant_page_memory_summary_version_saved">已保存为新的当前版本</string>
-    <string name="assistant_page_memory_summary_version_deleted">历史版本已删除</string>
+    <string name="assistant_page_memory_summary_version_deleted">记忆摘要版本已删除</string>
     <string name="assistant_page_memory_summary_version_not_found">该版本已不存在</string>
     <string name="assistant_page_memory_summary_cannot_delete_active">当前版本不能删除</string>
     <string name="assistant_page_memory_summary_content_empty">记忆摘要不能为空</string>

@@ -164,4 +164,50 @@ class MemorySummaryPolicyTest {
         assertFalse(matchesMemorySummaryActiveVersion(state, 3L, 7L))
         assertFalse(matchesMemorySummaryActiveVersion(state, 4L, 6L))
     }
+
+    @Test
+    fun requiresFullUpdateForcesManualUpdateToUseAllMemories() {
+        val normalized = normalizeManualMemorySummaryUpdateOptions(
+            options = MemorySummaryUpdateOptions(
+                includeActiveSummary = true,
+                includeRecentRequirements = true,
+                memoryScope = MemorySummaryMemoryScope.ADDED,
+            ),
+            hasActiveSummary = true,
+            requiresFullUpdate = true,
+        )
+
+        assertTrue(normalized.includeActiveSummary)
+        assertEquals(MemorySummaryMemoryScope.ALL, normalized.memoryScope)
+    }
+
+    @Test
+    fun requiresFullUpdateAllowsThresholdToBeBypassed() {
+        val active = MemorySummaryVersionEntity(
+            assistantId = "assistant",
+            content = "summary",
+            generatedAt = 1L,
+            updateMode = 0,
+            sourceChangeCount = 0,
+        )
+
+        assertTrue(
+            hasEnoughMemorySummaryChanges(
+                activeVersion = active,
+                pendingChanges = 0,
+                currentMemoryCount = 0,
+                threshold = 10,
+                requiresFullUpdate = true,
+            ),
+        )
+        assertFalse(
+            hasEnoughMemorySummaryChanges(
+                activeVersion = active,
+                pendingChanges = 0,
+                currentMemoryCount = 0,
+                threshold = 10,
+                requiresFullUpdate = false,
+            ),
+        )
+    }
 }

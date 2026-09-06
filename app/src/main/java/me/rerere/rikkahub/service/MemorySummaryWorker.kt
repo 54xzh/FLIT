@@ -83,6 +83,7 @@ class MemorySummaryWorker(
                 pendingChanges = changes.size,
                 currentMemoryCount = currentMemoryCount,
                 threshold = assistant.memorySummaryChangeThreshold,
+                requiresFullUpdate = activeSnapshot.requiresFullUpdate,
             )
         ) return Result.success()
 
@@ -104,6 +105,7 @@ class MemorySummaryWorker(
                 memoryScope = inputData.memoryScope(),
             ),
             hasActiveSummary = activeVersion != null,
+            requiresFullUpdate = activeSnapshot.requiresFullUpdate,
         )
         val isFullUpdate = if (forceManual) {
             manualOptions.memoryScope == MemorySummaryMemoryScope.ALL
