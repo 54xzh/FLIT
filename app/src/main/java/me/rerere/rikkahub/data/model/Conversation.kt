@@ -211,3 +211,35 @@ fun UIMessage.toMessageNode(): MessageNode {
         selectIndex = 0
     )
 }
+
+/**
+ * Checks whether the conversation contains valid content for memory consolidation
+ * (at least one user message and at least one assistant message).
+ */
+fun Conversation.hasMessagesForConsolidation(): Boolean {
+    val allMessages = messageNodes.mapNotNull { node ->
+        node.messages.getOrNull(node.selectIndex)
+    }
+
+    if (allMessages.size != messageNodes.size) {
+        return false
+    }
+
+    var hasUserMessage = false
+    var hasAssistantMessage = false
+
+    for (message in allMessages) {
+        when (message.role) {
+            MessageRole.USER -> hasUserMessage = true
+            MessageRole.ASSISTANT -> hasAssistantMessage = true
+            else -> Unit
+        }
+
+        if (hasUserMessage && hasAssistantMessage) {
+            return true
+        }
+    }
+
+    return false
+}
+

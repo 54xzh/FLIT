@@ -1543,8 +1543,13 @@
     <string name="assistant_page_memory_last_run">Last Run: %s</string>
     <string name="assistant_page_memory_no_run">No run recorded yet</string>
     <string name="assistant_page_memory_consolidate_now">Consolidate All Memories Now</string>
+    <string name="assistant_page_memory_pending_consolidation_count">Pending conversations: %d</string>
+    <string name="assistant_page_memory_all_consolidated">All conversations are consolidated</string>
+    <string name="assistant_page_memory_consolidation_progress">Consolidating conversation %1$d of %2$d...</string>
+    <string name="assistant_page_memory_consolidation_preparing">Preparing consolidation...</string>
     <string name="assistant_page_memory_consolidation_confirm_title">Consolidate all memories?</string>
     <string name="assistant_page_memory_consolidation_confirm_message">This will process all eligible conversations and use model tokens. You can cancel the remaining work after it starts.</string>
+    <string name="assistant_page_memory_consolidation_confirm_message_count">Detected %d eligible conversations. This will process them and use model tokens. You can cancel remaining work after it starts.</string>
     <string name="assistant_page_memory_consolidation_start">Start consolidation</string>
     <string name="assistant_page_memory_consolidation_cancel">Cancel consolidation</string>
     <string name="assistant_page_memory_consolidation_started">Memory consolidation started</string>

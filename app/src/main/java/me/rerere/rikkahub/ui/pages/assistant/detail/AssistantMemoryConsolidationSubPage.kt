@@ -16,6 +16,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
 import androidx.compose.material3.Text
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -30,6 +38,8 @@ import androidx.compose.material.icons.rounded.Psychology
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.db.dao.ChatEpisodeUiEntity
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.ui.hooks.HapticPattern
+import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.utils.toLocalString
 
 @Composable
@@ -39,8 +49,11 @@ fun AssistantMemoryConsolidationSubPage(
     onUpdate: (Assistant) -> Unit,
     onConsolidate: (Boolean) -> Unit
 ) {
+    val haptics = rememberPremiumHaptics()
     val episodes: List<ChatEpisodeUiEntity> by vm.episodes.collectAsStateWithLifecycle(initialValue = emptyList())
     val stats by vm.episodeStats.collectAsStateWithLifecycle()
+    val consolidationProgress by vm.memoryConsolidationProgress.collectAsStateWithLifecycle()
+    val pendingCount by vm.pendingConsolidationCount.collectAsStateWithLifecycle()
     val snackbarMessage: String? by vm.snackbarMessage.collectAsStateWithLifecycle(initialValue = null)
 
     LazyColumn(
@@ -93,6 +106,9 @@ fun AssistantMemoryConsolidationSubPage(
                         HapticSwitch(
                             checked = assistant.enableMemoryConsolidation,
                             onCheckedChange = { enabled ->
+                                if (!enabled && consolidationProgress.isRunning) {
+                                    vm.cancelMemoryConsolidation()
+                                }
                                 onUpdate(
                                     if (enabled) {
                                         assistant.copy(
@@ -212,14 +228,87 @@ fun AssistantMemoryConsolidationSubPage(
                             }
                         }
 
+                        val isRunning = consolidationProgress.isRunning
+                        val canStart = pendingCount > 0
+
                         Button(
-                            onClick = { onConsolidate(true) },
+                            onClick = {
+                                haptics.perform(HapticPattern.Pop)
+                                if (isRunning) {
+                                    vm.cancelMemoryConsolidation()
+                                } else {
+                                    onConsolidate(true)
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = assistant.enableMemoryConsolidation,
+                            enabled = if (isRunning) true else (canStart && assistant.enableMemoryConsolidation),
                         ) {
-                            Icon(Icons.Rounded.Psychology, null, modifier = Modifier.size(16.dp))
+                            Icon(
+                                imageVector = if (isRunning) Icons.Rounded.Close else Icons.Rounded.Psychology,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
                             Spacer(Modifier.width(8.dp))
-                            Text(stringResource(R.string.assistant_page_memory_consolidate_now))
+                            Text(
+                                stringResource(
+                                    if (isRunning) {
+                                        R.string.assistant_page_memory_consolidation_cancel
+                                    } else {
+                                        R.string.assistant_page_memory_consolidate_now
+                                    }
+                                )
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isRunning,
+                            enter = expandVertically(spring(dampingRatio = 0.6f, stiffness = 300f)) + fadeIn(),
+                            exit = shrinkVertically(spring(dampingRatio = 0.6f, stiffness = 300f)) + fadeOut(),
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                val progressText = if (consolidationProgress.total > 0) {
+                                    stringResource(
+                                        R.string.assistant_page_memory_consolidation_progress,
+                                        consolidationProgress.current,
+                                        consolidationProgress.total,
+                                    )
+                                } else {
+                                    stringResource(R.string.assistant_page_memory_consolidation_preparing)
+                                }
+                                Text(
+                                    text = progressText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                if (consolidationProgress.total > 0) {
+                                    LinearWavyProgressIndicator(
+                                        progress = {
+                                            consolidationProgress.current.toFloat() / consolidationProgress.total.coerceAtLeast(1)
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                } else {
+                                    LinearWavyProgressIndicator(
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        }
+
+                        if (!isRunning) {
+                            val statusText = if (pendingCount > 0) {
+                                stringResource(R.string.assistant_page_memory_pending_consolidation_count, pendingCount)
+                            } else {
+                                stringResource(R.string.assistant_page_memory_all_consolidated)
+                            }
+                            Text(
+                                text = statusText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (pendingCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         
                         val consolidationMessage = snackbarMessage?.takeIf { it.contains("consolidation") }

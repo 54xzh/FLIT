@@ -89,8 +89,14 @@ class MemoryConsolidationScheduler(
     fun observeFullScan(assistantId: String): Flow<Boolean> =
         observeWork(fullScanWorkName(assistantId))
 
+    fun observeFullScanProgress(assistantId: String): Flow<MemoryConsolidationProgress> =
+        observeWorkProgress(fullScanWorkName(assistantId))
+
     fun observeGroupFullScan(templateId: String): Flow<Boolean> =
         observeWork(groupFullScanWorkName(templateId))
+
+    fun observeGroupFullScanProgress(templateId: String): Flow<MemoryConsolidationProgress> =
+        observeWorkProgress(groupFullScanWorkName(templateId))
 
     fun observeRunningConversationIds(): Flow<Set<Uuid>> =
         workManager.getWorkInfosByTagFlow(MANUAL_CONSOLIDATION_TAG).map { workInfos ->
@@ -130,9 +136,26 @@ class MemoryConsolidationScheduler(
         workManager.getWorkInfosForUniqueWorkFlow(workName)
             .map { workInfos -> workInfos.any { !it.state.isFinished } }
 
+    private fun observeWorkProgress(workName: String): Flow<MemoryConsolidationProgress> =
+        workManager.getWorkInfosForUniqueWorkFlow(workName)
+            .map { workInfos ->
+                val activeWork = workInfos.firstOrNull { !it.state.isFinished }
+                if (activeWork != null) {
+                    MemoryConsolidationProgress(
+                        isRunning = true,
+                        current = activeWork.progress.getInt(PROGRESS_CURRENT, 0),
+                        total = activeWork.progress.getInt(PROGRESS_TOTAL, 0),
+                    )
+                } else {
+                    MemoryConsolidationProgress(isRunning = false)
+                }
+            }
+
     companion object {
         const val MANUAL_CONSOLIDATION_TAG = "manual_memory_consolidation"
         private const val CONVERSATION_TAG_PREFIX = "manual_memory_consolidation_conversation:"
+        const val PROGRESS_CURRENT = "progress_current"
+        const val PROGRESS_TOTAL = "progress_total"
 
         fun fullScanWorkName(assistantId: String) =
             "manual_memory_consolidation_assistant_$assistantId"
@@ -144,3 +167,9 @@ class MemoryConsolidationScheduler(
             "manual_memory_consolidation_group_$templateId"
     }
 }
+
+data class MemoryConsolidationProgress(
+    val isRunning: Boolean = false,
+    val current: Int = 0,
+    val total: Int = 0,
+)

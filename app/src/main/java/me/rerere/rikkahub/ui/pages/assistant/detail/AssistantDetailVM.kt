@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -35,6 +36,7 @@ import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.Tag
 import me.rerere.rikkahub.data.repository.AssistantMemoryStats
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemoryConsolidationProgress
 import me.rerere.rikkahub.data.repository.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.data.repository.MemorySummaryStatus
@@ -223,9 +225,18 @@ class AssistantDetailVM(
         memorySummaryRequirementChangeJob?.cancel()
     }
 
-    val isManualMemoryConsolidationRunning: StateFlow<Boolean> = memoryConsolidationScheduler
-        .observeFullScan(assistantId.toString())
+    val memoryConsolidationProgress: StateFlow<MemoryConsolidationProgress> = memoryConsolidationScheduler
+        .observeFullScanProgress(assistantId.toString())
+        .stateIn(viewModelScope, SharingStarted.Lazily, MemoryConsolidationProgress())
+
+    val isManualMemoryConsolidationRunning: StateFlow<Boolean> = memoryConsolidationProgress
+        .map { it.isRunning }
         .stateIn(viewModelScope, SharingStarted.Lazily, false)
+
+    val pendingConsolidationCount: StateFlow<Int> = conversationRepository
+        .observePendingConsolidationCount(assistantId)
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.Lazily, 0)
 
     // Current embedding model ID for this assistant (for detecting model mismatch)
     val currentEmbeddingModelId: StateFlow<String> = combine(

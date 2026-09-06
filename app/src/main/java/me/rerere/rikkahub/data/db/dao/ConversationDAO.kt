@@ -70,6 +70,15 @@ interface ConversationDAO {
     @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber FROM conversationentity WHERE assistant_id = :assistantId ORDER BY is_pinned DESC, update_at DESC")
     fun getLightConversationsOfAssistant(assistantId: String): Flow<List<LightConversationEntity>>
 
+    @Query("""
+        SELECT * FROM conversationentity 
+        WHERE assistant_id = :assistantId 
+          AND is_consolidated = 0 
+          AND id NOT IN (SELECT conversation_id FROM memory_consolidation_records WHERE assistant_id = :assistantId)
+        ORDER BY update_at DESC
+    """)
+    fun getUnconsolidatedConversationsOfAssistantFlow(assistantId: String): Flow<List<ConversationEntity>>
+
     @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber FROM conversationentity WHERE assistant_id = :assistantId ORDER BY is_pinned DESC, update_at DESC")
     fun getConversationsOfAssistantPaging(assistantId: String): PagingSource<Int, LightConversationEntity>
 

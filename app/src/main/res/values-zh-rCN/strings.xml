@@ -225,8 +225,13 @@
   <string name="assistant_page_mcp_servers_desc">启用外部工具服务器</string>
   <string name="assistant_page_memory">记忆</string>
     <string name="assistant_page_memory_consolidate_now">立即整合所有记忆</string>
+    <string name="assistant_page_memory_pending_consolidation_count">待整合对话：%d 条</string>
+    <string name="assistant_page_memory_all_consolidated">所有对话均已整合</string>
+    <string name="assistant_page_memory_consolidation_progress">正在整合第 %1$d / %2$d 条对话...</string>
+    <string name="assistant_page_memory_consolidation_preparing">正在准备整合...</string>
     <string name="assistant_page_memory_consolidation_confirm_title">整合所有记忆？</string>
     <string name="assistant_page_memory_consolidation_confirm_message">这会处理所有符合条件的历史会话，可能消耗较多 Token。</string>
+    <string name="assistant_page_memory_consolidation_confirm_message_count">检测到 %d 个待整理对话，将处理这些对话并消耗模型 Token。开始后可以取消剩余任务。</string>
     <string name="assistant_page_memory_consolidation_start">开始整合</string>
     <string name="assistant_page_memory_consolidation_cancel">取消整合</string>
     <string name="assistant_page_memory_consolidation_started">已开始记忆整合</string>

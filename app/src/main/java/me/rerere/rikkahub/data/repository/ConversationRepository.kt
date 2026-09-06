@@ -43,6 +43,7 @@ import me.rerere.rikkahub.data.db.entity.MemoryType
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.data.model.SessionMemory
+import me.rerere.rikkahub.data.model.hasMessagesForConsolidation
 import me.rerere.rikkahub.data.model.SessionMemoryPlacement
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.JsonInstantPretty
@@ -137,6 +138,17 @@ class ConversationRepository(
             .map { flow ->
                 flow.map { entity ->
                     conversationEntityToConversation(entity)
+                }
+            }
+    }
+
+    fun observePendingConsolidationCount(assistantId: Uuid): Flow<Int> {
+        return conversationDAO
+            .getUnconsolidatedConversationsOfAssistantFlow(assistantId.toString())
+            .map { list ->
+                list.count { entity ->
+                    val conversation = conversationEntityToConversation(entity)
+                    conversation.hasMessagesForConsolidation()
                 }
             }
     }

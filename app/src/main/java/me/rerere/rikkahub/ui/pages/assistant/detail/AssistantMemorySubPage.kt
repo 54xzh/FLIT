@@ -110,6 +110,7 @@ import me.rerere.rikkahub.data.model.MemoryRetrievalMode
 import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import me.rerere.rikkahub.data.model.requiresEmbedding
 import me.rerere.rikkahub.data.repository.AssistantMemoryStats
+import me.rerere.rikkahub.data.repository.MemoryConsolidationProgress
 import me.rerere.rikkahub.data.repository.MemorySummaryStatus
 import me.rerere.rikkahub.data.repository.MemorySummaryMemoryScope
 import me.rerere.rikkahub.data.repository.MemorySummaryUpdateOptions
@@ -176,8 +177,11 @@ fun AssistantMemorySettings(
     initialMemoryTab: Int? = null,  // 0 = Core, 1 = Episodic
     scrollToMemoryId: Int? = null
 ) {
-    val isManualMemoryConsolidationRunning by assistantDetailVM
-        .isManualMemoryConsolidationRunning
+    val memoryConsolidationProgress by assistantDetailVM
+        .memoryConsolidationProgress
+        .collectAsStateWithLifecycle()
+    val pendingConsolidationCount by assistantDetailVM
+        .pendingConsolidationCount
         .collectAsStateWithLifecycle()
     val isManualMemorySummaryRunning by assistantDetailVM
         .isManualMemorySummaryRunning
@@ -461,6 +465,9 @@ fun AssistantMemorySettings(
                             checked = assistant.enableMemoryConsolidation,
                             onCheckedChange = { enabled ->
                                 if (!enabled) {
+                                    if (memoryConsolidationProgress.isRunning) {
+                                        assistantDetailVM.cancelMemoryConsolidation()
+                                    }
                                     onUpdateAssistant(assistant.copy(
                                         enableMemoryConsolidation = false
                                     ))
@@ -477,9 +484,9 @@ fun AssistantMemorySettings(
             }
         }
 
-        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+        // ─────────────────────────────────
         // RAG SETTINGS (when RAG is enabled)
-        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+        // ─────────────────────────────────
         AnimatedVisibility(
             visible = assistant.enableMemory && assistant.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.OFF,
             enter = fadeIn() + expandVertically(),
@@ -495,7 +502,9 @@ fun AssistantMemorySettings(
             }
         }
 
-        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+        // ─────────────────────────────────
+        // MEMORY SUMMARY SETTINGS
+        // ─────────────────────────────────
         AnimatedVisibility(
             visible = assistant.enableMemory && assistant.enableMemorySummary,
             enter = fadeIn() + expandVertically(),
@@ -514,10 +523,11 @@ fun AssistantMemorySettings(
             }
         }
 
-        // CONSOLIDATION SETTINGS (when consolidation is enabled)
-        // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+        // ─────────────────────────────────
+        // CONSOLIDATION SETTINGS (when consolidation is enabled or running)
+        // ─────────────────────────────────
         AnimatedVisibility(
-            visible = assistant.enableMemory && assistant.enableMemoryConsolidation,
+            visible = assistant.enableMemory && (assistant.enableMemoryConsolidation || memoryConsolidationProgress.isRunning),
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically()
         ) {
@@ -526,7 +536,8 @@ fun AssistantMemorySettings(
                 ConsolidationSettingsCard(
                     assistant = assistant,
                     onUpdateAssistant = onUpdateAssistant,
-                    isManualConsolidationRunning = isManualMemoryConsolidationRunning,
+                    consolidationProgress = memoryConsolidationProgress,
+                    pendingCount = pendingConsolidationCount,
                     onConsolidate = assistantDetailVM::consolidateAllMemories,
                     onCancelConsolidation = assistantDetailVM::cancelMemoryConsolidation,
                 )
@@ -893,11 +904,15 @@ private fun RagSettingsCard(
 private fun ConsolidationSettingsCard(
     assistant: Assistant,
     onUpdateAssistant: (Assistant) -> Unit,
-    isManualConsolidationRunning: Boolean,
+    consolidationProgress: MemoryConsolidationProgress,
+    pendingCount: Int,
     onConsolidate: () -> Unit,
     onCancelConsolidation: () -> Unit,
 ) {
     var showConsolidationConfirmation by remember { mutableStateOf(false) }
+    val isRunning = consolidationProgress.isRunning
+    val canStart = pendingCount > 0
+    val haptics = rememberPremiumHaptics()
     Column(
         modifier = Modifier.clip(RoundedCornerShape(24.dp)),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -981,23 +996,25 @@ private fun ConsolidationSettingsCard(
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
-                        if (isManualConsolidationRunning) {
+                        haptics.perform(HapticPattern.Pop)
+                        if (isRunning) {
                             onCancelConsolidation()
                         } else {
                             showConsolidationConfirmation = true
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = if (isRunning) true else (canStart && assistant.enableMemoryConsolidation),
                 ) {
                     Icon(
-                        imageVector = if (isManualConsolidationRunning) Icons.Rounded.Close else Icons.Rounded.Psychology,
+                        imageVector = if (isRunning) Icons.Rounded.Close else Icons.Rounded.Psychology,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         stringResource(
-                            if (isManualConsolidationRunning) {
+                            if (isRunning) {
                                 R.string.assistant_page_memory_consolidation_cancel
                             } else {
                                 R.string.assistant_page_memory_consolidate_now
@@ -1005,7 +1022,58 @@ private fun ConsolidationSettingsCard(
                         )
                     )
                 }
-                
+
+                AnimatedVisibility(
+                    visible = isRunning,
+                    enter = expandVertically(spring(dampingRatio = 0.6f, stiffness = 300f)) + fadeIn(),
+                    exit = shrinkVertically(spring(dampingRatio = 0.6f, stiffness = 300f)) + fadeOut(),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        val progressText = if (consolidationProgress.total > 0) {
+                            stringResource(
+                                R.string.assistant_page_memory_consolidation_progress,
+                                consolidationProgress.current,
+                                consolidationProgress.total,
+                            )
+                        } else {
+                            stringResource(R.string.assistant_page_memory_consolidation_preparing)
+                        }
+                        Text(
+                            text = progressText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        if (consolidationProgress.total > 0) {
+                            LinearWavyProgressIndicator(
+                                progress = {
+                                    consolidationProgress.current.toFloat() / consolidationProgress.total.coerceAtLeast(1)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            LinearWavyProgressIndicator(
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+
+                if (!isRunning) {
+                    val statusText = if (pendingCount > 0) {
+                        stringResource(R.string.assistant_page_memory_pending_consolidation_count, pendingCount)
+                    } else {
+                        stringResource(R.string.assistant_page_memory_all_consolidated)
+                    }
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (pendingCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
                 if (assistant.lastConsolidationTime > 0) {
                     val time = java.time.Instant.ofEpochMilli(assistant.lastConsolidationTime)
                         .atZone(java.time.ZoneId.systemDefault())
@@ -1025,7 +1093,14 @@ private fun ConsolidationSettingsCard(
         AlertDialog(
             onDismissRequest = { showConsolidationConfirmation = false },
             title = { Text(stringResource(R.string.assistant_page_memory_consolidation_confirm_title)) },
-            text = { Text(stringResource(R.string.assistant_page_memory_consolidation_confirm_message)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.assistant_page_memory_consolidation_confirm_message_count,
+                        pendingCount,
+                    )
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {

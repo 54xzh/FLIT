@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.service
 
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.hasMessagesForConsolidation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -43,5 +44,56 @@ class MemoryConsolidationPolicyTest {
 
         assertTrue(assistant.isMemoryConsolidationPaused)
         assertEquals(1_000L, assistant.memoryConsolidationResumeAt)
+    }
+
+    @Test
+    fun `conversation requires both user and assistant messages for consolidation`() {
+        val emptyConversation = me.rerere.rikkahub.data.model.Conversation(
+            id = kotlin.uuid.Uuid.random(),
+            assistantId = kotlin.uuid.Uuid.random(),
+            title = "Test",
+            createAt = java.time.Instant.now(),
+            updateAt = java.time.Instant.now(),
+            messageNodes = emptyList(),
+        )
+        assertFalse(emptyConversation.hasMessagesForConsolidation())
+
+        val userOnlyConversation = emptyConversation.copy(
+            messageNodes = listOf(
+                me.rerere.rikkahub.data.model.MessageNode.of(
+                    me.rerere.ai.ui.UIMessage.user("Hello")
+                )
+            )
+        )
+        assertFalse(userOnlyConversation.hasMessagesForConsolidation())
+
+        val bothConversation = emptyConversation.copy(
+            messageNodes = listOf(
+                me.rerere.rikkahub.data.model.MessageNode.of(
+                    me.rerere.ai.ui.UIMessage.user("Hello")
+                ),
+                me.rerere.rikkahub.data.model.MessageNode.of(
+                    me.rerere.ai.ui.UIMessage.assistant("Hi there!")
+                )
+            )
+        )
+        assertTrue(bothConversation.hasMessagesForConsolidation())
+    }
+
+    @Test
+    fun `memory consolidation progress data class holds expected values`() {
+        val idleProgress = me.rerere.rikkahub.data.repository.MemoryConsolidationProgress()
+        assertFalse(idleProgress.isRunning)
+        assertEquals(0, idleProgress.current)
+        assertEquals(0, idleProgress.total)
+
+        val runningProgress = me.rerere.rikkahub.data.repository.MemoryConsolidationProgress(
+            isRunning = true,
+            current = 3,
+            total = 10,
+        )
+        assertTrue(runningProgress.isRunning)
+        assertEquals(3, runningProgress.current)
+        assertEquals(10, runningProgress.total)
     }
 }

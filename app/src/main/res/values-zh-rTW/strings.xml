@@ -1368,8 +1368,13 @@
   <string name="assistant_page_memory_last_run">上次運行: %s</string>
   <string name="assistant_page_memory_no_run">暫無運行記錄</string>
     <string name="assistant_page_memory_consolidate_now">立即整合所有記憶</string>
+    <string name="assistant_page_memory_pending_consolidation_count">待整合對話：%d 則</string>
+    <string name="assistant_page_memory_all_consolidated">所有對話皆已整合</string>
+    <string name="assistant_page_memory_consolidation_progress">正在整合第 %1$d / %2$d 則對話...</string>
+    <string name="assistant_page_memory_consolidation_preparing">正在準備整合...</string>
     <string name="assistant_page_memory_consolidation_confirm_title">整合所有記憶？</string>
     <string name="assistant_page_memory_consolidation_confirm_message">這會處理所有符合條件的歷史會話，可能消耗較多 Token。</string>
+    <string name="assistant_page_memory_consolidation_confirm_message_count">檢測到 %d 則待整合對話，將處理這些對話並消耗模型 Token。開始後可取消剩餘任務。</string>
     <string name="assistant_page_memory_consolidation_start">開始整合</string>
     <string name="assistant_page_memory_consolidation_cancel">取消整合</string>
     <string name="assistant_page_memory_consolidation_started">已開始記憶整合</string>
