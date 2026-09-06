@@ -7,6 +7,8 @@ import androidx.paging.cachedIn
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,6 +46,7 @@ import me.rerere.rikkahub.data.repository.MemoryRetrievalRequest
 import me.rerere.rikkahub.data.repository.MemoryRetrievalService
 import me.rerere.rikkahub.service.MemorySummaryRequirementChangeResult
 import me.rerere.rikkahub.service.MemorySummaryRequirementChangeService
+import me.rerere.rikkahub.service.MemorySummaryWorker
 import me.rerere.rikkahub.utils.deleteChatFiles
 import kotlin.uuid.Uuid
 
@@ -120,6 +123,21 @@ class AssistantDetailVM(
     val memorySummaryVersions: StateFlow<List<MemorySummaryVersionEntity>> = memorySummaryRepository
         .observeVersions(assistantId.toString())
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    val isManualMemorySummaryRunning: StateFlow<Boolean> = memorySummaryRepository
+        .observeManualRunning(assistantId.toString())
+        .stateIn(viewModelScope, SharingStarted.Lazily, false)
+
+    private var manualSummaryObservationJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            val runningWork = memorySummaryRepository.getUnfinishedManualWork(assistantId.toString())
+            if (runningWork != null) {
+                observeManualSummaryWork(runningWork.id)
+            }
+        }
+    }
 
     private val _memorySummaryRequirement = MutableStateFlow("")
     val memorySummaryRequirement = _memorySummaryRequirement.asStateFlow()
@@ -595,9 +613,51 @@ class AssistantDetailVM(
         }
     }
 
+    fun cancelMemorySummary() {
+        viewModelScope.launch {
+            manualSummaryObservationJob?.cancel()
+            manualSummaryObservationJob = null
+            memorySummaryRepository.cancelManualUpdate(assistantId.toString())
+            _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_update_cancelled)
+            memorySummaryRepository.scheduleAutomaticCheck(assistantId.toString())
+        }
+    }
+
     fun updateMemorySummary(options: MemorySummaryUpdateOptions) {
-        memorySummaryRepository.requestManualUpdate(assistantId.toString(), options)
+        val workId = memorySummaryRepository.requestManualUpdate(assistantId.toString(), options)
         _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_update_started)
+        observeManualSummaryWork(workId)
+    }
+
+    private fun observeManualSummaryWork(workId: UUID) {
+        manualSummaryObservationJob?.cancel()
+        manualSummaryObservationJob = viewModelScope.launch {
+            memorySummaryRepository.observeWorkInfo(workId).collect { info ->
+                if (info == null) return@collect
+                when (info.state) {
+                    WorkInfo.State.SUCCEEDED -> {
+                        _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_update_completed)
+                        manualSummaryObservationJob?.cancel()
+                    }
+                    WorkInfo.State.FAILED -> {
+                        val errorType = info.outputData.getString(MemorySummaryWorker.OUTPUT_ERROR_TYPE)
+                        val message = when (errorType) {
+                            MemorySummaryWorker.ERROR_TYPE_MODEL_MISSING ->
+                                context.getString(R.string.assistant_page_memory_summary_requirement_change_model_missing)
+                            else ->
+                                context.getString(R.string.assistant_page_memory_summary_update_failed)
+                        }
+                        _snackbarMessage.value = message
+                        manualSummaryObservationJob?.cancel()
+                    }
+                    WorkInfo.State.CANCELLED -> {
+                        _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_update_cancelled)
+                        manualSummaryObservationJob?.cancel()
+                    }
+                    else -> Unit
+                }
+            }
+        }
     }
 
     fun activateMemorySummaryVersion(versionId: Long) {
@@ -759,6 +819,11 @@ class AssistantDetailVM(
             "Est. History: ~$estHistoryMsgs msgs or Memories: ~$estMemories"
         }
     }.stateIn(viewModelScope, SharingStarted.Lazily, "Calculating...")
+
+    override fun onCleared() {
+        super.onCleared()
+        manualSummaryObservationJob?.cancel()
+    }
 }
 
 data class EmbeddingProgress(

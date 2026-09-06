@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -39,26 +40,39 @@ class MemorySummaryWorker(
     private val requestLogManager: AIRequestLogManager by inject()
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val forceManual = inputData.getBoolean(INPUT_FORCE_MANUAL, false)
         try {
-            updateSummary()
-            Result.success()
+            updateSummary(forceManual)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
             Log.e(TAG, "Memory summary update failed", error)
-            Result.retry()
+            if (forceManual) {
+                Result.failure()
+            } else {
+                Result.retry()
+            }
         }
     }
 
-    private suspend fun updateSummary() {
+    private suspend fun updateSummary(forceManual: Boolean): Result {
         val assistantId = inputData.getString(INPUT_ASSISTANT_ID).orEmpty()
-        if (assistantId.isBlank()) return
-        val forceManual = inputData.getBoolean(INPUT_FORCE_MANUAL, false)
-        val parsedId = runCatching { kotlin.uuid.Uuid.parse(assistantId) }.getOrNull() ?: return
+        if (assistantId.isBlank()) {
+            return if (forceManual) Result.failure(workDataOf(OUTPUT_ERROR_TYPE to ERROR_TYPE_INVALID_INPUT)) else Result.success()
+        }
+        val parsedId = runCatching { kotlin.uuid.Uuid.parse(assistantId) }.getOrNull()
+        if (parsedId == null) {
+            return if (forceManual) Result.failure(workDataOf(OUTPUT_ERROR_TYPE to ERROR_TYPE_INVALID_INPUT)) else Result.success()
+        }
         val settings = settingsStore.settingsFlow.value
-        val assistant = settings.getAssistantById(parsedId) ?: return
-        if (!assistant.enableMemory || !assistant.enableMemorySummary) return
-        if (!forceManual && !assistant.enableAutoMemorySummary) return
+        val assistant = settings.getAssistantById(parsedId)
+        if (assistant == null) {
+            return if (forceManual) Result.failure(workDataOf(OUTPUT_ERROR_TYPE to ERROR_TYPE_INVALID_INPUT)) else Result.success()
+        }
+        if (!assistant.enableMemory || !assistant.enableMemorySummary) {
+            return if (forceManual) Result.failure(workDataOf(OUTPUT_ERROR_TYPE to ERROR_TYPE_DISABLED)) else Result.success()
+        }
+        if (!forceManual && !assistant.enableAutoMemorySummary) return Result.success()
 
         val activeSnapshot = summaryRepository.getActiveSnapshot(assistantId)
         val activeVersion = activeSnapshot.activeVersion
@@ -70,7 +84,7 @@ class MemorySummaryWorker(
                 currentMemoryCount = currentMemoryCount,
                 threshold = assistant.memorySummaryChangeThreshold,
             )
-        ) return
+        ) return Result.success()
 
         if (!forceManual && activeVersion != null) {
             val remainingDelay = summaryRepository.requiredDelayMillis(
@@ -79,7 +93,7 @@ class MemorySummaryWorker(
             )
             if (remainingDelay > 0L) {
                 summaryScheduler.enqueueAutomatic(assistantId, remainingDelay)
-                return
+                return Result.success()
             }
         }
 
@@ -132,16 +146,38 @@ class MemorySummaryWorker(
                 expectedRevision = activeSnapshot.revision,
             )
             if (!published) summaryRepository.scheduleAutomaticCheck(assistantId)
-            return
+            return if (published) {
+                Result.success()
+            } else if (forceManual) {
+                Result.failure(workDataOf(OUTPUT_ERROR_TYPE to ERROR_TYPE_PUBLISH_FAILED))
+            } else {
+                Result.success()
+            }
         }
         // An explicit immediate update is allowed to refresh an existing incremental
         // summary even when there are no pending additions. Automatic work never
         // reaches this branch without enough changes.
-        if (sources.isEmpty() && !forceManual) return
+        if (sources.isEmpty() && !forceManual) return Result.success()
 
         val modelId = assistant.summarizerModelId ?: assistant.backgroundModelId ?: settings.chatModelId
-        val model = settings.findModelById(modelId) ?: return
-        val provider = model.findProvider(settings.providers) ?: return
+        val model = settings.findModelById(modelId)
+        if (model == null) {
+            Log.w(TAG, "Summarizer model not found: $modelId")
+            return if (forceManual) {
+                Result.failure(workDataOf(OUTPUT_ERROR_TYPE to ERROR_TYPE_MODEL_MISSING))
+            } else {
+                Result.success()
+            }
+        }
+        val provider = model.findProvider(settings.providers)
+        if (provider == null) {
+            Log.w(TAG, "Provider not found for model: ${model.id}")
+            return if (forceManual) {
+                Result.failure(workDataOf(OUTPUT_ERROR_TYPE to ERROR_TYPE_MODEL_MISSING))
+            } else {
+                Result.success()
+            }
+        }
         val providerHandler = providerManager.getProviderByType(provider)
         val promptMode = when {
             !includeActiveSummary -> MemorySummaryPromptMode.REBUILD
@@ -181,6 +217,13 @@ class MemorySummaryWorker(
                 expectedRevision = activeSnapshot.revision,
             )
             if (!published) summaryRepository.scheduleAutomaticCheck(assistantId)
+            return if (published) {
+                Result.success()
+            } else if (forceManual) {
+                Result.failure(workDataOf(OUTPUT_ERROR_TYPE to ERROR_TYPE_PUBLISH_FAILED))
+            } else {
+                Result.success()
+            }
         } catch (error: Throwable) {
             failure = error
             throw error
@@ -208,6 +251,13 @@ class MemorySummaryWorker(
         const val INPUT_INCLUDE_ACTIVE_SUMMARY = "INCLUDE_ACTIVE_SUMMARY"
         const val INPUT_INCLUDE_RECENT_REQUIREMENTS = "INCLUDE_RECENT_REQUIREMENTS"
         const val INPUT_MEMORY_SCOPE = "MEMORY_SCOPE"
+
+        const val OUTPUT_ERROR_TYPE = "ERROR_TYPE"
+        const val ERROR_TYPE_MODEL_MISSING = "MODEL_MISSING"
+        const val ERROR_TYPE_DISABLED = "DISABLED"
+        const val ERROR_TYPE_PUBLISH_FAILED = "PUBLISH_FAILED"
+        const val ERROR_TYPE_INVALID_INPUT = "INVALID_INPUT"
+
         private const val TAG = "MemorySummaryWorker"
     }
 }

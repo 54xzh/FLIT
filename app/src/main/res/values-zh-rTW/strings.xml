@@ -2642,6 +2642,10 @@
     <string name="assistant_page_memory_summary_update_started">已開始更新記憶摘要</string>
     <string name="assistant_page_memory_summary_full_update_started">已開始全量更新記憶摘要</string>
     <string name="assistant_page_memory_summary_rebuild_started">已開始全量重建記憶摘要</string>
+    <string name="assistant_page_memory_summary_cancel">取消更新</string>
+    <string name="assistant_page_memory_summary_update_completed">記憶摘要更新完成</string>
+    <string name="assistant_page_memory_summary_update_cancelled">已取消更新記憶摘要</string>
+    <string name="assistant_page_memory_summary_update_failed">更新記憶摘要失敗，請稍後重試。</string>
     <string name="assistant_page_memory_summary_mode_requirement_change">要求變更</string>
     <string name="assistant_page_memory_summary_requirement_change_hint">輸入修改要求</string>
     <string name="assistant_page_memory_summary_requirement_change_send">提交摘要修改要求</string>

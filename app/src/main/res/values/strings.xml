@@ -2652,6 +2652,10 @@
     <string name="assistant_page_memory_summary_update_started">Memory summary update started</string>
     <string name="assistant_page_memory_summary_full_update_started">Memory summary full update started</string>
     <string name="assistant_page_memory_summary_rebuild_started">Memory summary full rebuild started</string>
+    <string name="assistant_page_memory_summary_cancel">Cancel update</string>
+    <string name="assistant_page_memory_summary_update_completed">Memory summary updated</string>
+    <string name="assistant_page_memory_summary_update_cancelled">Memory summary update cancelled</string>
+    <string name="assistant_page_memory_summary_update_failed">Failed to update memory summary, please try again later.</string>
     <string name="assistant_page_memory_summary_mode_requirement_change">Requirement change</string>
     <string name="assistant_page_memory_summary_requirement_change_hint">Enter change request</string>
     <string name="assistant_page_memory_summary_requirement_change_send">Submit summary change request</string>

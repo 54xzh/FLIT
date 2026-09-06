@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.repository
 
 import androidx.room.withTransaction
+import androidx.work.WorkInfo
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import me.rerere.rikkahub.data.db.AppDatabase
@@ -483,9 +484,21 @@ class MemorySummaryRepository(
         }
     }
 
-    fun requestManualUpdate(assistantId: String, options: MemorySummaryUpdateOptions) {
+    fun requestManualUpdate(assistantId: String, options: MemorySummaryUpdateOptions): UUID =
         scheduler.enqueueManual(assistantId, options)
+
+    suspend fun cancelManualUpdate(assistantId: String) {
+        scheduler.cancelManual(assistantId)
     }
+
+    fun observeManualRunning(assistantId: String): Flow<Boolean> =
+        scheduler.observeManualRunning(assistantId)
+
+    fun observeWorkInfo(id: UUID): Flow<WorkInfo?> =
+        scheduler.observeWorkInfo(id)
+
+    suspend fun getUnfinishedManualWork(assistantId: String): WorkInfo? =
+        scheduler.getUnfinishedManualWork(assistantId)
 
     fun scheduleAutomaticCheck(assistantId: String) {
         scheduler.enqueueAutomatic(assistantId)

@@ -1,4 +1,4 @@
-﻿package me.rerere.rikkahub.ui.pages.assistant.detail
+package me.rerere.rikkahub.ui.pages.assistant.detail
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -62,6 +62,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SegmentedButton
@@ -177,6 +178,9 @@ fun AssistantMemorySettings(
 ) {
     val isManualMemoryConsolidationRunning by assistantDetailVM
         .isManualMemoryConsolidationRunning
+        .collectAsStateWithLifecycle()
+    val isManualMemorySummaryRunning by assistantDetailVM
+        .isManualMemorySummaryRunning
         .collectAsStateWithLifecycle()
     val memoryDialogState = useEditState<AssistantMemory> {
         if (it.id == 0) {
@@ -502,7 +506,9 @@ fun AssistantMemorySettings(
                 MemorySummarySettingsCard(
                     assistant = assistant,
                     status = memorySummaryStatus,
+                    isManualSummaryRunning = isManualMemorySummaryRunning,
                     onUpdateAssistant = onUpdateAssistant,
+                    onCancelSummary = assistantDetailVM::cancelMemorySummary,
                     onUpdateSummary = assistantDetailVM::updateMemorySummary,
                 )
             }
@@ -1043,7 +1049,9 @@ private fun ConsolidationSettingsCard(
 private fun MemorySummarySettingsCard(
     assistant: Assistant,
     status: MemorySummaryStatus,
+    isManualSummaryRunning: Boolean,
     onUpdateAssistant: (Assistant) -> Unit,
+    onCancelSummary: () -> Unit,
     onUpdateSummary: (MemorySummaryUpdateOptions) -> Unit,
 ) {
     val activeVersionId = status.activeVersion?.id
@@ -1183,14 +1191,47 @@ private fun MemorySummarySettingsCard(
             color = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
             shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp, topStart = 10.dp, topEnd = 10.dp),
         ) {
-            Button(
-                onClick = {
-                    haptics.perform(HapticPattern.Pop)
-                    showUpdateSummaryDialog = true
-                },
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(stringResource(R.string.assistant_page_memory_summary_update_now))
+                Button(
+                    onClick = {
+                        haptics.perform(HapticPattern.Pop)
+                        if (isManualSummaryRunning) {
+                            onCancelSummary()
+                        } else {
+                            showUpdateSummaryDialog = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (isManualSummaryRunning) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.assistant_page_memory_summary_cancel))
+                    } else {
+                        Text(stringResource(R.string.assistant_page_memory_summary_update_now))
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = isManualSummaryRunning,
+                    enter = expandVertically(spring(dampingRatio = 0.6f, stiffness = 300f)) + fadeIn(),
+                    exit = shrinkVertically(spring(dampingRatio = 0.6f, stiffness = 300f)) + fadeOut(),
+                ) {
+                    LinearWavyProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                    )
+                }
             }
         }
     }
