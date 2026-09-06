@@ -73,6 +73,7 @@ val dataSourceModule = module {
                 AppDatabase.MIGRATION_46_47,
                 AppDatabase.MIGRATION_47_48,
                 AppDatabase.MIGRATION_48_49,
+                AppDatabase.MIGRATION_49_50,
             )
             .build()
     }

@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -65,6 +64,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
 import androidx.compose.material3.Tab
@@ -108,6 +110,8 @@ import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import me.rerere.rikkahub.data.model.requiresEmbedding
 import me.rerere.rikkahub.data.repository.AssistantMemoryStats
 import me.rerere.rikkahub.data.repository.MemorySummaryStatus
+import me.rerere.rikkahub.data.repository.MemorySummaryMemoryScope
+import me.rerere.rikkahub.data.repository.MemorySummaryUpdateOptions
 import me.rerere.rikkahub.data.db.entity.MemorySummaryUpdateMode
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 import me.rerere.rikkahub.data.repository.MemoryRetrievalHit
@@ -578,7 +582,7 @@ fun AssistantMemorySettings(
             exit = fadeOut() + shrinkVertically()
         ) {
             if (onTestRetrieval != null) {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SettingsGroupHeader(title = stringResource(R.string.assistant_page_memory_debugger_title))
                     MemoryDebugger(
                         onTestRetrieval = onTestRetrieval,
@@ -1040,9 +1044,12 @@ private fun MemorySummarySettingsCard(
     assistant: Assistant,
     status: MemorySummaryStatus,
     onUpdateAssistant: (Assistant) -> Unit,
-    onUpdateSummary: (forceFull: Boolean, forceRebuild: Boolean) -> Unit,
+    onUpdateSummary: (MemorySummaryUpdateOptions) -> Unit,
 ) {
-    var showUpdateModeDialog by remember { mutableStateOf(false) }
+    val activeVersionId = status.activeVersion?.id
+    val hasActiveSummary = activeVersionId != null
+    var showUpdateSummaryDialog by remember { mutableStateOf(false) }
+    val haptics = rememberPremiumHaptics()
 
     Column(
         modifier = Modifier.clip(RoundedCornerShape(24.dp)),
@@ -1177,7 +1184,10 @@ private fun MemorySummarySettingsCard(
             shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp, topStart = 10.dp, topEnd = 10.dp),
         ) {
             Button(
-                onClick = { showUpdateModeDialog = true },
+                onClick = {
+                    haptics.perform(HapticPattern.Pop)
+                    showUpdateSummaryDialog = true
+                },
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
             ) {
                 Text(stringResource(R.string.assistant_page_memory_summary_update_now))
@@ -1185,47 +1195,102 @@ private fun MemorySummarySettingsCard(
         }
     }
 
-    if (showUpdateModeDialog) {
+    if (showUpdateSummaryDialog) {
+        var includeActiveSummary by remember(activeVersionId) { mutableStateOf(hasActiveSummary) }
+        var includeRecentRequirements by remember { mutableStateOf(true) }
+        var memoryScope by remember(activeVersionId) {
+            mutableStateOf(if (hasActiveSummary) MemorySummaryMemoryScope.ADDED else MemorySummaryMemoryScope.ALL)
+        }
+        val scopeOptions = listOf(
+            MemorySummaryMemoryScope.ADDED to
+                stringResource(R.string.assistant_page_memory_summary_memory_scope_added),
+            MemorySummaryMemoryScope.ALL to
+                stringResource(R.string.assistant_page_memory_summary_memory_scope_all),
+        )
         AlertDialog(
-            onDismissRequest = { showUpdateModeDialog = false },
-            title = { Text(stringResource(R.string.assistant_page_memory_summary_update_dialog_title)) },
+            onDismissRequest = { showUpdateSummaryDialog = false },
+            title = { Text(stringResource(R.string.assistant_page_memory_summary_update_now)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = stringResource(R.string.assistant_page_memory_summary_update_dialog_desc),
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = stringResource(R.string.assistant_page_memory_summary_update_context_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Button(
-                        onClick = {
-                            showUpdateModeDialog = false
-                            onUpdateSummary(false, false)
-                        },
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(stringResource(R.string.assistant_page_memory_summary_update_by_changes))
+                        Text(
+                            text = stringResource(R.string.assistant_page_memory_summary_include_active),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        HapticSwitch(
+                            checked = includeActiveSummary,
+                            enabled = hasActiveSummary,
+                            onCheckedChange = { enabled ->
+                                includeActiveSummary = enabled
+                                if (!enabled) memoryScope = MemorySummaryMemoryScope.ALL
+                            },
+                        )
                     }
-                    Button(
-                        onClick = {
-                            showUpdateModeDialog = false
-                            onUpdateSummary(true, false)
-                        },
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(stringResource(R.string.assistant_page_memory_summary_full_update))
+                        Text(
+                            text = stringResource(R.string.assistant_page_memory_summary_include_requirements),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        HapticSwitch(
+                            checked = includeRecentRequirements,
+                            onCheckedChange = { includeRecentRequirements = it },
+                        )
                     }
-                    Button(
-                        onClick = {
-                            showUpdateModeDialog = false
-                            onUpdateSummary(true, true)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(stringResource(R.string.assistant_page_memory_summary_rebuild))
+                    Text(
+                        text = stringResource(R.string.assistant_page_memory_summary_memory_scope),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        scopeOptions.forEachIndexed { index, (scope, label) ->
+                            SegmentedButton(
+                                selected = memoryScope == scope,
+                                enabled = includeActiveSummary || scope == MemorySummaryMemoryScope.ALL,
+                                onClick = {
+                                    haptics.perform(HapticPattern.Pop)
+                                    memoryScope = scope
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(index, scopeOptions.size),
+                            ) {
+                                Text(label)
+                            }
+                        }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showUpdateModeDialog = false }) {
+                TextButton(
+                    onClick = {
+                        haptics.perform(HapticPattern.Pop)
+                        onUpdateSummary(
+                            MemorySummaryUpdateOptions(
+                                includeActiveSummary = includeActiveSummary,
+                                includeRecentRequirements = includeRecentRequirements,
+                                memoryScope = memoryScope,
+                            ),
+                        )
+                        showUpdateSummaryDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.assistant_page_memory_summary_update_now))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUpdateSummaryDialog = false }) {
                     Text(stringResource(R.string.cancel))
                 }
             },

@@ -85,3 +85,25 @@ data class MemorySummaryChangeEntity(
     @ColumnInfo(name = "change_token")
     val changeToken: String,
 )
+
+/**
+ * A recently accepted user request for maintaining a memory summary.
+ *
+ * This history is deliberately independent from summary versions: old summary
+ * versions are pruned, while the user's latest corrections must continue to
+ * protect subsequent updates.
+ */
+@Entity(
+    tableName = "memory_summary_requirements",
+    indices = [Index(value = ["assistant_id", "created_at"])],
+)
+data class MemorySummaryRequirementEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    @ColumnInfo(name = "assistant_id")
+    val assistantId: String,
+    @ColumnInfo(name = "requirement")
+    val requirement: String,
+    @ColumnInfo(name = "created_at")
+    val createdAt: Long,
+)

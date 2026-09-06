@@ -36,6 +36,7 @@ import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.data.repository.MemorySummaryStatus
+import me.rerere.rikkahub.data.repository.MemorySummaryUpdateOptions
 import me.rerere.rikkahub.data.repository.MemorySummaryVersionOperationResult
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 import me.rerere.rikkahub.data.repository.MemoryRetrievalHit
@@ -172,9 +173,11 @@ class AssistantDetailVM(
                         )
                     }
 
-                    MemorySummaryRequirementChangeResult.UNCHANGED_CONTENT -> {
+                    MemorySummaryRequirementChangeResult.SAVED_WITHOUT_SUMMARY_CHANGE -> {
+                        _memorySummaryRequirement.value = ""
+                        _memorySummaryRequirementChangeSuccessEvent.value += 1
                         _snackbarMessage.value = context.getString(
-                            R.string.assistant_page_memory_summary_requirement_change_unchanged,
+                            R.string.assistant_page_memory_summary_requirement_change_saved_without_change,
                         )
                     }
 
@@ -592,15 +595,9 @@ class AssistantDetailVM(
         }
     }
 
-    fun updateMemorySummary(forceFull: Boolean, forceRebuild: Boolean) {
-        memorySummaryRepository.requestManualUpdate(assistantId.toString(), forceFull, forceRebuild)
-        _snackbarMessage.value = context.getString(
-            when {
-                forceRebuild -> R.string.assistant_page_memory_summary_rebuild_started
-                forceFull -> R.string.assistant_page_memory_summary_full_update_started
-                else -> R.string.assistant_page_memory_summary_update_started
-            },
-        )
+    fun updateMemorySummary(options: MemorySummaryUpdateOptions) {
+        memorySummaryRepository.requestManualUpdate(assistantId.toString(), options)
+        _snackbarMessage.value = context.getString(R.string.assistant_page_memory_summary_update_started)
     }
 
     fun activateMemorySummaryVersion(versionId: Long) {

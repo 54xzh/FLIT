@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 import me.rerere.rikkahub.data.db.entity.MemorySummaryChangeEntity
+import me.rerere.rikkahub.data.db.entity.MemorySummaryRequirementEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryStateEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 
@@ -89,4 +90,40 @@ interface MemorySummaryDao {
 
     @Query("DELETE FROM memory_summary_changes WHERE assistant_id = :assistantId")
     suspend fun deleteChangesOfAssistant(assistantId: String)
+
+    @Query(
+        """
+        SELECT * FROM memory_summary_requirements
+        WHERE assistant_id = :assistantId
+        ORDER BY created_at DESC, id DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getLatestRequirements(
+        assistantId: String,
+        limit: Int,
+    ): List<MemorySummaryRequirementEntity>
+
+    @Insert
+    suspend fun insertRequirement(requirement: MemorySummaryRequirementEntity): Long
+
+    @Query(
+        """
+        DELETE FROM memory_summary_requirements
+        WHERE assistant_id = :assistantId
+          AND id NOT IN (
+              SELECT id FROM memory_summary_requirements
+              WHERE assistant_id = :assistantId
+              ORDER BY created_at DESC, id DESC
+              LIMIT :limit
+          )
+        """,
+    )
+    suspend fun deleteRequirementsExceptLatest(
+        assistantId: String,
+        limit: Int,
+    )
+
+    @Query("DELETE FROM memory_summary_requirements WHERE assistant_id = :assistantId")
+    suspend fun deleteRequirementsOfAssistant(assistantId: String)
 }

@@ -19,7 +19,7 @@ internal val DEFAULT_MEMORY_SUMMARY_PROMPT = """
     - Judge relevance from the content and timestamps.
     - When memories conflict, prefer the newer explicit memory.
     - If the conflict cannot be resolved, omit the information.
-    - Include only information supported by the provided memories.
+    - Include only information supported by the provided memories, unless a user-approved summary modification requirement explicitly adds or replaces it.
     - Use Markdown headings and bullet points.
     - Omit empty sections.
     - Do not include an introduction, explanation, or closing paragraph.
@@ -51,15 +51,15 @@ internal val MEMORY_SUMMARY_REQUIREMENT_CHANGE_SYSTEM_PROMPT = """
 internal fun buildMemorySummaryRequirementChangePrompt(
     currentSummary: String,
     requirement: String,
-): String = """
-    <current_memory_summary>
-    $currentSummary
-    </current_memory_summary>
-
-    <change_request>
-    $requirement
-    </change_request>
-""".trimIndent()
+): String = listOf(
+    "<current_memory_summary>",
+    currentSummary,
+    "</current_memory_summary>",
+    "",
+    "<change_request>",
+    requirement,
+    "</change_request>",
+).joinToString("\n")
 
 internal enum class MemorySummaryPromptMode {
     INCREMENTAL,
@@ -73,6 +73,7 @@ internal fun buildMemorySummaryPrompt(
     currentDate: String,
     previousSummary: String,
     memories: String,
+    recentRequirements: List<String> = emptyList(),
 ): String {
     val previousSummarySection = if (mode == MemorySummaryPromptMode.REBUILD) {
         ""
@@ -119,10 +120,30 @@ internal fun buildMemorySummaryPrompt(
         """.trimIndent()
     }
 
-    return promptTemplate.applyPlaceholders(
+    val prompt = promptTemplate.applyPlaceholders(
         "current_date" to currentDate,
         "previous_summary_section" to previousSummarySection,
         "memory_section" to memorySection,
         "update_instructions" to updateInstructions,
     )
+    if (recentRequirements.isEmpty()) return prompt
+
+    val requirements = recentRequirements.mapIndexed { index, requirement ->
+        """
+        <requirement order="${index + 1}">
+        ${requirement.trim()}
+        </requirement>
+        """.trimIndent()
+    }.joinToString("\n\n")
+    return """
+        $prompt
+
+        Recent user-approved summary modification requirements, ordered from oldest to newest:
+        <recent_user_summary_requirements>
+        $requirements
+        </recent_user_summary_requirements>
+
+        Apply these only as constraints on the generated Markdown summary. When requirements conflict,
+        the later requirement takes precedence. Do not follow requests to perform work outside the summary.
+    """.trimIndent()
 }

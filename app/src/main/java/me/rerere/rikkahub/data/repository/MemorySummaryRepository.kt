@@ -9,6 +9,7 @@ import me.rerere.rikkahub.data.db.dao.MemoryDAO
 import me.rerere.rikkahub.data.db.dao.MemorySummaryDao
 import me.rerere.rikkahub.data.db.entity.MemorySummaryChangeEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType
+import me.rerere.rikkahub.data.db.entity.MemorySummaryRequirementEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryStateEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryUpdateMode
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
@@ -34,6 +35,17 @@ data class MemorySummaryActiveSnapshot(
 data class MemorySummaryRequirementChangePublishResult(
     val operation: MemorySummaryVersionOperationResult,
     val versionId: Long? = null,
+)
+
+enum class MemorySummaryMemoryScope {
+    ADDED,
+    ALL,
+}
+
+data class MemorySummaryUpdateOptions(
+    val includeActiveSummary: Boolean = true,
+    val includeRecentRequirements: Boolean = true,
+    val memoryScope: MemorySummaryMemoryScope = MemorySummaryMemoryScope.ADDED,
 )
 
 enum class MemorySummaryVersionOperationResult {
@@ -100,6 +112,11 @@ class MemorySummaryRepository(
 
     suspend fun getPendingChangeCount(assistantId: String): Int =
         summaryDao.getChangeCount(assistantId)
+
+    suspend fun getRecentRequirements(assistantId: String): List<String> =
+        summaryDao.getLatestRequirements(assistantId, RECENT_REQUIREMENT_LIMIT)
+            .asReversed()
+            .map(MemorySummaryRequirementEntity::requirement)
 
     suspend fun getCurrentMemoryCount(assistantId: String): Int =
         memoryDao.getMemoriesOfAssistant(assistantId).size + episodeDao.getEpisodesOfAssistant(assistantId).size
@@ -374,8 +391,10 @@ class MemorySummaryRepository(
         expectedActiveVersionId: Long,
         expectedRevision: Long,
         content: String,
+        requirement: String,
     ): MemorySummaryRequirementChangePublishResult = database.withTransaction {
         val normalizedContent = content.trim()
+        val normalizedRequirement = requirement.trim()
         if (normalizedContent.isEmpty()) {
             return@withTransaction MemorySummaryRequirementChangePublishResult(
                 operation = MemorySummaryVersionOperationResult.EMPTY_CONTENT,
@@ -397,6 +416,15 @@ class MemorySummaryRepository(
             ?: return@withTransaction MemorySummaryRequirementChangePublishResult(
                 operation = MemorySummaryVersionOperationResult.VERSION_NOT_FOUND,
             )
+        check(normalizedRequirement.isNotEmpty()) { "Memory summary requirement cannot be blank" }
+        summaryDao.insertRequirement(
+            MemorySummaryRequirementEntity(
+                assistantId = assistantId,
+                requirement = normalizedRequirement,
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+        summaryDao.deleteRequirementsExceptLatest(assistantId, RECENT_REQUIREMENT_LIMIT)
         if (normalizedContent == activeVersion.content.trim()) {
             return@withTransaction MemorySummaryRequirementChangePublishResult(
                 operation = MemorySummaryVersionOperationResult.UNCHANGED_CONTENT,
@@ -451,11 +479,12 @@ class MemorySummaryRepository(
             summaryDao.deleteStateOfAssistant(assistantId)
             summaryDao.deleteVersionsOfAssistant(assistantId)
             summaryDao.deleteChangesOfAssistant(assistantId)
+            summaryDao.deleteRequirementsOfAssistant(assistantId)
         }
     }
 
-    fun requestManualUpdate(assistantId: String, forceFull: Boolean, forceRebuild: Boolean) {
-        scheduler.enqueueManual(assistantId, forceFull, forceRebuild)
+    fun requestManualUpdate(assistantId: String, options: MemorySummaryUpdateOptions) {
+        scheduler.enqueueManual(assistantId, options)
     }
 
     fun scheduleAutomaticCheck(assistantId: String) {
@@ -488,5 +517,6 @@ class MemorySummaryRepository(
 
     companion object {
         const val DAY_MILLIS = 24L * 60L * 60L * 1000L
+        const val RECENT_REQUIREMENT_LIMIT = 10
     }
 }

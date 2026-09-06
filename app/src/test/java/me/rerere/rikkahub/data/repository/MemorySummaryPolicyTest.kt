@@ -11,6 +11,33 @@ import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 
 class MemorySummaryPolicyTest {
     @Test
+    fun disablingActiveSummaryForcesManualUpdateToUseAllMemories() {
+        val normalized = normalizeManualMemorySummaryUpdateOptions(
+            options = MemorySummaryUpdateOptions(
+                includeActiveSummary = false,
+                includeRecentRequirements = false,
+                memoryScope = MemorySummaryMemoryScope.ADDED,
+            ),
+            hasActiveSummary = true,
+        )
+
+        assertFalse(normalized.includeActiveSummary)
+        assertFalse(normalized.includeRecentRequirements)
+        assertEquals(MemorySummaryMemoryScope.ALL, normalized.memoryScope)
+    }
+
+    @Test
+    fun noActiveSummaryDisablesUsingThePreviousSummary() {
+        val normalized = normalizeManualMemorySummaryUpdateOptions(
+            options = MemorySummaryUpdateOptions(),
+            hasActiveSummary = false,
+        )
+
+        assertFalse(normalized.includeActiveSummary)
+        assertEquals(MemorySummaryMemoryScope.ALL, normalized.memoryScope)
+    }
+
+    @Test
     fun newMemoryStaysIncrementalAfterContentEdits() {
         assertEquals(
             MemorySummaryChangeType.ADDED,

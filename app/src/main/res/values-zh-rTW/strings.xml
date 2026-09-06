@@ -2607,6 +2607,12 @@
     <string name="assistant_page_memory_summary_interval_value">%1$d 天</string>
     <string name="assistant_page_memory_summary_last_updated">更新時間：%1$s</string>
     <string name="assistant_page_memory_summary_update_now">立即更新記憶摘要</string>
+    <string name="assistant_page_memory_summary_update_context_desc">將會立即更新摘要，可在下方選擇需要攜帶的上下文。</string>
+    <string name="assistant_page_memory_summary_include_active">目前生效摘要</string>
+    <string name="assistant_page_memory_summary_include_requirements">最近修改要求</string>
+    <string name="assistant_page_memory_summary_memory_scope">記憶範圍</string>
+    <string name="assistant_page_memory_summary_memory_scope_added">新增記憶</string>
+    <string name="assistant_page_memory_summary_memory_scope_all">全量記憶</string>
     <string name="assistant_page_memory_summary_update_dialog_title">選擇更新方式</string>
     <string name="assistant_page_memory_summary_update_dialog_desc">選擇新摘要的生成方式。全量重建僅使用目前記憶庫，不會向模型提供舊摘要。</string>
     <string name="assistant_page_memory_summary_update_by_changes">增量更新</string>
@@ -2642,6 +2648,7 @@
     <string name="assistant_page_memory_summary_requirement_change_processing_title">正在產生新的摘要</string>
     <string name="assistant_page_memory_summary_requirement_change_processing_desc">正在產生新的摘要</string>
     <string name="assistant_page_memory_summary_requirement_change_saved">記憶摘要已更新</string>
+    <string name="assistant_page_memory_summary_requirement_change_saved_without_change">修改要求已儲存，目前摘要無需改動。</string>
     <string name="assistant_page_memory_summary_requirement_change_model_missing">請先設定摘要模型、背景模型或聊天模型。</string>
     <string name="assistant_page_memory_summary_requirement_change_unchanged">摘要沒有發生變化。</string>
     <string name="assistant_page_memory_summary_requirement_change_stale">目前摘要已發生變化，請重新提交修改要求。</string>

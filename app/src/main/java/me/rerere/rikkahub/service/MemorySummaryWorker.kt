@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.rerere.ai.provider.TextGenerationParams
@@ -20,6 +21,9 @@ import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.db.entity.MemorySummaryUpdateMode
 import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.data.repository.MemorySummaryScheduler
+import me.rerere.rikkahub.data.repository.MemorySummaryMemoryScope
+import me.rerere.rikkahub.data.repository.MemorySummaryUpdateOptions
+import me.rerere.rikkahub.data.repository.normalizeManualMemorySummaryUpdateOptions
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.time.LocalDate
@@ -38,6 +42,8 @@ class MemorySummaryWorker(
         try {
             updateSummary()
             Result.success()
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
             Log.e(TAG, "Memory summary update failed", error)
             Result.retry()
@@ -48,8 +54,6 @@ class MemorySummaryWorker(
         val assistantId = inputData.getString(INPUT_ASSISTANT_ID).orEmpty()
         if (assistantId.isBlank()) return
         val forceManual = inputData.getBoolean(INPUT_FORCE_MANUAL, false)
-        val forceFull = inputData.getBoolean(INPUT_FORCE_FULL, false)
-        val forceRebuild = inputData.getBoolean(INPUT_FORCE_REBUILD, false)
         val parsedId = runCatching { kotlin.uuid.Uuid.parse(assistantId) }.getOrNull() ?: return
         val settings = settingsStore.settingsFlow.value
         val assistant = settings.getAssistantById(parsedId) ?: return
@@ -79,14 +83,36 @@ class MemorySummaryWorker(
             }
         }
 
-        val isFullUpdate = summaryRepository.shouldUseFullUpdate(
-            activeVersion = activeVersion,
-            changes = changes,
-            forceFull = forceFull || forceRebuild,
-            requiresFullUpdate = activeSnapshot.requiresFullUpdate,
+        val manualOptions = normalizeManualMemorySummaryUpdateOptions(
+            options = MemorySummaryUpdateOptions(
+                includeActiveSummary = inputData.getBoolean(INPUT_INCLUDE_ACTIVE_SUMMARY, true),
+                includeRecentRequirements = inputData.getBoolean(INPUT_INCLUDE_RECENT_REQUIREMENTS, true),
+                memoryScope = inputData.memoryScope(),
+            ),
+            hasActiveSummary = activeVersion != null,
         )
+        val isFullUpdate = if (forceManual) {
+            manualOptions.memoryScope == MemorySummaryMemoryScope.ALL
+        } else {
+            summaryRepository.shouldUseFullUpdate(
+                activeVersion = activeVersion,
+                changes = changes,
+                forceFull = false,
+                requiresFullUpdate = activeSnapshot.requiresFullUpdate,
+            )
+        }
+        val includeActiveSummary = if (forceManual) {
+            manualOptions.includeActiveSummary
+        } else {
+            activeVersion != null
+        }
+        val includeRecentRequirements = if (forceManual) {
+            manualOptions.includeRecentRequirements
+        } else {
+            true
+        }
         val updateMode = when {
-            forceRebuild -> MemorySummaryUpdateMode.REBUILD
+            !includeActiveSummary -> MemorySummaryUpdateMode.REBUILD
             isFullUpdate -> MemorySummaryUpdateMode.FULL
             else -> MemorySummaryUpdateMode.INCREMENTAL
         }
@@ -118,7 +144,7 @@ class MemorySummaryWorker(
         val provider = model.findProvider(settings.providers) ?: return
         val providerHandler = providerManager.getProviderByType(provider)
         val promptMode = when {
-            forceRebuild -> MemorySummaryPromptMode.REBUILD
+            !includeActiveSummary -> MemorySummaryPromptMode.REBUILD
             isFullUpdate -> MemorySummaryPromptMode.FULL
             else -> MemorySummaryPromptMode.INCREMENTAL
         }
@@ -128,6 +154,11 @@ class MemorySummaryWorker(
             currentDate = LocalDate.now().toString(),
             previousSummary = activeVersion?.content.orEmpty(),
             memories = summaryRepository.formatSources(sources),
+            recentRequirements = if (includeRecentRequirements) {
+                summaryRepository.getRecentRequirements(assistantId)
+            } else {
+                emptyList()
+            },
         )
         val requestMessages = listOf(UIMessage.user(prompt))
         var requestBodyJson: String? = null
@@ -174,8 +205,14 @@ class MemorySummaryWorker(
     companion object {
         const val INPUT_ASSISTANT_ID = "ASSISTANT_ID"
         const val INPUT_FORCE_MANUAL = "FORCE_MANUAL"
-        const val INPUT_FORCE_FULL = "FORCE_FULL"
-        const val INPUT_FORCE_REBUILD = "FORCE_REBUILD"
+        const val INPUT_INCLUDE_ACTIVE_SUMMARY = "INCLUDE_ACTIVE_SUMMARY"
+        const val INPUT_INCLUDE_RECENT_REQUIREMENTS = "INCLUDE_RECENT_REQUIREMENTS"
+        const val INPUT_MEMORY_SCOPE = "MEMORY_SCOPE"
         private const val TAG = "MemorySummaryWorker"
     }
 }
+
+private fun androidx.work.Data.memoryScope(): MemorySummaryMemoryScope =
+    MemorySummaryMemoryScope.entries.getOrElse(
+        getInt(MemorySummaryWorker.INPUT_MEMORY_SCOPE, MemorySummaryMemoryScope.ADDED.ordinal),
+    ) { MemorySummaryMemoryScope.ADDED }

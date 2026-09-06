@@ -5,6 +5,17 @@ import me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType
 import me.rerere.rikkahub.data.db.entity.MemorySummaryStateEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 
+internal fun normalizeManualMemorySummaryUpdateOptions(
+    options: MemorySummaryUpdateOptions,
+    hasActiveSummary: Boolean,
+): MemorySummaryUpdateOptions {
+    val includeActiveSummary = options.includeActiveSummary && hasActiveSummary
+    return options.copy(
+        includeActiveSummary = includeActiveSummary,
+        memoryScope = if (includeActiveSummary) options.memoryScope else MemorySummaryMemoryScope.ALL,
+    )
+}
+
 internal fun mergeMemorySummaryChangeType(previous: Int?, requested: Int): Int? = when {
     previous == null -> requested
     previous == MemorySummaryChangeType.ADDED && requested == MemorySummaryChangeType.UPDATED ->

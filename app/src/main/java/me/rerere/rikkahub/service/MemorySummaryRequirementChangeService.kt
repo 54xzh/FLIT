@@ -20,7 +20,7 @@ sealed interface MemorySummaryRequirementChangeResult {
     data class SUCCESS(val versionId: Long) : MemorySummaryRequirementChangeResult
     data object NO_ACTIVE_VERSION : MemorySummaryRequirementChangeResult
     data object MODEL_NOT_CONFIGURED : MemorySummaryRequirementChangeResult
-    data object UNCHANGED_CONTENT : MemorySummaryRequirementChangeResult
+    data object SAVED_WITHOUT_SUMMARY_CHANGE : MemorySummaryRequirementChangeResult
     data object STALE_ACTIVE_VERSION : MemorySummaryRequirementChangeResult
 }
 
@@ -74,13 +74,15 @@ class MemorySummaryRequirementChangeService(
                 expectedActiveVersionId = activeVersion.id,
                 expectedRevision = activeSnapshot.revision,
                 content = responseText,
+                requirement = normalizedRequirement,
             )
             when (publishResult.operation) {
                 MemorySummaryVersionOperationResult.SUCCESS -> MemorySummaryRequirementChangeResult.SUCCESS(
                     versionId = checkNotNull(publishResult.versionId),
                 )
 
-                MemorySummaryVersionOperationResult.UNCHANGED_CONTENT -> MemorySummaryRequirementChangeResult.UNCHANGED_CONTENT
+                MemorySummaryVersionOperationResult.UNCHANGED_CONTENT ->
+                    MemorySummaryRequirementChangeResult.SAVED_WITHOUT_SUMMARY_CHANGE
                 MemorySummaryVersionOperationResult.STALE_ACTIVE_VERSION,
                 MemorySummaryVersionOperationResult.VERSION_NOT_FOUND,
                     -> MemorySummaryRequirementChangeResult.STALE_ACTIVE_VERSION

@@ -51,4 +51,49 @@ class MemorySummaryPromptsTest {
         assertTrue(prompt.contains("complete memory marker"))
         assertTrue(prompt.contains("Do not use or rely on any previous memory summary"))
     }
+
+    @Test
+    fun requirementsAreAppendedInChronologicalOrder() {
+        val prompt = buildMemorySummaryPrompt(
+            promptTemplate = "Custom prompt {memory_section}",
+            mode = MemorySummaryPromptMode.FULL,
+            currentDate = "2026-08-29",
+            previousSummary = "previous",
+            memories = "memories",
+            recentRequirements = listOf("older requirement", "newer requirement"),
+        )
+
+        assertTrue(prompt.contains("<recent_user_summary_requirements>"))
+        assertTrue(prompt.indexOf("older requirement") < prompt.indexOf("newer requirement"))
+        assertTrue(prompt.contains("the later requirement takes precedence"))
+    }
+
+    @Test
+    fun promptOmitsRequirementsSectionWhenNoneAreSelected() {
+        val prompt = buildMemorySummaryPrompt(
+            promptTemplate = DEFAULT_MEMORY_SUMMARY_PROMPT,
+            mode = MemorySummaryPromptMode.INCREMENTAL,
+            currentDate = "2026-08-29",
+            previousSummary = "previous",
+            memories = "memories",
+            recentRequirements = emptyList(),
+        )
+
+        assertFalse(prompt.contains("recent_user_summary_requirements"))
+    }
+
+    @Test
+    fun rebuildCanCarryRequirementsWithoutUsingPreviousSummary() {
+        val prompt = buildMemorySummaryPrompt(
+            promptTemplate = DEFAULT_MEMORY_SUMMARY_PROMPT,
+            mode = MemorySummaryPromptMode.REBUILD,
+            currentDate = "2026-08-29",
+            previousSummary = "previous summary marker",
+            memories = "complete memory marker",
+            recentRequirements = listOf("keep the profile concise"),
+        )
+
+        assertFalse(prompt.contains("previous summary marker"))
+        assertTrue(prompt.contains("keep the profile concise"))
+    }
 }

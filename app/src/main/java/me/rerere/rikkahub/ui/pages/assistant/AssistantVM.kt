@@ -15,12 +15,14 @@ import me.rerere.rikkahub.data.db.dao.ScheduledTaskRunDao
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.service.scheduledtask.ScheduledTaskScheduler
 
 class AssistantVM(
     private val settingsStore: SettingsStore,
     private val memoryRepository: MemoryRepository,
+    private val memorySummaryRepository: MemorySummaryRepository,
     private val scheduledTaskDao: ScheduledTaskDao,
     private val scheduledTaskRunDao: ScheduledTaskRunDao,
     private val scheduledTaskScheduler: ScheduledTaskScheduler,
@@ -116,6 +118,7 @@ class AssistantVM(
                 scheduledTaskDao.deleteByAssistantId(assistantId)
 
                 memoryRepository.deleteMemoriesOfAssistant(assistantId)
+                memorySummaryRepository.clearAllForAssistant(assistantId)
                 // 走 ChatService 协调删除: 同步置删除标记 + 清内存 + 锁内删 DB, 与退出兜底/草稿保存
                 // 共用同一套协调, 避免被删会话仍在内存时切页面触发兜底保存把它们重新 insert 回库。
                 chatService.deleteConversationsOfAssistant(assistant.id)

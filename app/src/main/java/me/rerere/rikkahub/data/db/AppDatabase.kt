@@ -43,6 +43,7 @@ import me.rerere.rikkahub.data.db.entity.MemoryEntity
 import me.rerere.rikkahub.data.db.entity.MemoryConsolidationClaimEntity
 import me.rerere.rikkahub.data.db.entity.MemoryConsolidationRecordEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryChangeEntity
+import me.rerere.rikkahub.data.db.entity.MemorySummaryRequirementEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryStateEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 import me.rerere.rikkahub.data.db.entity.ModelQuotaUsageEntity
@@ -83,10 +84,11 @@ import me.rerere.rikkahub.utils.JsonInstant
         MemorySummaryVersionEntity::class,
         MemorySummaryStateEntity::class,
         MemorySummaryChangeEntity::class,
+        MemorySummaryRequirementEntity::class,
         MemoryConsolidationRecordEntity::class,
         MemoryConsolidationClaimEntity::class,
     ],
-    version = 49,
+    version = 50,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -133,6 +135,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 46->47 is manual migration (MIGRATION_46_47) - adds active memory summary state
         // 47->48 is manual migration (MIGRATION_47_48) - adds durable consolidation history
         // 48->49 is manual migration (MIGRATION_48_49) - adds request log metadata
+        // 49->50 is manual migration (MIGRATION_49_50) - adds saved memory summary requirements
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -638,6 +641,27 @@ abstract class AppDatabase : RoomDatabase() {
                 Log.i(TAG, "migrate: start migrate from 48 to 49")
                 db.execSQL("ALTER TABLE AIRequestLogEntity ADD COLUMN metadata_json TEXT")
                 Log.i(TAG, "migrate: migrate from 48 to 49 success")
+            }
+        }
+
+        val MIGRATION_49_50 = object : Migration(49, 50) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Log.i(TAG, "migrate: start migrate from 49 to 50")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memory_summary_requirements` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `assistant_id` TEXT NOT NULL,
+                        `requirement` TEXT NOT NULL,
+                        `created_at` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_memory_summary_requirements_assistant_id_created_at` " +
+                        "ON `memory_summary_requirements` (`assistant_id`, `created_at`)",
+                )
+                Log.i(TAG, "migrate: migrate from 49 to 50 success")
             }
         }
     }

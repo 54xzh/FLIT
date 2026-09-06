@@ -17,8 +17,7 @@ class MemorySummaryScheduler(
         val request = request(
             assistantId,
             forceManual = false,
-            forceFull = false,
-            forceRebuild = false,
+            updateOptions = null,
             delayMillis = delayMillis,
         )
         WorkManager.getInstance(context).enqueueUniqueWork(
@@ -31,12 +30,11 @@ class MemorySummaryScheduler(
         )
     }
 
-    fun enqueueManual(assistantId: String, forceFull: Boolean, forceRebuild: Boolean) {
+    fun enqueueManual(assistantId: String, options: MemorySummaryUpdateOptions) {
         val request = request(
             assistantId,
             forceManual = true,
-            forceFull = forceFull,
-            forceRebuild = forceRebuild,
+            updateOptions = options,
             delayMillis = 0L,
         )
         WorkManager.getInstance(context).enqueueUniqueWork(
@@ -49,16 +47,19 @@ class MemorySummaryScheduler(
     private fun request(
         assistantId: String,
         forceManual: Boolean,
-        forceFull: Boolean,
-        forceRebuild: Boolean,
+        updateOptions: MemorySummaryUpdateOptions?,
         delayMillis: Long,
     ) = OneTimeWorkRequestBuilder<MemorySummaryWorker>()
         .setInputData(
             workDataOf(
                 MemorySummaryWorker.INPUT_ASSISTANT_ID to assistantId,
                 MemorySummaryWorker.INPUT_FORCE_MANUAL to forceManual,
-                MemorySummaryWorker.INPUT_FORCE_FULL to forceFull,
-                MemorySummaryWorker.INPUT_FORCE_REBUILD to forceRebuild,
+                MemorySummaryWorker.INPUT_INCLUDE_ACTIVE_SUMMARY to
+                    (updateOptions?.includeActiveSummary ?: true),
+                MemorySummaryWorker.INPUT_INCLUDE_RECENT_REQUIREMENTS to
+                    (updateOptions?.includeRecentRequirements ?: true),
+                MemorySummaryWorker.INPUT_MEMORY_SCOPE to
+                    (updateOptions?.memoryScope ?: MemorySummaryMemoryScope.ADDED).ordinal,
             )
         )
         .setConstraints(

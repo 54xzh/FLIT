@@ -2619,6 +2619,12 @@
     <string name="assistant_page_memory_summary_interval_value">%1$d days</string>
     <string name="assistant_page_memory_summary_last_updated">Updated: %1$s</string>
     <string name="assistant_page_memory_summary_update_now">Update memory summary now</string>
+    <string name="assistant_page_memory_summary_update_context_desc">Update immediately using the context selected below.</string>
+    <string name="assistant_page_memory_summary_include_active">Current active summary</string>
+    <string name="assistant_page_memory_summary_include_requirements">Recent change requests</string>
+    <string name="assistant_page_memory_summary_memory_scope">Memory scope</string>
+    <string name="assistant_page_memory_summary_memory_scope_added">New memories</string>
+    <string name="assistant_page_memory_summary_memory_scope_all">All memories</string>
     <string name="assistant_page_memory_summary_update_dialog_title">Choose update method</string>
     <string name="assistant_page_memory_summary_update_dialog_desc">Choose how to generate the new summary. Full rebuild uses only the current memory library and does not send the previous summary to the model.</string>
     <string name="assistant_page_memory_summary_update_by_changes">Incremental update</string>
@@ -2652,6 +2658,7 @@
     <string name="assistant_page_memory_summary_requirement_change_processing_title">Generating a new summary</string>
     <string name="assistant_page_memory_summary_requirement_change_processing_desc">Generating a new summary</string>
     <string name="assistant_page_memory_summary_requirement_change_saved">Memory summary updated</string>
+    <string name="assistant_page_memory_summary_requirement_change_saved_without_change">Change request saved. The current summary already matches it.</string>
     <string name="assistant_page_memory_summary_requirement_change_model_missing">Set up a summary, background, or chat model first.</string>
     <string name="assistant_page_memory_summary_requirement_change_unchanged">The summary did not change.</string>
     <string name="assistant_page_memory_summary_requirement_change_stale">The current summary changed. Submit your request again.</string>
