@@ -334,7 +334,7 @@ private fun ReasoningScale(
 }
 
 @Composable
-private fun ReasoningLevel.label(): String = when (this) {
+internal fun ReasoningLevel.label(): String = when (this) {
     ReasoningLevel.OFF -> stringResource(R.string.reasoning_off)
     ReasoningLevel.AUTO -> stringResource(R.string.reasoning_auto)
     ReasoningLevel.LOW -> stringResource(R.string.reasoning_light)

@@ -2231,6 +2231,7 @@
     <string name="text_selection_demo_hint">👆 Long-press the text above to try selecting it</string>
     <string name="minimal_input_thinking">Thinking</string>
     <string name="minimal_input_thinking_desc">Think longer for better answers</string>
+    <string name="minimal_input_thinking_status">%1$s Thinking</string>
     <string name="minimal_input_search">Search</string>
     <string name="minimal_input_search_desc">Search the web for information</string>
     <string name="minimal_input_modes">Preset Prompts</string>

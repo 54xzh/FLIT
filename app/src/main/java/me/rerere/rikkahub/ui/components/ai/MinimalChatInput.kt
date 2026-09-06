@@ -62,6 +62,7 @@ import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Book
 import androidx.compose.material.icons.rounded.CameraAlt
@@ -1165,15 +1166,28 @@ private fun MinimalPickerContent(
 
             // Reasoning picker - show if model is selected
             if (currentModel != null) {
+                val reasoningLevel = assistant.reasoningLevel
                 MinimalPickerItem(
                     icon = {
                         Icon(
-                            imageVector = Icons.Rounded.Lightbulb,
+                            imageVector = if (reasoningLevel == ReasoningLevel.AUTO) {
+                                Icons.Rounded.AutoAwesome
+                            } else {
+                                Icons.Rounded.Lightbulb
+                            },
                             contentDescription = null,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(24.dp),
+                            tint = if (reasoningLevel.isEnabled) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                         )
                     },
-                    title = stringResource(R.string.minimal_input_thinking),
+                    title = stringResource(
+                        R.string.minimal_input_thinking_status,
+                        reasoningLevel.label(),
+                    ),
                     subtitle = stringResource(R.string.minimal_input_thinking_desc),
                     onClick = {
                         showReasoningPicker = true

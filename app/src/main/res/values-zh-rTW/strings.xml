@@ -2220,6 +2220,7 @@
   <string name="global_value_format">全域（%s）</string>
   <string name="minimal_input_thinking">思考</string>
   <string name="minimal_input_thinking_desc">更長的思考，獲得更好的回答</string>
+  <string name="minimal_input_thinking_status">%1$s思考</string>
   <string name="minimal_input_search">搜尋</string>
   <string name="minimal_input_search_desc">搜尋網頁資訊</string>
   <string name="minimal_input_modes">提示詞預設</string>
