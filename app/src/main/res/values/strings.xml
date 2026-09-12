@@ -2688,10 +2688,10 @@
     <string name="local_models_ready">Ready</string>
     <string name="local_models_release">Exit model and release memory</string>
     <string name="local_models_runtime_loaded">Model loaded in memory</string>
-    <string name="local_models_runtime_loaded_desc">Model is currently loaded in memory and on standby.</string>
-    <string name="local_models_runtime_ready_desc">Calculation engine is ready to run local models.</string>
+    <string name="local_models_runtime_loaded_desc">Model is loaded in memory and ready to chat.</string>
+    <string name="local_models_runtime_ready_desc">Runtime library is ready to load local models.</string>
     <string name="local_models_runtime_status">Status</string>
-    <string name="local_models_runtime_version">Version</string>
+    <string name="local_models_runtime_version">Runtime Version</string>
     <string name="local_models_runtime_abi">Architecture</string>
     <string name="local_models_runtime_format">Supported Format</string>
     <string name="local_models_runtime_reinstall">Reinstall runtime package</string>

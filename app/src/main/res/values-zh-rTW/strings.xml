@@ -2678,10 +2678,10 @@
     <string name="local_models_ready">已就緒</string>
     <string name="local_models_release">退出模型並釋放記憶體</string>
     <string name="local_models_runtime_loaded">模型已載入記憶體</string>
-    <string name="local_models_runtime_loaded_desc">模型已載入執行記憶體，處於待命狀態。</string>
-    <string name="local_models_runtime_ready_desc">計算引擎已就緒，可隨時執行本機模型。</string>
+    <string name="local_models_runtime_loaded_desc">模型已載入記憶體，可隨時進行對話。</string>
+    <string name="local_models_runtime_ready_desc">執行庫已就緒，可載入本機模型。</string>
     <string name="local_models_runtime_status">執行狀態</string>
-    <string name="local_models_runtime_version">引擎版本</string>
+    <string name="local_models_runtime_version">執行庫版本</string>
     <string name="local_models_runtime_abi">系統架構</string>
     <string name="local_models_runtime_format">支援格式</string>
     <string name="local_models_runtime_reinstall">重新匯入執行包</string>

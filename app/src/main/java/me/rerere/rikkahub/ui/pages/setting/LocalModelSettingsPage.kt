@@ -54,7 +54,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -238,25 +238,6 @@ fun LocalModelSettingsPage(
                     }
                 },
                 navigationIcon = { BackButton() },
-                actions = {
-                    if (runtimeState is LocalRuntimeState.Loaded) {
-                        IconButton(
-                            onClick = {
-                                haptics.perform(HapticPattern.Thud)
-                                scope.launch {
-                                    runtime.release()
-                                    toaster.show(memoryReleasedText)
-                                }
-                            },
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.PowerSettingsNew,
-                                contentDescription = stringResource(R.string.local_models_release),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
-                },
             )
         },
         bottomBar = {
@@ -406,15 +387,6 @@ private fun LocalConfigurationPage(
             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        // Runtime Support Card
-        RuntimeSupportCard(
-            runtimeState = runtimeState,
-            runtimeReady = runtimeReady,
-            runtimeInfo = runtimeInfo,
-            onImportRuntime = onImportRuntime,
-            onReleaseMemory = onReleaseMemory,
-        )
-
         // Provider Configure Card
         Card(
             shape = AppShapes.CardLarge,
@@ -431,6 +403,15 @@ private fun LocalConfigurationPage(
                 },
             )
         }
+
+        // Runtime Support Card
+        RuntimeSupportCard(
+            runtimeState = runtimeState,
+            runtimeReady = runtimeReady,
+            runtimeInfo = runtimeInfo,
+            onImportRuntime = onImportRuntime,
+            onReleaseMemory = onReleaseMemory,
+        )
 
         // Tags Section Card
         Card(
@@ -656,27 +637,28 @@ private fun RuntimeSupportCard(
                     )
                 }
             } else {
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    OutlinedButton(
-                        onClick = onImportRuntime,
-                        modifier = Modifier.weight(1f),
-                        shape = AppShapes.ButtonPill,
-                    ) {
-                        Text(stringResource(R.string.local_models_runtime_reinstall))
-                    }
-
                     if (runtimeState is LocalRuntimeState.Loaded) {
                         Button(
                             onClick = onReleaseMemory,
+                            modifier = Modifier.fillMaxWidth(),
                             shape = AppShapes.ButtonPill,
                         ) {
                             Icon(Icons.Rounded.PowerSettingsNew, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text(stringResource(R.string.local_models_release))
                         }
+                    }
+
+                    OutlinedButton(
+                        onClick = onImportRuntime,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = AppShapes.ButtonPill,
+                    ) {
+                        Text(stringResource(R.string.local_models_runtime_reinstall))
                     }
                 }
             }
@@ -885,16 +867,16 @@ private fun LocalModelsPage(
         )
 
         // Floating Action Button to Import Model
-        ExtendedFloatingActionButton(
+        FloatingActionButton(
             onClick = onImportModel,
             shape = AppShapes.ButtonPill,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp)
                 .offset(y = (-80).dp),
-            icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-            text = { Text(stringResource(R.string.local_models_import)) },
-        )
+        ) {
+            Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.local_models_import))
+        }
     }
 }
 

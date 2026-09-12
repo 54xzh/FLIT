@@ -2611,10 +2611,10 @@
     <string name="local_models_ready">已就绪</string>
     <string name="local_models_release">退出模型并释放内存</string>
     <string name="local_models_runtime_loaded">模型已载入内存</string>
-    <string name="local_models_runtime_loaded_desc">模型已载入运行内存，处于待命状态。</string>
-    <string name="local_models_runtime_ready_desc">计算引擎已就绪，可随时运行本地模型。</string>
+    <string name="local_models_runtime_loaded_desc">模型已加载到内存，可随时进行对话。</string>
+    <string name="local_models_runtime_ready_desc">运行库已就绪，可加载本地模型。</string>
     <string name="local_models_runtime_status">运行状态</string>
-    <string name="local_models_runtime_version">引擎版本</string>
+    <string name="local_models_runtime_version">运行库版本</string>
     <string name="local_models_runtime_abi">系统架构</string>
     <string name="local_models_runtime_format">支持格式</string>
     <string name="local_models_runtime_reinstall">重新导入运行包</string>
