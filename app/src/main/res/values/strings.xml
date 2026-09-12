@@ -2687,4 +2687,19 @@
     <string name="local_models_installed">Installed models</string>
     <string name="local_models_ready">Ready</string>
     <string name="local_models_release">Exit model and release memory</string>
+    <string name="local_models_runtime_loaded">Model loaded in memory</string>
+    <string name="local_models_runtime_loaded_desc">Model is currently loaded in memory and on standby.</string>
+    <string name="local_models_runtime_ready_desc">Calculation engine is ready to run local models.</string>
+    <string name="local_models_runtime_status">Status</string>
+    <string name="local_models_runtime_version">Version</string>
+    <string name="local_models_runtime_abi">Architecture</string>
+    <string name="local_models_runtime_format">Supported Format</string>
+    <string name="local_models_runtime_reinstall">Reinstall runtime package</string>
+    <string name="local_models_no_models">No local models</string>
+    <string name="local_models_no_models_hint">Tap the button below to import a .gguf or .litertlm model file from your device</string>
+    <string name="local_models_edit_title">Edit local model</string>
+    <string name="local_models_model_name">Model display name</string>
+    <string name="local_models_memory_released">Model unloaded and memory released</string>
+    <string name="local_models_runtime_error">Error</string>
+    <string name="local_models_runtime_size">Size</string>
 </resources>

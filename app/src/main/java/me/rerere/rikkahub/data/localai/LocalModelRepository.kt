@@ -100,6 +100,22 @@ class LocalModelRepository(
         }
     }
 
+    suspend fun renameModel(modelId: Uuid, newName: String) = withContext(Dispatchers.IO) {
+        dao.get(modelId.toString())?.let { entity ->
+            dao.upsert(entity.copy(displayName = newName))
+        }
+        settingsStore.update { settings ->
+            settings.copy(providers = settings.providers.map { provider ->
+                if (provider is ProviderSetting.Local) {
+                    val updatedModels = provider.models.map {
+                        if (it.id == modelId) it.copy(displayName = newName) else it
+                    }
+                    provider.copy(models = updatedModels)
+                } else provider
+            })
+        }
+    }
+
     suspend fun reconcile() = withContext(Dispatchers.IO) {
         val ready = dao.getAll().mapNotNull { entity ->
             val file = safeModelFile(entity.relativePath)

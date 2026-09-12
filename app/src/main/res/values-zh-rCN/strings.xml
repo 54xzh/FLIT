@@ -2610,4 +2610,19 @@
     <string name="local_models_installed">已安装模型</string>
     <string name="local_models_ready">已就绪</string>
     <string name="local_models_release">退出模型并释放内存</string>
+    <string name="local_models_runtime_loaded">模型已载入内存</string>
+    <string name="local_models_runtime_loaded_desc">模型已载入运行内存，处于待命状态。</string>
+    <string name="local_models_runtime_ready_desc">计算引擎已就绪，可随时运行本地模型。</string>
+    <string name="local_models_runtime_status">运行状态</string>
+    <string name="local_models_runtime_version">引擎版本</string>
+    <string name="local_models_runtime_abi">系统架构</string>
+    <string name="local_models_runtime_format">支持格式</string>
+    <string name="local_models_runtime_reinstall">重新导入运行包</string>
+    <string name="local_models_no_models">暂无本地模型</string>
+    <string name="local_models_no_models_hint">点击下方按钮，从手机导入 .gguf 或 .litertlm 格式模型文件</string>
+    <string name="local_models_edit_title">编辑本地模型</string>
+    <string name="local_models_model_name">模型显示名称</string>
+    <string name="local_models_memory_released">已退出模型并释放内存</string>
+    <string name="local_models_runtime_error">异常</string>
+    <string name="local_models_runtime_size">体积</string>
 </resources>

@@ -199,14 +199,6 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
     val modelNameGenerationService = koinInject<ModelNameGenerationService>()
     val navController = LocalNavController.current
     val provider = settings.providers.find { it.id == id } ?: return
-    if (provider is ProviderSetting.Local) {
-        LocalModelSettingsPage()
-        return
-    }
-    val pager = rememberPagerState { 3 }
-    val scope = rememberCoroutineScope()
-    val codexAuthService = koinInject<CodexAuthService>()
-
     val onEdit = { newProvider: ProviderSetting ->
         val newSettings = settings.copy(
             providers = settings.providers.map {
@@ -219,6 +211,31 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
         )
         vm.updateSettings(newSettings)
     }
+
+    if (provider is ProviderSetting.Local) {
+        LocalModelSettingsPage(
+            provider = provider,
+            onEdit = onEdit,
+            providerTags = settings.providerTags,
+            onUpdateTags = { providerWithNewTags, updatedTags ->
+                val updatedProviders = settings.providers.map {
+                    if (it.id == providerWithNewTags.id) providerWithNewTags else it
+                }
+                val usedTagIds = updatedProviders.flatMap { it.tags }.toSet()
+                val cleanedTags = updatedTags.filter { tag -> tag.id in usedTagIds }
+                val newSettings = settings.copy(
+                    providers = updatedProviders,
+                    providerTags = cleanedTags
+                )
+                vm.updateSettings(newSettings)
+            },
+            vm = vm,
+        )
+        return
+    }
+    val pager = rememberPagerState { 3 }
+    val scope = rememberCoroutineScope()
+    val codexAuthService = koinInject<CodexAuthService>()
     val onDelete = {
         scope.launch {
             if (provider is ProviderSetting.OpenAICodex) {
