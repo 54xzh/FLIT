@@ -88,6 +88,7 @@ fun ShareSheet(
 }
 
 fun ProviderSetting.encodeForShare(): String {
+    require(this !is ProviderSetting.Local) { "Local models cannot be shared between devices" }
     return buildString {
         append("ai-provider:")
         append("v1:")

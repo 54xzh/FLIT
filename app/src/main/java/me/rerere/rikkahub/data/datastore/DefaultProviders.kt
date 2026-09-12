@@ -20,6 +20,7 @@ import kotlin.uuid.Uuid
 val GEMINI_2_5_FLASH_ID = Uuid.parse("5f4d3c2b-1a0e-9d8c-7b6a-543210fedcba")
 
 val DEFAULT_PROVIDERS = listOf(
+    ProviderSetting.Local(),
     ProviderSetting.OpenAI(
         id = Uuid.parse("1eeea727-9ee5-4cae-93e6-6fb01a4d051e"),
         name = "OpenAI",

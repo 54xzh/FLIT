@@ -33,6 +33,8 @@ import me.rerere.rikkahub.data.repository.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.migration.WorkspaceMigration
 import me.rerere.rikkahub.data.migration.SkillUuidMigration
+import me.rerere.rikkahub.data.localai.LocalModelRepository
+import me.rerere.rikkahub.data.localai.LocalRuntimeManager
 import me.rerere.rikkahub.utils.DatabaseUtil
 import org.koin.android.ext.android.get
 import org.koin.android.ext.koin.androidContext
@@ -50,6 +52,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.lifecycle.ProcessLifecycleOwner
 import me.rerere.rikkahub.service.MemoryConsolidationWorker
 import me.rerere.rikkahub.service.SpontaneousWorker
 import me.rerere.rikkahub.service.AutoBackupScheduler
@@ -106,6 +109,11 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
             androidContext(this@LastChatApp)
             workManagerFactory()
             modules(appModule, viewModelModule, dataSourceModule, repositoryModule)
+        }
+        registerComponentCallbacks(get<LocalRuntimeManager>())
+        ProcessLifecycleOwner.get().lifecycle.addObserver(get<LocalRuntimeManager>())
+        get<AppScope>().launch(Dispatchers.IO) {
+            get<LocalModelRepository>().reconcile()
         }
 
         // 一次性迁移：必须先于任何设置读取、后台任务和完整性检查完成，避免新模型覆盖旧 UUID 字段。

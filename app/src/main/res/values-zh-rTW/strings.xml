@@ -2666,4 +2666,15 @@
     <string name="assistant_page_memory_summary_requirement_change_failed">修改記憶摘要失敗，請稍後再試。</string>
     <string name="request_log_source_memory_summary">記憶摘要</string>
     <string name="request_log_source_memory_summary_requirement_change">記憶摘要要求變更</string>
+    <string name="local_models_title">本機模型</string>
+    <string name="local_models_runtime">執行支援</string>
+    <string name="local_models_runtime_ready">已就緒</string>
+    <string name="local_models_runtime_missing">使用本機模型前，請先下載執行支援。</string>
+    <string name="local_models_runtime_release_hint">執行套件會與應用程式分開安裝。</string>
+    <string name="local_models_import_runtime">匯入執行支援包</string>
+    <string name="local_models_runtime_imported">執行支援已安裝</string>
+    <string name="local_models_import">從手機匯入模型</string>
+    <string name="local_models_installed">已安裝模型</string>
+    <string name="local_models_ready">已就緒</string>
+    <string name="local_models_release">退出模型並釋放記憶體</string>
 </resources>

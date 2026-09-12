@@ -399,7 +399,7 @@ class GenerationHandler(
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
             var latestFinishReasons: Set<String> = emptySet()
 
-            val toolsInternal = buildList {
+            val toolsInternal = if (provider !is ProviderSetting.Local || ModelAbility.TOOL in model.abilities) buildList {
                 Log.i(TAG, "generateInternal: build tools($assistant)")
                 // Only add memory tools if memory is enabled AND memory is available for this run
                 // (temporary chats pass `memories = null` to opt-out).
@@ -436,7 +436,7 @@ class GenerationHandler(
                     ).let(this::addAll)
                 }
                 addAll(tools)
-            }.sortedWith(compareBy<Tool> { it.name }.thenBy { it.description })
+            }.sortedWith(compareBy<Tool> { it.name }.thenBy { it.description }) else emptyList()
 
             generateInternal(
                 assistant = assistant,

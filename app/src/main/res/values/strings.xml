@@ -2676,4 +2676,15 @@
     <string name="assistant_page_memory_summary_requirement_change_failed">Failed to update memory summary. Try again later.</string>
     <string name="request_log_source_memory_summary">Memory Summary</string>
     <string name="request_log_source_memory_summary_requirement_change">Memory Summary Requirement Change</string>
+    <string name="local_models_title">Local models</string>
+    <string name="local_models_runtime">Runtime support</string>
+    <string name="local_models_runtime_ready">Ready</string>
+    <string name="local_models_runtime_missing">Download runtime support before starting a local model.</string>
+    <string name="local_models_runtime_release_hint">Runtime packages are installed separately from the app.</string>
+    <string name="local_models_import_runtime">Import runtime package</string>
+    <string name="local_models_runtime_imported">Runtime support installed</string>
+    <string name="local_models_import">Import model from phone</string>
+    <string name="local_models_installed">Installed models</string>
+    <string name="local_models_ready">Ready</string>
+    <string name="local_models_release">Exit model and release memory</string>
 </resources>

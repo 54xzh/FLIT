@@ -1,0 +1,122 @@
+name: Build local GGUF runtime
+
+on:
+  push:
+    tags:
+      - "local-runtime-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Runtime version, for example 1.0.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  LLAMA_CPP_REVISION: 43f3dda6237a453a587a8f00230d52decfeaa8e5
+  NDK_VERSION: 27.2.12479018
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create runtime release for a tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$GITHUB_REF_NAME" || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+
+  build:
+    name: ${{ matrix.abi }}
+    runs-on: ubuntu-latest
+    needs: prepare-release
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ inputs.version || github.ref_name }}"
+          version="${version#local-runtime-v}"
+          [[ "$version" =~ ^[A-Za-z0-9._-]+$ ]]
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Android SDK and NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "ndk;${NDK_VERSION}"
+          echo "ANDROID_NDK=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Fetch pinned llama.cpp
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/llama.cpp
+          ref: ${{ env.LLAMA_CPP_REVISION }}
+          path: third_party/llama.cpp
+          submodules: recursive
+
+      - name: Build native runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_dir="build/local-runtime/${{ matrix.abi }}"
+          cmake -S local-runtime -B "$build_dir" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI="${{ matrix.abi }}" \
+            -DANDROID_PLATFORM=android-28 \
+            -DANDROID_STL=c++_static \
+            -DLLAMA_CPP_DIR="$GITHUB_WORKSPACE/third_party/llama.cpp"
+          cmake --build "$build_dir" --config Release --parallel
+          cmake --install "$build_dir" --prefix "$build_dir/install" --config Release
+
+      - name: Package runtime
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+          ABI: ${{ matrix.abi }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="dist/stage"
+          archive="flit-local-runtime-${VERSION}-${ABI}.zip"
+          mkdir -p "$stage/lib"
+          cp "build/local-runtime/${ABI}/install/lib/libflit_local_llama.so" "$stage/lib/"
+          library_sha=$(sha256sum "$stage/lib/libflit_local_llama.so" | awk '{print $1}')
+          printf '{"version":"%s","abi":"%s","engine":"llama.cpp","llamaCppRevision":"%s","files":[{"path":"lib/libflit_local_llama.so","sha256":"%s"}]}' \
+            "$VERSION" "$ABI" "$LLAMA_CPP_REVISION" "$library_sha" > "$stage/runtime.json"
+          (cd "$stage" && zip -q -r "../$archive" runtime.json lib)
+          printf '%s  %s\n' "$(sha256sum "dist/$archive" | awk '{print $1}')" "$archive" > "dist/$archive.sha256"
+
+      - name: Publish GitHub Release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$GITHUB_REF_NAME" \
+            "dist/flit-local-runtime-${{ steps.version.outputs.value }}-${{ matrix.abi }}.zip" \
+            "dist/flit-local-runtime-${{ steps.version.outputs.value }}-${{ matrix.abi }}.zip.sha256" \
+            --clobber
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flit-local-runtime-${{ steps.version.outputs.value }}-${{ matrix.abi }}
+          path: |
+            dist/*.zip
+            dist/*.sha256

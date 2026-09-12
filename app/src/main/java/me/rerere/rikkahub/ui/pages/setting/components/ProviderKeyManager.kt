@@ -708,6 +708,7 @@ private suspend fun testProviderApiKey(
         }
 
         is ProviderSetting.OpenAICodex -> Unit
+        is ProviderSetting.Local -> Unit
     }
 }
 

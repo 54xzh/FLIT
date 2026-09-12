@@ -2599,4 +2599,15 @@
     <string name="assistant_page_memory_summary_requirement_change_failed">修改记忆摘要失败，请稍后重试。</string>
     <string name="request_log_source_memory_summary">记忆摘要</string>
     <string name="request_log_source_memory_summary_requirement_change">记忆摘要要求变更</string>
+    <string name="local_models_title">本地模型</string>
+    <string name="local_models_runtime">运行支持</string>
+    <string name="local_models_runtime_ready">已就绪</string>
+    <string name="local_models_runtime_missing">使用本地模型需先下载运行支持。</string>
+    <string name="local_models_runtime_release_hint">运行包与应用分开安装。</string>
+    <string name="local_models_import_runtime">导入运行支持包</string>
+    <string name="local_models_runtime_imported">运行支持已安装</string>
+    <string name="local_models_import">从手机导入模型</string>
+    <string name="local_models_installed">已安装模型</string>
+    <string name="local_models_ready">已就绪</string>
+    <string name="local_models_release">退出模型并释放内存</string>
 </resources>

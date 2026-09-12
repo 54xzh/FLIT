@@ -30,6 +30,7 @@ import me.rerere.rikkahub.data.db.dao.ToolResultArchiveChunkDao
 import me.rerere.rikkahub.data.db.dao.ModelQuotaUsageDAO
 import me.rerere.rikkahub.data.db.dao.UsageStatsDAO
 import me.rerere.rikkahub.data.db.dao.WorkspaceDao
+import me.rerere.rikkahub.data.db.dao.LocalModelDao
 import me.rerere.rikkahub.data.db.entity.AIRequestLogEntity
 import me.rerere.rikkahub.data.db.entity.BackupLogEntity
 import me.rerere.rikkahub.data.db.entity.ChatEpisodeEntity
@@ -56,6 +57,7 @@ import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.SafWorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.SandboxWorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.SandboxWorkspaceMountEntity
+import me.rerere.rikkahub.data.db.entity.LocalModelEntity
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.utils.JsonInstant
 
@@ -87,8 +89,9 @@ import me.rerere.rikkahub.utils.JsonInstant
         MemorySummaryRequirementEntity::class,
         MemoryConsolidationRecordEntity::class,
         MemoryConsolidationClaimEntity::class,
+        LocalModelEntity::class,
     ],
-    version = 50,
+    version = 51,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -136,6 +139,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 47->48 is manual migration (MIGRATION_47_48) - adds durable consolidation history
         // 48->49 is manual migration (MIGRATION_48_49) - adds request log metadata
         // 49->50 is manual migration (MIGRATION_49_50) - adds saved memory summary requirements
+        // 50->51 is manual migration (MIGRATION_50_51) - adds local model metadata
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -175,6 +179,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun memorySummaryDao(): MemorySummaryDao
 
     abstract fun memoryConsolidationDao(): MemoryConsolidationDao
+
+    abstract fun localModelDao(): LocalModelDao
 
     companion object {
         const val TAG = "AppDatabase"
@@ -662,6 +668,30 @@ abstract class AppDatabase : RoomDatabase() {
                         "ON `memory_summary_requirements` (`assistant_id`, `created_at`)",
                 )
                 Log.i(TAG, "migrate: migrate from 49 to 50 success")
+            }
+        }
+
+        val MIGRATION_50_51 = object : Migration(50, 51) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `local_models` (
+                        `model_id` TEXT NOT NULL,
+                        `display_name` TEXT NOT NULL,
+                        `format` TEXT NOT NULL,
+                        `relative_path` TEXT NOT NULL,
+                        `source` TEXT NOT NULL,
+                        `sha256` TEXT,
+                        `size_bytes` INTEGER NOT NULL,
+                        `state` TEXT NOT NULL,
+                        `runtime_version` TEXT,
+                        `supports_tools` INTEGER NOT NULL,
+                        `catalog_id` TEXT,
+                        `created_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`model_id`)
+                    )
+                    """.trimIndent(),
+                )
             }
         }
     }

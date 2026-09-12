@@ -403,6 +403,67 @@ sealed class ProviderSetting {
         )
     }
 
+    /**
+     * Models stored in the application's private directory and executed by the optional
+     * local runtime.  Runtime/model metadata deliberately lives outside this settings
+     * object so backups never contain device-specific file paths.
+     */
+    @Serializable
+    @SerialName("local")
+    data class Local(
+        override var id: Uuid = Uuid.parse("a8b35b0f-5e6a-4e7a-9b44-c3d0b38f8d11"),
+        override var enabled: Boolean = true,
+        override var name: String = "Local models",
+        override var models: List<Model> = emptyList(),
+        override var quotaGroups: List<ModelQuotaGroup> = emptyList(),
+        override var proxy: ProviderProxy = ProviderProxy.None,
+        override var tags: List<Uuid> = emptyList(),
+        override val customIconUri: String? = null,
+        @Transient override val builtIn: Boolean = true,
+        @Transient override val description: @Composable (() -> Unit) = {},
+        @Transient override val shortDescription: @Composable (() -> Unit) = {},
+    ) : ProviderSetting() {
+        @Transient override val balanceOption: BalanceOption = BalanceOption()
+
+        override fun addModel(model: Model): ProviderSetting = copy(models = models + model)
+
+        override fun editModel(model: Model): ProviderSetting = copy(
+            models = models.map { if (it.id == model.id) model.copy() else it },
+        )
+
+        override fun delModel(model: Model): ProviderSetting = copy(
+            models = models.filter { it.id != model.id },
+            quotaGroups = quotaGroups.map { group -> group.copy(modelIds = group.modelIds - model.id) },
+        )
+
+        override fun moveMove(from: Int, to: Int): ProviderSetting = copy(
+            models = models.toMutableList().apply { add(to, removeAt(from)) },
+        )
+
+        override fun copyProvider(
+            id: Uuid,
+            enabled: Boolean,
+            name: String,
+            models: List<Model>,
+            quotaGroups: List<ModelQuotaGroup>,
+            proxy: ProviderProxy,
+            balanceOption: BalanceOption,
+            tags: List<Uuid>,
+            customIconUri: String?,
+            builtIn: Boolean,
+            description: @Composable (() -> Unit),
+            shortDescription: @Composable (() -> Unit),
+        ): ProviderSetting = copy(
+            id = id,
+            enabled = enabled,
+            name = name,
+            models = models,
+            quotaGroups = quotaGroups,
+            proxy = proxy,
+            tags = tags,
+        )
+    }
+
     companion object {
         val Types by lazy {
             listOf(

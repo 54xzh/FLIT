@@ -55,6 +55,7 @@ fun ProviderIcon(
         is ProviderSetting.Google -> provider.baseUrl
         is ProviderSetting.Claude -> provider.baseUrl
         is ProviderSetting.OpenAICodex -> "https://chatgpt.com/backend-api/codex"
+        is ProviderSetting.Local -> null
     }
     
     // Only use known slugs for remote lookup; unknown names should fall back instantly to local icon/text.
@@ -102,6 +103,7 @@ fun ModelIcon(
         is ProviderSetting.Google -> provider.baseUrl
         is ProviderSetting.Claude -> provider.baseUrl
         is ProviderSetting.OpenAICodex -> "https://chatgpt.com/backend-api/codex"
+        is ProviderSetting.Local -> null
         null -> null
     }
     

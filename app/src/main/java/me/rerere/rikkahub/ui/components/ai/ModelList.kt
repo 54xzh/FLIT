@@ -834,7 +834,9 @@ private fun buildModelSelectorProviderGroups(
 
     val groupedProviders = LinkedHashMap<String, MutableList<ProviderSetting>>()
     providers.forEach { provider ->
-        val mergeKey = provider.modelSelectorPrimaryTagMergeKey()
+        // Local models must remain visibly separate even when the user merges remote
+        // providers by tag: they have different availability and memory lifecycle.
+        val mergeKey = if (provider is ProviderSetting.Local) "local-offline" else provider.modelSelectorPrimaryTagMergeKey()
         groupedProviders.getOrPut(mergeKey) { mutableListOf() }.add(provider)
     }
 

@@ -507,6 +507,9 @@ private fun buildTextGenerationRequestUrl(providerSetting: ProviderSetting, para
             "$base/messages"
         }
 
+        is ProviderSetting.OpenAICodex -> "local://codex"
+        is ProviderSetting.Local -> "local://model/${params.model.modelId}"
+
         else -> ""
     }
 }
@@ -526,6 +529,10 @@ private fun buildEmbeddingRequestUrl(providerSetting: ProviderSetting, model: Mo
                 "$base/models/${model.modelId}:embedContent"
             }
         }
+
+        is ProviderSetting.Claude,
+        is ProviderSetting.OpenAICodex,
+        is ProviderSetting.Local -> ""
 
         else -> ""
     }

@@ -15,6 +15,7 @@ class ProviderManager(
     client: OkHttpClient,
     openRouterModelCapabilityProvider: OpenRouterModelCapabilityProvider? = null,
     codexSessionProvider: CodexSessionProvider? = null,
+    localProvider: Provider<ProviderSetting.Local>? = null,
 ) {
     // 存储已注册的Provider实例
     private val providers = mutableMapOf<String, Provider<*>>()
@@ -26,6 +27,9 @@ class ProviderManager(
         registerProvider("claude", ClaudeProvider(client))
         if (codexSessionProvider != null) {
             registerProvider("openai_codex", OpenAICodexProvider(client, codexSessionProvider))
+        }
+        if (localProvider != null) {
+            registerProvider("local", localProvider)
         }
     }
 
@@ -62,6 +66,7 @@ class ProviderManager(
             is ProviderSetting.Google -> getProvider("google")
             is ProviderSetting.Claude -> getProvider("claude")
             is ProviderSetting.OpenAICodex -> getProvider("openai_codex")
+            is ProviderSetting.Local -> getProvider("local")
         } as Provider<T>
     }
 }

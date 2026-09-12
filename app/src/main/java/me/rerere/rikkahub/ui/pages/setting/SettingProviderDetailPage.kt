@@ -199,6 +199,10 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
     val modelNameGenerationService = koinInject<ModelNameGenerationService>()
     val navController = LocalNavController.current
     val provider = settings.providers.find { it.id == id } ?: return
+    if (provider is ProviderSetting.Local) {
+        LocalModelSettingsPage()
+        return
+    }
     val pager = rememberPagerState { 3 }
     val scope = rememberCoroutineScope()
     val codexAuthService = koinInject<CodexAuthService>()
@@ -3608,6 +3612,7 @@ private fun ModelPickerFab(
                                 is ProviderSetting.Google -> parentProvider.apiKey.isNotBlank()
                                 is ProviderSetting.Claude -> parentProvider.apiKey.isNotBlank()
                                 is ProviderSetting.OpenAICodex -> codexLoggedIn == true
+                                is ProviderSetting.Local -> false
                             }
                             
                             Column(
@@ -3935,6 +3940,7 @@ private fun ModelPicker(
                                 is ProviderSetting.Google -> parentProvider.apiKey.isNotBlank()
                                 is ProviderSetting.Claude -> parentProvider.apiKey.isNotBlank()
                                 is ProviderSetting.OpenAICodex -> codexLoggedIn == true
+                                is ProviderSetting.Local -> false
                             }
                             
                             Column(

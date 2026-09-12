@@ -48,6 +48,7 @@ fun ProviderSetting.getApiKeyValue(): String = when (this) {
     is ProviderSetting.Google -> apiKey
     is ProviderSetting.Claude -> apiKey
     is ProviderSetting.OpenAICodex -> ""
+    is ProviderSetting.Local -> ""
 }
 
 fun ProviderSetting.isMultiKeyEnabled(): Boolean = when (this) {
@@ -55,6 +56,7 @@ fun ProviderSetting.isMultiKeyEnabled(): Boolean = when (this) {
     is ProviderSetting.Google -> multiKeyEnabled
     is ProviderSetting.Claude -> multiKeyEnabled
     is ProviderSetting.OpenAICodex -> false
+    is ProviderSetting.Local -> false
 }
 
 fun ProviderSetting.getProviderApiKeys(): List<ProviderApiKey> = when (this) {
@@ -62,6 +64,7 @@ fun ProviderSetting.getProviderApiKeys(): List<ProviderApiKey> = when (this) {
     is ProviderSetting.Google -> apiKeys
     is ProviderSetting.Claude -> apiKeys
     is ProviderSetting.OpenAICodex -> emptyList()
+    is ProviderSetting.Local -> emptyList()
 }
 
 fun ProviderSetting.getProviderKeyStrategy(): ProviderKeyStrategy = when (this) {
@@ -69,6 +72,7 @@ fun ProviderSetting.getProviderKeyStrategy(): ProviderKeyStrategy = when (this) 
     is ProviderSetting.Google -> keyStrategy
     is ProviderSetting.Claude -> keyStrategy
     is ProviderSetting.OpenAICodex -> ProviderKeyStrategy.RANDOM
+    is ProviderSetting.Local -> ProviderKeyStrategy.RANDOM
 }
 
 fun ProviderSetting.getLegacyApiKeyBackup(): String = when (this) {
@@ -76,6 +80,7 @@ fun ProviderSetting.getLegacyApiKeyBackup(): String = when (this) {
     is ProviderSetting.Google -> legacyApiKeyBackup
     is ProviderSetting.Claude -> legacyApiKeyBackup
     is ProviderSetting.OpenAICodex -> ""
+    is ProviderSetting.Local -> ""
 }
 
 fun ProviderSetting.copyWithApiKeyConfig(
@@ -110,6 +115,7 @@ fun ProviderSetting.copyWithApiKeyConfig(
     )
 
     is ProviderSetting.OpenAICodex -> this
+    is ProviderSetting.Local -> this
 }
 
 fun ProviderSetting.syncEnabledApiKeysToLegacyField(): ProviderSetting {

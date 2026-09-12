@@ -11,8 +11,13 @@ import me.rerere.rikkahub.data.ai.codex.AndroidCodexCredentialStore
 import me.rerere.rikkahub.data.ai.codex.CodexAuthService
 import me.rerere.rikkahub.data.ai.codex.CodexCredentialStore
 import me.rerere.rikkahub.data.ai.codex.CodexCredentialTransactionGate
+import me.rerere.rikkahub.data.localai.LocalModelProvider
+import me.rerere.rikkahub.data.localai.LocalModelRepository
+import me.rerere.rikkahub.data.localai.LocalRuntimeManager
+import me.rerere.rikkahub.data.localai.RuntimePackageInstaller
 import me.rerere.common.http.AcceptLanguageBuilder
 import me.rerere.rikkahub.BuildConfig
+import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.ai.AIRequestInterceptor
 import me.rerere.rikkahub.data.ai.transformers.AssistantTemplateLoader
 import me.rerere.rikkahub.data.ai.GenerationHandler
@@ -74,6 +79,7 @@ val dataSourceModule = module {
                 AppDatabase.MIGRATION_47_48,
                 AppDatabase.MIGRATION_48_49,
                 AppDatabase.MIGRATION_49_50,
+                AppDatabase.MIGRATION_50_51,
             )
             .build()
     }
@@ -163,6 +169,24 @@ val dataSourceModule = module {
     single {
         get<AppDatabase>().memoryConsolidationDao()
     }
+
+    single {
+        get<AppDatabase>().localModelDao()
+    }
+
+    single { LocalRuntimeManager(context = get(), appScope = get<AppScope>()) }
+
+    single { RuntimePackageInstaller(context = get()) }
+
+    single {
+        LocalModelRepository(
+            context = get(),
+            dao = get(),
+            settingsStore = get(),
+        )
+    }
+
+    single { LocalModelProvider(repository = get(), runtime = get()) }
 
     single { AppEventBus() }
 
@@ -254,6 +278,7 @@ val dataSourceModule = module {
                 get<OpenRouterModelCapabilityProvider>()
             }.getOrNull(),
             codexSessionProvider = get<CodexAuthService>(),
+            localProvider = get<LocalModelProvider>(),
         )
     }
 
