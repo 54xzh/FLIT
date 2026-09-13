@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "id": "qwen35-08b-q3km",
+      "displayName": "Qwen3.5 0.8B Q3_K_M",
+      "format": "GGUF",
+      "sourceUrl": "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q3_K_M.gguf",
+      "sha256": "c49ad509cd0a3f8584c4eff50d84202336bf9475b8a724c89f4061687c1fb510",
+      "sizeBytes": 470167808,
+      "parameterSize": "0.8B",
+      "supportsTools": false
+    },
+    {
+      "id": "qwen35-08b-q4km",
+      "displayName": "Qwen3.5 0.8B Q4_K_M",
+      "format": "GGUF",
+      "sourceUrl": "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf",
+      "sha256": "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
+      "sizeBytes": 532517120,
+      "parameterSize": "0.8B",
+      "supportsTools": false
+    },
+    {
+      "id": "qwen35-4b-q3km",
+      "displayName": "Qwen3.5 4B Q3_K_M",
+      "format": "GGUF",
+      "sourceUrl": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q3_K_M.gguf",
+      "sha256": "d6981ab4d77ba712b48ef69d69042d75b5e39b9dce5fb5a5b054fd08e06afb95",
+      "sizeBytes": 2293388448,
+      "parameterSize": "4B",
+      "supportsTools": false
+    },
+    {
+      "id": "qwen35-4b-q4km",
+      "displayName": "Qwen3.5 4B Q4_K_M",
+      "format": "GGUF",
+      "sourceUrl": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
+      "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+      "sizeBytes": 2740937888,
+      "parameterSize": "4B",
+      "supportsTools": false
+    },
+    {
+      "id": "qwen35-9b-q3km",
+      "displayName": "Qwen3.5 9B Q3_K_M",
+      "format": "GGUF",
+      "sourceUrl": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q3_K_M.gguf",
+      "sha256": "8fed90306e4f019e2bf35f3766470b7bc59ea1a9dae00f5ceb20b43cb5514393",
+      "sizeBytes": 4673643744,
+      "parameterSize": "9B",
+      "supportsTools": false
+    },
+    {
+      "id": "gemma4-e2b-q3km",
+      "displayName": "Gemma 4 E2B Q3_K_M",
+      "format": "GGUF",
+      "sourceUrl": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q3_K_M.gguf",
+      "sha256": "086e2f5ba85057f8f19712e3160a644728f74f323c9feeac4cd73fab11b43085",
+      "sizeBytes": 2536786016,
+      "parameterSize": "E2B",
+      "supportsTools": false
+    },
+    {
+      "id": "gemma4-e2b-q4km",
+      "displayName": "Gemma 4 E2B Q4_K_M",
+      "format": "GGUF",
+      "sourceUrl": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf",
+      "sha256": "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",
+      "sizeBytes": 3106738272,
+      "parameterSize": "E2B",
+      "supportsTools": false
+    }
+  ]
+}

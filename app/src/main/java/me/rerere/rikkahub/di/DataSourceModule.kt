@@ -12,8 +12,11 @@ import me.rerere.rikkahub.data.ai.codex.CodexAuthService
 import me.rerere.rikkahub.data.ai.codex.CodexCredentialStore
 import me.rerere.rikkahub.data.ai.codex.CodexCredentialTransactionGate
 import me.rerere.rikkahub.data.localai.LocalModelProvider
+import me.rerere.rikkahub.data.localai.LocalModelCatalogRepository
+import me.rerere.rikkahub.data.localai.LocalModelDownloadManager
 import me.rerere.rikkahub.data.localai.LocalModelRepository
 import me.rerere.rikkahub.data.localai.LocalRuntimeManager
+import me.rerere.rikkahub.data.localai.RuntimeDownloadManager
 import me.rerere.rikkahub.data.localai.RuntimePackageInstaller
 import me.rerere.common.http.AcceptLanguageBuilder
 import me.rerere.rikkahub.BuildConfig
@@ -178,6 +181,8 @@ val dataSourceModule = module {
 
     single { RuntimePackageInstaller(context = get()) }
 
+    single { RuntimeDownloadManager(context = get()) }
+
     single {
         LocalModelRepository(
             context = get(),
@@ -185,6 +190,10 @@ val dataSourceModule = module {
             settingsStore = get(),
         )
     }
+
+    single { LocalModelCatalogRepository(client = get()) }
+
+    single { LocalModelDownloadManager(context = get(), repository = get()) }
 
     single { LocalModelProvider(repository = get(), runtime = get()) }
 

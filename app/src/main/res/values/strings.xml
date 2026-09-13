@@ -2702,4 +2702,18 @@
     <string name="local_models_memory_released">Model unloaded and memory released</string>
     <string name="local_models_runtime_error">Error</string>
     <string name="local_models_runtime_size">Size</string>
+    <string name="local_models_download_runtime">Download runtime support</string>
+    <string name="local_models_runtime_downloading">Downloading %1$s / %2$s</string>
+    <string name="local_models_runtime_installing">Installing runtime support…</string>
+    <string name="local_models_runtime_resume">Resume runtime download</string>
+    <string name="local_models_runtime_download_channel">Local runtime downloads</string>
+    <string name="local_models_runtime_downloading_notification">Downloading local runtime support</string>
+    <string name="local_models_recommended">Recommended models</string>
+    <string name="local_models_refresh_recommended">Refresh recommended models</string>
+    <string name="local_models_download">Download</string>
+    <string name="local_models_pause">Pause</string>
+    <string name="local_models_resume">Resume</string>
+    <string name="local_models_model_downloading">Downloading %1$s / %2$s</string>
+    <string name="local_models_download_channel">Local model downloads</string>
+    <string name="local_models_downloading_notification">Downloading local model</string>
 </resources>

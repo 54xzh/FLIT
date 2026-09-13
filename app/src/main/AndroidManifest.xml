@@ -121,6 +121,13 @@
         android:exported="false"
         android:foregroundServiceType="dataSync" />
 
+    <!-- WorkManager uses this service for long-running model/runtime downloads. Android 14+
+         rejects a foreground service without an explicit type. -->
+    <service
+        android:name="androidx.work.impl.foreground.SystemForegroundService"
+        android:foregroundServiceType="dataSync"
+        tools:node="merge" />
+
     <service
         android:name=".service.WebServerService"
         android:exported="false"

@@ -18,6 +18,9 @@ interface LocalModelDao {
     @Query("SELECT * FROM local_models WHERE model_id = :modelId LIMIT 1")
     suspend fun get(modelId: String): LocalModelEntity?
 
+    @Query("SELECT * FROM local_models WHERE catalog_id = :catalogId LIMIT 1")
+    suspend fun getByCatalogId(catalogId: String): LocalModelEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(model: LocalModelEntity)
 

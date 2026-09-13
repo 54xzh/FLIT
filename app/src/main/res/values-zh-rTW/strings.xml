@@ -2692,4 +2692,18 @@
     <string name="local_models_memory_released">已結束模型並釋放記憶體</string>
     <string name="local_models_runtime_error">異常</string>
     <string name="local_models_runtime_size">體積</string>
+    <string name="local_models_download_runtime">下載執行支援</string>
+    <string name="local_models_runtime_downloading">正在下載 %1$s / %2$s</string>
+    <string name="local_models_runtime_installing">正在安裝執行支援…</string>
+    <string name="local_models_runtime_resume">繼續下載執行支援</string>
+    <string name="local_models_runtime_download_channel">本機執行支援下載</string>
+    <string name="local_models_runtime_downloading_notification">正在下載本機執行支援</string>
+    <string name="local_models_recommended">推薦模型</string>
+    <string name="local_models_refresh_recommended">重新整理推薦模型</string>
+    <string name="local_models_download">下載</string>
+    <string name="local_models_pause">暫停</string>
+    <string name="local_models_resume">繼續下載</string>
+    <string name="local_models_model_downloading">正在下載 %1$s / %2$s</string>
+    <string name="local_models_download_channel">本機模型下載</string>
+    <string name="local_models_downloading_notification">正在下載本機模型</string>
 </resources>

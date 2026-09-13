@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "chat.h"
 #include "llama.h"
 
 namespace {
@@ -209,33 +210,32 @@ Java_me_rerere_rikkahub_data_localai_LlamaCppRuntimeBridge_nativeFormatPrompt(
         messages.push_back({ role_strings.back().c_str(), content_strings.back().c_str() });
     }
 
-    const char * template_value = llama_model_chat_template(model, /* name */ nullptr);
-    if (template_value == nullptr) {
+    if (llama_model_chat_template(model, /* name */ nullptr) == nullptr) {
         throw_state(env, "This GGUF model has no embedded chat template");
         return nullptr;
     }
-    const std::string template_source(template_value);
-    int32_t length = llama_chat_apply_template(
-        template_value, messages.data(), messages.size(), true, nullptr, 0);
-    if (length < 0) {
-        throw_state(env, "This GGUF chat template is not supported by the installed runtime");
+    try {
+        auto templates = common_chat_templates_init(model, /* chat_template_override */ "");
+        common_chat_templates_inputs inputs;
+        inputs.messages.reserve(messages.size());
+        inputs.add_generation_prompt = true;
+        inputs.enable_thinking = !disable_thinking;
+        for (size_t index = 0; index < messages.size(); ++index) {
+            common_chat_msg message;
+            message.role = role_strings[index];
+            message.content = content_strings[index];
+            inputs.messages.push_back(std::move(message));
+        }
+        const auto params = common_chat_templates_apply(templates.get(), inputs);
+        if (params.prompt.empty()) {
+            throw_state(env, "The GGUF chat template produced an empty prompt");
+            return nullptr;
+        }
+        return env->NewStringUTF(params.prompt.c_str());
+    } catch (const std::exception & exception) {
+        throw_state(env, std::string("Unable to apply this GGUF chat template: ") + exception.what());
         return nullptr;
     }
-    std::vector<char> formatted(static_cast<size_t>(length) + 1, '\0');
-    length = llama_chat_apply_template(
-        template_value, messages.data(), messages.size(), true, formatted.data(), formatted.size());
-    if (length < 0 || static_cast<size_t>(length) >= formatted.size()) {
-        throw_state(env, "Unable to apply this GGUF chat template");
-        return nullptr;
-    }
-
-    std::string prompt(formatted.data(), length);
-    // Qwen3/3.5 exposes enable_thinking in its embedded template. The native template helper
-    // has no Jinja keyword arguments, so reproduce only its documented OFF prefill here.
-    if (disable_thinking && template_source.find("enable_thinking") != std::string::npos) {
-        prompt += "<think>\n\n</think>\n\n";
-    }
-    return env->NewStringUTF(prompt.c_str());
 }
 
 extern "C" JNIEXPORT jstring JNICALL

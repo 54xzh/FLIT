@@ -2625,4 +2625,18 @@
     <string name="local_models_memory_released">已退出模型并释放内存</string>
     <string name="local_models_runtime_error">异常</string>
     <string name="local_models_runtime_size">体积</string>
+    <string name="local_models_download_runtime">下载运行支持</string>
+    <string name="local_models_runtime_downloading">正在下载 %1$s / %2$s</string>
+    <string name="local_models_runtime_installing">正在安装运行支持…</string>
+    <string name="local_models_runtime_resume">继续下载运行支持</string>
+    <string name="local_models_runtime_download_channel">本地运行支持下载</string>
+    <string name="local_models_runtime_downloading_notification">正在下载本地运行支持</string>
+    <string name="local_models_recommended">推荐模型</string>
+    <string name="local_models_refresh_recommended">刷新推荐模型</string>
+    <string name="local_models_download">下载</string>
+    <string name="local_models_pause">暂停</string>
+    <string name="local_models_resume">继续下载</string>
+    <string name="local_models_model_downloading">正在下载 %1$s / %2$s</string>
+    <string name="local_models_download_channel">本地模型下载</string>
+    <string name="local_models_downloading_notification">正在下载本地模型</string>
 </resources>

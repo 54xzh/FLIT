@@ -30,6 +30,16 @@ data class LocalModelRecord(
     val state: LocalModelState,
 )
 
+data class CatalogModelDownload(
+    val id: String,
+    val displayName: String,
+    val format: LocalModelFormat,
+    val sourceUrl: String,
+    val sha256: String,
+    val sizeBytes: Long,
+    val supportsTools: Boolean,
+)
+
 /** Owns private model files and keeps the selectable ProviderSetting in sync with Room. */
 class LocalModelRepository(
     private val context: Context,
@@ -42,7 +52,80 @@ class LocalModelRepository(
         entities.mapNotNull(::toRecord)
     }
 
+    /** The partial file is the durable source of truth for a paused catalog download. */
+    fun observePartialDownloadBytes(): Flow<Map<String, Long>> = dao.observeAll().map { entities ->
+        withContext(Dispatchers.IO) {
+            entities.mapNotNull { entity ->
+                val catalogId = entity.catalogId ?: return@mapNotNull null
+                val finalFile = safeModelFile(entity.relativePath) ?: return@mapNotNull null
+                catalogId to File(finalFile.parentFile, "${finalFile.name}.part").length()
+            }.toMap()
+        }
+    }
+
     suspend fun get(modelId: Uuid): LocalModelRecord? = toRecord(dao.get(modelId.toString()))
+
+    suspend fun getByCatalogId(catalogId: String): LocalModelRecord? = toRecord(dao.getByCatalogId(catalogId))
+
+    suspend fun prepareCatalogDownload(download: CatalogModelDownload): Uuid = withContext(Dispatchers.IO) {
+        val existing = dao.getByCatalogId(download.id)
+        val id = existing?.modelId?.let(Uuid::parse) ?: Uuid.random()
+        val file = File(root, "${id}/model.${download.format.extension}")
+        dao.upsert(
+            LocalModelEntity(
+                modelId = id.toString(),
+                displayName = download.displayName,
+                format = download.format.name,
+                relativePath = relativePath(file),
+                source = LocalModelSource.CATALOG.name,
+                sha256 = download.sha256,
+                sizeBytes = download.sizeBytes,
+                state = LocalModelState.DOWNLOADING.name,
+                supportsTools = download.supportsTools,
+                catalogId = download.id,
+                createdAt = existing?.createdAt ?: System.currentTimeMillis(),
+            ),
+        )
+        id
+    }
+
+    suspend fun finishCatalogDownload(modelId: Uuid): Result<Model> = withContext(Dispatchers.IO) {
+        runCatching {
+            val entity = requireNotNull(dao.get(modelId.toString())) { "Downloaded model was not found" }
+            val format = LocalModelFormat.valueOf(entity.format)
+            val finalFile = requireNotNull(safeModelFile(entity.relativePath)) { "Invalid local model path" }
+            val partial = File(finalFile.parentFile, "${finalFile.name}.part")
+            check(partial.isFile && partial.length() > 0L) { "Downloaded model file is missing" }
+            entity.sha256?.let { expected ->
+                check(sha256(partial).equals(expected, ignoreCase = true)) { "Downloaded model checksum does not match" }
+            }
+            validateHeader(partial, format)
+            check(partial.renameTo(finalFile)) { "Unable to finish downloading the model" }
+            val model = modelFromEntity(entity)
+            dao.upsert(entity.copy(sizeBytes = finalFile.length(), state = LocalModelState.READY.name))
+            ensureProviderModel(model)
+            model
+        }.onFailure { error ->
+            dao.get(modelId.toString())?.let { entity ->
+                dao.upsert(entity.copy(state = LocalModelState.FAILED.name))
+            }
+        }
+    }
+
+    suspend fun pauseCatalogDownload(modelId: Uuid) = withContext(Dispatchers.IO) {
+        dao.get(modelId.toString())?.let { dao.upsert(it.copy(state = LocalModelState.PAUSED.name)) }
+    }
+
+    /** Removes an incomplete catalog model and its partial file; ready models use [remove]. */
+    suspend fun cancelCatalogDownload(modelId: Uuid) = withContext(Dispatchers.IO) {
+        val entity = dao.get(modelId.toString()) ?: return@withContext
+        val finalFile = safeModelFile(entity.relativePath)
+        finalFile?.let { file ->
+            File(file.parentFile, "${file.name}.part").delete()
+            file.parentFile?.takeIf { directory -> directory.isDirectory && directory.list().isNullOrEmpty() }?.delete()
+        }
+        dao.delete(modelId.toString())
+    }
 
     suspend fun importModel(uri: Uri): Result<Model> = withContext(Dispatchers.IO) {
         runCatching {

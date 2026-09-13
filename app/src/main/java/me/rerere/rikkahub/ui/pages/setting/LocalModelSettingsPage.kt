@@ -39,14 +39,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.ExtensionOff
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PowerSettingsNew
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.RocketLaunch
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.ViewModule
 import androidx.compose.material3.AlertDialog
@@ -55,17 +59,21 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingToolbarDefaults.ScreenOffset
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,11 +97,16 @@ import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.localai.LocalModelRecord
+import me.rerere.rikkahub.data.localai.LocalModelCatalogEntry
+import me.rerere.rikkahub.data.localai.LocalModelCatalogRepository
+import me.rerere.rikkahub.data.localai.LocalModelDownloadManager
+import me.rerere.rikkahub.data.localai.LocalModelDownloadState
 import me.rerere.rikkahub.data.localai.LocalModelRepository
 import me.rerere.rikkahub.data.localai.LocalModelState
 import me.rerere.rikkahub.data.localai.LocalRuntimeManager
 import me.rerere.rikkahub.data.localai.LocalRuntimeState
-import me.rerere.rikkahub.data.localai.RuntimePackageInstaller
+import me.rerere.rikkahub.data.localai.RuntimeDownloadManager
+import me.rerere.rikkahub.data.localai.RuntimeDownloadState
 import me.rerere.rikkahub.data.model.Tag as DataTag
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.FormItem
@@ -165,7 +178,9 @@ fun LocalModelSettingsPage(
     val context = LocalContext.current
     val repository = koinInject<LocalModelRepository>()
     val runtime = koinInject<LocalRuntimeManager>()
-    val runtimeInstaller = koinInject<RuntimePackageInstaller>()
+    val runtimeDownload = koinInject<RuntimeDownloadManager>()
+    val catalogRepository = koinInject<LocalModelCatalogRepository>()
+    val modelDownload = koinInject<LocalModelDownloadManager>()
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
     val haptics = rememberPremiumHaptics()
@@ -193,14 +208,18 @@ fun LocalModelSettingsPage(
     }
 
     val localModels by repository.observeModels().collectAsStateWithLifecycle(emptyList())
+    val partialDownloadBytes by repository.observePartialDownloadBytes().collectAsStateWithLifecycle(emptyMap())
     val runtimeState by runtime.state.collectAsStateWithLifecycle()
+    val runtimeDownloadState by runtimeDownload.observe().collectAsStateWithLifecycle(RuntimeDownloadState.Idle)
+    val modelDownloadStates by modelDownload.observe().collectAsStateWithLifecycle(emptyMap())
     val runtimeReady = runtimeState is LocalRuntimeState.Ready || runtimeState is LocalRuntimeState.Loaded
     val pagerState = rememberPagerState { 2 }
 
-    var runtimeInfoVersion by remember { mutableStateOf(0) }
-    val runtimeInfo = remember(runtimeState, runtimeInfoVersion) { getInstalledRuntimeInfo(context) }
+    var recommendedModels by remember { mutableStateOf<List<LocalModelCatalogEntry>>(emptyList()) }
+    var catalogLoading by remember { mutableStateOf(true) }
+    var catalogError by remember { mutableStateOf<String?>(null) }
+    val runtimeInfo = remember(runtimeState) { getInstalledRuntimeInfo(context) }
 
-    val runtimeImportedText = stringResource(R.string.local_models_runtime_imported)
     val memoryReleasedText = stringResource(R.string.local_models_memory_released)
 
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -213,17 +232,16 @@ fun LocalModelSettingsPage(
         }
     }
 
-    val runtimeImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
-            runCatching { runtimeInstaller.installFromUri(uri) }
-                .onSuccess {
-                    runtime.refresh()
-                    runtimeInfoVersion++
-                    toaster.show(runtimeImportedText)
-                }
-                .onFailure { toaster.show(it.message.orEmpty()) }
-        }
+    suspend fun refreshCatalog() {
+        catalogLoading = true
+        catalogError = null
+        runCatching { catalogRepository.fetch() }
+            .onSuccess { recommendedModels = it.models }
+            .onFailure { catalogError = it.message ?: "Unable to load recommended models" }
+        catalogLoading = false
     }
+
+    LaunchedEffect(Unit) { refreshCatalog() }
 
     Scaffold(
         topBar = {
@@ -322,14 +340,19 @@ fun LocalModelSettingsPage(
                 0 -> LocalConfigurationPage(
                     provider = currentProvider,
                     runtimeState = runtimeState,
+                    runtimeDownloadState = runtimeDownloadState,
                     runtimeReady = runtimeReady,
                     runtimeInfo = runtimeInfo,
                     providerTags = currentTags,
                     onEdit = currentOnEdit,
                     onUpdateTags = currentOnUpdateTags,
-                    onImportRuntime = {
+                    onDownloadRuntime = {
                         haptics.perform(HapticPattern.Pop)
-                        runtimeImporter.launch(arrayOf("application/zip", "application/x-zip-compressed"))
+                        runtimeDownload.download()
+                    },
+                    onPauseRuntimeDownload = {
+                        haptics.perform(HapticPattern.Tick)
+                        scope.launch { runtimeDownload.pause() }
                     },
                     onReleaseMemory = {
                         haptics.perform(HapticPattern.Thud)
@@ -343,6 +366,11 @@ fun LocalModelSettingsPage(
 
                 1 -> LocalModelsPage(
                     records = localModels,
+                    partialDownloadBytes = partialDownloadBytes,
+                    recommendations = recommendedModels,
+                    downloadStates = modelDownloadStates,
+                    catalogLoading = catalogLoading,
+                    catalogError = catalogError,
                     currentProvider = currentProvider,
                     onUpdateProvider = currentOnEdit,
                     onDeleteModel = { modelId ->
@@ -356,6 +384,25 @@ fun LocalModelSettingsPage(
                         haptics.perform(HapticPattern.Pop)
                         importer.launch(arrayOf("application/octet-stream", "*/*"))
                     },
+                    onRefreshCatalog = { scope.launch { refreshCatalog() } },
+                    onDownloadRecommended = { entry ->
+                        haptics.perform(HapticPattern.Pop)
+                        scope.launch {
+                            modelDownload.download(entry).onFailure { toaster.show(it.message.orEmpty()) }
+                        }
+                    },
+                    onPauseRecommended = { entry ->
+                        haptics.perform(HapticPattern.Tick)
+                        scope.launch {
+                            modelDownload.pause(entry).onFailure { toaster.show(it.message.orEmpty()) }
+                        }
+                    },
+                    onCancelRecommended = { entry ->
+                        haptics.perform(HapticPattern.Thud)
+                        scope.launch {
+                            modelDownload.cancel(entry).onFailure { toaster.show(it.message.orEmpty()) }
+                        }
+                    },
                     contentPadding = contentPadding,
                 )
             }
@@ -367,12 +414,14 @@ fun LocalModelSettingsPage(
 private fun LocalConfigurationPage(
     provider: ProviderSetting.Local,
     runtimeState: LocalRuntimeState,
+    runtimeDownloadState: RuntimeDownloadState,
     runtimeReady: Boolean,
     runtimeInfo: InstalledRuntimeInfo?,
     providerTags: List<DataTag>,
     onEdit: (ProviderSetting) -> Unit,
     onUpdateTags: (ProviderSetting, List<DataTag>) -> Unit,
-    onImportRuntime: () -> Unit,
+    onDownloadRuntime: () -> Unit,
+    onPauseRuntimeDownload: () -> Unit,
     onReleaseMemory: () -> Unit,
     contentPadding: PaddingValues,
 ) {
@@ -407,9 +456,11 @@ private fun LocalConfigurationPage(
         // Runtime Support Card
         RuntimeSupportCard(
             runtimeState = runtimeState,
+            runtimeDownloadState = runtimeDownloadState,
             runtimeReady = runtimeReady,
             runtimeInfo = runtimeInfo,
-            onImportRuntime = onImportRuntime,
+            onDownloadRuntime = onDownloadRuntime,
+            onPauseRuntimeDownload = onPauseRuntimeDownload,
             onReleaseMemory = onReleaseMemory,
         )
 
@@ -445,9 +496,11 @@ private fun LocalConfigurationPage(
 @Composable
 private fun RuntimeSupportCard(
     runtimeState: LocalRuntimeState,
+    runtimeDownloadState: RuntimeDownloadState,
     runtimeReady: Boolean,
     runtimeInfo: InstalledRuntimeInfo?,
-    onImportRuntime: () -> Unit,
+    onDownloadRuntime: () -> Unit,
+    onPauseRuntimeDownload: () -> Unit,
     onReleaseMemory: () -> Unit,
 ) {
     Card(
@@ -620,13 +673,25 @@ private fun RuntimeSupportCard(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Button(
-                        onClick = onImportRuntime,
+                        onClick = if (runtimeDownloadState is RuntimeDownloadState.Downloading ||
+                            runtimeDownloadState is RuntimeDownloadState.Installing) onPauseRuntimeDownload else onDownloadRuntime,
                         modifier = Modifier.fillMaxWidth(),
                         shape = AppShapes.ButtonPill,
                     ) {
-                        Icon(Icons.Rounded.FileDownload, null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Rounded.CloudDownload, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.local_models_import_runtime))
+                        Text(
+                            when (runtimeDownloadState) {
+                                is RuntimeDownloadState.Downloading -> stringResource(
+                                    R.string.local_models_runtime_downloading,
+                                    formatFileSize(runtimeDownloadState.downloadedBytes),
+                                    runtimeDownloadState.totalBytes?.let(::formatFileSize) ?: "…",
+                                )
+                                RuntimeDownloadState.Installing -> stringResource(R.string.local_models_runtime_installing)
+                                RuntimeDownloadState.Paused -> stringResource(R.string.local_models_runtime_resume)
+                                else -> stringResource(R.string.local_models_download_runtime)
+                            },
+                        )
                     }
                     Text(
                         text = stringResource(R.string.local_models_runtime_release_hint),
@@ -653,13 +718,6 @@ private fun RuntimeSupportCard(
                         }
                     }
 
-                    OutlinedButton(
-                        onClick = onImportRuntime,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = AppShapes.ButtonPill,
-                    ) {
-                        Text(stringResource(R.string.local_models_runtime_reinstall))
-                    }
                 }
             }
         }
@@ -669,22 +727,32 @@ private fun RuntimeSupportCard(
 @Composable
 private fun LocalModelsPage(
     records: List<LocalModelRecord>,
+    partialDownloadBytes: Map<String, Long>,
+    recommendations: List<LocalModelCatalogEntry>,
+    downloadStates: Map<String, LocalModelDownloadState>,
+    catalogLoading: Boolean,
+    catalogError: String?,
     currentProvider: ProviderSetting.Local,
     onUpdateProvider: (ProviderSetting) -> Unit,
     onDeleteModel: (Uuid) -> Unit,
     onRenameModel: (Uuid, String) -> Unit,
     onImportModel: () -> Unit,
+    onRefreshCatalog: () -> Unit,
+    onDownloadRecommended: (LocalModelCatalogEntry) -> Unit,
+    onPauseRecommended: (LocalModelCatalogEntry) -> Unit,
+    onCancelRecommended: (LocalModelCatalogEntry) -> Unit,
     contentPadding: PaddingValues,
 ) {
     val haptics = rememberPremiumHaptics()
     val lazyListState = rememberLazyListState()
 
     val sortedRecords = remember(records, currentProvider.models) {
+        val readyRecords = records.filter { it.state == LocalModelState.READY }
         if (currentProvider.models.isEmpty()) {
-            records
+            readyRecords
         } else {
             val orderMap = currentProvider.models.mapIndexed { index, model -> model.id.toString() to index }.toMap()
-            records.sortedBy { orderMap[it.entity.modelId] ?: Int.MAX_VALUE }
+            readyRecords.sortedBy { orderMap[it.entity.modelId] ?: Int.MAX_VALUE }
         }
     }
 
@@ -699,6 +767,7 @@ private fun LocalModelsPage(
     }
 
     var editingRecord by remember { mutableStateOf<LocalModelRecord?>(null) }
+    var showRecommendedModels by remember { mutableStateOf(false) }
 
     editingRecord?.let { record ->
         EditLocalModelDialog(
@@ -815,7 +884,6 @@ private fun LocalModelsPage(
                 }
             }
 
-            // Empty State
             if (sortedRecords.isEmpty()) {
                 item {
                     Column(
@@ -866,16 +934,205 @@ private fun LocalModelsPage(
                 ),
         )
 
-        // Floating Action Button to Import Model
-        FloatingActionButton(
-            onClick = onImportModel,
-            shape = AppShapes.ButtonPill,
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp)
-                .offset(y = (-80).dp),
+                .offset(y = -ScreenOffset),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.local_models_import))
+            FloatingActionButton(
+                onClick = { showRecommendedModels = true },
+                shape = AppShapes.CardLarge,
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ) {
+                Icon(Icons.Rounded.ViewModule, contentDescription = stringResource(R.string.local_models_recommended))
+            }
+            FloatingActionButton(onClick = onImportModel, shape = AppShapes.ButtonPill) {
+                Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.local_models_import))
+            }
+        }
+    }
+
+    if (showRecommendedModels) {
+        RecommendedModelsSheet(
+            recommendations = recommendations,
+            records = records,
+            partialDownloadBytes = partialDownloadBytes,
+            downloadStates = downloadStates,
+            catalogLoading = catalogLoading,
+            catalogError = catalogError,
+            provider = currentProvider,
+            onDismiss = { showRecommendedModels = false },
+            onRefresh = onRefreshCatalog,
+            onDownload = onDownloadRecommended,
+            onPause = onPauseRecommended,
+            onCancel = onCancelRecommended,
+        )
+    }
+}
+
+@Composable
+private fun RecommendedModelsSheet(
+    recommendations: List<LocalModelCatalogEntry>,
+    records: List<LocalModelRecord>,
+    partialDownloadBytes: Map<String, Long>,
+    downloadStates: Map<String, LocalModelDownloadState>,
+    catalogLoading: Boolean,
+    catalogError: String?,
+    provider: ProviderSetting.Local,
+    onDismiss: () -> Unit,
+    onRefresh: () -> Unit,
+    onDownload: (LocalModelCatalogEntry) -> Unit,
+    onPause: (LocalModelCatalogEntry) -> Unit,
+    onCancel: (LocalModelCatalogEntry) -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var filterText by remember { mutableStateOf("") }
+    val keywords = filterText.split(' ').filter(String::isNotBlank)
+    val filtered = remember(recommendations, keywords) {
+        recommendations.filter { entry ->
+            keywords.all { keyword -> entry.displayName.contains(keyword, ignoreCase = true) || entry.parameterSize.contains(keyword, ignoreCase = true) }
+        }
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(500.dp)
+                .padding(8.dp)
+                .imePadding(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.local_models_recommended), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                IconButton(onClick = onRefresh, enabled = !catalogLoading) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.local_models_refresh_recommended))
+                }
+            }
+            if (catalogError != null) {
+                Text(catalogError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                if (catalogLoading && recommendations.isEmpty()) {
+                    item { Text(stringResource(R.string.loading), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+                itemsIndexed(filtered, key = { _, entry -> entry.id }) { _, entry ->
+                    RecommendedModelPickerItem(
+                        entry = entry,
+                        record = records.firstOrNull { it.entity.catalogId == entry.id },
+                        partialBytes = partialDownloadBytes[entry.id] ?: 0L,
+                        downloadState = downloadStates[entry.id],
+                        provider = provider,
+                        onDownload = { onDownload(entry) },
+                        onPause = { onPause(entry) },
+                        onCancel = { onCancel(entry) },
+                    )
+                }
+            }
+            OutlinedTextField(
+                value = filterText,
+                onValueChange = { filterText = it },
+                label = { Text(stringResource(R.string.setting_provider_page_filter_placeholder)) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecommendedModelPickerItem(
+    entry: LocalModelCatalogEntry,
+    record: LocalModelRecord?,
+    partialBytes: Long,
+    downloadState: LocalModelDownloadState?,
+    provider: ProviderSetting.Local,
+    onDownload: () -> Unit,
+    onPause: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val installed = record?.state == LocalModelState.READY
+    val activeDownload = downloadState as? LocalModelDownloadState.Downloading
+    val paused = record?.state == LocalModelState.PAUSED
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = AppShapes.CardLarge,
+        colors = CardDefaults.cardColors(
+            containerColor = if (LocalDarkMode.current) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ModelIcon(
+                model = Model(
+                    modelId = entry.id,
+                    displayName = entry.displayName,
+                    abilities = if (entry.supportsTools) listOf(ModelAbility.TOOL) else emptyList(),
+                ),
+                provider = provider,
+                modifier = Modifier.size(32.dp),
+            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(entry.displayName, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Tag(type = TagType.INFO) { Text(entry.format) }
+                    Tag(type = TagType.DEFAULT) { Text(entry.parameterSize) }
+                    Tag(type = TagType.DEFAULT) { Text(formatFileSize(entry.sizeBytes)) }
+                    if (installed) Tag(type = TagType.SUCCESS) { Text(stringResource(R.string.local_models_ready)) }
+                    if (downloadState is LocalModelDownloadState.Failed) Tag(type = TagType.ERROR) { Text(stringResource(R.string.local_models_runtime_error)) }
+                }
+                if (activeDownload != null || paused) {
+                    val downloadedBytes = activeDownload?.downloadedBytes ?: partialBytes
+                    val totalBytes = activeDownload?.totalBytes ?: entry.sizeBytes
+                    Text(
+                        text = stringResource(
+                            R.string.local_models_model_downloading,
+                            formatFileSize(downloadedBytes),
+                            formatFileSize(totalBytes),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    val fraction = totalBytes.takeIf { it > 0L }
+                        ?.let { downloadedBytes.toFloat() / it }
+                        ?.coerceIn(0f, 1f)
+                    if (fraction == null) {
+                        LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    } else {
+                        LinearWavyProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+            if (activeDownload != null) {
+                IconButton(onClick = onPause) {
+                    Icon(Icons.Rounded.Pause, contentDescription = stringResource(R.string.local_models_pause))
+                }
+            } else if (paused) {
+                Row {
+                    IconButton(onClick = onCancel) {
+                        Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.cancel))
+                    }
+                    IconButton(onClick = onDownload) {
+                        Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(R.string.local_models_resume))
+                    }
+                }
+            } else {
+                IconButton(onClick = onDownload, enabled = !installed) {
+                    Icon(
+                        imageVector = if (installed) Icons.Rounded.CheckCircle else Icons.Rounded.FileDownload,
+                        contentDescription = stringResource(
+                            if (installed) R.string.local_models_ready else R.string.local_models_download,
+                        ),
+                        tint = if (installed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
         }
     }
 }

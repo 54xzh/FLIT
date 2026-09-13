@@ -17,7 +17,10 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_COMMON OFF CACHE BOOL "" FORCE)
+# The common library contains llama.cpp's Jinja chat-template engine.  It is
+# required for models such as Gemma 4 whose embedded GGUF templates cannot be
+# represented by the legacy fixed-template API.
+set(LLAMA_BUILD_COMMON ON CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
@@ -36,8 +39,9 @@ add_subdirectory("${LLAMA_CPP_DIR}" llama-cpp)
 add_library(flit_local_llama SHARED src/main/cpp/flit_local_llama.cpp)
 target_include_directories(flit_local_llama PRIVATE
     "${LLAMA_CPP_DIR}/include"
-    "${LLAMA_CPP_DIR}/ggml/include")
-target_link_libraries(flit_local_llama PRIVATE llama log android)
+    "${LLAMA_CPP_DIR}/ggml/include"
+    "${LLAMA_CPP_DIR}/common")
+target_link_libraries(flit_local_llama PRIVATE llama llama-common log android)
 target_link_options(flit_local_llama PRIVATE "-Wl,-z,max-page-size=16384")
 
 install(TARGETS flit_local_llama LIBRARY DESTINATION lib)

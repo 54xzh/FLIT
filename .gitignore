@@ -36,5 +36,6 @@ settings.local.json
 /fix_topbar.py
 /write_patch.py
 /.codex_patches
+/local-runtime/.env.local
 GOALS.md
 .firecrawl/

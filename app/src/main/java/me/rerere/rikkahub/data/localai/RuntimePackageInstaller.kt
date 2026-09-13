@@ -50,6 +50,20 @@ class RuntimePackageInstaller(private val context: Context) {
         }
     }
 
+    /** Verifies and activates an archive that has already been downloaded into private storage. */
+    suspend fun installDownloadedArchive(archive: File): VerifiedPackage = withContext(Dispatchers.IO) {
+        check(archive.isFile && archive.length() > 0L) { "The downloaded runtime package is empty" }
+        val manifest = readManifest(archive)
+        val specification = VerifiedPackage(
+            version = manifest.version,
+            abi = manifest.abi,
+            expectedSha256 = sha256(archive),
+            expectedLibrarySha256 = manifest.librarySha256,
+        )
+        install(archive, specification)
+        specification
+    }
+
     suspend fun install(archive: File, specification: VerifiedPackage) = withContext(Dispatchers.IO) {
         require(specification.version.matches(Regex("[A-Za-z0-9._-]+"))) { "Invalid runtime version" }
         check(sha256(archive).equals(specification.expectedSha256, ignoreCase = true)) {
