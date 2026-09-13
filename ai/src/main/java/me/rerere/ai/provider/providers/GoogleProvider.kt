@@ -297,44 +297,10 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                         )
                         return
                     }
-                val candidates = jsonData["candidates"]?.jsonArray ?: return
-                if (candidates.isEmpty()) return
-
                 val messageChunk = runCatching {
-                    val usage = parseUsageMeta(jsonData["usageMetadata"] as? JsonObject)
-                    MessageChunk(
-                        id = Uuid.random().toString(),
-                        model = params.model.modelId,
-                        choices = candidates.mapIndexed { index, candidate ->
-                            val candidateObj = candidate.jsonObject
-                            val content = candidateObj["content"]?.jsonObject
-                            val groundingMetadata = candidateObj["groundingMetadata"]?.jsonObject
-                            val finishReason =
-                                candidateObj["finishReason"]?.jsonPrimitive?.contentOrNull
-
-                            val message = content?.let {
-                                parseMessage(buildJsonObject {
-                                    put("role", JsonPrimitive("model"))
-                                    put("content", it)
-                                    groundingMetadata?.let { groundingMetadata ->
-                                        put("groundingMetadata", groundingMetadata)
-                                    }
-                                })
-                            }
-
-                            UIMessageChoice(
-                                index = index,
-                                delta = message,
-                                message = null,
-                                finishReason = finishReason
-                            )
-                        },
-                        usage = usage,
-                        finishReasons = candidates.mapNotNull { candidate ->
-                            candidate.jsonObject["finishReason"]?.jsonPrimitive?.contentOrNull
-                        }
-                            .filter { reason -> reason.isNotBlank() && reason != "unknown" }
-                            .toSet(),
+                    parseStreamMessageChunk(
+                        jsonData = jsonData,
+                        modelId = params.model.modelId,
                         rawResponse = data,
                     )
                 }.getOrElse { throwable ->
@@ -348,6 +314,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                     return
                 }
 
+                if (messageChunk == null) return
                 trySend(messageChunk)
             }
 
@@ -597,7 +564,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             message["role"]?.jsonPrimitive?.contentOrNull ?: "model"
         )
         val content = message["content"]?.jsonObject ?: error("No content")
-        val parts = content["parts"]?.jsonArray?.map { part ->
+        val parts = content["parts"]?.jsonArray?.mapNotNull { part ->
             parseMessagePart(part.jsonObject)
         } ?: emptyList()
 
@@ -609,6 +576,51 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             role = role,
             parts = parts,
             annotations = annotations
+        )
+    }
+
+    private fun parseStreamMessageChunk(
+        jsonData: JsonObject,
+        modelId: String,
+        rawResponse: String,
+    ): MessageChunk? {
+        val candidates = jsonData["candidates"]?.jsonArray ?: return null
+        if (candidates.isEmpty()) return null
+
+        val choices = candidates.mapIndexedNotNull { index, candidate ->
+            val candidateObj = candidate.jsonObject
+            val content = candidateObj["content"]?.jsonObject ?: return@mapIndexedNotNull null
+            if (content["parts"]?.jsonArray.isNullOrEmpty()) return@mapIndexedNotNull null
+
+            val groundingMetadata = candidateObj["groundingMetadata"]?.jsonObject
+            val message = parseMessage(buildJsonObject {
+                put("role", JsonPrimitive("model"))
+                put("content", content)
+                groundingMetadata?.let { metadata ->
+                    put("groundingMetadata", metadata)
+                }
+            })
+            if (message.parts.isEmpty()) return@mapIndexedNotNull null
+
+            UIMessageChoice(
+                index = index,
+                delta = message,
+                message = null,
+                finishReason = candidateObj["finishReason"]?.jsonPrimitive?.contentOrNull,
+            )
+        }
+
+        return MessageChunk(
+            id = Uuid.random().toString(),
+            model = modelId,
+            choices = choices,
+            usage = parseUsageMeta(jsonData["usageMetadata"] as? JsonObject),
+            finishReasons = candidates.mapNotNull { candidate ->
+                candidate.jsonObject["finishReason"]?.jsonPrimitive?.contentOrNull
+            }
+                .filter { reason -> reason.isNotBlank() && reason != "unknown" }
+                .toSet(),
+            rawResponse = rawResponse,
         )
     }
 
@@ -628,7 +640,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         return chunks
     }
 
-    private fun parseMessagePart(jsonObject: JsonObject): UIMessagePart {
+    private fun parseMessagePart(jsonObject: JsonObject): UIMessagePart? {
         val thoughtSignatureMetadata = parseThoughtSignatureMetadata(jsonObject)
         return when {
             jsonObject.containsKey("text") -> {
@@ -667,7 +679,12 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 )
             }
 
-            else -> error("unknown message part type: $jsonObject")
+            thoughtSignatureMetadata != null -> UIMessagePart.Text(
+                text = "",
+                metadata = thoughtSignatureMetadata,
+            )
+
+            else -> null
         }
     }
 
@@ -688,10 +705,13 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                         for (part in message.parts) {
                             when (part) {
                                 is UIMessagePart.Text -> {
-                                    if (part.text.isBlank()) continue
+                                    val thoughtSignature = part.metadataAs<GoogleThoughtMetadata>()?.thoughtSignature
+                                    if (part.text.isBlank() && thoughtSignature == null) continue
                                     add(buildJsonObject {
-                                        put("text", part.text)
-                                        part.metadataAs<GoogleThoughtMetadata>()?.thoughtSignature?.let {
+                                        if (part.text.isNotEmpty()) {
+                                            put("text", part.text)
+                                        }
+                                        thoughtSignature?.let {
                                             put("thoughtSignature", it)
                                         }
                                     })

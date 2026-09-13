@@ -18,6 +18,27 @@ import kotlin.time.Duration.Companion.seconds
 class MessageTest {
 
     @Test
+    fun `handleMessageChunk ignores choices without a message`() {
+        val messages = listOf(
+            UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("hello"))),
+        )
+        val chunk = MessageChunk(
+            id = "empty-choice",
+            model = "test-model",
+            choices = listOf(
+                UIMessageChoice(
+                    index = 0,
+                    delta = null,
+                    message = null,
+                    finishReason = "STOP",
+                ),
+            ),
+        )
+
+        assertEquals(messages, messages.handleMessageChunk(chunk))
+    }
+
+    @Test
     fun `limitContext with size 0 should return original list`() {
         val messages = createTestMessages(5)
         val result = messages.limitContext(0)

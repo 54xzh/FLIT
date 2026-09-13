@@ -546,7 +546,7 @@ fun List<UIMessage>.handleMessageChunk(chunk: MessageChunk, model: Model? = null
         "messages must not be empty"
     }
     val choice = chunk.choices.getOrNull(0) ?: return this
-    val message = choice.delta ?: choice.message ?: throw Exception("delta/message is null")
+    val message = choice.delta ?: choice.message ?: return this
     if (this.last().role != message.role) {
         return this + message.copy(modelId = model?.id)
     } else {
