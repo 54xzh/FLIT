@@ -29,6 +29,7 @@ val viewModelModule = module {
     viewModel<ChatVM> { params ->
         ChatVM(
             id = params.get(),
+            initialProjectId = runCatching { params.getOrNull<kotlin.uuid.Uuid>() }.getOrNull(),
             context = get(),
             settingsStore = get(),
             readPositionStore = get(),

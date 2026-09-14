@@ -398,6 +398,7 @@ fun ChatInput(
     conversation: Conversation,
     settings: Settings,
     mcpManager: McpManager,
+    currentChatModel: Model? = null,
     uiMode: ChatInputUiMode = ChatInputUiMode.Normal,
     enableSearch: Boolean,
     onToggleSearch: (Boolean) -> Unit,
@@ -421,6 +422,7 @@ fun ChatInput(
     val context = LocalContext.current
     val toaster = LocalToaster.current
     val assistant = settings.getCurrentAssistant()
+    val effectiveChatModel = currentChatModel ?: settings.getCurrentChatModel()
     val haptics = rememberPremiumHaptics(enabled = settings.displaySetting.enableUIHaptics)
     val defaultAssistantName = stringResource(R.string.assistant_page_default_assistant)
 
@@ -677,7 +679,7 @@ fun ChatInput(
                             // Search
                             val enableSearchMsg = stringResource(R.string.web_search_enabled)
                             val disableSearchMsg = stringResource(R.string.web_search_disabled)
-                            val chatModel = settings.getCurrentChatModel()
+                            val chatModel = effectiveChatModel
                             val enableSearchAgent = assistant.enableSearchAgent
                             
                             SearchPickerButton(
@@ -897,7 +899,7 @@ fun ChatInput(
                                                 } else {
                                                     // Model Selector
                                                     ModelSelector(
-                                                        modelId = assistant.chatModelId ?: settings.chatModelId,
+                                                        modelId = effectiveChatModel?.id ?: (assistant.chatModelId ?: settings.chatModelId),
                                                         providers = settings.providers,
                                                         onSelect = {
                                                             onUpdateChatModel(it)
@@ -944,6 +946,7 @@ fun ChatInput(
                             assistant = assistant,
                             mcpManager = mcpManager,
                             uiMode = uiMode,
+                            currentChatModel = effectiveChatModel,
                             onClearContext = onClearContext,
                             onUpdateAssistant = onUpdateAssistant,
                             onUpdateConversation = onUpdateConversation,
@@ -1572,6 +1575,7 @@ private fun FilesPicker(
     state: ChatInputState,
     mcpManager: McpManager,
     uiMode: ChatInputUiMode,
+    currentChatModel: Model? = null,
     onClearContext: () -> Unit,
     onUpdateAssistant: (Assistant) -> Unit,
     onUpdateConversation: (Conversation) -> Unit,
@@ -1587,9 +1591,9 @@ private fun FilesPicker(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settingsStore = org.koin.compose.koinInject<me.rerere.rikkahub.data.datastore.SettingsStore>()
-    val currentChatModel = settings.getCurrentChatModel()
-    val showGeminiAttachmentMenu = remember(currentChatModel?.modelId) {
-        isGeminiAttachmentMenuEnabled(currentChatModel)
+    val effectiveChatModel = currentChatModel ?: settings.getCurrentChatModel()
+    val showGeminiAttachmentMenu = remember(effectiveChatModel?.modelId) {
+        isGeminiAttachmentMenuEnabled(effectiveChatModel)
     }
 
     val mcpServers = settings.mcpServers

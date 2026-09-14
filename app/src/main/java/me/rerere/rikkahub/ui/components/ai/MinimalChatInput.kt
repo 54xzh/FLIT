@@ -1,4 +1,4 @@
-﻿package me.rerere.rikkahub.ui.components.ai
+package me.rerere.rikkahub.ui.components.ai
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -187,6 +187,7 @@ fun MinimalChatInput(
     conversation: Conversation,
     settings: Settings,
     mcpManager: McpManager,
+    currentChatModel: Model? = null,
     uiMode: ChatInputUiMode = ChatInputUiMode.Normal,
     enableSearch: Boolean,
     onToggleSearch: (Boolean) -> Unit,
@@ -704,7 +705,7 @@ fun MinimalChatInput(
                                                     )
                                                 } else {
                                                     ModelSelector(
-                                                        modelId = assistant.chatModelId ?: settings.chatModelId,
+                                                        modelId = currentChatModel?.id ?: (assistant.chatModelId ?: settings.chatModelId),
                                                         providers = settings.providers,
                                                         onSelect = { onUpdateChatModel(it) },
                                                         type = me.rerere.ai.provider.ModelType.CHAT,
@@ -747,6 +748,7 @@ fun MinimalChatInput(
                 state = state,
                 conversation = conversation,
                 settings = settings,
+                currentChatModel = currentChatModel,
                 mcpManager = mcpManager,
                 assistant = assistant,
                 uiMode = uiMode,
@@ -790,7 +792,8 @@ private fun MinimalPickerContent(
     onUpdateSearchService: (Int) -> Unit,
     onNavigateToLorebook: (String) -> Unit,
     onShowContextRefreshDialog: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    currentChatModel: Model? = null,
 ) {
     val context = LocalContext.current
     val localSettings = LocalSettings.current
@@ -823,7 +826,7 @@ private fun MinimalPickerContent(
     var showModePicker by remember { mutableStateOf(false) }
     var showAttachmentMenu by remember { mutableStateOf(false) }
     var showWorkspacePicker by remember { mutableStateOf(false) }
-    val currentChatModel = settings.getCurrentChatModel()
+    val currentChatModel = currentChatModel ?: settings.getCurrentChatModel()
     val showGeminiAttachmentMenu = remember(currentChatModel?.modelId) {
         isGeminiAttachmentMenuEnabled(currentChatModel)
     }
@@ -1455,7 +1458,7 @@ private fun MinimalPickerContent(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 ModelList(
-                    currentModel = assistant.chatModelId ?: settings.chatModelId,
+                    currentModel = currentChatModel?.id ?: (assistant.chatModelId ?: settings.chatModelId),
                     providers = filteredProviders,
                     modelType = me.rerere.ai.provider.ModelType.CHAT,
                     onSelect = { selectedModel: Model ->

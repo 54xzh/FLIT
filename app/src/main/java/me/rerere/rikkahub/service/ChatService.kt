@@ -1457,7 +1457,10 @@ class ChatService(
         }
     }
 
-    suspend fun initializeConversationWithResult(conversationId: Uuid): ConversationInitializationResult {
+    suspend fun initializeConversationWithResult(
+        conversationId: Uuid,
+        overrideProjectId: Uuid? = null,
+    ): ConversationInitializationResult {
         // 在加载动作开始前捕获 chatTarget 作为反向同步的 CAS 期望值：
         // 加载期间用户主动切换助手时期望值失配，同步会放弃，避免慢加载的旧会话
         // 把用户的新选择覆盖回去（切换助手后归属错乱的另一条竞态路径）。
@@ -1525,6 +1528,11 @@ class ChatService(
             val currentSettings = settingsStore.settingsFlow.first { !it.init }
             val target = currentSettings.chatTarget
 
+            if (overrideProjectId != null) {
+                _selectedProjectId.value = overrideProjectId
+            }
+            val effectiveProjectId = overrideProjectId ?: _selectedProjectId.value
+
             // 内存态设置未经磁盘回流链路的 sanitize，chatTarget 可能短暂指向刚被删除的
             // 助手/群聊。按同样的降级规则解析出真实存在的归属再建会话，避免会话绑定到
             // 不存在的 id 上，与实际使用的预设内容错配。
@@ -1535,7 +1543,7 @@ class ChatService(
                     Conversation.ofId(
                         id = conversationId,
                         assistantId = assistant.id,
-                        projectId = _selectedProjectId.value,
+                        projectId = effectiveProjectId,
                     ).updateCurrentMessages(assistant.presetMessages).copy(
                         enabledModeIds = assistant.enabledModeIds,
                     )

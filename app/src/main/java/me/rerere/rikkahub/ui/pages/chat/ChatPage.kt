@@ -419,10 +419,15 @@ fun ChatPage(
     searchQuery: String? = null,
     autoSend: Boolean = false,
     forkEdit: Boolean = false,
+    initialProjectId: Uuid? = null,
 ) {
     val vm: ChatVM = koinViewModel(
         parameters = {
-            parametersOf(id.toString())
+            if (initialProjectId != null) {
+                parametersOf(id.toString(), initialProjectId)
+            } else {
+                parametersOf(id.toString())
+            }
         }
     )
     val navController = LocalNavController.current
@@ -464,6 +469,7 @@ fun ChatPage(
     val currentChatModel by vm.currentChatModel.collectAsStateWithLifecycle()
     val enableWebSearch by vm.enableWebSearch.collectAsStateWithLifecycle()
     val currentSearchMode by vm.currentSearchMode.collectAsStateWithLifecycle()
+    val selectedProjectId by vm.selectedProjectId.collectAsStateWithLifecycle()
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val softwareKeyboardController = LocalSoftwareKeyboardController.current
@@ -640,6 +646,7 @@ private fun ChatPageContent(
     val conversationReadPosition by vm.conversationReadPosition.collectAsStateWithLifecycle()
     val loadingOlderHistory by vm.loadingOlderHistory.collectAsStateWithLifecycle()
     val quotaUsage by vm.quotaUsageFlow.collectAsStateWithLifecycle()
+    val selectedProjectId by vm.selectedProjectId.collectAsStateWithLifecycle()
     var initialEntryHandled by remember(conversation.id, initialSearchQuery) { mutableStateOf(false) }
     val conversationMessageCount = remember(conversation.totalMessageNodeCount, conversation.messageNodes.size) {
         LargeContextWarningPolicy.resolveMessageCount(conversation)
@@ -988,7 +995,10 @@ private fun ChatPageContent(
                     quotaUsage = quotaUsage,
                     onNewChat = {
                         // Temporary chats are not persisted, so just navigate to new chat
-                        navigateToChatPage(navController)
+                        navigateToChatPage(
+                            navController = navController,
+                            projectId = selectedProjectId,
+                        )
                     },
                     onClickMenu = {
                         previewMode = !previewMode
@@ -1550,6 +1560,7 @@ private fun ChatPageContent(
                             .onSizeChanged { chatInputHeightPx = it.height },
                         state = inputState,
                         settings = setting,
+                        currentChatModel = currentChatModel,
                         conversation = conversation,
                         mcpManager = vm.mcpManager,
                         uiMode = if (isGroupChatTemplate) ChatInputUiMode.GroupChat else ChatInputUiMode.Normal,
@@ -1641,6 +1652,7 @@ private fun ChatPageContent(
                             .onSizeChanged { chatInputHeightPx = it.height },
                         state = inputState,
                         settings = setting,
+                        currentChatModel = currentChatModel,
                         conversation = conversation,
                         mcpManager = vm.mcpManager,
                         uiMode = if (isGroupChatTemplate) ChatInputUiMode.GroupChat else ChatInputUiMode.Normal,

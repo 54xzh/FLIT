@@ -51,8 +51,9 @@ fun navigateToChatPage(
     initFiles: List<Uri> = emptyList(),
     searchQuery: String? = null,
     autoSend: Boolean = false,
+    projectId: Uuid? = null,
 ) {
-    Log.i(TAG, "navigateToChatPage: navigate to $chatId")
+    Log.i(TAG, "navigateToChatPage: navigate to $chatId, projectId: $projectId")
     navController.navigate(
         route = Screen.Chat(
             id = chatId.toString(),
@@ -60,6 +61,7 @@ fun navigateToChatPage(
             files = initFiles.map { it.toString() },
             searchQuery = searchQuery,
             autoSend = autoSend,
+            projectId = projectId?.toString(),
         ),
     ) {
         popUpTo(0) {

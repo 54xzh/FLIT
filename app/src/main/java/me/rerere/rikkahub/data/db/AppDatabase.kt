@@ -94,7 +94,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         LocalModelEntity::class,
         ProjectEntity::class,
     ],
-    version = 52,
+    version = 53,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -144,6 +144,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 49->50 is manual migration (MIGRATION_49_50) - adds saved memory summary requirements
         // 50->51 is manual migration (MIGRATION_50_51) - adds local model metadata
         // 51->52 is manual migration (MIGRATION_51_52) - adds projects and project_id to conversation and memories
+        // 52->53 is manual migration (MIGRATION_52_53) - reconciles project schema and identity hash
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -723,6 +724,47 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
+                val cursor = db.query("PRAGMA table_info(projects)")
+                val existingColumns = mutableSetOf<String>()
+                while (cursor.moveToNext()) {
+                    val nameIndex = cursor.getColumnIndex("name")
+                    if (nameIndex != -1) {
+                        existingColumns.add(cursor.getString(nameIndex))
+                    }
+                }
+                cursor.close()
+
+                if (!existingColumns.contains("description")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `description` TEXT NOT NULL DEFAULT ''")
+                }
+                if (!existingColumns.contains("system_prompt")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `system_prompt` TEXT NOT NULL DEFAULT ''")
+                }
+                if (!existingColumns.contains("model_id")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `model_id` TEXT")
+                }
+                if (!existingColumns.contains("enable_memory_tools")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `enable_memory_tools` INTEGER NOT NULL DEFAULT 1")
+                }
+                if (!existingColumns.contains("enable_consolidation")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `enable_consolidation` INTEGER NOT NULL DEFAULT 1")
+                }
+                if (!existingColumns.contains("expose_to_external")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `expose_to_external` INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!existingColumns.contains("read_external_memory")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `read_external_memory` INTEGER NOT NULL DEFAULT 1")
+                }
+                if (!existingColumns.contains("sort_index")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `sort_index` INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!existingColumns.contains("created_at")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `created_at` INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!existingColumns.contains("updated_at")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `updated_at` INTEGER NOT NULL DEFAULT 0")
+                }
+
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_projects_assistant_id_sort_index` ON `projects` (`assistant_id`, `sort_index`)"
                 )
@@ -745,6 +787,95 @@ abstract class AppDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS `index_ChatEpisodeEntity_assistant_id_project_id` ON `ChatEpisodeEntity` (`assistant_id`, `project_id`)"
                 )
                 Log.i(TAG, "migrate: migrate from 51 to 52 success")
+            }
+        }
+
+        val MIGRATION_52_53 = object : Migration(52, 53) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `projects` (
+                        `id` TEXT NOT NULL,
+                        `assistant_id` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `description` TEXT NOT NULL DEFAULT '',
+                        `system_prompt` TEXT NOT NULL DEFAULT '',
+                        `model_id` TEXT,
+                        `enable_memory_tools` INTEGER NOT NULL DEFAULT 1,
+                        `enable_consolidation` INTEGER NOT NULL DEFAULT 1,
+                        `expose_to_external` INTEGER NOT NULL DEFAULT 0,
+                        `read_external_memory` INTEGER NOT NULL DEFAULT 1,
+                        `sort_index` INTEGER NOT NULL DEFAULT 0,
+                        `created_at` INTEGER NOT NULL DEFAULT 0,
+                        `updated_at` INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+
+                val cursor = db.query("PRAGMA table_info(projects)")
+                val existingColumns = mutableSetOf<String>()
+                while (cursor.moveToNext()) {
+                    val nameIndex = cursor.getColumnIndex("name")
+                    if (nameIndex != -1) {
+                        existingColumns.add(cursor.getString(nameIndex))
+                    }
+                }
+                cursor.close()
+
+                if (!existingColumns.contains("description")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `description` TEXT NOT NULL DEFAULT ''")
+                }
+                if (!existingColumns.contains("system_prompt")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `system_prompt` TEXT NOT NULL DEFAULT ''")
+                }
+                if (!existingColumns.contains("model_id")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `model_id` TEXT")
+                }
+                if (!existingColumns.contains("enable_memory_tools")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `enable_memory_tools` INTEGER NOT NULL DEFAULT 1")
+                }
+                if (!existingColumns.contains("enable_consolidation")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `enable_consolidation` INTEGER NOT NULL DEFAULT 1")
+                }
+                if (!existingColumns.contains("expose_to_external")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `expose_to_external` INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!existingColumns.contains("read_external_memory")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `read_external_memory` INTEGER NOT NULL DEFAULT 1")
+                }
+                if (!existingColumns.contains("sort_index")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `sort_index` INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!existingColumns.contains("created_at")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `created_at` INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!existingColumns.contains("updated_at")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `updated_at` INTEGER NOT NULL DEFAULT 0")
+                }
+
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_projects_assistant_id_sort_index` ON `projects` (`assistant_id`, `sort_index`)"
+                )
+                runCatching {
+                    db.execSQL("ALTER TABLE `ConversationEntity` ADD COLUMN `project_id` TEXT DEFAULT NULL")
+                }
+                runCatching {
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_ConversationEntity_assistant_id_project_id` ON `ConversationEntity` (`assistant_id`, `project_id`)")
+                }
+                runCatching {
+                    db.execSQL("ALTER TABLE `MemoryEntity` ADD COLUMN `project_id` TEXT DEFAULT NULL")
+                }
+                runCatching {
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_MemoryEntity_assistant_id_project_id` ON `MemoryEntity` (`assistant_id`, `project_id`)")
+                }
+                runCatching {
+                    db.execSQL("ALTER TABLE `ChatEpisodeEntity` ADD COLUMN `project_id` TEXT DEFAULT NULL")
+                }
+                runCatching {
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_ChatEpisodeEntity_assistant_id_project_id` ON `ChatEpisodeEntity` (`assistant_id`, `project_id`)")
+                }
+                Log.i(TAG, "migrate: migrate from 52 to 53 success")
             }
         }
     }

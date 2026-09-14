@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -72,12 +73,14 @@ import me.rerere.rikkahub.utils.deleteChatFiles
 import me.rerere.rikkahub.utils.toLocalString
 import java.time.LocalDate
 import java.time.ZoneId
+import me.rerere.ai.core.MessageRole
 import kotlin.uuid.Uuid
 
 private const val TAG = "ChatVM"
 
 class ChatVM(
     id: String,
+    private val initialProjectId: Uuid? = null,
     private val context: Application,
     private val settingsStore: SettingsStore,
     private val readPositionStore: ChatReadPositionStore,
@@ -146,7 +149,10 @@ class ChatVM(
         viewModelScope.launch {
             var initializedOk = false
             try {
-                val result = chatService.initializeConversationWithResult(_conversationId)
+                val result = chatService.initializeConversationWithResult(
+                    conversationId = _conversationId,
+                    overrideProjectId = initialProjectId,
+                )
                 initializedOk = result.initialized
                 _conversationExistsInStorage.value = result.existsInStorage
             } finally {
@@ -164,6 +170,11 @@ class ChatVM(
 
         // 恢复并监听助手当前选中的项目
         viewModelScope.launch {
+            if (initialProjectId != null) {
+                val assistantId = settingsStore.settingsFlow.first { !it.init }.chatTarget.id
+                context.writeStringPreference("selected_project_$assistantId", initialProjectId.toString())
+                chatService.selectProject(initialProjectId)
+            }
             settingsStore.settingsFlow
                 .map { it.chatTarget.id }
                 .distinctUntilChanged()
@@ -265,6 +276,14 @@ class ChatVM(
         val assistantId = settings.value.chatTarget.id
         context.writeStringPreference("selected_project_$assistantId", projectId?.toString())
         chatService.selectProject(projectId)
+
+        // 若当前会话为尚未落库且未发送用户消息的新会话，即时将当前新会话更新为所选项目
+        val currentConv = conversation.value
+        val isFreshConversation = !_conversationExistsInStorage.value &&
+            currentConv.messageNodes.none { it.role == MessageRole.USER }
+        if (isFreshConversation) {
+            chatService.updateConversationProjectId(_conversationId, projectId)
+        }
     }
 
     fun createProject(
@@ -418,9 +437,10 @@ class ChatVM(
         settings,
         conversation,
         projects,
-        chatService.selectedProjectId
-    ) { currentSettings, conv, projList, selectedProjId ->
-        val effectiveProjectId = conv.projectId ?: selectedProjId
+        chatService.selectedProjectId,
+        _conversationExistsInStorage
+    ) { currentSettings, conv, projList, selectedProjId, existsInStorage ->
+        val effectiveProjectId = conv.projectId ?: (if (!existsInStorage) selectedProjId else null)
         val proj = effectiveProjectId?.let { pid -> projList.find { it.id == pid } }
         val modelId = proj?.modelId
         if (modelId != null) {
@@ -491,6 +511,15 @@ class ChatVM(
     // 设置聊天模型
     fun setChatModel(assistant: Assistant, model: Model) {
         viewModelScope.launch {
+            val conv = conversation.value
+            val effectiveProjectId = conv.projectId ?: (if (!_conversationExistsInStorage.value) chatService.selectedProjectId.value else null)
+            if (effectiveProjectId != null) {
+                val proj = projectRepo.getProjectById(effectiveProjectId)
+                if (proj != null) {
+                    projectRepo.updateProject(proj.copy(modelId = model.id))
+                    return@launch
+                }
+            }
             settingsStore.update { settings ->
                 settings.copy(
                     assistants = settings.assistants.map {

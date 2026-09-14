@@ -557,6 +557,7 @@ class RouteActivity : ComponentActivity() {
                             searchQuery = route.searchQuery,
                             autoSend = route.autoSend,
                             forkEdit = route.forkEdit,
+                            initialProjectId = route.projectId?.let { runCatching { Uuid.parse(it) }.getOrNull() },
                         )
                     }
 
@@ -784,6 +785,7 @@ sealed interface Screen {
         val searchQuery: String? = null,
         val autoSend: Boolean = false,
         val forkEdit: Boolean = false,
+        val projectId: String? = null,
     ) : Screen
 
     @Serializable
