@@ -123,7 +123,7 @@ fun ChatDrawerContent(
     val searchQuery by vm.searchQuery.collectAsStateWithLifecycle()
 
     val projects by vm.projects.collectAsStateWithLifecycle()
-    val selectedProjectId by vm.selectedProjectId.collectAsStateWithLifecycle()
+    val previewProjectId by vm.previewProjectId.collectAsStateWithLifecycle()
 
     var showCreateProjectDialog by remember { mutableStateOf(false) }
     var projectToRename by remember { mutableStateOf<Project?>(null) }
@@ -321,7 +321,7 @@ fun ChatDrawerContent(
             if (settings.chatTarget is ChatTarget.Assistant) {
                 ProjectBar(
                     projects = projects,
-                    selectedProjectId = selectedProjectId,
+                    selectedProjectId = previewProjectId,
                     onSelectProject = { vm.selectProject(it) },
                     onCreateProject = {
                         showCreateProjectDialog = true

@@ -106,6 +106,13 @@ class ChatVM(
     private val _conversationExistsInStorage = MutableStateFlow(false)
     val conversationExistsInStorage: StateFlow<Boolean> = _conversationExistsInStorage.asStateFlow()
 
+    // 侧边栏正在预览的项目只服务于当前页面的会话列表筛选。已保存会话里切换
+    // Tab 不应改写下一次新对话的默认项目，因此不能复用 selectedProjectId。
+    private val _previewProjectId = MutableStateFlow<Uuid?>(null)
+    val previewProjectId: StateFlow<Uuid?> = _previewProjectId.asStateFlow()
+    private var hasPendingProjectSelection = false
+    private var pendingProjectId: Uuid? = null
+
     // 异步任务 (从ChatService获取，响应式)
     val conversationJob: StateFlow<Job?> =
         chatService
@@ -164,6 +171,25 @@ class ChatVM(
                 )
                 initializedOk = result.initialized
                 _conversationExistsInStorage.value = result.existsInStorage
+                // 已保存会话默认预览其归属项目；新对话则预览它实际采用的默认项目。
+                // 该状态不持久化，避免仅浏览列表就改变之后新对话的项目。
+                val defaultPreviewProjectId = if (result.existsInStorage) {
+                    conversation.value.projectId
+                } else {
+                    chatService.selectedProjectId.value
+                }
+                val selectedDuringInitialization = pendingProjectId
+                if (hasPendingProjectSelection) {
+                    _previewProjectId.value = selectedDuringInitialization
+                    // 用户在加载期间选择项目时，只有实际为新对话才应用这次选择。
+                    if (result.initialized && !result.existsInStorage) {
+                        applyProjectToFreshConversation(selectedDuringInitialization)
+                    }
+                    hasPendingProjectSelection = false
+                    pendingProjectId = null
+                } else {
+                    _previewProjectId.value = defaultPreviewProjectId
+                }
             } finally {
                 _conversationInitialized.value = true
             }
@@ -281,18 +307,39 @@ class ChatVM(
         }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    /**
+     * 处理侧边栏项目 Tab。
+     *
+     * 已保存会话中，Tab 仅用于临时预览对应项目的会话；离开页面后自然丢弃。
+     * 仅空白新对话会把选择应用到会话及后续新对话默认项目。
+     */
     fun selectProject(projectId: Uuid?) {
+        _previewProjectId.value = projectId
+
+        // 此时还无法区分正在加载的是旧会话还是新会话。先记下本次点击，
+        // 待初始化完成后再决定是否应当写入新对话默认项目。
+        if (!_conversationInitialized.value) {
+            hasPendingProjectSelection = true
+            pendingProjectId = projectId
+            return
+        }
+
+        val currentConv = conversation.value
+        val isFreshConversation = _conversationInitialized.value &&
+            !_conversationExistsInStorage.value &&
+            currentConv.messageNodes.none { it.role == MessageRole.USER }
+        if (!isFreshConversation) return
+
+        applyProjectToFreshConversation(projectId)
+    }
+
+    private fun applyProjectToFreshConversation(projectId: Uuid?) {
         val assistantId = settings.value.chatTarget.id
         context.writeStringPreference("selected_project_$assistantId", projectId?.toString())
         chatService.selectProject(projectId)
 
-        // 若当前会话为尚未落库且未发送用户消息的新会话，即时将当前新会话更新为所选项目
-        val currentConv = conversation.value
-        val isFreshConversation = !_conversationExistsInStorage.value &&
-            currentConv.messageNodes.none { it.role == MessageRole.USER }
-        if (isFreshConversation) {
-            chatService.updateConversationProjectId(_conversationId, projectId)
-        }
+        // 空白新对话即时切换项目，使欢迎页、模型和首条消息使用同一项目上下文。
+        chatService.updateConversationProjectId(_conversationId, projectId)
     }
 
     fun createProject(
@@ -340,6 +387,9 @@ class ChatVM(
     fun deleteProject(project: Project) {
         viewModelScope.launch {
             chatService.clearProjectMemoryState(project.id)
+            if (_previewProjectId.value == project.id) {
+                _previewProjectId.value = null
+            }
             val assistantId = settings.value.chatTarget.id
             if (context.readStringPreference("selected_project_$assistantId") == project.id.toString()) {
                 context.writeStringPreference("selected_project_$assistantId", null)
@@ -363,7 +413,7 @@ class ChatVM(
             // 防抖：每次按键都会触发一次全表 LIKE 扫描，只查停止输入 300ms 后的关键词；
             // 空串（初始加载/清空搜索）不延迟，立即显示完整列表
             _searchQuery.debounce { query -> if (query.isBlank()) 0L else 300L },
-            chatService.selectedProjectId
+            _previewProjectId
         ) { targetId, query, projId -> Triple(targetId, query, projId) }
             .flatMapLatest { (targetId, query, projId) ->
                 // 根据搜索关键词和项目过滤决定使用哪个数据源
