@@ -149,6 +149,15 @@ class ChatVM(
         viewModelScope.launch {
             var initializedOk = false
             try {
+                // Restore the saved project before creating a new conversation. This keeps the
+                // initial empty-chat UI in the correct project state instead of briefly showing
+                // the assistant welcome view while the project selection is loading.
+                if (initialProjectId == null) {
+                    val assistantId = settingsStore.settingsFlow.first { !it.init }.chatTarget.id
+                    val savedProjectId = context.readStringPreference("selected_project_$assistantId")
+                        ?.let { runCatching { Uuid.parse(it) }.getOrNull() }
+                    chatService.selectProject(savedProjectId)
+                }
                 val result = chatService.initializeConversationWithResult(
                     conversationId = _conversationId,
                     overrideProjectId = initialProjectId,

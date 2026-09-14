@@ -139,6 +139,7 @@ import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberChatInputState
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.hooks.useEditState
+import me.rerere.rikkahub.ui.pages.project.ProjectIcons
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.utils.base64Decode
 import me.rerere.rikkahub.utils.createChatFilesByContents
@@ -175,6 +176,7 @@ import java.util.Locale
  
 private enum class EmptyChatOverlay {
     None,
+    Project,
     Welcome,
     GroupMembers,
     Temporary,
@@ -558,6 +560,7 @@ fun ChatPage(
                     loadingJob = loadingJob,
                     setting = setting,
                     conversation = conversation,
+                    conversationExistsInStorage = conversationExistsInStorage,
                     drawerState = drawerState,
                     navController = navController,
                     vm = vm,
@@ -593,6 +596,7 @@ fun ChatPage(
                     loadingJob = loadingJob,
                     setting = setting,
                     conversation = conversation,
+                    conversationExistsInStorage = conversationExistsInStorage,
                     drawerState = drawerState,
                     navController = navController,
                     vm = vm,
@@ -622,6 +626,7 @@ private fun ChatPageContent(
     setting: Settings,
     bigScreen: Boolean,
     conversation: Conversation,
+    conversationExistsInStorage: Boolean,
     drawerState: DrawerState,
     navController: NavHostController,
     vm: ChatVM,
@@ -653,6 +658,7 @@ private fun ChatPageContent(
     val loadingOlderHistory by vm.loadingOlderHistory.collectAsStateWithLifecycle()
     val quotaUsage by vm.quotaUsageFlow.collectAsStateWithLifecycle()
     val selectedProjectId by vm.selectedProjectId.collectAsStateWithLifecycle()
+    val projects by vm.projects.collectAsStateWithLifecycle()
     var initialEntryHandled by remember(conversation.id, initialSearchQuery) { mutableStateOf(false) }
     val conversationMessageCount = remember(conversation.totalMessageNodeCount, conversation.messageNodes.size) {
         LargeContextWarningPolicy.resolveMessageCount(conversation)
@@ -1407,11 +1413,24 @@ private fun ChatPageContent(
                 }
                 val hasAnyPresetMessages = assistantForConversation?.presetMessages?.isNotEmpty() == true
 
-                val welcomeText = assistantForConversation?.let { assistant ->
-                    remember(assistant.id, assistant.welcomePhrases) {
-                        selectWelcomePhrase(assistant.welcomePhrases)
-                    } ?: stringResource(R.string.welcome_phrases_fallback)
-                }.orEmpty()
+                // A new chat follows the project currently selected in the drawer; a saved
+                // conversation always keeps the project that was stored with it.
+                val activeProjectId = conversation.projectId ?: selectedProjectId.takeUnless {
+                    conversationExistsInStorage
+                }
+                val activeProject = remember(activeProjectId, projects) {
+                    activeProjectId?.let { projectId -> projects.find { it.id == projectId } }
+                }
+
+                val welcomeText = if (activeProjectId == null) {
+                    assistantForConversation?.let { assistant ->
+                        remember(assistant.id, assistant.welcomePhrases) {
+                            selectWelcomePhrase(assistant.welcomePhrases)
+                        } ?: stringResource(R.string.welcome_phrases_fallback)
+                    }.orEmpty()
+                } else {
+                    ""
+                }
 
                 val overlayState = remember(
                     conversationInitialized,
@@ -1420,12 +1439,19 @@ private fun ChatPageContent(
                     hasAnyPresetMessages,
                     isEmptyConversation,
                     isGroupChatTemplate,
+                    activeProjectId,
+                    activeProject?.id,
                     assistantForConversation?.enableWelcomePhrases,
                 ) {
                     when {
                         !conversationInitialized -> EmptyChatOverlay.None
                         isTemporaryChat && !hasUserSentMessages && !hasAnyPresetMessages -> EmptyChatOverlay.Temporary
                         isGroupChatTemplate && !isTemporaryChat && isEmptyConversation -> EmptyChatOverlay.GroupMembers
+                        activeProject != null &&
+                            !isTemporaryChat &&
+                            !isGroupChatTemplate &&
+                            isEmptyConversation -> EmptyChatOverlay.Project
+                        activeProjectId != null -> EmptyChatOverlay.None
                         assistantForConversation?.enableWelcomePhrases == true &&
                             !isTemporaryChat &&
                             !hasUserSentMessages &&
@@ -1463,6 +1489,50 @@ private fun ChatPageContent(
                     contentAlignment = Alignment.Center,
                 ) {
                     when (overlayState) {
+                        EmptyChatOverlay.Project -> {
+                            val project = activeProject ?: return@Box
+                            var displayedProject by remember { mutableStateOf(project) }
+                            val projectIdentityAlpha = remember { Animatable(1f) }
+
+                            LaunchedEffect(project.id) {
+                                if (displayedProject.id == project.id) return@LaunchedEffect
+                                projectIdentityAlpha.animateTo(0f, tween(durationMillis = 100))
+                                displayedProject = project
+                                projectIdentityAlpha.animateTo(1f, tween(durationMillis = 150))
+                            }
+                            LaunchedEffect(project) {
+                                if (displayedProject.id == project.id) {
+                                    displayedProject = project
+                                }
+                            }
+
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp),
+                                modifier = Modifier
+                                    .padding(horizontal = 32.dp)
+                                    .offset(y = EmptyChatOverlayContentYOffset)
+                                    .graphicsLayer { alpha = projectIdentityAlpha.value },
+                            ) {
+                                Icon(
+                                    imageVector = ProjectIcons.getIcon(displayedProject.icon),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(56.dp),
+                                )
+                                val fontSizeRatio = setting.displaySetting.fontSizeRatio
+                                Text(
+                                    text = displayedProject.name.ifBlank { stringResource(R.string.project_name) },
+                                    style = MaterialTheme.typography.headlineSmall.copy(
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = MaterialTheme.typography.headlineSmall.fontSize * fontSizeRatio,
+                                        lineHeight = 34.sp * fontSizeRatio,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    ),
+                                )
+                            }
+                        }
+
                         EmptyChatOverlay.Welcome -> {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
