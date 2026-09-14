@@ -39,12 +39,14 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,6 +62,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
@@ -79,7 +82,7 @@ import kotlin.uuid.Uuid
 @Composable
 fun AssistantPicker(
     settings: Settings,
-    onSelectTarget: (ChatTarget) -> Unit,
+    onSelectTarget: (ChatTarget) -> Job,
     onNavigate: (ChatTarget) -> Unit = {},  // Called after panels close
     modifier: Modifier = Modifier,
     onClickSetting: () -> Unit,
@@ -88,6 +91,19 @@ fun AssistantPicker(
     val defaultAssistantName = stringResource(R.string.assistant_page_default_assistant)
     val defaultGroupChatName = stringResource(R.string.group_chat_default_name)
     var showPicker by remember { mutableStateOf(false) }
+    var pendingNavigationTarget by remember { mutableStateOf<ChatTarget?>(null) }
+    var isNavigating by remember { mutableStateOf(false) }
+
+    val handleNavigate: (ChatTarget) -> Unit = remember(onNavigate) {
+        { target ->
+            if (!isNavigating) {
+                isNavigating = true
+                showPicker = false
+                pendingNavigationTarget = null
+                onNavigate(target)
+            }
+        }
+    }
 
     NavigationDrawerItem(
         icon = null,
@@ -145,6 +161,8 @@ fun AssistantPicker(
             }
         },
         onClick = {
+            isNavigating = false
+            pendingNavigationTarget = null
             showPicker = true
         },
         modifier = modifier,
@@ -155,15 +173,24 @@ fun AssistantPicker(
         AssistantPickerSheet(
             settings = settings,
             currentTarget = state.currentTarget,
-            onAssistantSelected = { assistant -> state.selectAssistant(assistant) },
-            onGroupChatSelected = { template -> state.selectGroupChat(template) },
+            onAssistantSelected = { assistant ->
+                pendingNavigationTarget = ChatTarget.Assistant(assistant.id)
+                state.selectAssistant(assistant)
+            },
+            onGroupChatSelected = { template ->
+                pendingNavigationTarget = ChatTarget.GroupChat(template.id)
+                state.selectGroupChat(template)
+            },
             onNavigate = { target ->
-                // Navigation callback - called after animation
-                showPicker = false
-                onNavigate(target)
+                handleNavigate(target)
             },
             onDismiss = {
-                showPicker = false
+                val pending = pendingNavigationTarget
+                if (pending != null) {
+                    handleNavigate(pending)
+                } else {
+                    showPicker = false
+                }
             }
         )
     }
@@ -173,9 +200,9 @@ fun AssistantPicker(
 fun AssistantPickerSheet(
     settings: Settings,
     currentTarget: ChatTarget,
-    onAssistantSelected: (Assistant) -> Unit,
-    onGroupChatSelected: (GroupChatTemplate) -> Unit,
-    onNavigate: (ChatTarget) -> Unit = {},  // Called after animation completes
+    onAssistantSelected: (Assistant) -> Job,
+    onGroupChatSelected: (GroupChatTemplate) -> Job,
+    onNavigate: ((ChatTarget) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -208,31 +235,45 @@ fun AssistantPickerSheet(
     var sheetHeight by remember { mutableStateOf(0.dp) }
     val density = LocalDensity.current
 
+    // Guarantee onDismiss is dispatched whenever the sheet leaves composition,
+    // ensuring any pending target selection is executed even if the dialog was dismissed early.
+    DisposableEffect(Unit) {
+        onDispose {
+            onDismiss()
+        }
+    }
+
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            onDismiss()
+        },
         sheetState = sheetState,
-        sheetGesturesEnabled = false,
+        sheetGesturesEnabled = !isTransitioning,
         dragHandle = {
             IconButton(
                 onClick = {
-                    scope.launch {
-                        sheetState.hide()
-                        onDismiss()
+                    if (!isTransitioning) {
+                        scope.launch {
+                            sheetState.hide()
+                            onDismiss()
+                        }
                     }
-                }
+                },
+                enabled = !isTransitioning
             ) {
                 Icon(Icons.Rounded.KeyboardArrowDown, null)
             }
         }
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight()
-                .padding(horizontal = 16.dp, vertical = 16.dp)
-                .then(
-                    if (sheetHeight > 0.dp) Modifier.heightIn(min = sheetHeight) else Modifier
-                )
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight()
+                    .padding(horizontal = 16.dp, vertical = 16.dp)
+                    .then(
+                        if (sheetHeight > 0.dp) Modifier.heightIn(min = sheetHeight) else Modifier
+                    )
                 .onSizeChanged {
                     if (sheetHeight == 0.dp) {
                         sheetHeight = with(density) { it.height.toDp() }
@@ -323,17 +364,30 @@ fun AssistantPickerSheet(
                                        else if (isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
                             )
                             .clickable(enabled = !isTransitioning) {
-                                if (!checked) {
+                                if (!checked && transitioningTarget == null) {
                                     haptics.perform(HapticPattern.Pop)
                                     val target = ChatTarget.Assistant(assistant.id)
                                     transitioningTarget = target
-                                    // Update settings immediately
-                                    onAssistantSelected(assistant)
-                                    // Close panels then navigate
+                                    val selectionJob = onAssistantSelected(assistant)
                                     scope.launch {
-                                        transitioningTarget = null
-                                        sheetState.hide() // Animate sheet close
-                                        onNavigate(target) // drawer close + navigate
+                                        try {
+                                            try {
+                                                sheetState.hide()
+                                            } catch (_: CancellationException) {
+                                                // If hide animation was interrupted by user tap/dismiss, keep going
+                                            }
+                                            onNavigate?.let { navigate ->
+                                                try {
+                                                    selectionJob.join()
+                                                } catch (_: CancellationException) {
+                                                }
+                                                navigate(target)
+                                            } ?: run {
+                                                onDismiss()
+                                            }
+                                        } finally {
+                                            transitioningTarget = null
+                                        }
                                     }
                                 }
                             }
@@ -456,15 +510,30 @@ fun AssistantPickerSheet(
                                     else if (isDarkMode) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
                                 )
                                 .clickable(enabled = !isTransitioning) {
-                                    if (!checked) {
+                                    if (!checked && transitioningTarget == null) {
                                         haptics.perform(HapticPattern.Pop)
                                         val target = ChatTarget.GroupChat(template.id)
                                         transitioningTarget = target
-                                        onGroupChatSelected(template)
+                                        val selectionJob = onGroupChatSelected(template)
                                         scope.launch {
-                                            transitioningTarget = null
-                                            sheetState.hide()
-                                            onNavigate(target)
+                                            try {
+                                                try {
+                                                    sheetState.hide()
+                                                } catch (_: CancellationException) {
+                                                    // If hide animation was interrupted by user tap/dismiss, keep going
+                                                }
+                                                onNavigate?.let { navigate ->
+                                                    try {
+                                                        selectionJob.join()
+                                                    } catch (_: CancellationException) {
+                                                    }
+                                                    navigate(target)
+                                                } ?: run {
+                                                    onDismiss()
+                                                }
+                                            } finally {
+                                                transitioningTarget = null
+                                            }
                                         }
                                     }
                                 }
@@ -546,6 +615,21 @@ fun AssistantPickerSheet(
                         }
                     }
                 }
+            }
+        }
+            if (isTransitioning) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    event.changes.forEach { it.consume() }
+                                }
+                            }
+                        }
+                )
             }
         }
     }

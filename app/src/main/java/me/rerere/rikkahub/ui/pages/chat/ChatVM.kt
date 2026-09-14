@@ -344,8 +344,8 @@ class ChatVM(
     // 切换聊天目标（助手/群聊）。
     // 走 updateChatTarget 的「锁内读最新值再改写」路径，而不是整份组合期快照覆盖；
     // 用 appScope 而非 viewModelScope：切完立刻导航走会销毁本 VM，写入不能被取消。
-    fun selectChatTarget(target: ChatTarget) {
-        appScope.launch {
+    fun selectChatTarget(target: ChatTarget): Job {
+        return appScope.launch {
             try {
                 settingsStore.updateChatTarget(target)
             } catch (e: kotlinx.coroutines.CancellationException) {

@@ -121,7 +121,6 @@ fun ChatDrawerContent(
         .collectAsStateWithLifecycle()
 
     val recentlyRestoredIds by vm.recentlyRestoredIds.collectAsStateWithLifecycle()
-
     fun exportConversationJson(conversation: Conversation) {
         scope.launch {
             runCatching {
@@ -330,32 +329,37 @@ fun ChatDrawerContent(
             if (settings.assistants.size > 1 || settings.groupChatTemplates.isNotEmpty()) {
                 AssistantPicker(
                     settings = settings,
-                    onSelectTarget = { target ->
-                        // Just update settings - don't navigate yet
-                        vm.selectChatTarget(target)
-                    },
+                    // The picker starts this job before its hide animation, then waits for this
+                    // exact target before invoking onNavigate. No timer is involved.
+                    onSelectTarget = { target -> vm.selectChatTarget(target) },
                     onNavigate = { target ->
-                        // Called after sheet closes - just close drawer and navigate
                         scope.launch {
-                            // Close drawer with animation
-                            drawerState?.close()
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                                try {
+                                    drawerState?.close()
+                                } catch (_: Throwable) {
+                                    // If drawer close animation is interrupted by touch, continue to navigate
+                                }
 
-                            // Avoid racing: wait until settings reflect the selected chat target.
-                            withTimeoutOrNull(1500) {
-                                vm.settings.first { settings -> !settings.init && settings.chatTarget == target }
+                                // Avoid racing: wait until settings reflect the selected chat target.
+                                // Takes 0ms when write is already finished, zero artificial delay.
+                                withTimeoutOrNull(1500) {
+                                    vm.settings.first { settings -> !settings.init && settings.chatTarget == target }
+                                }
+
+                                val id = if (context.readBooleanPreference("create_new_conversation_on_start", true)) {
+                                    Uuid.random()
+                                } else {
+                                    runCatching {
+                                        withContext(Dispatchers.IO) {
+                                            repo.getTopConversationIdOfAssistant(target.id)
+                                        }
+                                    }.getOrNull() ?: Uuid.random()
+                                }
+                                navigateToChatPage(navController = navController, chatId = id)
                             }
-                            
-                            // Navigate to new chat
-                             val id = if (context.readBooleanPreference("create_new_conversation_on_start", true)) {
-                                 Uuid.random()
-                             } else {
-                                 withContext(Dispatchers.IO) {
-                                     repo.getTopConversationIdOfAssistant(target.id)
-                                 } ?: Uuid.random()
-                             }
-                             navigateToChatPage(navController = navController, chatId = id)
-                         }
-                     },
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     onClickSetting = {
                         when (val target = settings.chatTarget) {

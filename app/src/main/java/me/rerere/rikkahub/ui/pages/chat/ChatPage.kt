@@ -2326,7 +2326,7 @@ private fun TopBar(
     onClickMenu: () -> Unit,
     onNewChat: () -> Unit,
     onUpdateTitle: (String) -> Unit,
-    onSelectChatTarget: (ChatTarget) -> Unit,
+    onSelectChatTarget: (ChatTarget) -> Job,
     onToggleTemporaryChat: () -> Unit,
     onSetConversationAssistant: (Uuid) -> Unit,
     quotaUsage: QuotaUsageResult? = null,
@@ -2548,13 +2548,15 @@ private fun TopBar(
             settings = settings,
             currentTarget = chatTargetState.currentTarget,
             onAssistantSelected = { selectedAssistant ->
-                chatTargetState.selectAssistant(selectedAssistant)
+                val selectionJob = chatTargetState.selectAssistant(selectedAssistant)
                 onSetConversationAssistant(selectedAssistant.id)
                 showAssistantPicker = false
+                selectionJob
             },
             onGroupChatSelected = { template ->
-                chatTargetState.selectGroupChat(template)
+                val selectionJob = chatTargetState.selectGroupChat(template)
                 showAssistantPicker = false
+                selectionJob
             },
             onDismiss = { showAssistantPicker = false }
         )
