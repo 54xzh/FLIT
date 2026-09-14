@@ -40,6 +40,14 @@ class ProjectDetailVM(
         }
     }
 
+    fun updateIcon(icon: String) {
+        val p = project.value ?: return
+        if (p.icon == icon.trim()) return
+        viewModelScope.launch {
+            projectRepo.updateProjectIcon(p.id, icon.trim())
+        }
+    }
+
     fun updateSystemPrompt(prompt: String) {
         val p = project.value ?: return
         viewModelScope.launch {

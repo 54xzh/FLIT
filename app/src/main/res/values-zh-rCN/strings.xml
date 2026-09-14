@@ -2671,4 +2671,7 @@
     <string name="chat_page_remove_from_project">未分类（移出项目）</string>
     <string name="chat_page_current_project">当前：%1$s</string>
     <string name="chat_page_no_projects">暂无项目</string>
+    <string name="project_icon">项目图标</string>
+    <string name="project_tap_to_change_icon">点击更换图标</string>
+    <string name="project_select_icon">选择图标</string>
 </resources>

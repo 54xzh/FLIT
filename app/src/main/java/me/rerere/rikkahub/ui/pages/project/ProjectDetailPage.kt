@@ -1,15 +1,22 @@
 package me.rerere.rikkahub.ui.pages.project
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -20,6 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -28,7 +36,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,6 +58,7 @@ import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
 import me.rerere.rikkahub.ui.pages.setting.components.SettingsGroup
+import me.rerere.rikkahub.ui.theme.AppShapes
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -65,6 +77,7 @@ fun ProjectDetailPage(
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showPromptDialog by remember { mutableStateOf(false) }
+    var showIconPickerSheet by remember { mutableStateOf(false) }
 
     val defaultProjectName = stringResource(R.string.project_name)
 
@@ -112,6 +125,61 @@ fun ProjectDetailPage(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
                 return@Column
+            }
+
+            // 顶部大图标区域（参考助手资料页）
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                val iconInteractionSource = remember { MutableInteractionSource() }
+                val isIconPressed by iconInteractionSource.collectIsPressedAsState()
+                val iconScale by animateFloatAsState(
+                    targetValue = if (isIconPressed) 0.85f else 1f,
+                    animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+                    label = "project_top_icon_scale",
+                )
+
+                Surface(
+                    shape = AppShapes.CardLarge,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier
+                        .size(80.dp)
+                        .graphicsLayer {
+                            scaleX = iconScale
+                            scaleY = iconScale
+                        }
+                        .clip(AppShapes.CardLarge)
+                        .clickable(
+                            interactionSource = iconInteractionSource,
+                            indication = null,
+                            onClick = {
+                                haptics.perform(HapticPattern.Pop)
+                                showIconPickerSheet = true
+                            }
+                        )
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Icon(
+                            imageVector = ProjectIcons.getIcon(currentProject.icon),
+                            contentDescription = stringResource(R.string.project_icon),
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(40.dp),
+                        )
+                    }
+                }
+
+                Text(
+                    text = stringResource(R.string.project_tap_to_change_icon),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             // 基础设置
@@ -289,6 +357,16 @@ fun ProjectDetailPage(
                     Text(stringResource(R.string.cancel))
                 }
             }
+        )
+    }
+
+    if (showIconPickerSheet && currentProject != null) {
+        ProjectIconPickerSheet(
+            selectedKey = currentProject.icon,
+            onSelect = { newIcon ->
+                vm.updateIcon(newIcon)
+            },
+            onDismiss = { showIconPickerSheet = false }
         )
     }
 }

@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
@@ -45,6 +46,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.Project
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
+import me.rerere.rikkahub.ui.pages.project.ProjectIcons
 import me.rerere.rikkahub.ui.theme.AppShapes
 import kotlin.uuid.Uuid
 
@@ -72,7 +74,7 @@ fun ProjectBar(
             ProjectChip(
                 label = stringResource(R.string.project_all),
                 selected = selectedProjectId == null,
-                icon = if (selectedProjectId == null) Icons.Rounded.FolderOpen else Icons.Rounded.Folder,
+                icon = Icons.Rounded.Folder,
                 onClick = {
                     haptics.perform(HapticPattern.Pop)
                     onSelectProject(null)
@@ -88,7 +90,7 @@ fun ProjectBar(
                 ProjectChip(
                     label = project.name,
                     selected = selectedProjectId == project.id,
-                    icon = if (selectedProjectId == project.id) Icons.Rounded.FolderOpen else Icons.Rounded.Folder,
+                    icon = ProjectIcons.getIcon(project.icon),
                     onClick = {
                         haptics.perform(HapticPattern.Pop)
                         onSelectProject(project.id)
@@ -181,7 +183,7 @@ private fun ProjectChip(
         color = if (selected) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
-            MaterialTheme.colorScheme.surfaceContainerLow
+            Color.Transparent
         },
         contentColor = if (selected) {
             MaterialTheme.colorScheme.onPrimaryContainer
@@ -221,7 +223,7 @@ private fun ProjectChip(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge.copy(
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                    fontWeight = FontWeight.Normal
                 ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

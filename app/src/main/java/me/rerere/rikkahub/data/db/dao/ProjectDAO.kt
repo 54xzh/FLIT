@@ -31,6 +31,9 @@ interface ProjectDAO {
     @Query("UPDATE projects SET name = :name, updated_at = :updatedAt WHERE id = :id")
     suspend fun updateName(id: String, name: String, updatedAt: Long = System.currentTimeMillis())
 
+    @Query("UPDATE projects SET icon = :icon, updated_at = :updatedAt WHERE id = :id")
+    suspend fun updateIcon(id: String, icon: String, updatedAt: Long = System.currentTimeMillis())
+
     @Query("DELETE FROM projects WHERE id = :id")
     suspend fun deleteById(id: String)
 

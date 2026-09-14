@@ -34,6 +34,8 @@ data class ProjectEntity(
     val readExternalMemory: Boolean = true,
     @ColumnInfo(name = "sort_index", defaultValue = "0")
     val sortIndex: Int = 0,
+    @ColumnInfo(name = "icon", defaultValue = "''")
+    val icon: String = "",
     @ColumnInfo(name = "created_at", defaultValue = "0")
     val createdAt: Long = 0L,
     @ColumnInfo(name = "updated_at", defaultValue = "0")

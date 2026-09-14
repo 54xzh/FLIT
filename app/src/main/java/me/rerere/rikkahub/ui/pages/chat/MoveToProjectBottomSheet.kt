@@ -34,6 +34,7 @@ import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.Project
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
+import me.rerere.rikkahub.ui.pages.project.ProjectIcons
 import kotlin.uuid.Uuid
 
 /**
@@ -81,7 +82,7 @@ fun MoveToProjectBottomSheet(
                 projects.forEach { project ->
                     ProjectSelectRow(
                         title = project.name,
-                        icon = Icons.Rounded.Folder,
+                        icon = ProjectIcons.getIcon(project.icon),
                         selected = project.id == conversation.projectId,
                         onClick = { onSelect(project.id) },
                     )

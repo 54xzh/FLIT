@@ -51,6 +51,7 @@ class ProjectRepository(
         enableConsolidation: Boolean = true,
         exposeToExternal: Boolean = false,
         readExternalMemory: Boolean = true,
+        icon: String = "",
     ): Project = withContext(Dispatchers.IO) {
         val count = projectDAO.countByAssistantId(assistantId.toString())
         val project = Project(
@@ -65,6 +66,7 @@ class ProjectRepository(
             exposeToExternal = exposeToExternal,
             readExternalMemory = readExternalMemory,
             sortIndex = count,
+            icon = icon.trim(),
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis(),
         )
@@ -79,6 +81,10 @@ class ProjectRepository(
         if (oldProject != null && oldProject.exposeToExternal != project.exposeToExternal) {
             memorySummaryRepoProvider()?.markRequiresFullUpdate(project.assistantId.toString())
         }
+    }
+
+    suspend fun updateProjectIcon(id: Uuid, icon: String) = withContext(Dispatchers.IO) {
+        projectDAO.updateIcon(id.toString(), icon.trim(), System.currentTimeMillis())
     }
 
     suspend fun renameProject(id: Uuid, newName: String) = withContext(Dispatchers.IO) {

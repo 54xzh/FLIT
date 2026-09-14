@@ -94,7 +94,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         LocalModelEntity::class,
         ProjectEntity::class,
     ],
-    version = 53,
+    version = 54,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -145,6 +145,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 50->51 is manual migration (MIGRATION_50_51) - adds local model metadata
         // 51->52 is manual migration (MIGRATION_51_52) - adds projects and project_id to conversation and memories
         // 52->53 is manual migration (MIGRATION_52_53) - reconciles project schema and identity hash
+        // 53->54 is manual migration (MIGRATION_53_54) - adds icon to projects
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -876,6 +877,25 @@ abstract class AppDatabase : RoomDatabase() {
                     db.execSQL("CREATE INDEX IF NOT EXISTS `index_ChatEpisodeEntity_assistant_id_project_id` ON `ChatEpisodeEntity` (`assistant_id`, `project_id`)")
                 }
                 Log.i(TAG, "migrate: migrate from 52 to 53 success")
+            }
+        }
+
+        val MIGRATION_53_54 = object : Migration(53, 54) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val cursor = db.query("PRAGMA table_info(projects)")
+                val existingColumns = mutableSetOf<String>()
+                while (cursor.moveToNext()) {
+                    val nameIndex = cursor.getColumnIndex("name")
+                    if (nameIndex != -1) {
+                        existingColumns.add(cursor.getString(nameIndex))
+                    }
+                }
+                cursor.close()
+
+                if (!existingColumns.contains("icon")) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `icon` TEXT NOT NULL DEFAULT ''")
+                }
+                Log.i(TAG, "migrate: migrate from 53 to 54 success")
             }
         }
     }

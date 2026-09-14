@@ -17,6 +17,7 @@ data class Project(
     val exposeToExternal: Boolean = false,
     val readExternalMemory: Boolean = true,
     val sortIndex: Int = 0,
+    val icon: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
 )
@@ -33,6 +34,7 @@ fun ProjectEntity.toProject(): Project = Project(
     exposeToExternal = exposeToExternal,
     readExternalMemory = readExternalMemory,
     sortIndex = sortIndex,
+    icon = icon,
     createdAt = createdAt,
     updatedAt = updatedAt,
 )
@@ -49,6 +51,7 @@ fun Project.toEntity(): ProjectEntity = ProjectEntity(
     exposeToExternal = exposeToExternal,
     readExternalMemory = readExternalMemory,
     sortIndex = sortIndex,
+    icon = icon,
     createdAt = createdAt,
     updatedAt = updatedAt,
 )

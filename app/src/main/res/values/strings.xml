@@ -2748,4 +2748,7 @@
     <string name="chat_page_remove_from_project">Unclassified (move out)</string>
     <string name="chat_page_current_project">Current: %1$s</string>
     <string name="chat_page_no_projects">No projects yet</string>
+    <string name="project_icon">Project icon</string>
+    <string name="project_tap_to_change_icon">Tap to change icon</string>
+    <string name="project_select_icon">Select Icon</string>
 </resources>

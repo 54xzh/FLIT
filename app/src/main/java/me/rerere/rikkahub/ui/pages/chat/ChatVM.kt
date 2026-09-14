@@ -294,6 +294,7 @@ class ChatVM(
         enableConsolidation: Boolean = true,
         exposeToExternal: Boolean = false,
         readExternalMemory: Boolean = true,
+        icon: String = "",
         onSuccess: ((Project) -> Unit)? = null
     ) {
         viewModelScope.launch {
@@ -308,6 +309,7 @@ class ChatVM(
                 enableConsolidation = enableConsolidation,
                 exposeToExternal = exposeToExternal,
                 readExternalMemory = readExternalMemory,
+                icon = icon,
             )
             selectProject(project.id)
             onSuccess?.invoke(project)
