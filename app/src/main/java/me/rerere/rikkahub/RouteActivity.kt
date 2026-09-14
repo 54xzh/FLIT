@@ -521,7 +521,8 @@ class RouteActivity : ComponentActivity() {
                                 "lastConversationId",
                                 Uuid.random().toString()
                             ) ?: Uuid.random().toString()
-                        }
+                        },
+                        playWelcomeAnimation = readBooleanPreference("create_new_conversation_on_start", true),
                     ),
                     navController = navBackStack,
                     enterTransition = { 
@@ -558,6 +559,7 @@ class RouteActivity : ComponentActivity() {
                             autoSend = route.autoSend,
                             forkEdit = route.forkEdit,
                             initialProjectId = route.projectId?.let { runCatching { Uuid.parse(it) }.getOrNull() },
+                            playWelcomeAnimation = route.playWelcomeAnimation,
                         )
                     }
 
@@ -786,6 +788,7 @@ sealed interface Screen {
         val autoSend: Boolean = false,
         val forkEdit: Boolean = false,
         val projectId: String? = null,
+        val playWelcomeAnimation: Boolean = false,
     ) : Screen
 
     @Serializable

@@ -169,6 +169,8 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import java.util.Locale
  
 private enum class EmptyChatOverlay {
@@ -420,6 +422,7 @@ fun ChatPage(
     autoSend: Boolean = false,
     forkEdit: Boolean = false,
     initialProjectId: Uuid? = null,
+    playWelcomeAnimation: Boolean = false,
 ) {
     val vm: ChatVM = koinViewModel(
         parameters = {
@@ -566,6 +569,7 @@ fun ChatPage(
                     initialSearchQuery = searchQuery,
                     autoSend = autoSend,
                     forkEdit = forkEdit,
+                    playWelcomeAnimation = playWelcomeAnimation,
                 )
             }
         }
@@ -600,6 +604,7 @@ fun ChatPage(
                     initialSearchQuery = searchQuery,
                     autoSend = autoSend,
                     forkEdit = forkEdit,
+                    playWelcomeAnimation = playWelcomeAnimation,
                 )
             }
             BackHandler(drawerState.isOpen) {
@@ -627,6 +632,7 @@ private fun ChatPageContent(
     initialSearchQuery: String? = null,
     autoSend: Boolean = false,
     forkEdit: Boolean = false,
+    playWelcomeAnimation: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
@@ -1478,12 +1484,38 @@ private fun ChatPageContent(
                                     lineHeight = 34.sp * fontSizeRatio,
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
-                                key(assistant.id) {
-                                    AnimatedWelcomeText(
-                                        text = welcomeText,
+                                if (playWelcomeAnimation) {
+                                    key(assistant.id) {
+                                        AnimatedWelcomeText(
+                                            text = welcomeText,
+                                            style = welcomeTextStyle,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            rpStyleRules = setting.displaySetting.rpStyleRules,
+                                        )
+                                    }
+                                } else {
+                                    val styledWelcomeText = remember(
+                                        welcomeText,
+                                        setting.displaySetting.rpStyleRules,
+                                    ) {
+                                        applyRpStyleRules(welcomeText, setting.displaySetting.rpStyleRules)
+                                    }
+                                    val plainWelcomeText = remember(styledWelcomeText) {
+                                        buildAnnotatedString {
+                                            append(styledWelcomeText.text)
+                                            styledWelcomeText.ranges.forEach { range ->
+                                                addStyle(
+                                                    style = SpanStyle(color = range.color),
+                                                    start = range.range.first,
+                                                    end = range.range.last + 1,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Text(
+                                        text = plainWelcomeText,
                                         style = welcomeTextStyle,
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        rpStyleRules = setting.displaySetting.rpStyleRules,
                                     )
                                 }
                             }
