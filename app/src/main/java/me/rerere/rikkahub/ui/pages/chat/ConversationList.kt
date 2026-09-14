@@ -73,6 +73,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Share
 import me.rerere.rikkahub.R
@@ -112,7 +113,7 @@ fun ColumnScope.ConversationList(
     manualMemoryConsolidationConversationIds: Set<Uuid> = emptySet(),
     recentlyRestoredIds: Set<Uuid> = emptySet(),
     searchQuery: String,
-    onSearchQueryChange: (String) -> Unit,
+    onSearchQueryChange: (String) -> Unit = {},
     drawerState: DrawerState? = null,
     modifier: Modifier = Modifier,
     onClick: (Conversation) -> Unit = {},
@@ -122,49 +123,11 @@ fun ColumnScope.ConversationList(
     onCancelConsolidation: (Conversation) -> Unit = {},
     onPin: (Conversation) -> Unit = {},
     onExportConversationJson: (Conversation) -> Unit = {},
+    onMoveToProject: (Conversation) -> Unit = {},
     showConsolidateOption: Boolean = false,
     showExportConversationJsonButton: Boolean = false,
 ) {
     val navController = LocalNavController.current
-
-    // fix: compose很奇怪，会自动聚焦到第一个文本框
-    // 在这里放一个空的Box，防止自动聚焦到第一个文本框弹出IME
-    Box(modifier = Modifier.focusable())
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        TextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
-            modifier = Modifier
-                .weight(1f),
-            shape = RoundedCornerShape(50),
-            trailingIcon = {
-                AnimatedVisibility(searchQuery.isNotEmpty()) {
-                    IconButton(
-                        onClick = {
-                            onSearchQueryChange("")
-                        }
-                    ) {
-                        Icon(Icons.Rounded.Close, null)
-                    }
-                }
-            },
-            colors = TextFieldDefaults.colors(
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                disabledIndicatorColor = Color.Transparent,
-            ),
-            placeholder = {
-                Text(stringResource(id = R.string.chat_page_search_placeholder))
-            }
-        )
-    }
 
     val density = LocalDensity.current
     var viewportHeight by remember { mutableIntStateOf(0) }
@@ -401,6 +364,7 @@ fun ColumnScope.ConversationList(
                             onCancelConsolidation = onCancelConsolidation,
                             onPin = onPin,
                             onExportConversationJson = onExportConversationJson,
+                            onMoveToProject = onMoveToProject,
                             showConsolidateOption = showConsolidateOption,
                             showExportConversationJsonButton = showExportConversationJsonButton,
                             modifier = Modifier.animateItem(
@@ -543,6 +507,7 @@ private fun ConversationItem(
     onCancelConsolidation: (Conversation) -> Unit = {},
     onPin: (Conversation) -> Unit = {},
     onExportConversationJson: (Conversation) -> Unit = {},
+    onMoveToProject: (Conversation) -> Unit = {},
     showConsolidateOption: Boolean = false,
     showExportConversationJsonButton: Boolean = false,
     onClick: (Conversation) -> Unit
@@ -686,6 +651,20 @@ private fun ConversationItem(
                     },
                     leadingIcon = {
                         Icon(Icons.Rounded.Refresh, null)
+                    }
+                )
+
+                DropdownMenuItem(
+                    text = {
+                        Text(stringResource(id = R.string.chat_page_move_to_project))
+                    },
+                    onClick = {
+                        haptics.perform(HapticPattern.Pop)
+                        onMoveToProject(conversation)
+                        showDropdownMenu = false
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Rounded.Folder, null)
                     }
                 )
 

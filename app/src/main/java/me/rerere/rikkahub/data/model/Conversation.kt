@@ -51,6 +51,7 @@ data class ConversationSummary(
     val isConsolidated: Boolean = false,
     val rootId: Uuid = id,
     val branchNumber: Int? = null,
+    val projectId: Uuid? = null,
 )
 
 @Serializable
@@ -110,6 +111,7 @@ data class Conversation(
     val workspaceOverrideId: String? = null, // 会话级工作区覆写；null = 跟随助手绑定
     val loadedNodeStartIndex: Int = 0, // Absolute start index of currently loaded node window
     val totalMessageNodeCount: Int = 0, // Total node count stored in DB for this conversation
+    val projectId: Uuid? = null,
 ) {
     val hasOlderHistoryNodes: Boolean
         get() = loadedNodeStartIndex > 0
@@ -175,10 +177,12 @@ data class Conversation(
             id: Uuid,
             assistantId: Uuid = DEFAULT_ASSISTANT_ID,
             messages: List<MessageNode> = emptyList(),
+            projectId: Uuid? = null,
         ) = Conversation(
             id = id,
             assistantId = assistantId,
-            messageNodes = messages
+            messageNodes = messages,
+            projectId = projectId,
         )
     }
 }

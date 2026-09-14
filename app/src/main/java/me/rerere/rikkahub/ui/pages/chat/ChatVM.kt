@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -44,6 +45,7 @@ import me.rerere.rikkahub.data.datastore.ChatReadPositionStore
 import me.rerere.rikkahub.data.datastore.ConversationReadPosition
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
 import me.rerere.rikkahub.data.datastore.sanitizeConversationLargeContextWarningShownAt
 import me.rerere.rikkahub.data.model.Assistant
@@ -51,13 +53,16 @@ import me.rerere.rikkahub.data.model.AssistantAffectScope
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.ChatTarget
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.Project
 import me.rerere.rikkahub.data.model.replaceRegexes
 import me.rerere.rikkahub.data.model.id
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.repository.ModelQuotaRepository
+import me.rerere.rikkahub.data.repository.ProjectRepository
 import me.rerere.rikkahub.data.repository.QuotaUsageResult
 import me.rerere.rikkahub.service.ChatService
+import me.rerere.rikkahub.ui.hooks.readStringPreference
 import me.rerere.rikkahub.ui.hooks.writeStringPreference
 import me.rerere.rikkahub.utils.UiState
 import me.rerere.rikkahub.utils.UpdateChecker
@@ -77,6 +82,7 @@ class ChatVM(
     private val settingsStore: SettingsStore,
     private val readPositionStore: ChatReadPositionStore,
     private val conversationRepo: ConversationRepository,
+    private val projectRepo: ProjectRepository,
     private val chatService: ChatService,
     val updateChecker: UpdateChecker,
     private val analytics: FirebaseAnalytics,
@@ -88,6 +94,9 @@ class ChatVM(
     val conversationId: Uuid
         get() = _conversationId
     val conversation: StateFlow<Conversation> = chatService.getConversationFlow(_conversationId)
+
+    // 用户设置
+    val settings: StateFlow<Settings> = settingsStore.settingsFlow
 
     private val _conversationInitialized = MutableStateFlow(false)
     val conversationInitialized: StateFlow<Boolean> = _conversationInitialized.asStateFlow()
@@ -152,6 +161,18 @@ class ChatVM(
                 context.writeStringPreference("lastConversationId", null)
             }
         }
+
+        // 恢复并监听助手当前选中的项目
+        viewModelScope.launch {
+            settingsStore.settingsFlow
+                .map { it.chatTarget.id }
+                .distinctUntilChanged()
+                .collectLatest { assistantId ->
+                    val saved = context.readStringPreference("selected_project_$assistantId")
+                    val savedId = saved?.let { runCatching { Uuid.parse(it) }.getOrNull() }
+                    chatService.selectProject(savedId)
+                }
+        }
     }
 
     override fun onCleared() {
@@ -177,9 +198,6 @@ class ChatVM(
             }
         }
     }
-
-    // 用户设置
-    val settings: StateFlow<Settings> = settingsStore.settingsFlow
 
     // 阅读位置来自独立存储，不再挂在全局 Settings 上
     val readPositionsReady: StateFlow<Boolean> = readPositionStore.readyFlow
@@ -232,6 +250,81 @@ class ChatVM(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery
 
+    // 项目相关
+    val selectedProjectId: StateFlow<Uuid?> = chatService.selectedProjectId
+
+    val projects: StateFlow<List<Project>> = settings
+        .map { it.chatTarget.id }
+        .distinctUntilChanged()
+        .flatMapLatest { targetId ->
+            projectRepo.getProjectsOfAssistant(targetId)
+        }
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    fun selectProject(projectId: Uuid?) {
+        val assistantId = settings.value.chatTarget.id
+        context.writeStringPreference("selected_project_$assistantId", projectId?.toString())
+        chatService.selectProject(projectId)
+    }
+
+    fun createProject(
+        name: String,
+        systemPrompt: String = "",
+        modelId: Uuid? = null,
+        enableMemoryTools: Boolean = true,
+        enableConsolidation: Boolean = true,
+        exposeToExternal: Boolean = false,
+        readExternalMemory: Boolean = true,
+        onSuccess: ((Project) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val assistantId = settings.value.chatTarget.id
+            val project = projectRepo.createProject(
+                assistantId = assistantId,
+                name = name,
+                description = "",
+                systemPrompt = systemPrompt,
+                modelId = modelId,
+                enableMemoryTools = enableMemoryTools,
+                enableConsolidation = enableConsolidation,
+                exposeToExternal = exposeToExternal,
+                readExternalMemory = readExternalMemory,
+            )
+            selectProject(project.id)
+            onSuccess?.invoke(project)
+        }
+    }
+
+    fun updateProject(project: Project) {
+        viewModelScope.launch {
+            projectRepo.updateProject(project)
+        }
+    }
+
+    fun renameProject(id: Uuid, name: String) {
+        viewModelScope.launch {
+            projectRepo.renameProject(id, name)
+        }
+    }
+
+    fun deleteProject(project: Project) {
+        viewModelScope.launch {
+            chatService.clearProjectMemoryState(project.id)
+            val assistantId = settings.value.chatTarget.id
+            if (context.readStringPreference("selected_project_$assistantId") == project.id.toString()) {
+                context.writeStringPreference("selected_project_$assistantId", null)
+            }
+            projectRepo.deleteProject(project.id)
+        }
+    }
+
+    fun moveConversationToProject(conversationId: Uuid, projectId: Uuid?) {
+        viewModelScope.launch {
+            chatService.updateConversationProjectId(conversationId, projectId)
+            conversationRepo.moveConversationToProject(conversationId, projectId)
+        }
+    }
+
     // 聊天列表 (使用 Paging 分页加载)
     @OptIn(FlowPreview::class)
     val conversations: Flow<PagingData<ConversationListItem>> =
@@ -239,14 +332,15 @@ class ChatVM(
             settings.map { it.chatTarget.id }.distinctUntilChanged(),
             // 防抖：每次按键都会触发一次全表 LIKE 扫描，只查停止输入 300ms 后的关键词；
             // 空串（初始加载/清空搜索）不延迟，立即显示完整列表
-            _searchQuery.debounce { query -> if (query.isBlank()) 0L else 300L }
-        ) { targetId, query -> targetId to query }
-            .flatMapLatest { (targetId, query) ->
-                // 根据搜索关键词决定使用哪个数据源
+            _searchQuery.debounce { query -> if (query.isBlank()) 0L else 300L },
+            chatService.selectedProjectId
+        ) { targetId, query, projId -> Triple(targetId, query, projId) }
+            .flatMapLatest { (targetId, query, projId) ->
+                // 根据搜索关键词和项目过滤决定使用哪个数据源
                 if (query.isBlank()) {
-                    conversationRepo.getConversationsOfAssistantPaging(targetId)
+                    conversationRepo.getConversationsOfAssistantPaging(targetId, projId)
                 } else {
-                    conversationRepo.searchConversationsOfAssistantPaging(targetId, query)
+                    conversationRepo.searchConversationsOfAssistantPaging(targetId, query, projId)
                 }
             }
             .map { pagingData ->
@@ -319,14 +413,31 @@ class ChatVM(
         _searchQuery.value = query
     }
 
-    // 当前模型
-    val currentChatModel = settings.map { settings ->
-        settings.getCurrentChatModel()
+    // 当前模型 (感知当前会话所在项目或当前选中项目的模型覆写)
+    val currentChatModel: StateFlow<Model?> = combine(
+        settings,
+        conversation,
+        projects,
+        chatService.selectedProjectId
+    ) { currentSettings, conv, projList, selectedProjId ->
+        val effectiveProjectId = conv.projectId ?: selectedProjId
+        val proj = effectiveProjectId?.let { pid -> projList.find { it.id == pid } }
+        val modelId = proj?.modelId
+        if (modelId != null) {
+            currentSettings.findModelById(modelId) ?: currentSettings.getCurrentChatModel()
+        } else {
+            currentSettings.getCurrentChatModel()
+        }
     }.stateIn(viewModelScope, SharingStarted.Lazily, null)
 
-    val quotaUsageFlow: StateFlow<QuotaUsageResult?> = settings.flatMapLatest { settings ->
-        val model = settings.getCurrentChatModel() ?: return@flatMapLatest flowOf(null)
-        modelQuotaRepo.getQuotaUsageFlowForProviders(model, settings.providers)
+    val quotaUsageFlow: StateFlow<QuotaUsageResult?> = combine(
+        settings,
+        currentChatModel
+    ) { currentSettings, model ->
+        model to currentSettings
+    }.flatMapLatest { (model, currentSettings) ->
+        if (model == null) return@flatMapLatest flowOf(null)
+        modelQuotaRepo.getQuotaUsageFlowForProviders(model, currentSettings.providers)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // 错误流 (从ChatService获取)
@@ -345,6 +456,7 @@ class ChatVM(
     // 走 updateChatTarget 的「锁内读最新值再改写」路径，而不是整份组合期快照覆盖；
     // 用 appScope 而非 viewModelScope：切完立刻导航走会销毁本 VM，写入不能被取消。
     fun selectChatTarget(target: ChatTarget): Job {
+        chatService.selectProject(null)
         return appScope.launch {
             try {
                 settingsStore.updateChatTarget(target)

@@ -57,6 +57,8 @@ import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.SafWorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.SandboxWorkspaceEntity
 import me.rerere.rikkahub.data.db.entity.SandboxWorkspaceMountEntity
+import me.rerere.rikkahub.data.db.entity.ProjectEntity
+import me.rerere.rikkahub.data.db.dao.ProjectDAO
 import me.rerere.rikkahub.data.db.entity.LocalModelEntity
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.utils.JsonInstant
@@ -90,8 +92,9 @@ import me.rerere.rikkahub.utils.JsonInstant
         MemoryConsolidationRecordEntity::class,
         MemoryConsolidationClaimEntity::class,
         LocalModelEntity::class,
+        ProjectEntity::class,
     ],
-    version = 51,
+    version = 52,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -140,10 +143,13 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 48->49 is manual migration (MIGRATION_48_49) - adds request log metadata
         // 49->50 is manual migration (MIGRATION_49_50) - adds saved memory summary requirements
         // 50->51 is manual migration (MIGRATION_50_51) - adds local model metadata
+        // 51->52 is manual migration (MIGRATION_51_52) - adds projects and project_id to conversation and memories
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
 abstract class AppDatabase : RoomDatabase() {
+    abstract fun projectDao(): ProjectDAO
+
     abstract fun conversationDao(): ConversationDAO
 
     abstract fun memoryDao(): MemoryDAO
@@ -692,6 +698,53 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                     """.trimIndent(),
                 )
+            }
+        }
+
+        val MIGRATION_51_52 = object : Migration(51, 52) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `projects` (
+                        `id` TEXT NOT NULL,
+                        `assistant_id` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `description` TEXT NOT NULL DEFAULT '',
+                        `system_prompt` TEXT NOT NULL DEFAULT '',
+                        `model_id` TEXT,
+                        `enable_memory_tools` INTEGER NOT NULL DEFAULT 1,
+                        `enable_consolidation` INTEGER NOT NULL DEFAULT 1,
+                        `expose_to_external` INTEGER NOT NULL DEFAULT 0,
+                        `read_external_memory` INTEGER NOT NULL DEFAULT 1,
+                        `sort_index` INTEGER NOT NULL DEFAULT 0,
+                        `created_at` INTEGER NOT NULL DEFAULT 0,
+                        `updated_at` INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_projects_assistant_id_sort_index` ON `projects` (`assistant_id`, `sort_index`)"
+                )
+                db.execSQL(
+                    "ALTER TABLE `ConversationEntity` ADD COLUMN `project_id` TEXT DEFAULT NULL"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_ConversationEntity_assistant_id_project_id` ON `ConversationEntity` (`assistant_id`, `project_id`)"
+                )
+                db.execSQL(
+                    "ALTER TABLE `MemoryEntity` ADD COLUMN `project_id` TEXT DEFAULT NULL"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_MemoryEntity_assistant_id_project_id` ON `MemoryEntity` (`assistant_id`, `project_id`)"
+                )
+                db.execSQL(
+                    "ALTER TABLE `ChatEpisodeEntity` ADD COLUMN `project_id` TEXT DEFAULT NULL"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_ChatEpisodeEntity_assistant_id_project_id` ON `ChatEpisodeEntity` (`assistant_id`, `project_id`)"
+                )
+                Log.i(TAG, "migrate: migrate from 51 to 52 success")
             }
         }
     }

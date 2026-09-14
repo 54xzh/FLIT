@@ -206,6 +206,7 @@ val appModule = module {
             searchAgentProgressStore = get(),
             workspaceRepository = get(),
             workspaceToolFactory = get(),
+            projectRepository = get(),
         )
     }
 

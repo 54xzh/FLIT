@@ -278,7 +278,36 @@ class ChatService(
     val searchAgentProgressStore: SearchAgentProgressStore,
     private val workspaceRepository: WorkspaceRepository,
     private val workspaceToolFactory: WorkspaceToolFactory,
+    val projectRepository: me.rerere.rikkahub.data.repository.ProjectRepository,
 ) : me.rerere.rikkahub.data.repository.ConversationDeletionCoordinator {
+    private val _selectedProjectId = MutableStateFlow<Uuid?>(null)
+    val selectedProjectId: StateFlow<Uuid?> = _selectedProjectId.asStateFlow()
+
+    fun selectProject(projectId: Uuid?) {
+        _selectedProjectId.value = projectId
+    }
+
+    /**
+     * 同步更新内存缓存中会话的 projectId，防止旧快照覆盖回数据库
+     */
+    fun updateConversationProjectId(conversationId: Uuid, projectId: Uuid?) {
+        conversations[conversationId]?.update { it.copy(projectId = projectId) }
+    }
+
+    /**
+     * 清除指定项目的内存状态引用（重置选中态，并将已缓存的相关会话 projectId 置空）
+     */
+    fun clearProjectMemoryState(projectId: Uuid) {
+        if (_selectedProjectId.value == projectId) {
+            _selectedProjectId.value = null
+        }
+        conversations.values.forEach { flow ->
+            flow.update { conv ->
+                if (conv.projectId == projectId) conv.copy(projectId = null) else conv
+            }
+        }
+    }
+
     // 存储每个对话的状态
     private val conversations = ConcurrentHashMap<Uuid, MutableStateFlow<Conversation>>()
 
@@ -1506,6 +1535,7 @@ class ChatService(
                     Conversation.ofId(
                         id = conversationId,
                         assistantId = assistant.id,
+                        projectId = _selectedProjectId.value,
                     ).updateCurrentMessages(assistant.presetMessages).copy(
                         enabledModeIds = assistant.enabledModeIds,
                     )
@@ -1547,12 +1577,13 @@ class ChatService(
         return conversation
     }
 
-    suspend fun createConversation(assistantId: Uuid): Conversation {
+    suspend fun createConversation(assistantId: Uuid, projectId: Uuid? = null): Conversation {
         val settings = settingsStore.settingsFlow.value
         val assistant = settings.getAssistantById(assistantId) ?: settings.getCurrentAssistant()
         val conversation = Conversation.ofId(
             id = Uuid.random(),
             assistantId = assistant.id,
+            projectId = projectId,
         ).updateCurrentMessages(assistant.presetMessages).copy(
             enabledModeIds = assistant.enabledModeIds,
         )
@@ -1635,6 +1666,8 @@ class ChatService(
                 enabledModeIds = currentConversation.enabledModeIds,
                 explicitSkillContexts = currentConversation.explicitSkillContexts,
                 sessionMemories = currentConversation.sessionMemories,
+                // 分支继承源会话的项目归属：分支依旧保持在原项目中
+                projectId = currentConversation.projectId,
             )
         }
     }
@@ -2255,7 +2288,11 @@ class ChatService(
                 return@runCatching
             }
 
-            val model = settings.getCurrentChatModel() ?: return@runCatching
+            val currentProject = conversation.projectId?.let { projectRepository.getProjectById(it) }
+            val projectModelId = currentProject?.modelId
+            val model = (if (projectModelId != null) settings.findModelById(projectModelId) else null)
+                ?: settings.getCurrentChatModel()
+                ?: return@runCatching
 
             val assistant = settings.getCurrentAssistant()
             val modelProvider = model.findProvider(settings.providers)
@@ -2294,10 +2331,14 @@ class ChatService(
                 conversationId = conversationId.toString(),
             )
             val workspaceFileReferenceContext = workspaceToolSet.referenceContext
-            val memorySummary = loadMemorySummary(
-                assistant = assistant,
-                memoryAvailableForRun = persistentConversationId != null,
-            )
+            val memorySummary = if (currentProject != null && !currentProject.readExternalMemory) {
+                null
+            } else {
+                loadMemorySummary(
+                    assistant = assistant,
+                    memoryAvailableForRun = persistentConversationId != null,
+                )
+            }
 
             // start generating
             generationHandler.generateText(
@@ -2309,6 +2350,7 @@ class ChatService(
                 workspaceFileReferenceContext = workspaceFileReferenceContext,
                 memorySummary = memorySummary?.content,
                 memorySummaryVersionId = memorySummary?.id,
+                currentProject = currentProject,
                 memories = if (assistant.enableMemory && persistentConversationId != null) {
                     val assistantId = assistant.id.toString()
                     val memoryCacheKey = buildMemoryCacheKey(persistentConversationId, assistantId)
@@ -2369,6 +2411,8 @@ class ChatService(
                                         retrievalTimeoutMs,
                                     ),
                                     includePinnedOnFailure = false,
+                                    projectId = currentProject?.id?.toString(),
+                                    readExternal = currentProject?.readExternalMemory ?: true,
                                 )
                             )
                             val retrievalFailed = result.outcome == MemoryRetrievalOutcome.FAILED

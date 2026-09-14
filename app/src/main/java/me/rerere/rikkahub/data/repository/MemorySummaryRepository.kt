@@ -120,10 +120,14 @@ class MemorySummaryRepository(
             .map(MemorySummaryRequirementEntity::requirement)
 
     suspend fun getCurrentMemoryCount(assistantId: String): Int =
-        memoryDao.getMemoriesOfAssistant(assistantId).size + episodeDao.getEpisodesOfAssistant(assistantId).size
+        memoryDao.getExposedMemoriesOfAssistant(assistantId).size + episodeDao.getExposedEpisodesOfAssistant(assistantId).size
+
+    suspend fun markRequiresFullUpdate(assistantId: String) {
+        summaryDao.markRequiresFullUpdate(assistantId)
+    }
 
     suspend fun getAllSources(assistantId: String): List<MemorySummarySource> = buildList {
-        memoryDao.getMemoriesOfAssistant(assistantId).forEach { memory ->
+        memoryDao.getExposedMemoriesOfAssistant(assistantId).forEach { memory ->
             add(
                 MemorySummarySource(
                     type = MemoryType.CORE,
@@ -134,7 +138,7 @@ class MemorySummaryRepository(
                 )
             )
         }
-        episodeDao.getEpisodesOfAssistant(assistantId).forEach { episode ->
+        episodeDao.getExposedEpisodesOfAssistant(assistantId).forEach { episode ->
             add(
                 MemorySummarySource(
                     type = MemoryType.EPISODIC,
@@ -153,7 +157,7 @@ class MemorySummaryRepository(
     ): List<MemorySummarySource> = buildList {
         changes.filter { it.changeType == MemorySummaryChangeType.ADDED }.forEach { change ->
             when (change.memoryType) {
-                MemoryType.CORE -> memoryDao.getMemoryById(change.memoryId)?.takeIf { it.assistantId == assistantId }?.let { memory ->
+                MemoryType.CORE -> memoryDao.getExposedMemoryById(change.memoryId)?.takeIf { it.assistantId == assistantId }?.let { memory ->
                     add(
                         MemorySummarySource(
                             type = MemoryType.CORE,
@@ -165,7 +169,7 @@ class MemorySummaryRepository(
                     )
                 }
 
-                MemoryType.EPISODIC -> episodeDao.getEpisodeById(change.memoryId)?.takeIf { it.assistantId == assistantId }?.let { episode ->
+                MemoryType.EPISODIC -> episodeDao.getExposedEpisodeById(change.memoryId)?.takeIf { it.assistantId == assistantId }?.let { episode ->
                     add(
                         MemorySummarySource(
                             type = MemoryType.EPISODIC,

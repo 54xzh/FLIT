@@ -19,9 +19,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -29,6 +34,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +68,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.model.Project
 import me.rerere.rikkahub.data.datastore.ConversationWorkDirBinding
 import me.rerere.rikkahub.data.datastore.ConversationWorkDirMode
 import me.rerere.rikkahub.data.datastore.clearConversationWorkspace
@@ -113,6 +121,14 @@ fun ChatDrawerContent(
 
     val conversations = vm.conversations.collectAsLazyPagingItems()
     val searchQuery by vm.searchQuery.collectAsStateWithLifecycle()
+
+    val projects by vm.projects.collectAsStateWithLifecycle()
+    val selectedProjectId by vm.selectedProjectId.collectAsStateWithLifecycle()
+
+    var showCreateProjectDialog by remember { mutableStateOf(false) }
+    var projectToRename by remember { mutableStateOf<Project?>(null) }
+    var projectToDelete by remember { mutableStateOf<Project?>(null) }
+    var conversationToMove by remember { mutableStateOf<Conversation?>(null) }
 
     val conversationJobs by vm.conversationJobs.collectAsStateWithLifecycle(
         initialValue = emptyMap(),
@@ -269,6 +285,59 @@ fun ChatDrawerContent(
                 }
             }
 
+            // 聊天搜索框
+            Box(modifier = Modifier.focusable())
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextField(
+                    value = searchQuery,
+                    onValueChange = { vm.updateSearchQuery(it) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(50),
+                    trailingIcon = {
+                        AnimatedVisibility(searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { vm.updateSearchQuery("") }) {
+                                Icon(Icons.Rounded.Close, null)
+                            }
+                        }
+                    },
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                    ),
+                    placeholder = {
+                        Text(stringResource(id = R.string.chat_page_search_placeholder))
+                    }
+                )
+            }
+
+            // 项目选择栏（严格置于搜索框下方）
+            if (settings.chatTarget is ChatTarget.Assistant) {
+                ProjectBar(
+                    projects = projects,
+                    selectedProjectId = selectedProjectId,
+                    onSelectProject = { vm.selectProject(it) },
+                    onCreateProject = {
+                        showCreateProjectDialog = true
+                    },
+                    onEditProject = { project ->
+                        navController.navigate(Screen.ProjectDetail(id = project.id.toString()))
+                    },
+                    onRenameProject = { project ->
+                        projectToRename = project
+                    },
+                    onDeleteProject = { project ->
+                        projectToDelete = project
+                    },
+                )
+            }
+
             ConversationList(
                 currentId = currentId,
                 currentExistsInStorage = currentExistsInStorage,
@@ -320,6 +389,9 @@ fun ChatDrawerContent(
                 },
                 onExportConversationJson = { conversation ->
                     exportConversationJson(conversation)
+                },
+                onMoveToProject = { conversation ->
+                    conversationToMove = conversation
                 },
                 showConsolidateOption = canConsolidate,
                 showExportConversationJsonButton = settings.displaySetting.showExportConversationJsonButton,
@@ -482,6 +554,114 @@ fun ChatDrawerContent(
                         nicknameEditState.dismiss()
                     }
                 ) {
+                    Text(stringResource(R.string.chat_page_cancel))
+                }
+            }
+        )
+    }
+
+    if (showCreateProjectDialog) {
+        var newProjectName by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showCreateProjectDialog = false },
+            title = { Text(stringResource(R.string.project_new)) },
+            text = {
+                OutlinedTextField(
+                    value = newProjectName,
+                    onValueChange = { newProjectName = it },
+                    placeholder = { Text(stringResource(R.string.project_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (newProjectName.isNotBlank()) {
+                            vm.createProject(name = newProjectName.trim())
+                        }
+                        showCreateProjectDialog = false
+                    },
+                    enabled = newProjectName.isNotBlank(),
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateProjectDialog = false }) {
+                    Text(stringResource(R.string.chat_page_cancel))
+                }
+            }
+        )
+    }
+
+    conversationToMove?.let { conversation ->
+        MoveToProjectBottomSheet(
+            conversation = conversation,
+            projects = projects,
+            onSelect = { projectId ->
+                vm.moveConversationToProject(conversation.id, projectId)
+                conversationToMove = null
+            },
+            onDismiss = { conversationToMove = null }
+        )
+    }
+
+    projectToRename?.let { project ->
+        var renameText by remember(project.id) { mutableStateOf(project.name) }
+        AlertDialog(
+            onDismissRequest = { projectToRename = null },
+            title = { Text(stringResource(R.string.project_rename)) },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    placeholder = { Text(stringResource(R.string.project_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (renameText.isNotBlank()) {
+                            vm.renameProject(project.id, renameText.trim())
+                        }
+                        projectToRename = null
+                    },
+                    enabled = renameText.isNotBlank()
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { projectToRename = null }) {
+                    Text(stringResource(R.string.chat_page_cancel))
+                }
+            }
+        )
+    }
+
+    projectToDelete?.let { project ->
+        AlertDialog(
+            onDismissRequest = { projectToDelete = null },
+            title = { Text(stringResource(R.string.project_delete)) },
+            text = { Text(stringResource(R.string.project_delete_confirm, project.name)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.deleteProject(project)
+                        projectToDelete = null
+                    }
+                ) {
+                    Text(
+                        text = stringResource(R.string.chat_page_delete),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { projectToDelete = null }) {
                     Text(stringResource(R.string.chat_page_cancel))
                 }
             }

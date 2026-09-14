@@ -9,7 +9,8 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["assistant_id", "is_pinned", "update_at"]),
         // 分支计数安全网: 同一棵树内分支编号唯一。SQLite 把 NULL 视为不同值, 根会话(branch_number NULL)互不冲突。
-        Index(value = ["root_id", "branch_number"], unique = true)
+        Index(value = ["root_id", "branch_number"], unique = true),
+        Index(value = ["assistant_id", "project_id"]),
     ]
 )
 data class ConversationEntity(
@@ -61,4 +62,6 @@ data class ConversationEntity(
     val sessionMemories: String = "[]",
     @ColumnInfo(name = "workspace_override_id", defaultValue = "NULL")
     val workspaceOverrideId: String? = null,
+    @ColumnInfo(name = "project_id", defaultValue = "NULL")
+    val projectId: String? = null,
 )

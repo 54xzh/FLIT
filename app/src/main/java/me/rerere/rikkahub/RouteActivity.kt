@@ -62,6 +62,7 @@ import me.rerere.rikkahub.ui.hooks.rememberCustomTtsState
 import me.rerere.rikkahub.ui.pages.assistant.AssistantPage
 import me.rerere.rikkahub.ui.pages.assistant.detail.AssistantDetailPage
 import me.rerere.rikkahub.ui.pages.assistant.groupchat.GroupChatTemplateDetailPage
+import me.rerere.rikkahub.ui.pages.project.ProjectDetailPage
 import me.rerere.rikkahub.ui.pages.assistant.scheduled.AssistantScheduledTaskEditPage
 import me.rerere.rikkahub.ui.pages.assistant.scheduled.AssistantScheduledTasksPage
 import me.rerere.rikkahub.ui.pages.backup.BackupPage
@@ -594,6 +595,11 @@ class RouteActivity : ComponentActivity() {
                         GroupChatTemplateDetailPage(id = route.id)
                     }
 
+                    composable<Screen.ProjectDetail> { backStackEntry ->
+                        val route = backStackEntry.toRoute<Screen.ProjectDetail>()
+                        ProjectDetailPage(id = route.id)
+                    }
+
                     composable<Screen.AssistantScheduledTasks> { backStackEntry ->
                         val route = backStackEntry.toRoute<Screen.AssistantScheduledTasks>()
                         AssistantScheduledTasksPage(assistantId = route.assistantId)
@@ -797,6 +803,9 @@ sealed interface Screen {
 
     @Serializable
     data class GroupChatTemplateDetail(val id: String) : Screen
+
+    @Serializable
+    data class ProjectDetail(val id: String) : Screen
 
     @Serializable
     data class AssistantScheduledTasks(val assistantId: String) : Screen

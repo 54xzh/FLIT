@@ -8,7 +8,8 @@ import androidx.room.PrimaryKey
 @Entity(
     indices = [
         Index(value = ["assistant_id", "end_time"]),
-        Index(value = ["conversation_id"])
+        Index(value = ["conversation_id"]),
+        Index(value = ["assistant_id", "project_id"]),
     ]
 )
 data class ChatEpisodeEntity(
@@ -34,4 +35,6 @@ data class ChatEpisodeEntity(
     val conversationId: String? = null,
     @ColumnInfo(name = "updated_at", defaultValue = "NULL")
     val updatedAt: Long? = null,
+    @ColumnInfo(name = "project_id", defaultValue = "NULL")
+    val projectId: String? = null,
 )

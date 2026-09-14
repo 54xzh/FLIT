@@ -2,9 +2,14 @@ package me.rerere.rikkahub.data.db.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity
+@Entity(
+    indices = [
+        Index(value = ["assistant_id", "project_id"]),
+    ]
+)
 data class MemoryEntity(
     @PrimaryKey(true)
     val id: Int = 0,
@@ -26,6 +31,8 @@ data class MemoryEntity(
     val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "updated_at", defaultValue = "NULL")
     val updatedAt: Long? = null,
+    @ColumnInfo(name = "project_id", defaultValue = "NULL")
+    val projectId: String? = null,
 )
 
 object MemoryType {

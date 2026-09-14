@@ -46,6 +46,9 @@ interface MemorySummaryDao {
     @Query("DELETE FROM memory_summary_state WHERE assistant_id = :assistantId")
     suspend fun deleteStateOfAssistant(assistantId: String)
 
+    @Query("UPDATE memory_summary_state SET requires_full_update = 1 WHERE assistant_id = :assistantId")
+    suspend fun markRequiresFullUpdate(assistantId: String)
+
     @Query("SELECT * FROM memory_summary_versions WHERE assistant_id = :assistantId AND id = :versionId LIMIT 1")
     suspend fun getVersion(assistantId: String, versionId: Long): MemorySummaryVersionEntity?
 

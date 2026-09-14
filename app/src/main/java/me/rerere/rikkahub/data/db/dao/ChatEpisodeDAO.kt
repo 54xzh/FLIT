@@ -29,6 +29,21 @@ interface ChatEpisodeDAO {
     @Query("SELECT * FROM ChatEpisodeEntity WHERE assistant_id = :assistantId ORDER BY end_time DESC")
     suspend fun getEpisodesOfAssistant(assistantId: String): List<ChatEpisodeEntity>
 
+    @Query("""
+        SELECT * FROM ChatEpisodeEntity 
+        WHERE assistant_id = :assistantId 
+          AND (project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE expose_to_external = 1))
+        ORDER BY end_time DESC
+    """)
+    suspend fun getExposedEpisodesOfAssistant(assistantId: String): List<ChatEpisodeEntity>
+
+    @Query("""
+        SELECT * FROM ChatEpisodeEntity 
+        WHERE id = :id 
+          AND (project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE expose_to_external = 1))
+    """)
+    suspend fun getExposedEpisodeById(id: Int): ChatEpisodeEntity?
+
     @Query("SELECT * FROM ChatEpisodeEntity WHERE assistant_id = :assistantId ORDER BY end_time DESC LIMIT :limit")
     suspend fun getRecentEpisodesOfAssistant(assistantId: String, limit: Int): List<ChatEpisodeEntity>
 
@@ -139,4 +154,7 @@ interface ChatEpisodeDAO {
 
     @Query("SELECT * FROM chatepisodeentity WHERE id = :id")
     suspend fun getEpisodeById(id: Int): ChatEpisodeEntity?
+
+    @Query("UPDATE chatepisodeentity SET project_id = NULL WHERE project_id = :projectId")
+    suspend fun clearProjectId(projectId: String)
 }

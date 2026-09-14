@@ -2,6 +2,7 @@ package me.rerere.rikkahub.di
 
 import me.rerere.rikkahub.data.ai.rag.EmbeddingService
 import me.rerere.rikkahub.data.repository.ConversationRepository
+import me.rerere.rikkahub.data.repository.ProjectRepository
 import me.rerere.rikkahub.data.repository.CachedOpenRouterModelCapabilityProvider
 import me.rerere.rikkahub.data.repository.GenMediaRepository
 import me.rerere.rikkahub.data.repository.LorebookEntryRevisionRepository
@@ -32,6 +33,10 @@ import org.koin.dsl.module
 import java.io.File
 
 val repositoryModule = module {
+    single {
+        ProjectRepository(get(), get(), get(), get(), get()) { getOrNull<MemorySummaryRepository>() }
+    }
+
     single {
         ConversationRepository(get(), get(), get(), get(), get(), get(), get(), get(), get(), get())
     }

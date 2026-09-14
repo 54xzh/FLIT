@@ -101,6 +101,7 @@ import me.rerere.rikkahub.data.model.SessionMemory
 import me.rerere.rikkahub.data.model.SessionMemoryPlacement
 import me.rerere.rikkahub.data.model.ToolResultHistoryMode
 import me.rerere.rikkahub.data.model.Avatar
+import me.rerere.rikkahub.data.model.Project
 import me.rerere.rikkahub.data.model.WorkspaceFileReferenceContext
 import me.rerere.rikkahub.data.model.withWorkspaceFileReferenceContext
 import me.rerere.rikkahub.data.repository.ConversationRepository
@@ -389,6 +390,7 @@ class GenerationHandler(
         toolApprovalHandler: ToolApprovalHandler? = null,
         askUserHandler: AskUserHandler? = null,
         workspaceFileReferenceContext: WorkspaceFileReferenceContext? = null,
+        currentProject: Project? = null,
     ): Flow<GenerationChunk> = flow {
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         val providerImpl = providerManager.getProviderByType(provider)
@@ -403,7 +405,7 @@ class GenerationHandler(
                 Log.i(TAG, "generateInternal: build tools($assistant)")
                 // Only add memory tools if memory is enabled AND memory is available for this run
                 // (temporary chats pass `memories = null` to opt-out).
-                if (assistant.enableMemory && memories != null && enableMemoryTools) {
+                if (assistant.enableMemory && memories != null && enableMemoryTools && (currentProject == null || currentProject.enableMemoryTools)) {
                     buildMemoryTools(
                         onCreation = { content ->
                             val normalizedContent = content.trim()
@@ -411,6 +413,8 @@ class GenerationHandler(
                                 assistantId = assistant.id.toString(),
                                 content = normalizedContent,
                                 generateEmbedding = assistant.effectiveMemoryRetrievalMode().requiresEmbedding,
+                                projectId = currentProject?.id?.toString(),
+                                exposeToExternal = currentProject?.exposeToExternal ?: false,
                             )
                         },
                         onUpdate = { id, content ->
@@ -479,6 +483,7 @@ class GenerationHandler(
                 enabledModeIds = enabledModeIds,
                 explicitSkillContexts = explicitSkillContexts,
                 source = source,
+                currentProject = currentProject,
             )
             messages = messages.visualTransforms(
                 transformers = outputTransformers,
@@ -948,6 +953,7 @@ class GenerationHandler(
         truncateIndex: Int,
         enabledModeIds: Set<Uuid> = emptySet(),
         explicitSkillContexts: Set<String> = emptySet(),
+        currentProject: Project? = null,
     ): BuildMessagesResult {
         val allMessages = messages.truncate(truncateIndex)
         val conversation = conversationId?.let { conversationRepo.getConversationById(it) }
@@ -1278,6 +1284,13 @@ class GenerationHandler(
         if (assistant.systemPrompt.isNotBlank()) {
             baseSystemPromptBuilder.append(assistant.systemPrompt)
         }
+        if (currentProject != null && currentProject.systemPrompt.isNotBlank()) {
+            baseSystemPromptBuilder.appendLine()
+            baseSystemPromptBuilder.appendLine("## 当前项目上下文")
+            baseSystemPromptBuilder.appendLine("<project_context>")
+            baseSystemPromptBuilder.appendLine(currentProject.systemPrompt)
+            baseSystemPromptBuilder.append("</project_context>")
+        }
         if (assistant.learningMode) {
             baseSystemPromptBuilder.appendLine()
             baseSystemPromptBuilder.append(settings.learningModePrompt.ifEmpty { DEFAULT_LEARNING_MODE_PROMPT })
@@ -1546,7 +1559,8 @@ class GenerationHandler(
             .sortedByMemoryTime()
         val dynamicMemories = selectedMemories.filterNot { it.pinned }
         val stableSessionMemorySection = buildStableSessionMemorySection(stableSessionMemories)
-        val memorySummarySection = buildMemorySummarySection(memorySummary.orEmpty())
+        val effectiveMemorySummary = if (currentProject != null && !currentProject.readExternalMemory) null else memorySummary
+        val memorySummarySection = buildMemorySummarySection(effectiveMemorySummary.orEmpty())
         val pinnedMemorySection = buildPinnedMemorySection(pinnedMemoriesForPrefix)
         val dynamicMemorySection = buildDynamicMemorySection(
             sessionMemories = dynamicSessionMemories,
@@ -1637,7 +1651,7 @@ class GenerationHandler(
                 },
             )
         }
-        val usedMemorySummary = memorySummary
+        val usedMemorySummary = effectiveMemorySummary
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?.let { summary ->
@@ -1679,6 +1693,7 @@ class GenerationHandler(
         enabledModeIds: Set<Uuid> = emptySet(),
         explicitSkillContexts: Set<String> = emptySet(),
         source: AIRequestSource,
+        currentProject: Project? = null,
     ) {
         val buildResult = buildMessages(
             assistant = assistant,
@@ -1694,6 +1709,7 @@ class GenerationHandler(
             truncateIndex = truncateIndex,
             enabledModeIds = enabledModeIds,
             explicitSkillContexts = explicitSkillContexts,
+            currentProject = currentProject,
         )
         val internalMessages = buildResult.messages
             .transforms(

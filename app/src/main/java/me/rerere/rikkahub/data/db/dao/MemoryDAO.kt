@@ -50,6 +50,19 @@ interface MemoryDAO {
             CAST(NULL AS INTEGER) AS significance
         FROM memoryentity
         WHERE assistant_id = :assistantId AND :includeCore = 1
+          AND (
+              (:projectId IS NOT NULL AND (
+                  project_id = :projectId 
+                  OR (:readExternal = 1 AND (
+                      project_id IS NULL 
+                      OR project_id IN (SELECT id FROM projects WHERE expose_to_external = 1)
+                  ))
+              ))
+              OR (:projectId IS NULL AND (
+                  project_id IS NULL 
+                  OR project_id IN (SELECT id FROM projects WHERE expose_to_external = 1)
+              ))
+          )
 
         UNION ALL
 
@@ -63,13 +76,42 @@ interface MemoryDAO {
             significance AS significance
         FROM chatepisodeentity
         WHERE assistant_id = :assistantId AND :includeEpisodes = 1
+          AND (
+              (:projectId IS NOT NULL AND (
+                  project_id = :projectId 
+                  OR (:readExternal = 1 AND (
+                      project_id IS NULL 
+                      OR project_id IN (SELECT id FROM projects WHERE expose_to_external = 1)
+                  ))
+              ))
+              OR (:projectId IS NULL AND (
+                  project_id IS NULL 
+                  OR project_id IN (SELECT id FROM projects WHERE expose_to_external = 1)
+              ))
+          )
         """
     )
     suspend fun getMemoryRetrievalRows(
         assistantId: String,
         includeCore: Boolean,
         includeEpisodes: Boolean,
+        projectId: String? = null,
+        readExternal: Boolean = true,
     ): List<MemoryRetrievalRow>
+
+    @Query("""
+        SELECT * FROM memoryentity 
+        WHERE assistant_id = :assistantId 
+          AND (project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE expose_to_external = 1))
+    """)
+    suspend fun getExposedMemoriesOfAssistant(assistantId: String): List<MemoryEntity>
+
+    @Query("""
+        SELECT * FROM memoryentity 
+        WHERE id = :id 
+          AND (project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE expose_to_external = 1))
+    """)
+    suspend fun getExposedMemoryById(id: Int): MemoryEntity?
 
     @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId")
     fun getMemoriesOfAssistantFlow(assistantId: String): Flow<List<MemoryEntity>>
@@ -243,4 +285,7 @@ interface MemoryDAO {
 
     @Query("DELETE FROM memoryentity WHERE assistant_id = :assistantId")
     suspend fun deleteMemoriesOfAssistant(assistantId: String)
+
+    @Query("UPDATE memoryentity SET project_id = NULL WHERE project_id = :projectId")
+    suspend fun clearProjectId(projectId: String)
 }

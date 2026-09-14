@@ -2639,4 +2639,36 @@
     <string name="local_models_model_downloading">正在下载 %1$s / %2$s</string>
     <string name="local_models_download_channel">本地模型下载</string>
     <string name="local_models_downloading_notification">正在下载本地模型</string>
+
+    <!-- Projects -->
+    <string name="project_all">全部</string>
+    <string name="project_new">新建项目</string>
+    <string name="project_name">项目名称</string>
+    <string name="project_name_desc">为该项目设置一个容易识别的名称</string>
+    <string name="project_settings">项目设置</string>
+    <string name="project_rename">重命名</string>
+    <string name="project_delete">删除项目</string>
+    <string name="project_delete_confirm">确定删除项目“%1$s”？其内部的会话与记忆将被移到项目外，不会被删除。</string>
+    <string name="project_basic_settings">基础设置</string>
+    <string name="project_context_title">项目提示词</string>
+    <string name="project_context_desc">追加在助手提示词后的专属指令</string>
+    <string name="project_context_hint">输入此项目的专属指令或背景设定…</string>
+    <string name="project_context_empty">未设置</string>
+    <string name="project_model_settings">模型设置</string>
+    <string name="project_model_title">运行模型</string>
+    <string name="project_model_inherit">继承助手模型 (%1$s)</string>
+    <string name="project_model_inherit_generic">继承助手模型</string>
+    <string name="project_memory_strategy">记忆策略</string>
+    <string name="project_enable_memory_tools">记忆工具</string>
+    <string name="project_enable_memory_tools_desc">允许助手调用记忆工具</string>
+    <string name="project_enable_consolidation">记忆整合</string>
+    <string name="project_enable_consolidation_desc">允许项目会话生成长期记忆</string>
+    <string name="project_expose_to_external">记忆外部可见</string>
+    <string name="project_expose_to_external_desc">允许本项目的记忆被外部访问</string>
+    <string name="project_read_external">读取外部记忆</string>
+    <string name="project_read_external_desc">允许本项目访问外部的记忆</string>
+    <string name="chat_page_move_to_project">移动到项目</string>
+    <string name="chat_page_remove_from_project">未分类（移出项目）</string>
+    <string name="chat_page_current_project">当前：%1$s</string>
+    <string name="chat_page_no_projects">暂无项目</string>
 </resources>

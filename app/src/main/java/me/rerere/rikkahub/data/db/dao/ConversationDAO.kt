@@ -58,7 +58,7 @@ interface ConversationDAO {
     @Query("SELECT * FROM conversationentity ORDER BY is_pinned DESC, update_at DESC")
     fun getAll(): Flow<List<ConversationEntity>>
 
-    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber FROM conversationentity ORDER BY update_at DESC")
+    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber, project_id as projectId FROM conversationentity ORDER BY update_at DESC")
     fun getAllLight(): Flow<List<LightConversationEntity>>
 
     @Query("SELECT * FROM conversationentity ORDER BY is_pinned DESC, update_at DESC")
@@ -67,7 +67,7 @@ interface ConversationDAO {
     @Query("SELECT * FROM conversationentity WHERE assistant_id = :assistantId ORDER BY is_pinned DESC, update_at DESC")
     fun getConversationsOfAssistant(assistantId: String): Flow<List<ConversationEntity>>
 
-    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber FROM conversationentity WHERE assistant_id = :assistantId ORDER BY is_pinned DESC, update_at DESC")
+    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber, project_id as projectId FROM conversationentity WHERE assistant_id = :assistantId ORDER BY is_pinned DESC, update_at DESC")
     fun getLightConversationsOfAssistant(assistantId: String): Flow<List<LightConversationEntity>>
 
     @Query("""
@@ -79,8 +79,14 @@ interface ConversationDAO {
     """)
     fun getUnconsolidatedConversationsOfAssistantFlow(assistantId: String): Flow<List<ConversationEntity>>
 
-    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber FROM conversationentity WHERE assistant_id = :assistantId ORDER BY is_pinned DESC, update_at DESC")
-    fun getConversationsOfAssistantPaging(assistantId: String): PagingSource<Int, LightConversationEntity>
+    @Query("""
+        SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber, project_id as projectId 
+        FROM conversationentity 
+        WHERE assistant_id = :assistantId 
+          AND ((:projectId IS NULL AND project_id IS NULL) OR project_id = :projectId)
+        ORDER BY is_pinned DESC, update_at DESC
+    """)
+    fun getConversationsOfAssistantPaging(assistantId: String, projectId: String? = null): PagingSource<Int, LightConversationEntity>
 
     @Query("SELECT * FROM conversationentity WHERE assistant_id = :assistantId ORDER BY is_pinned DESC, update_at DESC LIMIT :limit")
     suspend fun getRecentConversationsOfAssistant(assistantId: String, limit: Int): List<ConversationEntity>
@@ -122,14 +128,21 @@ interface ConversationDAO {
     @Query("SELECT * FROM conversationentity WHERE (title LIKE '%' || :searchText || '%' OR search_text LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
     fun searchConversations(searchText: String): Flow<List<ConversationEntity>>
 
-    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber FROM conversationentity WHERE (title LIKE '%' || :searchText || '%' OR search_text LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
+    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber, project_id as projectId FROM conversationentity WHERE (title LIKE '%' || :searchText || '%' OR search_text LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
     fun searchConversationsPaging(searchText: String): PagingSource<Int, LightConversationEntity>
 
     @Query("SELECT * FROM conversationentity WHERE assistant_id = :assistantId AND (title LIKE '%' || :searchText || '%' OR search_text LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
     fun searchConversationsOfAssistant(assistantId: String, searchText: String): Flow<List<ConversationEntity>>
 
-    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber FROM conversationentity WHERE assistant_id = :assistantId AND (title LIKE '%' || :searchText || '%' OR search_text LIKE '%' || :searchText || '%') ORDER BY is_pinned DESC, update_at DESC")
-    fun searchConversationsOfAssistantPaging(assistantId: String, searchText: String): PagingSource<Int, LightConversationEntity>
+    @Query("""
+        SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber, project_id as projectId 
+        FROM conversationentity 
+        WHERE assistant_id = :assistantId 
+          AND ((:projectId IS NULL AND project_id IS NULL) OR project_id = :projectId)
+          AND (title LIKE '%' || :searchText || '%' OR search_text LIKE '%' || :searchText || '%') 
+        ORDER BY is_pinned DESC, update_at DESC
+    """)
+    fun searchConversationsOfAssistantPaging(assistantId: String, searchText: String, projectId: String? = null): PagingSource<Int, LightConversationEntity>
 
     @Query("SELECT id, title, search_text as searchText, update_at as updateAt, is_pinned as isPinned FROM conversationentity WHERE assistant_id = :assistantId AND search_text LIKE '%' || :searchText || '%' ORDER BY is_pinned DESC, update_at DESC LIMIT :limit")
     suspend fun searchChatContentOfAssistant(assistantId: String, searchText: String, limit: Int): List<ChatSearchResultRow>
@@ -139,6 +152,12 @@ interface ConversationDAO {
 
     @Query("UPDATE conversationentity SET search_text = :searchText, search_text_version = :version WHERE id = :id")
     suspend fun updateSearchText(id: String, searchText: String, version: Int)
+
+    @Query("UPDATE conversationentity SET project_id = :projectId WHERE id = :conversationId")
+    suspend fun updateProjectId(conversationId: String, projectId: String?)
+
+    @Query("UPDATE conversationentity SET project_id = NULL WHERE project_id = :projectId")
+    suspend fun clearProjectId(projectId: String)
 
     @Query("SELECT * FROM conversationentity WHERE id = :id")
     fun getConversationFlowById(id: String): Flow<ConversationEntity?>
@@ -161,10 +180,10 @@ interface ConversationDAO {
     @Query("SELECT id FROM conversationentity WHERE assistant_id = :assistantId AND update_at >= :startMs AND update_at < :endMs")
     suspend fun getConversationIdsOfAssistantByUpdateAtRange(assistantId: String, startMs: Long, endMs: Long): List<String>
 
-    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber FROM conversationentity WHERE update_at >= :startMs AND update_at < :endMs ORDER BY is_pinned DESC, update_at DESC")
+    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber, project_id as projectId FROM conversationentity WHERE update_at >= :startMs AND update_at < :endMs ORDER BY is_pinned DESC, update_at DESC")
     suspend fun getLightConversationsByUpdateAtRange(startMs: Long, endMs: Long): List<LightConversationEntity>
 
-    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber FROM conversationentity WHERE assistant_id = :assistantId AND update_at >= :startMs AND update_at < :endMs ORDER BY is_pinned DESC, update_at DESC")
+    @Query("SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, is_consolidated as isConsolidated, root_id as rootId, branch_number as branchNumber, project_id as projectId FROM conversationentity WHERE assistant_id = :assistantId AND update_at >= :startMs AND update_at < :endMs ORDER BY is_pinned DESC, update_at DESC")
     suspend fun getLightConversationsOfAssistantByUpdateAtRange(assistantId: String, startMs: Long, endMs: Long): List<LightConversationEntity>
 
     @Insert

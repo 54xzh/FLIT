@@ -421,12 +421,16 @@ class MemoryRepository internal constructor(
         includeEpisodes: Boolean = true,
         nowMillis: Long = System.currentTimeMillis(),
         recordAccess: Boolean = true,
+        projectId: String? = null,
+        readExternal: Boolean = true,
     ): List<KeywordSearchHit> {
         val rows = withContext(Dispatchers.IO) {
             memoryDAO.getMemoryRetrievalRows(
                 assistantId = assistantId,
                 includeCore = includeCore,
                 includeEpisodes = includeEpisodes,
+                projectId = projectId,
+                readExternal = readExternal,
             ).sortedBy { it.id }
         }
         if (rows.isEmpty()) return emptyList()
@@ -438,7 +442,7 @@ class MemoryRepository internal constructor(
             val retrievalContext = currentCoroutineContext()
             val checkCancelled = { retrievalContext.ensureActive() }
             var index = getKeywordIndex(
-                cacheKey = "$assistantId:$includeCore:$includeEpisodes",
+                cacheKey = "$assistantId:$includeCore:$includeEpisodes:$projectId:$readExternal",
                 rows = rows,
                 checkCancelled = checkCancelled,
             )
@@ -799,6 +803,8 @@ class MemoryRepository internal constructor(
         content: String,
         pinned: Boolean = false,
         generateEmbedding: Boolean = true,
+        projectId: String? = null,
+        exposeToExternal: Boolean = false,
     ): AssistantMemory {
         val normalizedContent = content.trim()
         require(normalizedContent.isNotEmpty()) { "Memory content cannot be blank" }
@@ -827,16 +833,19 @@ class MemoryRepository internal constructor(
             type = MemoryType.CORE,
             pinned = pinned,
             createdAt = System.currentTimeMillis(),
-            lastAccessedAt = System.currentTimeMillis()
+            lastAccessedAt = System.currentTimeMillis(),
+            projectId = projectId,
         )
         
         val id = memoryDAO.insertMemory(entity)
-        memorySummaryRepository?.recordChange(
-            assistantId,
-            MemoryType.CORE,
-            id.toInt(),
-            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.ADDED,
-        )
+        if (projectId == null || exposeToExternal) {
+            memorySummaryRepository?.recordChange(
+                assistantId,
+                MemoryType.CORE,
+                id.toInt(),
+                me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.ADDED,
+            )
+        }
         
         // Add to cache immediately if available
         if (embedding != null && embeddingResult != null) {

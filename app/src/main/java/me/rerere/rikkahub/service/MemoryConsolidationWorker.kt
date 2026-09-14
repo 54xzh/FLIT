@@ -67,6 +67,7 @@ class MemoryConsolidationWorker(
 ) : CoroutineWorker(context, params), KoinComponent {
 
     private val conversationRepository: ConversationRepository by inject()
+    private val projectRepository: me.rerere.rikkahub.data.repository.ProjectRepository by inject()
     private val memoryRepository: MemoryRepository by inject()
     private val memorySummaryRepository: MemorySummaryRepository by inject()
     private val chatEpisodeDAO: ChatEpisodeDAO by inject()
@@ -622,6 +623,12 @@ class MemoryConsolidationWorker(
         val providerHandler = providerManager.getProviderByType(provider)
         val allMessages = getMessagesForConsolidationOrNull(conversation) ?: return false
 
+        val currentProject = conversation.projectId?.let { projectRepository.getProjectById(it) }
+        if (currentProject != null && !currentProject.enableConsolidation) {
+            Log.i("MemoryConsolidation", "Skipping conversation ${conversation.id} (project consolidation disabled)")
+            return false
+        }
+
         if (!canProcessConversation(assistant.id, conversation.updateAt.toEpochMilli(), isManual)) {
             return false
         }
@@ -770,6 +777,7 @@ class MemoryConsolidationWorker(
                             lastAccessedAt = System.currentTimeMillis(),
                             significance = significance,
                             conversationId = conversationId,
+                            projectId = conversation.projectId?.toString(),
                         )
                     ).toInt()
                 }
@@ -781,12 +789,14 @@ class MemoryConsolidationWorker(
                     ),
                 )
             }
-            memorySummaryRepository.recordChange(
-                assistantId,
-                MemoryType.EPISODIC,
-                episodeId,
-                episodeChangeType,
-            )
+            if (conversation.projectId == null || currentProject?.exposeToExternal == true) {
+                memorySummaryRepository.recordChange(
+                    assistantId,
+                    MemoryType.EPISODIC,
+                    episodeId,
+                    episodeChangeType,
+                )
+            }
             conversationRepository.markAsConsolidated(conversation.id)
             return true
         } catch (t: Throwable) {
@@ -1040,6 +1050,7 @@ class MemoryConsolidationWorker(
                                 lastAccessedAt = System.currentTimeMillis(),
                                 significance = significance,
                                 conversationId = conversationId,
+                                projectId = conversation.projectId?.toString(),
                             )
                         ).toInt()
                     }
@@ -1051,12 +1062,15 @@ class MemoryConsolidationWorker(
                         ),
                     )
                 }
-                memorySummaryRepository.recordChange(
-                    targetAssistantId,
-                    MemoryType.EPISODIC,
-                    episodeId,
-                    episodeChangeType,
-                )
+                val currentProject = conversation.projectId?.let { projectRepository.getProjectById(it) }
+                if (conversation.projectId == null || currentProject?.exposeToExternal == true) {
+                    memorySummaryRepository.recordChange(
+                        targetAssistantId,
+                        MemoryType.EPISODIC,
+                        episodeId,
+                        episodeChangeType,
+                    )
+                }
 
                 insertedCount++
             }

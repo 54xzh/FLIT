@@ -2706,4 +2706,36 @@
     <string name="local_models_model_downloading">正在下載 %1$s / %2$s</string>
     <string name="local_models_download_channel">本機模型下載</string>
     <string name="local_models_downloading_notification">正在下載本機模型</string>
+
+    <!-- Projects -->
+    <string name="project_all">全部</string>
+    <string name="project_new">新增專案</string>
+    <string name="project_name">專案名稱</string>
+    <string name="project_name_desc">為該專案設定一個容易識別的名稱</string>
+    <string name="project_settings">專案設定</string>
+    <string name="project_rename">重新命名</string>
+    <string name="project_delete">刪除專案</string>
+    <string name="project_delete_confirm">確定刪除專案「%1$s」？其內部的對話與記憶將移至專案外，不會被刪除。</string>
+    <string name="project_basic_settings">基本設定</string>
+    <string name="project_context_title">專案提示詞</string>
+    <string name="project_context_desc">附加在助理提示詞後的專屬指令</string>
+    <string name="project_context_hint">輸入此專案的專屬指令或背景設定…</string>
+    <string name="project_context_empty">未設定</string>
+    <string name="project_model_settings">模型設定</string>
+    <string name="project_model_title">執行模型</string>
+    <string name="project_model_inherit">繼承助理模型 (%1$s)</string>
+    <string name="project_model_inherit_generic">繼承助理模型</string>
+    <string name="project_memory_strategy">記憶策略</string>
+    <string name="project_enable_memory_tools">記憶工具</string>
+    <string name="project_enable_memory_tools_desc">允許助手調用記憶工具</string>
+    <string name="project_enable_consolidation">記憶整合</string>
+    <string name="project_enable_consolidation_desc">允許專案對話生成長期記憶</string>
+    <string name="project_expose_to_external">記憶外部可見</string>
+    <string name="project_expose_to_external_desc">允許本專案的記憶被外部存取</string>
+    <string name="project_read_external">讀取外部記憶</string>
+    <string name="project_read_external_desc">允許本專案存取外部的記憶</string>
+    <string name="chat_page_move_to_project">移動至專案</string>
+    <string name="chat_page_remove_from_project">未分類（移出專案）</string>
+    <string name="chat_page_current_project">目前：%1$s</string>
+    <string name="chat_page_no_projects">尚無專案</string>
 </resources>

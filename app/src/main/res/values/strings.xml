@@ -2716,4 +2716,36 @@
     <string name="local_models_model_downloading">Downloading %1$s / %2$s</string>
     <string name="local_models_download_channel">Local model downloads</string>
     <string name="local_models_downloading_notification">Downloading local model</string>
+
+    <!-- Projects -->
+    <string name="project_all">All</string>
+    <string name="project_new">New Project</string>
+    <string name="project_name">Project name</string>
+    <string name="project_name_desc">Set a recognizable name for this project</string>
+    <string name="project_settings">Project settings</string>
+    <string name="project_rename">Rename</string>
+    <string name="project_delete">Delete project</string>
+    <string name="project_delete_confirm">Delete project \"%1$s\"? Conversations and memories will be moved out of the project and will not be deleted.</string>
+    <string name="project_basic_settings">Basic settings</string>
+    <string name="project_context_title">Project prompt</string>
+    <string name="project_context_desc">Appended instructions specific to this project</string>
+    <string name="project_context_hint">Enter instructions or context specific to this project…</string>
+    <string name="project_context_empty">Not set</string>
+    <string name="project_model_settings">Model settings</string>
+    <string name="project_model_title">Runtime model</string>
+    <string name="project_model_inherit">Inherit assistant model (%1$s)</string>
+    <string name="project_model_inherit_generic">Inherit assistant model</string>
+    <string name="project_memory_strategy">Memory strategy</string>
+    <string name="project_enable_memory_tools">Memory tools</string>
+    <string name="project_enable_memory_tools_desc">Allow assistant to call memory tools</string>
+    <string name="project_enable_consolidation">Memory consolidation</string>
+    <string name="project_enable_consolidation_desc">Allow conversations in this project to generate long-term memories</string>
+    <string name="project_expose_to_external">Expose memory externally</string>
+    <string name="project_expose_to_external_desc">Allow project memories to be accessed externally</string>
+    <string name="project_read_external">Read external memory</string>
+    <string name="project_read_external_desc">Allow this project to access external memories</string>
+    <string name="chat_page_move_to_project">Move to project</string>
+    <string name="chat_page_remove_from_project">Unclassified (move out)</string>
+    <string name="chat_page_current_project">Current: %1$s</string>
+    <string name="chat_page_no_projects">No projects yet</string>
 </resources>

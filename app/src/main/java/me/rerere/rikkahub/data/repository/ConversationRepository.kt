@@ -160,16 +160,22 @@ class ConversationRepository(
             }
     }
 
-    fun getConversationsOfAssistantPaging(assistantId: Uuid): Flow<PagingData<Conversation>> = Pager(
+    fun getConversationsOfAssistantPaging(assistantId: Uuid, projectId: Uuid? = null): Flow<PagingData<Conversation>> = Pager(
         config = PagingConfig(
             pageSize = PAGE_SIZE,
             initialLoadSize = INITIAL_LOAD_SIZE,
             enablePlaceholders = false
         ),
-        pagingSourceFactory = { conversationDAO.getConversationsOfAssistantPaging(assistantId.toString()) }
+        pagingSourceFactory = { conversationDAO.getConversationsOfAssistantPaging(assistantId.toString(), projectId?.toString()) }
     ).flow.map { pagingData ->
         pagingData.map { entity ->
             conversationSummaryToConversation(entity)
+        }
+    }
+
+    suspend fun moveConversationToProject(conversationId: Uuid, projectId: Uuid?) = withContext(Dispatchers.IO) {
+        conversationWriteMutex.withLock {
+            conversationDAO.updateProjectId(conversationId.toString(), projectId?.toString())
         }
     }
 
@@ -206,13 +212,13 @@ class ConversationRepository(
             }
     }
 
-    fun searchConversationsOfAssistantPaging(assistantId: Uuid, titleKeyword: String): Flow<PagingData<Conversation>> = Pager(
+    fun searchConversationsOfAssistantPaging(assistantId: Uuid, titleKeyword: String, projectId: Uuid? = null): Flow<PagingData<Conversation>> = Pager(
         config = PagingConfig(
             pageSize = PAGE_SIZE,
             initialLoadSize = INITIAL_LOAD_SIZE,
             enablePlaceholders = false
         ),
-        pagingSourceFactory = { conversationDAO.searchConversationsOfAssistantPaging(assistantId.toString(), titleKeyword) }
+        pagingSourceFactory = { conversationDAO.searchConversationsOfAssistantPaging(assistantId.toString(), titleKeyword, projectId?.toString()) }
     ).flow.map { pagingData ->
         pagingData.map { entity ->
             conversationSummaryToConversation(entity)
@@ -544,6 +550,7 @@ class ConversationRepository(
             contextSummaryBoundaries = JsonInstant.encodeToString(normalizedSummaryBoundaries),
             sessionMemories = JsonInstant.encodeToString(conversation.sessionMemories),
             workspaceOverrideId = conversation.workspaceOverrideId,
+            projectId = conversation.projectId?.toString(),
         )
     }
 
@@ -594,6 +601,7 @@ class ConversationRepository(
             workspaceOverrideId = conversationEntity.workspaceOverrideId,
             loadedNodeStartIndex = decodedWindow.startIndex,
             totalMessageNodeCount = decodedWindow.totalCount,
+            projectId = conversationEntity.projectId?.let { runCatching { Uuid.parse(it) }.getOrNull() },
         )
     }
 
@@ -1095,6 +1103,7 @@ class ConversationRepository(
             isConsolidated = entity.isConsolidated,
             rootId = runCatching { Uuid.parse(entity.rootId) }.getOrElse { Uuid.parse(entity.id) },
             branchNumber = entity.branchNumber,
+            projectId = entity.projectId?.let { runCatching { Uuid.parse(it) }.getOrNull() },
         )
     }
     fun getAverageMessageLength(assistantId: Uuid): Flow<Int> {
@@ -1438,4 +1447,5 @@ data class LightConversationEntity(
     val isConsolidated: Boolean,
     val rootId: String = "",
     val branchNumber: Int? = null,
+    val projectId: String? = null,
 )

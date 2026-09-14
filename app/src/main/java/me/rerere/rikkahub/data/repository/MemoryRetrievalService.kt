@@ -23,6 +23,8 @@ data class MemoryRetrievalRequest(
     val timeoutMillis: Long? = null,
     val recordAccess: Boolean = true,
     val includePinnedOnFailure: Boolean = true,
+    val projectId: String? = null,
+    val readExternal: Boolean = true,
 )
 
 enum class MemoryRetrievalOutcome {
@@ -74,6 +76,8 @@ class MemoryRetrievalService(
                         includeCore = request.includeCore,
                         includeEpisodes = request.includeEpisodes,
                         recordAccess = request.recordAccess,
+                        projectId = request.projectId,
+                        readExternal = request.readExternal,
                     ).map { hit ->
                         MemoryRetrievalHit(
                             memory = hit.toAssistantMemory(),

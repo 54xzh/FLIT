@@ -83,6 +83,7 @@ val dataSourceModule = module {
                 AppDatabase.MIGRATION_48_49,
                 AppDatabase.MIGRATION_49_50,
                 AppDatabase.MIGRATION_50_51,
+                AppDatabase.MIGRATION_51_52,
             )
             .build()
     }
@@ -100,6 +101,10 @@ val dataSourceModule = module {
     }
 
     single { TemplateTransformer(engine = get(), settingsStore = get()) }
+
+    single {
+        get<AppDatabase>().projectDao()
+    }
 
     single {
         get<AppDatabase>().conversationDao()

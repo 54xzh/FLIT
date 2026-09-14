@@ -20,6 +20,7 @@ import me.rerere.rikkahub.ui.pages.menu.MenuVM
 import me.rerere.rikkahub.ui.pages.storage.StorageCategoryVM
 import me.rerere.rikkahub.ui.pages.storage.StorageManagerVM
 import me.rerere.rikkahub.ui.pages.translator.TranslatorVM
+import me.rerere.rikkahub.ui.pages.project.ProjectDetailVM
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
@@ -32,6 +33,7 @@ val viewModelModule = module {
             settingsStore = get(),
             readPositionStore = get(),
             conversationRepo = get(),
+            projectRepo = get(),
             chatService = get(),
             updateChecker = get(),
             analytics = get(),
@@ -54,6 +56,14 @@ val viewModelModule = module {
         GroupChatTemplateDetailVM(
             id = it.get(),
             settingsStore = get(),
+        )
+    }
+    viewModel<ProjectDetailVM> { params ->
+        ProjectDetailVM(
+            id = params.get(),
+            projectRepo = get(),
+            settingsStore = get(),
+            chatService = get(),
         )
     }
     viewModel<AssistantDetailVM> {
