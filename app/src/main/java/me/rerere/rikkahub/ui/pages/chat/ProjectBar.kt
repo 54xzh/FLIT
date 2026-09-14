@@ -18,8 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -65,7 +64,7 @@ fun ProjectBar(
 
     LazyRow(
         modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+        contentPadding = PaddingValues(start = 0.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -74,7 +73,7 @@ fun ProjectBar(
             ProjectChip(
                 label = stringResource(R.string.project_all),
                 selected = selectedProjectId == null,
-                icon = Icons.Rounded.Folder,
+                icon = Icons.Rounded.Home,
                 onClick = {
                     haptics.perform(HapticPattern.Pop)
                     onSelectProject(null)

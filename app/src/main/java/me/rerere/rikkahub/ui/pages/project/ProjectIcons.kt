@@ -18,35 +18,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Analytics
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Bookmark
-import androidx.compose.material.icons.rounded.Brush
-import androidx.compose.material.icons.rounded.BugReport
-import androidx.compose.material.icons.rounded.Code
-import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.FitnessCenter
-import androidx.compose.material.icons.rounded.Flight
-import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.FolderSpecial
-import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Lightbulb
-import androidx.compose.material.icons.rounded.MenuBook
-import androidx.compose.material.icons.rounded.Movie
-import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.Palette
-import androidx.compose.material.icons.rounded.RocketLaunch
-import androidx.compose.material.icons.rounded.Savings
-import androidx.compose.material.icons.rounded.School
-import androidx.compose.material.icons.rounded.Science
-import androidx.compose.material.icons.rounded.ShoppingCart
-import androidx.compose.material.icons.rounded.SmartToy
-import androidx.compose.material.icons.rounded.SportsEsports
-import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material.icons.rounded.TaskAlt
-import androidx.compose.material.icons.rounded.Terminal
-import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.rounded.Work
+import androidx.compose.material.icons.automirrored.rounded.Article
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.TrendingUp
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -83,6 +58,22 @@ object ProjectIcons {
         ProjectIconDef("description", Icons.Rounded.Description),
         ProjectIconDef("task_alt", Icons.Rounded.TaskAlt),
         ProjectIconDef("bookmark", Icons.Rounded.Bookmark),
+        ProjectIconDef("star", Icons.Rounded.Star),
+        ProjectIconDef("tag", Icons.Rounded.Tag),
+
+        // 写作与内容创作
+        ProjectIconDef("edit", Icons.Rounded.Edit),
+        ProjectIconDef("article", Icons.AutoMirrored.Rounded.Article),
+        ProjectIconDef("auto_stories", Icons.Rounded.AutoStories),
+        ProjectIconDef("mic", Icons.Rounded.Mic),
+        ProjectIconDef("camera_alt", Icons.Rounded.CameraAlt),
+
+        // 情感、人设与心理
+        ProjectIconDef("favorite", Icons.Rounded.Favorite),
+        ProjectIconDef("face", Icons.Rounded.Face),
+        ProjectIconDef("mood", Icons.Rounded.Mood),
+        ProjectIconDef("psychology", Icons.Rounded.Psychology),
+        ProjectIconDef("volunteer_activism", Icons.Rounded.VolunteerActivism),
 
         // 技术与开发
         ProjectIconDef("terminal", Icons.Rounded.Terminal),
@@ -90,12 +81,24 @@ object ProjectIcons {
         ProjectIconDef("bug_report", Icons.Rounded.BugReport),
         ProjectIconDef("smart_toy", Icons.Rounded.SmartToy),
         ProjectIconDef("storage", Icons.Rounded.Storage),
+        ProjectIconDef("laptop", Icons.Rounded.Laptop),
+        ProjectIconDef("smartphone", Icons.Rounded.Smartphone),
+        ProjectIconDef("security", Icons.Rounded.Security),
 
-        // 工作与商务
+        // 工作、商务与专业
         ProjectIconDef("work", Icons.Rounded.Work),
         ProjectIconDef("analytics", Icons.Rounded.Analytics),
         ProjectIconDef("savings", Icons.Rounded.Savings),
         ProjectIconDef("shopping_cart", Icons.Rounded.ShoppingCart),
+        ProjectIconDef("gavel", Icons.Rounded.Gavel),
+        ProjectIconDef("calculate", Icons.Rounded.Calculate),
+        ProjectIconDef("trending_up", Icons.AutoMirrored.Rounded.TrendingUp),
+
+        // 目标与时间管理
+        ProjectIconDef("flag", Icons.Rounded.Flag),
+        ProjectIconDef("schedule", Icons.Rounded.Schedule),
+        ProjectIconDef("alarm", Icons.Rounded.Alarm),
+        ProjectIconDef("check_circle", Icons.Rounded.CheckCircle),
 
         // 创意与设计
         ProjectIconDef("palette", Icons.Rounded.Palette),
@@ -105,14 +108,23 @@ object ProjectIcons {
 
         // 学习与研究
         ProjectIconDef("school", Icons.Rounded.School),
-        ProjectIconDef("menu_book", Icons.Rounded.MenuBook),
+        ProjectIconDef("menu_book", Icons.AutoMirrored.Rounded.MenuBook),
         ProjectIconDef("translate", Icons.Rounded.Translate),
         ProjectIconDef("science", Icons.Rounded.Science),
 
-        // 生活与娱乐
+        // 生活、休闲与爱好
         ProjectIconDef("home", Icons.Rounded.Home),
+        ProjectIconDef("coffee", Icons.Rounded.Coffee),
+        ProjectIconDef("pets", Icons.Rounded.Pets),
+        ProjectIconDef("restaurant", Icons.Rounded.Restaurant),
+        ProjectIconDef("local_florist", Icons.Rounded.LocalFlorist),
+        ProjectIconDef("spa", Icons.Rounded.Spa),
         ProjectIconDef("fitness_center", Icons.Rounded.FitnessCenter),
+
+        // 出行与娱乐
         ProjectIconDef("flight", Icons.Rounded.Flight),
+        ProjectIconDef("explore", Icons.Rounded.Explore),
+        ProjectIconDef("directions_car", Icons.Rounded.DirectionsCar),
         ProjectIconDef("sports_esports", Icons.Rounded.SportsEsports),
         ProjectIconDef("music_note", Icons.Rounded.MusicNote),
         ProjectIconDef("movie", Icons.Rounded.Movie),
@@ -160,7 +172,7 @@ fun ProjectIconPickerSheet(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 380.dp),
+                    .heightIn(max = 420.dp),
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
                 items(ProjectIcons.ALL, key = { it.key }) { def ->
@@ -224,4 +236,3 @@ fun ProjectIconPickerSheet(
         }
     }
 }
-
