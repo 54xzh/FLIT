@@ -171,6 +171,11 @@ class ChatVM(
                 )
                 initializedOk = result.initialized
                 _conversationExistsInStorage.value = result.existsInStorage
+                // 打开某个已保存会话本身代表用户进入了它的项目上下文；随后新建
+                // 对话应跟随该项目，而不是回到更早一次新对话所选的项目。
+                if (result.initialized && result.existsInStorage) {
+                    selectDefaultProject(conversation.value.projectId)
+                }
                 // 已保存会话默认预览其归属项目；新对话则预览它实际采用的默认项目。
                 // 该状态不持久化，避免仅浏览列表就改变之后新对话的项目。
                 val defaultPreviewProjectId = if (result.existsInStorage) {
@@ -334,12 +339,26 @@ class ChatVM(
     }
 
     private fun applyProjectToFreshConversation(projectId: Uuid?) {
-        val assistantId = settings.value.chatTarget.id
-        context.writeStringPreference("selected_project_$assistantId", projectId?.toString())
-        chatService.selectProject(projectId)
+        selectDefaultProject(projectId)
 
         // 空白新对话即时切换项目，使欢迎页、模型和首条消息使用同一项目上下文。
         chatService.updateConversationProjectId(_conversationId, projectId)
+    }
+
+    private fun selectDefaultProject(projectId: Uuid?) {
+        val assistantId = settings.value.chatTarget.id
+        context.writeStringPreference("selected_project_$assistantId", projectId?.toString())
+        chatService.selectProject(projectId)
+    }
+
+    /** 每次打开抽屉时，已保存会话都从自己的项目重新开始预览。 */
+    fun resetProjectPreview() {
+        if (!_conversationInitialized.value) return
+        _previewProjectId.value = if (_conversationExistsInStorage.value) {
+            conversation.value.projectId
+        } else {
+            chatService.selectedProjectId.value
+        }
     }
 
     fun createProject(

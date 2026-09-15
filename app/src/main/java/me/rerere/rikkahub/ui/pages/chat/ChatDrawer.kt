@@ -37,6 +37,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -124,6 +125,14 @@ fun ChatDrawerContent(
 
     val projects by vm.projects.collectAsStateWithLifecycle()
     val previewProjectId by vm.previewProjectId.collectAsStateWithLifecycle()
+
+    // 手机上抽屉每次重新打开都从当前会话所属项目开始预览，避免上一次
+    // 仅用于浏览列表的 Tab 选择残留到下一次打开。
+    LaunchedEffect(drawerState?.isOpen) {
+        if (drawerState?.isOpen == true) {
+            vm.resetProjectPreview()
+        }
+    }
 
     var showCreateProjectDialog by remember { mutableStateOf(false) }
     var projectToRename by remember { mutableStateOf<Project?>(null) }

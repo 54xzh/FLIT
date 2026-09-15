@@ -1007,9 +1007,11 @@ private fun ChatPageContent(
                     quotaUsage = quotaUsage,
                     onNewChat = {
                         // Temporary chats are not persisted, so just navigate to new chat
+                        // 已保存项目会话是当前上下文，新对话优先继承它的项目；避免
+                        // 初始化状态回流前短暂使用上一次项目选择。
                         navigateToChatPage(
                             navController = navController,
-                            projectId = selectedProjectId,
+                            projectId = conversation.projectId ?: selectedProjectId,
                         )
                     },
                     onClickMenu = {
