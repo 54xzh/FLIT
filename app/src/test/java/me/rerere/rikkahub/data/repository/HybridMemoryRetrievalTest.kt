@@ -14,6 +14,26 @@ import org.junit.Test
 
 class HybridMemoryRetrievalTest {
     @Test
+    fun `project pool keeps three of five slots before external results`() {
+        assertEquals(
+            listOf("p1", "p2", "p3", "e1", "e2"),
+            mergeProjectMemoryPools(
+                projectHits = listOf("p1", "p2", "p3", "p4"),
+                externalHits = listOf("e1", "e2", "e3"),
+                limit = 5,
+            ),
+        )
+    }
+
+    @Test
+    fun `external pool fills project quota when project has no match`() {
+        assertEquals(
+            listOf("e1", "e2", "e3", "e4", "e5"),
+            mergeProjectMemoryPools(emptyList(), listOf("e1", "e2", "e3", "e4", "e5"), 5),
+        )
+    }
+
+    @Test
     fun `hybrid mode requires embeddings and keeps legacy defaults`() {
         assertTrue(MemoryRetrievalMode.VECTOR.requiresEmbedding)
         assertTrue(MemoryRetrievalMode.HYBRID.requiresEmbedding)

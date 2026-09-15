@@ -20,15 +20,19 @@ class MemorySummaryScheduler(
     private val context: Context,
 ) {
     fun enqueueAutomatic(assistantId: String, delayMillis: Long = 0L) {
+        enqueueAutomatic(MemorySummaryTarget.Global(assistantId), delayMillis)
+    }
+
+    fun enqueueAutomatic(target: MemorySummaryTarget, delayMillis: Long = 0L) {
         val request = request(
-            assistantId = assistantId,
+            target = target,
             forceManual = false,
             updateOptions = null,
             delayMillis = delayMillis,
             tags = emptySet(),
         )
         WorkManager.getInstance(context).enqueueUniqueWork(
-            automaticWorkName(assistantId),
+            automaticWorkName(target.storageKey),
             // A worker scheduling the future eligibility check is itself still running.
             // Appending keeps that delayed check instead of dropping it because of the
             // currently running worker; ordinary change notifications still coalesce.
@@ -38,15 +42,19 @@ class MemorySummaryScheduler(
     }
 
     fun enqueueManual(assistantId: String, options: MemorySummaryUpdateOptions): UUID {
+        return enqueueManual(MemorySummaryTarget.Global(assistantId), options)
+    }
+
+    fun enqueueManual(target: MemorySummaryTarget, options: MemorySummaryUpdateOptions): UUID {
         val request = request(
-            assistantId = assistantId,
+            target = target,
             forceManual = true,
             updateOptions = options,
             delayMillis = 0L,
-            tags = setOf(MANUAL_SUMMARY_TAG, manualWorkTag(assistantId)),
+            tags = setOf(MANUAL_SUMMARY_TAG, manualWorkTag(target.storageKey)),
         )
         WorkManager.getInstance(context).enqueueUniqueWork(
-            manualWorkName(assistantId),
+            manualWorkName(target.storageKey),
             ExistingWorkPolicy.REPLACE,
             request,
         )
@@ -74,7 +82,7 @@ class MemorySummaryScheduler(
     }
 
     private fun request(
-        assistantId: String,
+        target: MemorySummaryTarget,
         forceManual: Boolean,
         updateOptions: MemorySummaryUpdateOptions?,
         delayMillis: Long,
@@ -83,7 +91,8 @@ class MemorySummaryScheduler(
         val builder = OneTimeWorkRequestBuilder<MemorySummaryWorker>()
             .setInputData(
                 workDataOf(
-                    MemorySummaryWorker.INPUT_ASSISTANT_ID to assistantId,
+                    MemorySummaryWorker.INPUT_ASSISTANT_ID to target.assistantId,
+                    MemorySummaryWorker.INPUT_PROJECT_ID to (target as? MemorySummaryTarget.Project)?.projectId,
                     MemorySummaryWorker.INPUT_FORCE_MANUAL to forceManual,
                     MemorySummaryWorker.INPUT_INCLUDE_ACTIVE_SUMMARY to
                         (updateOptions?.includeActiveSummary ?: true),

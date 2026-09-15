@@ -2664,7 +2664,9 @@
     <string name="project_enable_consolidation">记忆整合</string>
     <string name="project_enable_consolidation_desc">允许项目会话生成长期记忆</string>
     <string name="project_expose_to_external">记忆外部可见</string>
-    <string name="project_expose_to_external_desc">允许本项目的记忆被外部访问</string>
+    <string name="project_expose_to_external_desc">允许本项目的记忆被外部访问（项目记忆摘要除外）</string>
+    <string name="project_enable_memory_summary">项目记忆摘要</string>
+    <string name="project_enable_memory_summary_desc">仅基于本项目记忆生成并私有使用的摘要</string>
     <string name="project_read_external">读取外部记忆</string>
     <string name="project_read_external_desc">允许本项目访问外部的记忆</string>
     <string name="chat_page_move_to_project">移动到项目</string>

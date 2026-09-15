@@ -29,6 +29,21 @@ interface ChatEpisodeDAO {
     @Query("SELECT * FROM ChatEpisodeEntity WHERE assistant_id = :assistantId ORDER BY end_time DESC")
     suspend fun getEpisodesOfAssistant(assistantId: String): List<ChatEpisodeEntity>
 
+    /** The same visibility predicate used by every automatic memory injection mode. */
+    @Query("""
+        SELECT * FROM chatepisodeentity
+        WHERE assistant_id = :assistantId AND (
+            (:projectId IS NOT NULL AND (project_id = :projectId OR (:readExternal = 1 AND (project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE expose_to_external = 1)))))
+            OR (:projectId IS NULL AND (project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE expose_to_external = 1)))
+        )
+        ORDER BY end_time DESC
+    """)
+    suspend fun getEpisodesInRetrievalScope(
+        assistantId: String,
+        projectId: String?,
+        readExternal: Boolean,
+    ): List<ChatEpisodeEntity>
+
     @Query("""
         SELECT * FROM ChatEpisodeEntity 
         WHERE assistant_id = :assistantId 
@@ -36,6 +51,9 @@ interface ChatEpisodeDAO {
         ORDER BY end_time DESC
     """)
     suspend fun getExposedEpisodesOfAssistant(assistantId: String): List<ChatEpisodeEntity>
+
+    @Query("SELECT * FROM chatepisodeentity WHERE assistant_id = :assistantId AND project_id = :projectId ORDER BY end_time DESC")
+    suspend fun getEpisodesOfProject(assistantId: String, projectId: String): List<ChatEpisodeEntity>
 
     @Query("""
         SELECT * FROM ChatEpisodeEntity 

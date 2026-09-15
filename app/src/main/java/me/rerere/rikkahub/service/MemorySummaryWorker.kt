@@ -22,9 +22,11 @@ import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.db.entity.MemorySummaryUpdateMode
 import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.data.repository.MemorySummaryScheduler
+import me.rerere.rikkahub.data.repository.MemorySummaryTarget
 import me.rerere.rikkahub.data.repository.MemorySummaryMemoryScope
 import me.rerere.rikkahub.data.repository.MemorySummaryUpdateOptions
 import me.rerere.rikkahub.data.repository.normalizeManualMemorySummaryUpdateOptions
+import me.rerere.rikkahub.data.repository.ProjectRepository
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.time.LocalDate
@@ -38,6 +40,7 @@ class MemorySummaryWorker(
     private val summaryScheduler: MemorySummaryScheduler by inject()
     private val providerManager: me.rerere.ai.provider.ProviderManager by inject()
     private val requestLogManager: AIRequestLogManager by inject()
+    private val projectRepository: ProjectRepository by inject()
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val forceManual = inputData.getBoolean(INPUT_FORCE_MANUAL, false)
@@ -69,15 +72,29 @@ class MemorySummaryWorker(
         if (assistant == null) {
             return if (forceManual) Result.failure(workDataOf(OUTPUT_ERROR_TYPE to ERROR_TYPE_INVALID_INPUT)) else Result.success()
         }
-        if (!assistant.enableMemory || !assistant.enableMemorySummary) {
+        val projectId = inputData.getString(INPUT_PROJECT_ID).orEmpty()
+        val target = if (projectId.isBlank()) {
+            MemorySummaryTarget.Global(assistantId)
+        } else {
+            MemorySummaryTarget.Project(assistantId, projectId)
+        }
+        val targetEnabled = when (target) {
+            is MemorySummaryTarget.Global -> assistant.enableMemorySummary
+            is MemorySummaryTarget.Project -> {
+                runCatching { kotlin.uuid.Uuid.parse(target.projectId) }.getOrNull()
+                    ?.let { projectRepository.getProjectById(it) }
+                    ?.enableMemorySummary == true
+            }
+        }
+        if (!assistant.enableMemory || !targetEnabled) {
             return if (forceManual) Result.failure(workDataOf(OUTPUT_ERROR_TYPE to ERROR_TYPE_DISABLED)) else Result.success()
         }
         if (!forceManual && !assistant.enableAutoMemorySummary) return Result.success()
 
-        val activeSnapshot = summaryRepository.getActiveSnapshot(assistantId)
+        val activeSnapshot = summaryRepository.getActiveSnapshot(target)
         val activeVersion = activeSnapshot.activeVersion
-        val changes = summaryRepository.getPendingChanges(assistantId)
-        val currentMemoryCount = summaryRepository.getCurrentMemoryCount(assistantId)
+        val changes = summaryRepository.getPendingChanges(target)
+        val currentMemoryCount = summaryRepository.getCurrentMemoryCount(target)
         if (!forceManual && !summaryRepository.hasEnoughChanges(
                 activeVersion = activeVersion,
                 pendingChanges = changes.size,
@@ -93,7 +110,7 @@ class MemorySummaryWorker(
                 intervalDays = assistant.memorySummaryIntervalDays,
             )
             if (remainingDelay > 0L) {
-                summaryScheduler.enqueueAutomatic(assistantId, remainingDelay)
+                summaryScheduler.enqueueAutomatic(target, remainingDelay)
                 return Result.success()
             }
         }
@@ -133,21 +150,21 @@ class MemorySummaryWorker(
             else -> MemorySummaryUpdateMode.INCREMENTAL
         }
         val sources = if (isFullUpdate) {
-            summaryRepository.getAllSources(assistantId)
+            summaryRepository.getAllSources(target)
         } else {
-            summaryRepository.getAddedSources(assistantId, changes)
+            summaryRepository.getAddedSources(target, changes)
         }
 
         if (isFullUpdate && sources.isEmpty()) {
             val published = summaryRepository.publishVersion(
-                assistantId = assistantId,
+                target = target,
                 content = "",
                 updateMode = updateMode,
                 snapshotChanges = changes,
                 expectedActiveVersionId = activeVersion?.id,
                 expectedRevision = activeSnapshot.revision,
             )
-            if (!published) summaryRepository.scheduleAutomaticCheck(assistantId)
+            if (!published) summaryRepository.scheduleAutomaticCheck(target)
             return if (published) {
                 Result.success()
             } else if (forceManual) {
@@ -193,7 +210,7 @@ class MemorySummaryWorker(
             previousSummary = activeVersion?.content.orEmpty(),
             memories = summaryRepository.formatSources(sources),
             recentRequirements = if (includeRecentRequirements) {
-                summaryRepository.getRecentRequirements(assistantId)
+                summaryRepository.getRecentRequirements(target)
             } else {
                 emptyList()
             },
@@ -211,14 +228,14 @@ class MemorySummaryWorker(
             responseText = response.choices.firstOrNull()?.message?.toContentText().orEmpty().trim()
             check(responseText.isNotBlank()) { "Memory summary response is empty" }
             val published = summaryRepository.publishVersion(
-                assistantId = assistantId,
+                target = target,
                 content = responseText,
                 updateMode = updateMode,
                 snapshotChanges = changes,
                 expectedActiveVersionId = activeVersion?.id,
                 expectedRevision = activeSnapshot.revision,
             )
-            if (!published) summaryRepository.scheduleAutomaticCheck(assistantId)
+            if (!published) summaryRepository.scheduleAutomaticCheck(target)
             return if (published) {
                 Result.success()
             } else if (forceManual) {
@@ -249,6 +266,7 @@ class MemorySummaryWorker(
 
     companion object {
         const val INPUT_ASSISTANT_ID = "ASSISTANT_ID"
+        const val INPUT_PROJECT_ID = "PROJECT_ID"
         const val INPUT_FORCE_MANUAL = "FORCE_MANUAL"
         const val INPUT_INCLUDE_ACTIVE_SUMMARY = "INCLUDE_ACTIVE_SUMMARY"
         const val INPUT_INCLUDE_RECENT_REQUIREMENTS = "INCLUDE_RECENT_REQUIREMENTS"

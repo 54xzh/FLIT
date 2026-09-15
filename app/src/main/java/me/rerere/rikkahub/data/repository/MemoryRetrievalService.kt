@@ -56,7 +56,11 @@ class MemoryRetrievalService(
         return when (request.mode) {
             MemoryRetrievalMode.OFF -> MemoryRetrievalResult(
                 hits = withContext(Dispatchers.IO) {
-                    memoryRepository.getMemoriesOfAssistant(request.assistantId).map {
+                    memoryRepository.getMemoriesInRetrievalScope(
+                        assistantId = request.assistantId,
+                        projectId = request.projectId,
+                        readExternal = request.readExternal,
+                    ).map {
                         MemoryRetrievalHit(
                             memory = it,
                             score = 0f,
@@ -157,6 +161,8 @@ class MemoryRetrievalService(
                                 includeCore = request.includeCore,
                                 includeEpisodes = request.includeEpisodes,
                                 recordAccess = request.recordAccess,
+                                projectId = request.projectId,
+                                readExternal = request.readExternal,
                             )
                         }
                     } ?: return MemoryRetrievalResult(
@@ -263,11 +269,25 @@ class MemoryRetrievalService(
             )
         }
 
-        val hits = mergeHybridHits(
-            keywordHits = if (keywordFailed) emptyList() else keywordResult.hits,
-            vectorHits = if (vectorFailed) emptyList() else vectorResult.hits,
-            limit = limit,
-        )
+        val keywordHits = if (keywordFailed) emptyList() else keywordResult.hits
+        val vectorHits = if (vectorFailed) emptyList() else vectorResult.hits
+        val hits = if (request.projectId == null) {
+            mergeHybridHits(keywordHits, vectorHits, limit)
+        } else {
+            mergeProjectMemoryPools(
+                projectHits = mergeHybridHits(
+                    keywordHits.filter { it.memory.projectId == request.projectId },
+                    vectorHits.filter { it.memory.projectId == request.projectId },
+                    hybridCandidateLimit(limit),
+                ),
+                externalHits = mergeHybridHits(
+                    keywordHits.filterNot { it.memory.projectId == request.projectId },
+                    vectorHits.filterNot { it.memory.projectId == request.projectId },
+                    hybridCandidateLimit(limit),
+                ),
+                limit = limit,
+            )
+        }
         if (request.recordAccess) {
             val remainingMillis = remainingTimeoutMillis(startedAtNanos, branchTimeoutMillis)
             if (remainingMillis > 0L) {
@@ -285,7 +305,11 @@ class MemoryRetrievalService(
     private suspend fun pinnedHits(request: MemoryRetrievalRequest): List<MemoryRetrievalHit> {
         if (!request.includeCore) return emptyList()
         return withContext(Dispatchers.IO) {
-            memoryRepository.getPinnedMemoriesOfAssistant(request.assistantId).map {
+            memoryRepository.getPinnedMemoriesInRetrievalScope(
+                assistantId = request.assistantId,
+                projectId = request.projectId,
+                readExternal = request.readExternal,
+            ).map {
                 MemoryRetrievalHit(
                     memory = it,
                     score = 1f,
@@ -312,6 +336,7 @@ class MemoryRetrievalService(
         timestamp = row.timestamp,
         significance = row.significance,
         pinned = row.pinned,
+        projectId = row.projectId,
     )
 }
 
@@ -398,6 +423,24 @@ private fun reciprocalRank(rank: Int?): Float =
 
 internal fun hybridCandidateLimit(limit: Int): Int =
     maxOf(15, limit.coerceAtLeast(0) * 3).coerceAtMost(50)
+
+/**
+ * Merges independently ranked project and external pools. Keeping this after each retrieval
+ * strategy has finished prevents a highly similar external item from demoting project context.
+ */
+internal fun <T> mergeProjectMemoryPools(
+    projectHits: List<T>,
+    externalHits: List<T>,
+    limit: Int,
+): List<T> {
+    val safeLimit = limit.coerceAtLeast(0)
+    if (safeLimit == 0) return emptyList()
+    val projectQuota = ((safeLimit * 3) + 4) / 5 // ceil(limit * 3 / 5)
+    val keptProject = projectHits.take(projectQuota)
+    val keptExternal = externalHits.take(safeLimit - keptProject.size)
+    return keptProject + keptExternal + projectHits.drop(keptProject.size)
+        .take(safeLimit - keptProject.size - keptExternal.size)
+}
 
 internal fun hybridRetrievalOutcome(
     keywordOutcome: MemoryRetrievalOutcome,

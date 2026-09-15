@@ -797,6 +797,16 @@ class MemoryConsolidationWorker(
                     episodeChangeType,
                 )
             }
+            conversation.projectId?.let { projectId ->
+                memorySummaryRepository.recordChange(
+                    me.rerere.rikkahub.data.repository.MemorySummaryTarget.Project(
+                        assistantId, projectId.toString(),
+                    ),
+                    MemoryType.EPISODIC,
+                    episodeId,
+                    episodeChangeType,
+                )
+            }
             conversationRepository.markAsConsolidated(conversation.id)
             return true
         } catch (t: Throwable) {
@@ -1066,6 +1076,16 @@ class MemoryConsolidationWorker(
                 if (conversation.projectId == null || currentProject?.exposeToExternal == true) {
                     memorySummaryRepository.recordChange(
                         targetAssistantId,
+                        MemoryType.EPISODIC,
+                        episodeId,
+                        episodeChangeType,
+                    )
+                }
+                conversation.projectId?.let { projectId ->
+                    memorySummaryRepository.recordChange(
+                        me.rerere.rikkahub.data.repository.MemorySummaryTarget.Project(
+                            targetAssistantId, projectId.toString(),
+                        ),
                         MemoryType.EPISODIC,
                         episodeId,
                         episodeChangeType,

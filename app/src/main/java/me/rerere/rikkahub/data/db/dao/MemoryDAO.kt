@@ -34,6 +34,7 @@ data class MemoryRetrievalRow(
     val pinned: Boolean,
     val timestamp: Long,
     val significance: Int?,
+    val projectId: String?,
 )
 
 @Dao
@@ -48,6 +49,7 @@ interface MemoryDAO {
             pinned AS pinned,
             created_at AS timestamp,
             CAST(NULL AS INTEGER) AS significance
+            , project_id AS projectId
         FROM memoryentity
         WHERE assistant_id = :assistantId AND :includeCore = 1
           AND (
@@ -74,6 +76,7 @@ interface MemoryDAO {
             0 AS pinned,
             CASE WHEN end_time > start_time THEN end_time ELSE start_time END AS timestamp,
             significance AS significance
+            , project_id AS projectId
         FROM chatepisodeentity
         WHERE assistant_id = :assistantId AND :includeEpisodes = 1
           AND (
@@ -99,12 +102,29 @@ interface MemoryDAO {
         readExternal: Boolean = true,
     ): List<MemoryRetrievalRow>
 
+    /** The same visibility predicate used by every automatic memory injection mode. */
+    @Query("""
+        SELECT * FROM memoryentity
+        WHERE assistant_id = :assistantId AND (
+            (:projectId IS NOT NULL AND (project_id = :projectId OR (:readExternal = 1 AND (project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE expose_to_external = 1)))))
+            OR (:projectId IS NULL AND (project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE expose_to_external = 1)))
+        )
+    """)
+    suspend fun getMemoriesInRetrievalScope(
+        assistantId: String,
+        projectId: String?,
+        readExternal: Boolean,
+    ): List<MemoryEntity>
+
     @Query("""
         SELECT * FROM memoryentity 
         WHERE assistant_id = :assistantId 
           AND (project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE expose_to_external = 1))
     """)
     suspend fun getExposedMemoriesOfAssistant(assistantId: String): List<MemoryEntity>
+
+    @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId AND project_id = :projectId")
+    suspend fun getMemoriesOfProject(assistantId: String, projectId: String): List<MemoryEntity>
 
     @Query("""
         SELECT * FROM memoryentity 

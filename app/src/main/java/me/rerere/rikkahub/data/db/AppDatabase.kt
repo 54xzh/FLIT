@@ -94,7 +94,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         LocalModelEntity::class,
         ProjectEntity::class,
     ],
-    version = 54,
+    version = 55,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -146,6 +146,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         // 51->52 is manual migration (MIGRATION_51_52) - adds projects and project_id to conversation and memories
         // 52->53 is manual migration (MIGRATION_52_53) - reconciles project schema and identity hash
         // 53->54 is manual migration (MIGRATION_53_54) - adds icon to projects
+        // 54->55 is manual migration (MIGRATION_54_55) - adds private project memory summaries
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -896,6 +897,13 @@ abstract class AppDatabase : RoomDatabase() {
                     db.execSQL("ALTER TABLE `projects` ADD COLUMN `icon` TEXT NOT NULL DEFAULT ''")
                 }
                 Log.i(TAG, "migrate: migrate from 53 to 54 success")
+            }
+        }
+
+        val MIGRATION_54_55 = object : Migration(54, 55) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `projects` ADD COLUMN `enable_memory_summary` INTEGER NOT NULL DEFAULT 0")
+                Log.i(TAG, "migrate: migrate from 54 to 55 success")
             }
         }
     }

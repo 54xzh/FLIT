@@ -1559,7 +1559,8 @@ class GenerationHandler(
             .sortedByMemoryTime()
         val dynamicMemories = selectedMemories.filterNot { it.pinned }
         val stableSessionMemorySection = buildStableSessionMemorySection(stableSessionMemories)
-        val effectiveMemorySummary = if (currentProject != null && !currentProject.readExternalMemory) null else memorySummary
+        // ChatService already applies the project visibility rule before passing summaries here.
+        val effectiveMemorySummary = memorySummary
         val memorySummarySection = buildMemorySummarySection(effectiveMemorySummary.orEmpty())
         val pinnedMemorySection = buildPinnedMemorySection(pinnedMemoriesForPrefix)
         val dynamicMemorySection = buildDynamicMemorySection(

@@ -482,10 +482,13 @@ class ChatService(
     private suspend fun loadMemorySummary(
         assistant: Assistant,
         memoryAvailableForRun: Boolean,
+        target: me.rerere.rikkahub.data.repository.MemorySummaryTarget =
+            me.rerere.rikkahub.data.repository.MemorySummaryTarget.Global(assistant.id.toString()),
     ): me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity? {
-        if (!memoryAvailableForRun || !assistant.enableMemory || !assistant.enableMemorySummary) return null
+        if (!memoryAvailableForRun || !assistant.enableMemory) return null
+        if (target is me.rerere.rikkahub.data.repository.MemorySummaryTarget.Global && !assistant.enableMemorySummary) return null
         return withContext(Dispatchers.IO) {
-            memorySummaryRepository.getActiveVersion(assistant.id.toString())
+            memorySummaryRepository.getActiveVersion(target)
                 ?.takeIf { it.content.isNotBlank() }
         }
     }
@@ -500,12 +503,16 @@ class ChatService(
         includeCore: Boolean,
         startedAt: Long,
         totalTimeoutMillis: Long,
+        projectId: String? = null,
+        readExternal: Boolean = true,
     ): List<AssistantMemory> {
         if (!includeCore) return emptyList()
         return try {
             withTimeout(remainingRetrievalTimeoutMillis(startedAt, totalTimeoutMillis)) {
                 withContext(Dispatchers.IO) {
-                    memoryRepository.getPinnedMemoriesOfAssistant(assistantId)
+                    memoryRepository.getPinnedMemoriesInRetrievalScope(
+                        assistantId, projectId, readExternal,
+                    )
                 }
             }
         } catch (_: TimeoutCancellationException) {
@@ -2339,13 +2346,28 @@ class ChatService(
                 conversationId = conversationId.toString(),
             )
             val workspaceFileReferenceContext = workspaceToolSet.referenceContext
-            val memorySummary = if (currentProject != null && !currentProject.readExternalMemory) {
-                null
-            } else {
-                loadMemorySummary(
+            val projectSummary = currentProject
+                ?.takeIf { it.enableMemorySummary }
+                ?.let { project -> loadMemorySummary(
                     assistant = assistant,
                     memoryAvailableForRun = persistentConversationId != null,
-                )
+                    target = me.rerere.rikkahub.data.repository.MemorySummaryTarget.Project(
+                        assistant.id.toString(), project.id.toString(),
+                    ),
+                ) }
+            val globalSummary = if (currentProject?.readExternalMemory != false && assistant.enableMemorySummary) {
+                loadMemorySummary(assistant, persistentConversationId != null)
+            } else null
+            // Project context is deliberately first: it is private and more specific than the
+            // assistant-wide summary. A project that blocks external memory never receives global text.
+            val memorySummary = when {
+                projectSummary != null && globalSummary != null -> listOf(
+                    "[Project memory summary]\n${projectSummary.content}",
+                    "[Assistant global memory summary]\n${globalSummary.content}",
+                ).joinToString("\n\n")
+                projectSummary != null -> projectSummary.content
+                globalSummary != null -> globalSummary.content
+                else -> null
             }
 
             // start generating
@@ -2356,8 +2378,8 @@ class ChatService(
                 conversationId = persistentConversationId,
                 assistant = assistant,
                 workspaceFileReferenceContext = workspaceFileReferenceContext,
-                memorySummary = memorySummary?.content,
-                memorySummaryVersionId = memorySummary?.id,
+                memorySummary = memorySummary,
+                memorySummaryVersionId = projectSummary?.id ?: globalSummary?.id,
                 currentProject = currentProject,
                 memories = if (assistant.enableMemory && persistentConversationId != null) {
                     val assistantId = assistant.id.toString()
@@ -2378,6 +2400,8 @@ class ChatService(
                                 includeCore = assistant.ragIncludeCore,
                                 startedAt = retrievalStartedAt,
                                 totalTimeoutMillis = retrievalTimeoutMs,
+                                projectId = currentProject?.id?.toString(),
+                                readExternal = currentProject?.readExternalMemory ?: true,
                             )
                         } else {
                             emptyList()
@@ -2461,7 +2485,13 @@ class ChatService(
                         }
                     } else {
                         // Simple mode: inject all memories
-                        val resolved = withContext(Dispatchers.IO) { memoryRepository.getMemoriesOfAssistant(assistantId) }
+                        val resolved = withContext(Dispatchers.IO) {
+                            memoryRepository.getMemoriesInRetrievalScope(
+                                assistantId,
+                                currentProject?.id?.toString(),
+                                currentProject?.readExternalMemory ?: true,
+                            )
+                        }
                         lastInjectedMemoriesByConversationAndAssistant[memoryCacheKey] = resolved
                         resolved
                     }

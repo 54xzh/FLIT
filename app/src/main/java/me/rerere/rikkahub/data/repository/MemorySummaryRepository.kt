@@ -15,6 +15,8 @@ import me.rerere.rikkahub.data.db.entity.MemorySummaryStateEntity
 import me.rerere.rikkahub.data.db.entity.MemorySummaryUpdateMode
 import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 import me.rerere.rikkahub.data.db.entity.MemoryType
+import me.rerere.rikkahub.data.db.entity.MemoryEntity
+import me.rerere.rikkahub.data.db.entity.ChatEpisodeEntity
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -66,6 +68,39 @@ data class MemorySummarySource(
     val timestampLabel: String,
 )
 
+private fun MemoryEntity.toSummarySource() = MemorySummarySource(
+    type = MemoryType.CORE,
+    id = id,
+    content = content,
+    timestamp = updatedAt ?: createdAt,
+    timestampLabel = if (updatedAt != null) "Updated" else "Created",
+)
+
+private fun ChatEpisodeEntity.toSummarySource() = MemorySummarySource(
+    type = MemoryType.EPISODIC,
+    id = id,
+    content = content,
+    timestamp = updatedAt ?: endTime,
+    timestampLabel = if (updatedAt != null) "Updated" else "Ended",
+)
+
+/** A summary is either the assistant-wide history or a private project history. */
+sealed interface MemorySummaryTarget {
+    val assistantId: String
+    val storageKey: String
+
+    data class Global(override val assistantId: String) : MemorySummaryTarget {
+        override val storageKey: String = assistantId
+    }
+
+    data class Project(
+        override val assistantId: String,
+        val projectId: String,
+    ) : MemorySummaryTarget {
+        override val storageKey: String = "project:$assistantId:$projectId"
+    }
+}
+
 class MemorySummaryRepository(
     private val summaryDao: MemorySummaryDao,
     private val memoryDao: MemoryDAO,
@@ -73,6 +108,100 @@ class MemorySummaryRepository(
     private val database: AppDatabase,
     private val scheduler: MemorySummaryScheduler,
 ) {
+    fun observeVersions(target: MemorySummaryTarget): Flow<List<MemorySummaryVersionEntity>> =
+        observeVersions(target.storageKey)
+
+    fun observeStatus(target: MemorySummaryTarget): Flow<MemorySummaryStatus> =
+        observeStatus(target.storageKey)
+
+    suspend fun getActiveVersion(target: MemorySummaryTarget): MemorySummaryVersionEntity? =
+        getActiveVersion(target.storageKey)
+
+    suspend fun getActiveContent(target: MemorySummaryTarget): String =
+        getActiveContent(target.storageKey)
+
+    suspend fun getActiveSnapshot(target: MemorySummaryTarget): MemorySummaryActiveSnapshot =
+        getActiveSnapshot(target.storageKey)
+
+    suspend fun getPendingChanges(target: MemorySummaryTarget): List<MemorySummaryChangeEntity> =
+        getPendingChanges(target.storageKey)
+
+    suspend fun getCurrentMemoryCount(target: MemorySummaryTarget): Int = when (target) {
+        is MemorySummaryTarget.Global -> getCurrentMemoryCount(target.assistantId)
+        is MemorySummaryTarget.Project -> memoryDao.getMemoriesOfProject(target.assistantId, target.projectId).size +
+            episodeDao.getEpisodesOfProject(target.assistantId, target.projectId).size
+    }
+
+    suspend fun getAllSources(target: MemorySummaryTarget): List<MemorySummarySource> = when (target) {
+        is MemorySummaryTarget.Global -> getAllSources(target.assistantId)
+        is MemorySummaryTarget.Project -> sourcesOfProject(target)
+    }
+
+    suspend fun getAddedSources(
+        target: MemorySummaryTarget,
+        changes: List<MemorySummaryChangeEntity>,
+    ): List<MemorySummarySource> = when (target) {
+        is MemorySummaryTarget.Global -> getAddedSources(target.assistantId, changes)
+        is MemorySummaryTarget.Project -> getAddedProjectSources(target, changes)
+    }
+
+    suspend fun getRecentRequirements(target: MemorySummaryTarget): List<String> =
+        getRecentRequirements(target.storageKey)
+
+    suspend fun publishVersion(
+        target: MemorySummaryTarget,
+        content: String,
+        updateMode: Int,
+        snapshotChanges: List<MemorySummaryChangeEntity>,
+        expectedActiveVersionId: Long?,
+        expectedRevision: Long,
+    ): Boolean = publishVersion(
+        assistantId = target.storageKey,
+        content = content,
+        updateMode = updateMode,
+        snapshotChanges = snapshotChanges,
+        expectedActiveVersionId = expectedActiveVersionId,
+        expectedRevision = expectedRevision,
+    )
+
+    fun requestManualUpdate(target: MemorySummaryTarget, options: MemorySummaryUpdateOptions): UUID =
+        scheduler.enqueueManual(target, options)
+
+    suspend fun markRequiresFullUpdate(target: MemorySummaryTarget) {
+        markRequiresFullUpdate(target.storageKey)
+    }
+
+    suspend fun recordChange(
+        target: MemorySummaryTarget,
+        memoryType: Int,
+        memoryId: Int,
+        requestedType: Int,
+    ) = recordChangeForTarget(target, memoryType, memoryId, requestedType)
+
+    private suspend fun sourcesOfProject(target: MemorySummaryTarget.Project): List<MemorySummarySource> = buildList {
+        memoryDao.getMemoriesOfProject(target.assistantId, target.projectId).forEach { memory ->
+            add(memory.toSummarySource())
+        }
+        episodeDao.getEpisodesOfProject(target.assistantId, target.projectId).forEach { episode ->
+            add(episode.toSummarySource())
+        }
+    }.filter { it.content.isNotBlank() }.sortedBy { it.timestamp }
+
+    private suspend fun getAddedProjectSources(
+        target: MemorySummaryTarget.Project,
+        changes: List<MemorySummaryChangeEntity>,
+    ): List<MemorySummarySource> = buildList {
+        changes.filter { it.changeType == MemorySummaryChangeType.ADDED }.forEach { change ->
+            when (change.memoryType) {
+                MemoryType.CORE -> memoryDao.getMemoryById(change.memoryId)
+                    ?.takeIf { it.assistantId == target.assistantId && it.projectId == target.projectId }
+                    ?.let { add(it.toSummarySource()) }
+                MemoryType.EPISODIC -> episodeDao.getEpisodeById(change.memoryId)
+                    ?.takeIf { it.assistantId == target.assistantId && it.projectId == target.projectId }
+                    ?.let { add(it.toSummarySource()) }
+            }
+        }
+    }.filter { it.content.isNotBlank() }.sortedBy { it.timestamp }
     fun observeVersions(assistantId: String): Flow<List<MemorySummaryVersionEntity>> =
         summaryDao.observeVersions(assistantId)
 
@@ -198,16 +327,24 @@ class MemorySummaryRepository(
         memoryType: Int,
         memoryId: Int,
         requestedType: Int,
+    ) = recordChangeForTarget(MemorySummaryTarget.Global(assistantId), memoryType, memoryId, requestedType)
+
+    private suspend fun recordChangeForTarget(
+        target: MemorySummaryTarget,
+        memoryType: Int,
+        memoryId: Int,
+        requestedType: Int,
     ) {
+        val storageKey = target.storageKey
         database.withTransaction {
-            val existing = summaryDao.getChange(assistantId, memoryType, memoryId)
+            val existing = summaryDao.getChange(storageKey, memoryType, memoryId)
             val mergedType = mergeMemorySummaryChangeType(existing?.changeType, requestedType)
             if (mergedType == null) {
-                summaryDao.deleteChange(assistantId, memoryType, memoryId)
+                summaryDao.deleteChange(storageKey, memoryType, memoryId)
             } else {
                 summaryDao.upsertChange(
                     MemorySummaryChangeEntity(
-                        assistantId = assistantId,
+                        assistantId = storageKey,
                         memoryType = memoryType,
                         memoryId = memoryId,
                         changeType = mergedType,
@@ -217,7 +354,7 @@ class MemorySummaryRepository(
                 )
             }
         }
-        scheduler.enqueueAutomatic(assistantId)
+        scheduler.enqueueAutomatic(target)
     }
 
     /**
@@ -591,12 +728,17 @@ class MemorySummaryRepository(
 
     suspend fun clearAllForAssistant(assistantId: String) {
         database.withTransaction {
-            summaryDao.deleteStateOfAssistant(assistantId)
-            summaryDao.deleteVersionsOfAssistant(assistantId)
-            summaryDao.deleteChangesOfAssistant(assistantId)
-            summaryDao.deleteRequirementsOfAssistant(assistantId)
+            val projectPrefix = "project:$assistantId:%"
+            // State must go first because it references summary versions.
+            summaryDao.deleteStateOfAssistantAndProjects(assistantId, projectPrefix)
+            summaryDao.deleteVersionsOfAssistantAndProjects(assistantId, projectPrefix)
+            summaryDao.deleteChangesOfAssistantAndProjects(assistantId, projectPrefix)
+            summaryDao.deleteRequirementsOfAssistantAndProjects(assistantId, projectPrefix)
         }
     }
+
+    suspend fun clearAllForTarget(target: MemorySummaryTarget) =
+        clearAllForAssistant(target.storageKey)
 
     fun requestManualUpdate(assistantId: String, options: MemorySummaryUpdateOptions): UUID =
         scheduler.enqueueManual(assistantId, options)
@@ -616,6 +758,10 @@ class MemorySummaryRepository(
 
     fun scheduleAutomaticCheck(assistantId: String) {
         scheduler.enqueueAutomatic(assistantId)
+    }
+
+    fun scheduleAutomaticCheck(target: MemorySummaryTarget) {
+        scheduler.enqueueAutomatic(target)
     }
 
     fun shouldUseFullUpdate(

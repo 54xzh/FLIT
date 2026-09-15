@@ -161,6 +161,20 @@ class MemoryRepository internal constructor(
         private const val PREVIEW_EPISODE_CONTENT_LIMIT = 240
     }
 
+    private suspend fun recordProjectSummaryChange(
+        assistantId: String,
+        projectId: String?,
+        memoryType: Int,
+        memoryId: Int,
+        changeType: Int,
+    ) {
+        if (projectId != null) {
+            memorySummaryRepository?.recordChange(
+                MemorySummaryTarget.Project(assistantId, projectId), memoryType, memoryId, changeType,
+            )
+        }
+    }
+
     fun getMemoriesOfAssistantFlow(assistantId: String): Flow<List<AssistantMemory>> =
         memoryDAO.getMemoriesOfAssistantFlow(assistantId)
             .map { entities ->
@@ -315,6 +329,33 @@ class MemoryRepository internal constructor(
             }
     }
 
+    /**
+     * Returns every core memory visible to a chat. This is deliberately shared by OFF mode and
+     * pinned-memory fallbacks so those paths cannot bypass project visibility rules.
+     */
+    suspend fun getMemoriesInRetrievalScope(
+        assistantId: String,
+        projectId: String?,
+        readExternal: Boolean,
+    ): List<AssistantMemory> = memoryDAO.getMemoriesInRetrievalScope(
+        assistantId = assistantId,
+        projectId = projectId,
+        readExternal = readExternal,
+    ).let { memories ->
+        if (projectId == null) memories else memories.sortedByDescending { it.projectId == projectId }
+    }.map { memory ->
+        AssistantMemory(
+            id = memory.id,
+            content = memory.content,
+            type = memory.type,
+            hasEmbedding = memory.embedding != null,
+            embeddingModelId = memory.embeddingModelId,
+            timestamp = memory.createdAt,
+            pinned = memory.pinned,
+            projectId = memory.projectId,
+        )
+    }
+
     suspend fun getPinnedMemoriesOfAssistant(assistantId: String): List<AssistantMemory> {
         return memoryDAO.getPinnedMemoriesOfAssistant(assistantId)
             .map {
@@ -329,6 +370,27 @@ class MemoryRepository internal constructor(
                 )
             }
     }
+
+    suspend fun getPinnedMemoriesInRetrievalScope(
+        assistantId: String,
+        projectId: String?,
+        readExternal: Boolean,
+    ): List<AssistantMemory> = memoryDAO.getMemoriesInRetrievalScope(
+        assistantId = assistantId,
+        projectId = projectId,
+        readExternal = readExternal,
+    ).asSequence().filter { it.pinned }.map { memory ->
+        AssistantMemory(
+            id = memory.id,
+            content = memory.content,
+            type = memory.type,
+            hasEmbedding = memory.embedding != null,
+            embeddingModelId = memory.embeddingModelId,
+            timestamp = memory.createdAt,
+            pinned = true,
+            projectId = memory.projectId,
+        )
+    }.toList()
 
     suspend fun getCoreMemoryById(id: Int): AssistantMemory? {
         val memory = memoryDAO.getMemoryById(id) ?: return null
@@ -435,15 +497,14 @@ class MemoryRepository internal constructor(
         }
         if (rows.isEmpty()) return emptyList()
 
-        val matchedHits = if (query.isBlank() || limit <= 0) {
-            emptyList()
-        } else {
+        suspend fun search(candidateRows: List<MemoryRetrievalRow>, poolKey: String): List<KeywordSearchHit> {
+            if (candidateRows.isEmpty() || query.isBlank() || limit <= 0) return emptyList()
             keywordTokenizer.prepare()
             val retrievalContext = currentCoroutineContext()
             val checkCancelled = { retrievalContext.ensureActive() }
             var index = getKeywordIndex(
-                cacheKey = "$assistantId:$includeCore:$includeEpisodes:$projectId:$readExternal",
-                rows = rows,
+                cacheKey = "$assistantId:$includeCore:$includeEpisodes:$projectId:$readExternal:$poolKey",
+                rows = candidateRows,
                 checkCancelled = checkCancelled,
             )
             var hits = withContext(Dispatchers.Default) {
@@ -457,8 +518,8 @@ class MemoryRepository internal constructor(
             }
             if (index.tokenizerRevision != keywordTokenizer.revision) {
                 index = getKeywordIndex(
-                    cacheKey = "$assistantId:$includeCore:$includeEpisodes",
-                    rows = rows,
+                    cacheKey = "$assistantId:$includeCore:$includeEpisodes:$projectId:$readExternal:$poolKey",
+                    rows = candidateRows,
                     checkCancelled = checkCancelled,
                 )
                 hits = withContext(Dispatchers.Default) {
@@ -471,14 +532,24 @@ class MemoryRepository internal constructor(
                     )
                 }
             }
-            hits
+            return mergeKeywordMemoryHits(
+                rows = candidateRows,
+                matchedHits = hits,
+                limit = limit,
+                normalize = keywordTokenizer::normalize,
+            )
         }
-        val hits = mergeKeywordMemoryHits(
-            rows = rows,
-            matchedHits = matchedHits,
-            limit = limit,
-            normalize = keywordTokenizer::normalize,
-        )
+        val hits = if (projectId == null) {
+            search(rows, "all")
+        } else {
+            val projectRows = rows.filter { it.projectId == projectId }
+            val externalRows = rows.filterNot { it.projectId == projectId }
+            mergeProjectMemoryPools(
+                projectHits = search(projectRows, "project"),
+                externalHits = search(externalRows, "external"),
+                limit = limit,
+            )
+        }
 
         if (recordAccess) {
             updateLastAccessed(hits.map { hit ->
@@ -695,6 +766,10 @@ class MemoryRepository internal constructor(
                 id,
                 me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED,
             )
+            recordProjectSummaryChange(
+                memory.assistantId, memory.projectId, MemoryType.CORE, id,
+                me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED,
+            )
         }
 
         return AssistantMemory(
@@ -743,6 +818,10 @@ class MemoryRepository internal constructor(
                 id,
                 me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED,
             )
+            recordProjectSummaryChange(
+                memory.assistantId, memory.projectId, MemoryType.CORE, id,
+                me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED,
+            )
         }
 
         return AssistantMemory(
@@ -785,6 +864,10 @@ class MemoryRepository internal constructor(
             episode.assistantId,
             MemoryType.EPISODIC,
             id,
+            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED,
+        )
+        recordProjectSummaryChange(
+            episode.assistantId, episode.projectId, MemoryType.EPISODIC, id,
             me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.UPDATED,
         )
 
@@ -846,6 +929,10 @@ class MemoryRepository internal constructor(
                 me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.ADDED,
             )
         }
+        recordProjectSummaryChange(
+            assistantId, projectId, MemoryType.CORE, id.toInt(),
+            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.ADDED,
+        )
         
         // Add to cache immediately if available
         if (embedding != null && embeddingResult != null) {
@@ -886,6 +973,10 @@ class MemoryRepository internal constructor(
             id,
             me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
         )
+        recordProjectSummaryChange(
+            memory.assistantId, memory.projectId, MemoryType.CORE, id,
+            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
+        )
     }
 
     suspend fun deleteEpisodeMemory(id: Int) {
@@ -896,6 +987,10 @@ class MemoryRepository internal constructor(
             episode.assistantId,
             MemoryType.EPISODIC,
             id,
+            me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
+        )
+        recordProjectSummaryChange(
+            episode.assistantId, episode.projectId, MemoryType.EPISODIC, id,
             me.rerere.rikkahub.data.db.entity.MemorySummaryChangeType.DELETED,
         )
     }
@@ -1031,6 +1126,8 @@ class MemoryRepository internal constructor(
         includeCore: Boolean = true,
         includeEpisodes: Boolean = true,
         recordAccess: Boolean = true,
+        projectId: String? = null,
+        readExternal: Boolean = true,
     ): List<Pair<AssistantMemory, Float>> {
         data class ScoredCandidate(
             val item: Any,
@@ -1047,8 +1144,12 @@ class MemoryRepository internal constructor(
         val limitInt = limit.coerceAtLeast(0)
 
         // Get both core memories and episodes
-        val memories = if (includeCore) memoryDAO.getMemoriesOfAssistant(assistantId) else emptyList()
-        val episodes = if (includeEpisodes) chatEpisodeDAO.getEpisodesOfAssistant(assistantId) else emptyList()
+        val memories = if (includeCore) memoryDAO.getMemoriesInRetrievalScope(
+            assistantId, projectId, readExternal
+        ) else emptyList()
+        val episodes = if (includeEpisodes) chatEpisodeDAO.getEpisodesInRetrievalScope(
+            assistantId, projectId, readExternal
+        ) else emptyList()
 
         // 批量预取嵌入缓存：此前每条记忆各发一次单点查询（N+1），记忆多时发消息前会明显停顿。
         // 按块「预取 + 打分」以约束缓存副本的额外驻留（每行携带十几 KB 向量 JSON）；
@@ -1136,16 +1237,6 @@ class MemoryRepository internal constructor(
             }
         }
 
-        val pinnedCandidates = scoredCore.filter { it.isPinned }
-        val unpinnedCandidates = (scoredCore.filterNot { it.isPinned } + scoredEpisodes)
-            .sortedByDescending { it.score }
-            .take(limitInt)
-
-        val mergedByKey = LinkedHashMap<String, ScoredCandidate>()
-        (pinnedCandidates + unpinnedCandidates).forEach { candidate ->
-            mergedByKey.putIfAbsent(candidate.key, candidate)
-        }
-
         fun ScoredCandidate.timestampForSort(): Long = if (isMemory) {
             (item as MemoryEntity).createdAt
         } else {
@@ -1158,7 +1249,12 @@ class MemoryRepository internal constructor(
             (item as ChatEpisodeEntity).id
         }
 
-        val finalCandidates = mergedByKey.values
+        fun rankedCandidates(candidates: List<ScoredCandidate>): List<ScoredCandidate> {
+            val pinnedCandidates = candidates.filter { it.isPinned }
+            val dynamicCandidates = candidates.filterNot { it.isPinned }.sortedByDescending { it.score }
+            val unique = LinkedHashMap<String, ScoredCandidate>()
+            (pinnedCandidates + dynamicCandidates).forEach { unique.putIfAbsent(it.key, it) }
+            return unique.values
             .sortedWith { left, right ->
                 when {
                     left.isPinned != right.isPinned -> if (left.isPinned) -1 else 1
@@ -1166,6 +1262,23 @@ class MemoryRepository internal constructor(
                     else -> compareValuesBy(right, left, { it.score }, { it.timestampForSort() }, { it.idForSort() })
                 }
             }
+        }
+        val allCandidates = scoredCore + scoredEpisodes
+        val finalCandidates = if (projectId == null) {
+            rankedCandidates(allCandidates).take(limitInt)
+        } else {
+            mergeProjectMemoryPools(
+                projectHits = rankedCandidates(allCandidates.filter { candidate ->
+                    (candidate.item as? MemoryEntity)?.projectId == projectId ||
+                        (candidate.item as? ChatEpisodeEntity)?.projectId == projectId
+                }),
+                externalHits = rankedCandidates(allCandidates.filterNot { candidate ->
+                    (candidate.item as? MemoryEntity)?.projectId == projectId ||
+                        (candidate.item as? ChatEpisodeEntity)?.projectId == projectId
+                }),
+                limit = limitInt,
+            )
+        }
 
         // Update lastAccessedAt for included items (pinned + top-k)
         // 批量写回：单条 UPDATE 替代逐行整行重写（旧写法每行重写含 embedding 的整行、各自提交
@@ -1192,6 +1305,7 @@ class MemoryRepository internal constructor(
                         embeddingModelId = memory.embeddingModelId,
                         timestamp = memory.createdAt,
                         pinned = memory.pinned,
+                        projectId = memory.projectId,
                     ),
                     candidate.score
                 )
@@ -1206,6 +1320,7 @@ class MemoryRepository internal constructor(
                         embeddingModelId = episode.embeddingModelId,
                         timestamp = episode.startTime,
                         significance = episode.significance,
+                        projectId = episode.projectId,
                     ),
                     candidate.score
                 )

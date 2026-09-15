@@ -103,6 +103,13 @@ class ProjectDetailVM(
         }
     }
 
+    fun updateEnableMemorySummary(enabled: Boolean) {
+        val p = project.value ?: return
+        viewModelScope.launch {
+            projectRepo.updateProject(p.copy(enableMemorySummary = enabled))
+        }
+    }
+
     fun deleteProject(onSuccess: () -> Unit) {
         val p = project.value ?: return
         viewModelScope.launch {
@@ -112,4 +119,3 @@ class ProjectDetailVM(
         }
     }
 }
-

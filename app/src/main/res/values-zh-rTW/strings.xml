@@ -2731,7 +2731,9 @@
     <string name="project_enable_consolidation">記憶整合</string>
     <string name="project_enable_consolidation_desc">允許專案對話生成長期記憶</string>
     <string name="project_expose_to_external">記憶外部可見</string>
-    <string name="project_expose_to_external_desc">允許本專案的記憶被外部存取</string>
+    <string name="project_expose_to_external_desc">允許本專案的記憶被外部存取（專案記憶摘要除外）</string>
+    <string name="project_enable_memory_summary">專案記憶摘要</string>
+    <string name="project_enable_memory_summary_desc">僅根據本專案記憶產生並私有使用的摘要</string>
     <string name="project_read_external">讀取外部記憶</string>
     <string name="project_read_external_desc">允許本專案存取外部的記憶</string>
     <string name="chat_page_move_to_project">移動至專案</string>

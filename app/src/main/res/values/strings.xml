@@ -2741,7 +2741,9 @@
     <string name="project_enable_consolidation">Memory consolidation</string>
     <string name="project_enable_consolidation_desc">Allow conversations in this project to generate long-term memories</string>
     <string name="project_expose_to_external">Expose memory externally</string>
-    <string name="project_expose_to_external_desc">Allow project memories to be accessed externally</string>
+    <string name="project_expose_to_external_desc">Allow project memories to be accessed externally (project memory summaries excluded)</string>
+    <string name="project_enable_memory_summary">Project memory summary</string>
+    <string name="project_enable_memory_summary_desc">Keep a private summary built only from this project’s memories</string>
     <string name="project_read_external">Read external memory</string>
     <string name="project_read_external_desc">Allow this project to access external memories</string>
     <string name="chat_page_move_to_project">Move to project</string>

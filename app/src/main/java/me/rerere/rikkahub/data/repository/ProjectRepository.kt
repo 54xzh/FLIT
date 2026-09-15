@@ -81,6 +81,11 @@ class ProjectRepository(
         if (oldProject != null && oldProject.exposeToExternal != project.exposeToExternal) {
             memorySummaryRepoProvider()?.markRequiresFullUpdate(project.assistantId.toString())
         }
+        if (oldProject?.enableMemorySummary != true && project.enableMemorySummary) {
+            val target = MemorySummaryTarget.Project(project.assistantId.toString(), project.id.toString())
+            memorySummaryRepoProvider()?.markRequiresFullUpdate(target)
+            memorySummaryRepoProvider()?.scheduleAutomaticCheck(target)
+        }
     }
 
     suspend fun updateProjectIcon(id: Uuid, icon: String) = withContext(Dispatchers.IO) {
@@ -104,8 +109,10 @@ class ProjectRepository(
             projectDAO.deleteById(idStr)
         }
         if (project != null) {
+            memorySummaryRepoProvider()?.clearAllForTarget(
+                MemorySummaryTarget.Project(project.assistantId, idStr),
+            )
             memorySummaryRepoProvider()?.markRequiresFullUpdate(project.assistantId)
         }
     }
 }
-

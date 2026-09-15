@@ -129,4 +129,17 @@ interface MemorySummaryDao {
 
     @Query("DELETE FROM memory_summary_requirements WHERE assistant_id = :assistantId")
     suspend fun deleteRequirementsOfAssistant(assistantId: String)
+
+    /** Deletes the global target and every private project target belonging to one assistant. */
+    @Query("DELETE FROM memory_summary_state WHERE assistant_id = :assistantId OR assistant_id LIKE :projectPrefix")
+    suspend fun deleteStateOfAssistantAndProjects(assistantId: String, projectPrefix: String)
+
+    @Query("DELETE FROM memory_summary_versions WHERE assistant_id = :assistantId OR assistant_id LIKE :projectPrefix")
+    suspend fun deleteVersionsOfAssistantAndProjects(assistantId: String, projectPrefix: String)
+
+    @Query("DELETE FROM memory_summary_changes WHERE assistant_id = :assistantId OR assistant_id LIKE :projectPrefix")
+    suspend fun deleteChangesOfAssistantAndProjects(assistantId: String, projectPrefix: String)
+
+    @Query("DELETE FROM memory_summary_requirements WHERE assistant_id = :assistantId OR assistant_id LIKE :projectPrefix")
+    suspend fun deleteRequirementsOfAssistantAndProjects(assistantId: String, projectPrefix: String)
 }

@@ -16,6 +16,8 @@ data class Project(
     val enableConsolidation: Boolean = true,
     val exposeToExternal: Boolean = false,
     val readExternalMemory: Boolean = true,
+    /** A private, project-only summary. It intentionally does not follow exposeToExternal. */
+    val enableMemorySummary: Boolean = false,
     val sortIndex: Int = 0,
     val icon: String = "",
     val createdAt: Long = System.currentTimeMillis(),
@@ -33,6 +35,7 @@ fun ProjectEntity.toProject(): Project = Project(
     enableConsolidation = enableConsolidation,
     exposeToExternal = exposeToExternal,
     readExternalMemory = readExternalMemory,
+    enableMemorySummary = enableMemorySummary,
     sortIndex = sortIndex,
     icon = icon,
     createdAt = createdAt,
@@ -50,9 +53,9 @@ fun Project.toEntity(): ProjectEntity = ProjectEntity(
     enableConsolidation = enableConsolidation,
     exposeToExternal = exposeToExternal,
     readExternalMemory = readExternalMemory,
+    enableMemorySummary = enableMemorySummary,
     sortIndex = sortIndex,
     icon = icon,
     createdAt = createdAt,
     updatedAt = updatedAt,
 )
-

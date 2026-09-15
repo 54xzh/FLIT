@@ -293,6 +293,17 @@ fun ProjectDetailPage(
                         )
                     }
                 )
+
+                SettingGroupItem(
+                    title = stringResource(R.string.project_enable_memory_summary),
+                    subtitle = stringResource(R.string.project_enable_memory_summary_desc),
+                    trailing = {
+                        HapticSwitch(
+                            checked = currentProject.enableMemorySummary,
+                            onCheckedChange = vm::updateEnableMemorySummary,
+                        )
+                    }
+                )
             }
         }
     }
@@ -370,4 +381,3 @@ fun ProjectDetailPage(
         )
     }
 }
-
