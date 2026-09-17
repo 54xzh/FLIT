@@ -256,6 +256,7 @@ class SettingsStore(
         val SHOW_MARKDOWN_FONT_DEBUG_INFO = booleanPreferencesKey("show_markdown_font_debug_info")
         val AUTO_CONTINUE_ON_TRUNCATION = booleanPreferencesKey("auto_continue_on_truncation")
         val ENABLE_RAG_LOGGING = booleanPreferencesKey("enable_rag_logging")
+        val PROJECT_FEATURE_ENABLED = booleanPreferencesKey("project_feature_enabled")
 
         // 模型选择
         val ENABLE_WEB_SEARCH = booleanPreferencesKey("enable_web_search")
@@ -575,6 +576,7 @@ class SettingsStore(
                 showMarkdownFontDebugInfo = preferences[SHOW_MARKDOWN_FONT_DEBUG_INFO] != false,
                 autoContinueOnTruncation = preferences[AUTO_CONTINUE_ON_TRUNCATION] == true,
                 enableRagLogging = preferences[ENABLE_RAG_LOGGING] == true,
+                projectFeatureEnabled = preferences[PROJECT_FEATURE_ENABLED] == true,
                 displaySetting = decodeDisplaySettingCompat(preferences[DISPLAY_SETTING]),
                 textSelectionConfig = preferences[TEXT_SELECTION_CONFIG]?.let {
                     JsonInstant.decodeFromString(it)
@@ -1003,6 +1005,7 @@ class SettingsStore(
                 preferences[SHOW_MARKDOWN_FONT_DEBUG_INFO] = finalSettingsToSave.showMarkdownFontDebugInfo
                 preferences[AUTO_CONTINUE_ON_TRUNCATION] = finalSettingsToSave.autoContinueOnTruncation
                 preferences[ENABLE_RAG_LOGGING] = finalSettingsToSave.enableRagLogging
+                preferences[PROJECT_FEATURE_ENABLED] = finalSettingsToSave.projectFeatureEnabled
                 preferences[DISPLAY_SETTING] = JsonInstant.encodeToString(finalSettingsToSave.displaySetting)
                 preferences[TEXT_SELECTION_CONFIG] = JsonInstant.encodeToString(finalSettingsToSave.textSelectionConfig)
 
@@ -1290,6 +1293,7 @@ data class Settings(
     val showMarkdownFontDebugInfo: Boolean = false,
     val autoContinueOnTruncation: Boolean = false,
     val enableRagLogging: Boolean = false,
+    val projectFeatureEnabled: Boolean = false,
     val displaySetting: DisplaySetting = DisplaySetting(),
     val textSelectionConfig: TextSelectionConfig = TextSelectionConfig(),
     val enableWebSearch: Boolean = false,

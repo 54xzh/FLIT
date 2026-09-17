@@ -103,6 +103,7 @@ import me.rerere.rikkahub.data.ai.tools.SearchAgentTools
 import me.rerere.rikkahub.data.ai.tools.WorkspaceToolFactory
 import me.rerere.rikkahub.data.ai.transformers.Base64ImageToLocalFileTransformer
 import me.rerere.rikkahub.data.ai.transformers.DocumentAsPromptTransformer
+import me.rerere.rikkahub.data.model.resolveNewConversationProjectId
 import me.rerere.rikkahub.data.ai.transformers.OcrTransformer
 import me.rerere.rikkahub.data.ai.transformers.PlaceholderTransformer
 import me.rerere.rikkahub.data.ai.transformers.QuotedFollowUpTransformer
@@ -1535,10 +1536,14 @@ class ChatService(
             val currentSettings = settingsStore.settingsFlow.first { !it.init }
             val target = currentSettings.chatTarget
 
-            if (overrideProjectId != null) {
+            if (currentSettings.projectFeatureEnabled && overrideProjectId != null) {
                 _selectedProjectId.value = overrideProjectId
             }
-            val effectiveProjectId = overrideProjectId ?: _selectedProjectId.value
+            val effectiveProjectId = resolveNewConversationProjectId(
+                projectFeatureEnabled = currentSettings.projectFeatureEnabled,
+                requestedProjectId = overrideProjectId,
+                selectedProjectId = _selectedProjectId.value,
+            )
 
             // 内存态设置未经磁盘回流链路的 sanitize，chatTarget 可能短暂指向刚被删除的
             // 助手/群聊。按同样的降级规则解析出真实存在的归属再建会话，避免会话绑定到
@@ -1598,7 +1603,11 @@ class ChatService(
         val conversation = Conversation.ofId(
             id = Uuid.random(),
             assistantId = assistant.id,
-            projectId = projectId,
+            projectId = resolveNewConversationProjectId(
+                projectFeatureEnabled = settings.projectFeatureEnabled,
+                requestedProjectId = projectId,
+                selectedProjectId = null,
+            ),
         ).updateCurrentMessages(assistant.presetMessages).copy(
             enabledModeIds = assistant.enabledModeIds,
         )
@@ -1694,7 +1703,11 @@ class ChatService(
         rootId: Uuid,
         buildConversation: (branchNumber: Int) -> Conversation,
     ): Conversation {
-        val conversation = conversationRepo.insertForkConversation(rootId, buildConversation)
+        val projectFeatureEnabled = settingsStore.settingsFlow.value.projectFeatureEnabled
+        val conversation = conversationRepo.insertForkConversation(rootId) { branchNumber ->
+            val built = buildConversation(branchNumber)
+            if (projectFeatureEnabled) built else built.copy(projectId = null)
+        }
         updateConversation(conversation.id, conversation)
         return conversation
     }

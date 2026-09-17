@@ -727,6 +727,8 @@
   <string name="deselect_all">取消全选</string>
     <string name="developer_option_auto_continue_on_truncation_desc">当生成因 token 上限截断或网络波动中断（非手动取消）时，自动续写一次。</string>
     <string name="developer_option_auto_continue_on_truncation_title">截断时自动续写一次</string>
+    <string name="developer_option_project_feature_title">启用项目（实验性）</string>
+    <string name="developer_option_project_feature_desc">关闭后隐藏项目入口，新对话不会加入项目，已有项目数据会保留。</string>
     <string name="developer_option_ipv6_probe_action">立即检测</string>
     <string name="developer_option_ipv6_probe_desc">分别检查 6.ipw.cn 返回的 IPv6 和系统默认网络实际会使用的 IPv6。</string>
     <string name="developer_option_ipv6_probe_http_title">外网 IPv6（6.ipw.cn）</string>

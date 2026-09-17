@@ -57,6 +57,7 @@ import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.Project
 import me.rerere.rikkahub.data.model.replaceRegexes
 import me.rerere.rikkahub.data.model.id
+import me.rerere.rikkahub.data.model.resolveProjectPreviewId
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.repository.ModelQuotaRepository
@@ -156,35 +157,42 @@ class ChatVM(
         viewModelScope.launch {
             var initializedOk = false
             try {
+                val initialSettings = settingsStore.settingsFlow.first { !it.init }
                 // Restore the saved project before creating a new conversation. This keeps the
                 // initial empty-chat UI in the correct project state instead of briefly showing
                 // the assistant welcome view while the project selection is loading.
-                if (initialProjectId == null) {
-                    val assistantId = settingsStore.settingsFlow.first { !it.init }.chatTarget.id
+                if (initialSettings.projectFeatureEnabled && initialProjectId == null) {
+                    val assistantId = initialSettings.chatTarget.id
                     val savedProjectId = context.readStringPreference("selected_project_$assistantId")
                         ?.let { runCatching { Uuid.parse(it) }.getOrNull() }
                     chatService.selectProject(savedProjectId)
+                } else if (!initialSettings.projectFeatureEnabled) {
+                    chatService.selectProject(null)
                 }
                 val result = chatService.initializeConversationWithResult(
                     conversationId = _conversationId,
-                    overrideProjectId = initialProjectId,
+                    overrideProjectId = initialProjectId.takeIf {
+                        initialSettings.projectFeatureEnabled
+                    },
                 )
                 initializedOk = result.initialized
                 _conversationExistsInStorage.value = result.existsInStorage
+                val projectFeatureEnabled = settings.value.projectFeatureEnabled
                 // 打开某个已保存会话本身代表用户进入了它的项目上下文；随后新建
                 // 对话应跟随该项目，而不是回到更早一次新对话所选的项目。
-                if (result.initialized && result.existsInStorage) {
+                if (projectFeatureEnabled && result.initialized && result.existsInStorage) {
                     selectDefaultProject(conversation.value.projectId)
                 }
                 // 已保存会话默认预览其归属项目；新对话则预览它实际采用的默认项目。
                 // 该状态不持久化，避免仅浏览列表就改变之后新对话的项目。
-                val defaultPreviewProjectId = if (result.existsInStorage) {
-                    conversation.value.projectId
-                } else {
-                    chatService.selectedProjectId.value
-                }
+                val defaultPreviewProjectId = resolveProjectPreviewId(
+                    projectFeatureEnabled = projectFeatureEnabled,
+                    conversationExistsInStorage = result.existsInStorage,
+                    conversationProjectId = conversation.value.projectId,
+                    selectedProjectId = chatService.selectedProjectId.value,
+                )
                 val selectedDuringInitialization = pendingProjectId
-                if (hasPendingProjectSelection) {
+                if (projectFeatureEnabled && hasPendingProjectSelection) {
                     _previewProjectId.value = selectedDuringInitialization
                     // 用户在加载期间选择项目时，只有实际为新对话才应用这次选择。
                     if (result.initialized && !result.existsInStorage) {
@@ -210,18 +218,36 @@ class ChatVM(
 
         // 恢复并监听助手当前选中的项目
         viewModelScope.launch {
-            if (initialProjectId != null) {
-                val assistantId = settingsStore.settingsFlow.first { !it.init }.chatTarget.id
+            val initialSettings = settingsStore.settingsFlow.first { !it.init }
+            if (initialSettings.projectFeatureEnabled && initialProjectId != null) {
+                val assistantId = initialSettings.chatTarget.id
                 context.writeStringPreference("selected_project_$assistantId", initialProjectId.toString())
                 chatService.selectProject(initialProjectId)
             }
             settingsStore.settingsFlow
-                .map { it.chatTarget.id }
+                .map { it.projectFeatureEnabled to it.chatTarget.id }
                 .distinctUntilChanged()
-                .collectLatest { assistantId ->
+                .collectLatest { (projectFeatureEnabled, assistantId) ->
+                    if (!projectFeatureEnabled) {
+                        chatService.selectProject(null)
+                        _previewProjectId.value = null
+                        hasPendingProjectSelection = false
+                        pendingProjectId = null
+                        if (_conversationInitialized.value && !_conversationExistsInStorage.value) {
+                            chatService.updateConversationProjectId(_conversationId, null)
+                        }
+                        return@collectLatest
+                    }
                     val saved = context.readStringPreference("selected_project_$assistantId")
                     val savedId = saved?.let { runCatching { Uuid.parse(it) }.getOrNull() }
                     chatService.selectProject(savedId)
+                    val isFreshConversation = _conversationInitialized.value &&
+                        !_conversationExistsInStorage.value &&
+                        conversation.value.messageNodes.none { it.role == MessageRole.USER }
+                    if (isFreshConversation) {
+                        _previewProjectId.value = savedId
+                        chatService.updateConversationProjectId(_conversationId, savedId)
+                    }
                 }
         }
     }
@@ -319,6 +345,7 @@ class ChatVM(
      * 仅空白新对话会把选择应用到会话及后续新对话默认项目。
      */
     fun selectProject(projectId: Uuid?) {
+        if (!settings.value.projectFeatureEnabled) return
         _previewProjectId.value = projectId
 
         // 此时还无法区分正在加载的是旧会话还是新会话。先记下本次点击，
@@ -339,6 +366,7 @@ class ChatVM(
     }
 
     private fun applyProjectToFreshConversation(projectId: Uuid?) {
+        if (!settings.value.projectFeatureEnabled) return
         selectDefaultProject(projectId)
 
         // 空白新对话即时切换项目，使欢迎页、模型和首条消息使用同一项目上下文。
@@ -354,11 +382,12 @@ class ChatVM(
     /** 每次打开抽屉时，已保存会话都从自己的项目重新开始预览。 */
     fun resetProjectPreview() {
         if (!_conversationInitialized.value) return
-        _previewProjectId.value = if (_conversationExistsInStorage.value) {
-            conversation.value.projectId
-        } else {
-            chatService.selectedProjectId.value
-        }
+        _previewProjectId.value = resolveProjectPreviewId(
+            projectFeatureEnabled = settings.value.projectFeatureEnabled,
+            conversationExistsInStorage = _conversationExistsInStorage.value,
+            conversationProjectId = conversation.value.projectId,
+            selectedProjectId = chatService.selectedProjectId.value,
+        )
     }
 
     fun createProject(
@@ -372,6 +401,7 @@ class ChatVM(
         icon: String = "",
         onSuccess: ((Project) -> Unit)? = null
     ) {
+        if (!settings.value.projectFeatureEnabled) return
         viewModelScope.launch {
             val assistantId = settings.value.chatTarget.id
             val project = projectRepo.createProject(

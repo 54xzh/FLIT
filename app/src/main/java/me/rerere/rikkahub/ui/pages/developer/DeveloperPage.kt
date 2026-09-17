@@ -13,6 +13,7 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FontDownload
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Refresh
@@ -224,6 +225,30 @@ private fun DeveloperToolsPage(vm: DeveloperVM) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+        item {
+            SettingGroupItem(
+                title = stringResource(R.string.developer_option_project_feature_title),
+                subtitle = stringResource(R.string.developer_option_project_feature_desc),
+                icon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Folder,
+                        contentDescription = null,
+                    )
+                },
+                trailing = {
+                    HapticSwitch(
+                        checked = settings.projectFeatureEnabled,
+                        onCheckedChange = { enabled ->
+                            vm.updateSettings { current ->
+                                current.copy(projectFeatureEnabled = enabled)
+                            }
+                        }
+                    )
+                },
+                onClick = null
+            )
+        }
+
         item {
             SettingGroupItem(
                 title = stringResource(R.string.developer_option_markdown_font_debug_title),

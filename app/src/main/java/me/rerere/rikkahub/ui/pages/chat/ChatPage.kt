@@ -125,6 +125,7 @@ import me.rerere.rikkahub.data.datastore.getCurrentChatModel
 import me.rerere.rikkahub.data.datastore.hasLargeContextWarningShown
 import me.rerere.rikkahub.data.model.ChatTarget
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.resolveNewChatNavigationProjectId
 import me.rerere.rikkahub.data.model.GroupChatTemplate
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.ui.components.ai.ChatInput
@@ -1011,7 +1012,11 @@ private fun ChatPageContent(
                         // 初始化状态回流前短暂使用上一次项目选择。
                         navigateToChatPage(
                             navController = navController,
-                            projectId = conversation.projectId ?: selectedProjectId,
+                            projectId = resolveNewChatNavigationProjectId(
+                                projectFeatureEnabled = setting.projectFeatureEnabled,
+                                currentConversationProjectId = conversation.projectId,
+                                selectedProjectId = selectedProjectId,
+                            ),
                         )
                     },
                     onClickMenu = {
@@ -1417,14 +1422,18 @@ private fun ChatPageContent(
 
                 // A new chat follows the project currently selected in the drawer; a saved
                 // conversation always keeps the project that was stored with it.
-                val activeProjectId = conversation.projectId ?: selectedProjectId.takeUnless {
-                    conversationExistsInStorage
+                val visibleProjectId = if (setting.projectFeatureEnabled) {
+                    conversation.projectId ?: selectedProjectId.takeUnless {
+                        conversationExistsInStorage
+                    }
+                } else {
+                    null
                 }
-                val activeProject = remember(activeProjectId, projects) {
-                    activeProjectId?.let { projectId -> projects.find { it.id == projectId } }
+                val activeProject = remember(visibleProjectId, projects) {
+                    visibleProjectId?.let { projectId -> projects.find { it.id == projectId } }
                 }
 
-                val welcomeText = if (activeProjectId == null) {
+                val welcomeText = if (visibleProjectId == null) {
                     assistantForConversation?.let { assistant ->
                         remember(assistant.id, assistant.welcomePhrases) {
                             selectWelcomePhrase(assistant.welcomePhrases)
@@ -1441,7 +1450,7 @@ private fun ChatPageContent(
                     hasAnyPresetMessages,
                     isEmptyConversation,
                     isGroupChatTemplate,
-                    activeProjectId,
+                    visibleProjectId,
                     activeProject?.id,
                     assistantForConversation?.enableWelcomePhrases,
                 ) {
@@ -1453,7 +1462,7 @@ private fun ChatPageContent(
                             !isTemporaryChat &&
                             !isGroupChatTemplate &&
                             isEmptyConversation -> EmptyChatOverlay.Project
-                        activeProjectId != null -> EmptyChatOverlay.None
+                        visibleProjectId != null -> EmptyChatOverlay.None
                         assistantForConversation?.enableWelcomePhrases == true &&
                             !isTemporaryChat &&
                             !hasUserSentMessages &&

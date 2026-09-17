@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +60,7 @@ import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
 import me.rerere.rikkahub.ui.pages.setting.components.SettingsGroup
 import me.rerere.rikkahub.ui.theme.AppShapes
+import me.rerere.rikkahub.utils.navigateToChatPage
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -74,6 +76,16 @@ fun ProjectDetailPage(
     val currentProject = project
     val navController = LocalNavController.current
     val haptics = rememberPremiumHaptics()
+
+    LaunchedEffect(settings.init, settings.projectFeatureEnabled) {
+        if (!settings.init && !settings.projectFeatureEnabled) {
+            if (!navController.popBackStack()) {
+                navigateToChatPage(navController)
+            }
+        }
+    }
+
+    if (settings.init || !settings.projectFeatureEnabled) return
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showPromptDialog by remember { mutableStateOf(false) }

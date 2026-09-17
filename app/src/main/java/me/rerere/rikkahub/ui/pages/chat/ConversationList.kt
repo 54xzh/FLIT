@@ -124,6 +124,7 @@ fun ColumnScope.ConversationList(
     onPin: (Conversation) -> Unit = {},
     onExportConversationJson: (Conversation) -> Unit = {},
     onMoveToProject: (Conversation) -> Unit = {},
+    showMoveToProjectOption: Boolean = false,
     showConsolidateOption: Boolean = false,
     showExportConversationJsonButton: Boolean = false,
 ) {
@@ -365,6 +366,7 @@ fun ColumnScope.ConversationList(
                             onPin = onPin,
                             onExportConversationJson = onExportConversationJson,
                             onMoveToProject = onMoveToProject,
+                            showMoveToProjectOption = showMoveToProjectOption,
                             showConsolidateOption = showConsolidateOption,
                             showExportConversationJsonButton = showExportConversationJsonButton,
                             modifier = Modifier.animateItem(
@@ -508,6 +510,7 @@ private fun ConversationItem(
     onPin: (Conversation) -> Unit = {},
     onExportConversationJson: (Conversation) -> Unit = {},
     onMoveToProject: (Conversation) -> Unit = {},
+    showMoveToProjectOption: Boolean = false,
     showConsolidateOption: Boolean = false,
     showExportConversationJsonButton: Boolean = false,
     onClick: (Conversation) -> Unit
@@ -654,19 +657,21 @@ private fun ConversationItem(
                     }
                 )
 
-                DropdownMenuItem(
-                    text = {
-                        Text(stringResource(id = R.string.chat_page_move_to_project))
-                    },
-                    onClick = {
-                        haptics.perform(HapticPattern.Pop)
-                        onMoveToProject(conversation)
-                        showDropdownMenu = false
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Rounded.Folder, null)
-                    }
-                )
+                if (showMoveToProjectOption) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(stringResource(id = R.string.chat_page_move_to_project))
+                        },
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            onMoveToProject(conversation)
+                            showDropdownMenu = false
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Rounded.Folder, null)
+                        }
+                    )
+                }
 
                 if (showExportConversationJsonButton) {
                     DropdownMenuItem(

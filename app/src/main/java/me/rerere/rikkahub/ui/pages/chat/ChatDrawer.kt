@@ -139,6 +139,15 @@ fun ChatDrawerContent(
     var projectToDelete by remember { mutableStateOf<Project?>(null) }
     var conversationToMove by remember { mutableStateOf<Conversation?>(null) }
 
+    LaunchedEffect(settings.projectFeatureEnabled) {
+        if (!settings.projectFeatureEnabled) {
+            showCreateProjectDialog = false
+            projectToRename = null
+            projectToDelete = null
+            conversationToMove = null
+        }
+    }
+
     val conversationJobs by vm.conversationJobs.collectAsStateWithLifecycle(
         initialValue = emptyMap(),
     )
@@ -327,7 +336,7 @@ fun ChatDrawerContent(
             }
 
             // 项目选择栏（严格置于搜索框下方）
-            if (settings.chatTarget is ChatTarget.Assistant) {
+            if (settings.projectFeatureEnabled && settings.chatTarget is ChatTarget.Assistant) {
                 ProjectBar(
                     projects = projects,
                     selectedProjectId = previewProjectId,
@@ -402,6 +411,7 @@ fun ChatDrawerContent(
                 onMoveToProject = { conversation ->
                     conversationToMove = conversation
                 },
+                showMoveToProjectOption = settings.projectFeatureEnabled,
                 showConsolidateOption = canConsolidate,
                 showExportConversationJsonButton = settings.displaySetting.showExportConversationJsonButton,
             )
@@ -569,7 +579,7 @@ fun ChatDrawerContent(
         )
     }
 
-    if (showCreateProjectDialog) {
+    if (settings.projectFeatureEnabled && showCreateProjectDialog) {
         var newProjectName by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showCreateProjectDialog = false },
@@ -604,7 +614,7 @@ fun ChatDrawerContent(
         )
     }
 
-    conversationToMove?.let { conversation ->
+    conversationToMove?.takeIf { settings.projectFeatureEnabled }?.let { conversation ->
         MoveToProjectBottomSheet(
             conversation = conversation,
             projects = projects,
@@ -616,7 +626,7 @@ fun ChatDrawerContent(
         )
     }
 
-    projectToRename?.let { project ->
+    projectToRename?.takeIf { settings.projectFeatureEnabled }?.let { project ->
         var renameText by remember(project.id) { mutableStateOf(project.name) }
         AlertDialog(
             onDismissRequest = { projectToRename = null },
@@ -651,7 +661,7 @@ fun ChatDrawerContent(
         )
     }
 
-    projectToDelete?.let { project ->
+    projectToDelete?.takeIf { settings.projectFeatureEnabled }?.let { project ->
         AlertDialog(
             onDismissRequest = { projectToDelete = null },
             title = { Text(stringResource(R.string.project_delete)) },

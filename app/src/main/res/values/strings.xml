@@ -11,6 +11,8 @@
     <string name="developer_page_tab_developer">Developer</string>
     <string name="developer_page_tab_debug_tools">Debug Tools</string>
     <string name="developer_page_tab_request_logs">Request Logs</string>
+    <string name="developer_option_project_feature_title">Enable Projects (experimental)</string>
+    <string name="developer_option_project_feature_desc">Hide project controls and keep new chats outside projects when disabled. Existing project data is preserved.</string>
     <string name="developer_option_markdown_font_debug_title">Show Markdown font diagnostics</string>
     <string name="developer_option_markdown_font_debug_desc">Display debug text under chat bubbles for font source and weight.</string>
     <string name="developer_option_auto_continue_on_truncation_title">Auto-continue once on truncation</string>
