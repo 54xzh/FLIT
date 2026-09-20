@@ -39,9 +39,9 @@ class GroupChatDecisionRoutingTest {
     @Test
     fun ignoresMalformedAndUnknownAnswers() {
         val answers = buildJsonObject {
-            put(seat1.toString(), buildJsonObject { put("noul", 0.8) })
-            put(seat2.toString(), buildJsonObject { put("choice", "yes") })
-            put("00000000-0000-0000-0000-000000000099", buildJsonObject { put("noul", 1.0) })
+            put("1", buildJsonObject { put("noul", 0.8) })
+            put("2", buildJsonObject { put("choice", "yes") })
+            put("99", buildJsonObject { put("noul", 1.0) })
         }
 
         val selected = selectDecisionSpeakerIds(
@@ -55,8 +55,8 @@ class GroupChatDecisionRoutingTest {
     @Test
     fun acceptsVercelProbabilityAnswers() {
         val answers = buildJsonObject {
-            put(seat1.toString(), buildJsonObject { put("probability", 0.3) })
-            put(seat2.toString(), buildJsonObject { put("probability", 0.9) })
+            put("1", buildJsonObject { put("probability", 0.3) })
+            put("2", buildJsonObject { put("probability", 0.9) })
         }
 
         val selected = selectDecisionSpeakerIds(
@@ -68,9 +68,9 @@ class GroupChatDecisionRoutingTest {
     }
 
     private fun answers(vararg probabilities: Double) = buildJsonObject {
-        listOf(seat1, seat2, seat3, seat4).zip(probabilities.toList()).forEach { (seatId, probability) ->
+        probabilities.forEachIndexed { index, probability ->
             put(
-                seatId.toString(),
+                (index + 1).toString(),
                 buildJsonObject {
                     put("type", "noul")
                     put("noul", probability)

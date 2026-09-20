@@ -56,6 +56,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
@@ -219,17 +220,115 @@ internal fun selectDecisionSpeakerIds(
     allowedSeatIds: List<Uuid>,
     threshold: Double = 0.5,
 ): List<Uuid> {
-    val ranked = allowedSeatIds.mapNotNull { seatId ->
-        val answer = answers[seatId.toString()] as? JsonObject ?: return@mapNotNull null
+    val ranked = allowedSeatIds.mapIndexedNotNull { index, seatId ->
+        val memberNumber = index + 1
+        val answer = answers[memberNumber.toString()] as? JsonObject ?: return@mapIndexedNotNull null
         val probability = answer["noul"]?.jsonPrimitiveOrNull?.doubleOrNull
             ?: answer["probability"]?.jsonPrimitiveOrNull?.doubleOrNull
-            ?: return@mapNotNull null
+            ?: return@mapIndexedNotNull null
         seatId to probability
     }.sortedByDescending { (_, probability) -> probability }
 
     if (ranked.isEmpty()) return emptyList()
     val selected = ranked.filter { (_, probability) -> probability >= threshold }.take(3)
     return (selected.ifEmpty { ranked.take(1) }).map { (seatId, _) -> seatId }
+}
+
+internal fun buildGroupChatRoutingSeatLines(
+    candidates: List<Pair<Uuid, String>>,
+): List<String> = candidates.mapIndexed { index, (_, displayText) ->
+    "- ${index + 1}: $displayText"
+}
+
+internal fun buildGroupChatRouterPrompt(extraRoutingInstructions: String): String = buildString {
+    appendLine("You are the host router for a group chat.")
+    appendLine("You NEVER reply to the user. You ONLY output JSON.")
+    extraRoutingInstructions.trim()
+        .takeIf { it.isNotBlank() }
+        ?.let { extra ->
+            appendLine()
+            appendLine("Extra routing instructions:")
+            appendLine(extra)
+        }
+    appendLine()
+    appendLine("Rules:")
+    appendLine("- Choose 1 to 3 speakers from the numbered member list.")
+    appendLine("- Prefer the most relevant members; avoid redundancy.")
+    appendLine("- Use the conversation context (recent assistant messages + latest user message) when routing.")
+    appendLine("- Return the 1-based member numbers as JSON integers.")
+    appendLine("- Output schema: {\"speakers\":[1, 2]}")
+    appendLine("- Output MUST be a single JSON object with ONLY the \"speakers\" key. No markdown, no explanation.")
+}
+
+internal fun buildGroupChatDecisionQuestions(
+    candidateSeatIds: List<Uuid>,
+    seatDisplayNames: Map<Uuid, String>,
+): JsonObject = buildJsonObject {
+    candidateSeatIds.forEachIndexed { index, seatId ->
+        val memberNumber = index + 1
+        val displayName = seatDisplayNames[seatId].orEmpty().ifBlank { "Assistant" }
+        put(
+            memberNumber.toString(),
+            buildJsonObject {
+                put("type", "noul")
+                put(
+                    "instructions",
+                    "Should member $memberNumber, `$displayName`, be one of the next 1 to 3 speakers? " +
+                        "Use the numbered member list, conversation context, and extra routing instructions in the state. " +
+                        "Prefer the most relevant members and avoid redundant speakers.",
+                )
+                put(
+                    "criteria",
+                    buildJsonObject {
+                        put("true", "This member should speak next.")
+                        put("false", "This member should not speak next.")
+                    },
+                )
+            },
+        )
+    }
+}
+
+internal fun resolveGroupChatTextSpeakerIds(
+    text: String,
+    candidateSeatIds: List<Uuid>,
+    fallbackSeatIds: List<Uuid>,
+): List<Uuid> {
+    val parsed = parseGroupChatSpeakerNumbers(
+        text = text,
+        candidateSeatIds = candidateSeatIds,
+    )
+    return parsed.orEmpty().ifEmpty { fallbackSeatIds }
+}
+
+private fun parseGroupChatSpeakerNumbers(
+    text: String,
+    candidateSeatIds: List<Uuid>,
+): List<Uuid>? {
+    val jsonText = extractJsonObjectOrNull(text) ?: return null
+    val jsonObject = runCatching { JsonInstant.parseToJsonElement(jsonText) }.getOrNull() as? JsonObject
+        ?: return null
+    val array = jsonObject["speakers"] as? JsonArray ?: return null
+    return array.asSequence()
+        .mapNotNull { element -> element.jsonPrimitiveOrNull?.intOrNull }
+        .filter { memberNumber -> memberNumber in 1..candidateSeatIds.size }
+        .distinct()
+        .take(3)
+        .map { memberNumber -> candidateSeatIds[memberNumber - 1] }
+        .toList()
+}
+
+private fun extractJsonObjectOrNull(text: String): String? {
+    if (text.isBlank()) return null
+    val trimmed = text.trim()
+        .removePrefix("```json")
+        .removePrefix("```")
+        .removeSuffix("```")
+        .trim()
+    val start = trimmed.indexOf('{')
+    val end = trimmed.lastIndexOf('}')
+    if (start < 0 || end <= start) return null
+    return trimmed.substring(start, end + 1)
 }
 
 private data class GenerationDraftPersistenceSnapshot(
@@ -3977,17 +4076,14 @@ class ChatService(
             assistantsById = assistantsById,
             defaultName = "Assistant",
         )
-        val seatLines = enabledSeats.mapNotNull { seat ->
+        val routingCandidates = enabledSeats.mapNotNull { seat ->
             val assistant = assistantsById[seat.assistantId] ?: return@mapNotNull null
             val name = seatDisplayNames[seat.id]?.trim().orEmpty()
                 .ifBlank { assistant.name.ifBlank { "Assistant" } }
             val tagNames = assistant.tags.mapNotNull { tagId ->
                 settings.assistantTags.firstOrNull { it.id == tagId }?.name?.trim()?.takeIf { it.isNotBlank() }
             }
-            buildString {
-                append("- ")
-                append(seat.id.toString())
-                append(": ")
+            val displayText = buildString {
                 append(name)
                 if (tagNames.isNotEmpty()) {
                     append(" [")
@@ -3995,24 +4091,24 @@ class ChatService(
                     append("]")
                 }
             }
+            seat to displayText
         }
+        if (routingCandidates.isEmpty()) return fallback
 
-        val allowedSeatIds = enabledSeats.map { it.id }.toSet()
-        val allowedAssistantIds = enabledSeats.map { it.assistantId }.toSet()
+        val candidateSeatIds = routingCandidates.map { (seat, _) -> seat.id }
+        val seatLines = buildGroupChatRoutingSeatLines(
+            candidates = routingCandidates.map { (seat, displayText) -> seat.id to displayText },
+        )
+
+        val allowedSeatIds = candidateSeatIds.toSet()
+        val allowedAssistantIds = routingCandidates.map { (seat, _) -> seat.assistantId }.toSet()
         val contextMessages = recentAssistantMessages
             .asSequence()
             .filter { message -> message.role == MessageRole.ASSISTANT }
             .toList()
             .takeLast(2)
-        val routingContext = buildString {
-            template.hostSystemPrompt.trim()
-                .takeIf { it.isNotBlank() }
-                ?.let { extra ->
-                    appendLine("Extra routing instructions:")
-                    appendLine(extra)
-                    appendLine()
-                }
-            appendLine("Seats:")
+        val routingRequest = buildString {
+            appendLine("Numbered members:")
             seatLines.forEach { appendLine(it) }
             appendLine()
             if (contextMessages.isNotEmpty()) {
@@ -4053,29 +4149,27 @@ class ChatService(
         }
 
         if (hostModel.type == ModelType.DECISION) {
+            val routingState = buildString {
+                template.hostSystemPrompt.trim()
+                    .takeIf { it.isNotBlank() }
+                    ?.let { extra ->
+                        appendLine("Extra routing instructions:")
+                        appendLine(extra)
+                        appendLine()
+                    }
+                append(routingRequest)
+            }
             val selected = routeGroupChatSpeakersWithDecisionModel(
                 settings = settings,
                 hostModel = hostModel,
-                enabledSeats = enabledSeats,
+                candidateSeats = routingCandidates.map { (seat, _) -> seat },
                 seatDisplayNames = seatDisplayNames,
-                routingContext = routingContext,
+                routingContext = routingState,
             )
             return selected.ifEmpty { fallback }
         }
 
-        val routerPrompt = buildString {
-            appendLine("You are the host router for a group chat.")
-            appendLine("You NEVER reply to the user. You ONLY output JSON.")
-            appendLine()
-            appendLine("Rules:")
-            appendLine("- Choose 1 to 3 speakers from the seat list.")
-            appendLine("- Prefer the most relevant seats; avoid redundancy.")
-            appendLine("- Use the conversation context (recent assistant messages + latest user message) when routing.")
-            appendLine("- Output schema: {\"speakers\":[\"<seatId>\", ...]}")
-            appendLine("- Output MUST be a single JSON object with ONLY the \"speakers\" key. No markdown, no explanation.")
-            appendLine()
-            append(routingContext)
-        }
+        val routerPrompt = buildGroupChatRouterPrompt(template.hostSystemPrompt)
 
         val routerAssistant = me.rerere.rikkahub.data.model.Assistant(
             name = "GroupChatHostRouter",
@@ -4096,7 +4190,7 @@ class ChatService(
             messages = listOf(
                 UIMessage(
                     role = MessageRole.USER,
-                    parts = listOf(UIMessagePart.Text("Route the speakers now.")),
+                    parts = listOf(UIMessagePart.Text(routingRequest)),
                 )
             ),
             assistant = routerAssistant,
@@ -4118,41 +4212,25 @@ class ChatService(
             ?.trim()
             .orEmpty()
 
-        val parsed = parseSeatIdArray(outputText, key = "speakers", allowList = allowedSeatIds)
-        return parsed?.take(3) ?: fallback
+        return resolveGroupChatTextSpeakerIds(
+            text = outputText,
+            candidateSeatIds = candidateSeatIds,
+            fallbackSeatIds = fallback,
+        )
     }
 
     private suspend fun routeGroupChatSpeakersWithDecisionModel(
         settings: Settings,
         hostModel: Model,
-        enabledSeats: List<GroupChatSeat>,
+        candidateSeats: List<GroupChatSeat>,
         seatDisplayNames: Map<Uuid, String>,
         routingContext: String,
     ): List<Uuid> {
-        val questions = buildJsonObject {
-            enabledSeats.forEach { seat ->
-                val displayName = seatDisplayNames[seat.id].orEmpty().ifBlank { "Assistant" }
-                put(
-                    seat.id.toString(),
-                    buildJsonObject {
-                        put("type", "noul")
-                        put(
-                            "instructions",
-                            "Should the seat `$displayName` with id `${seat.id}` be one of the next 1 to 3 speakers? " +
-                                "Use the seat list, conversation context, and extra routing instructions in the state. " +
-                                "Prefer the most relevant seats and avoid redundant speakers.",
-                        )
-                        put(
-                            "criteria",
-                            buildJsonObject {
-                                put("true", "This seat should speak next.")
-                                put("false", "This seat should not speak next.")
-                            },
-                        )
-                    },
-                )
-            }
-        }
+        val candidateSeatIds = candidateSeats.map { seat -> seat.id }
+        val questions = buildGroupChatDecisionQuestions(
+            candidateSeatIds = candidateSeatIds,
+            seatDisplayNames = seatDisplayNames,
+        )
         val result = generationHandler.evaluateDecision(
             settings = settings,
             model = hostModel,
@@ -4162,39 +4240,8 @@ class ChatService(
         )
         return selectDecisionSpeakerIds(
             answers = result.answers,
-            allowedSeatIds = enabledSeats.map { it.id },
+            allowedSeatIds = candidateSeatIds,
         )
-    }
-
-    private fun parseSeatIdArray(
-        text: String,
-        key: String,
-        allowList: Set<Uuid>,
-    ): List<Uuid>? {
-        val jsonText = extractJsonObjectOrNull(text) ?: return null
-        val jsonObject = runCatching { JsonInstant.parseToJsonElement(jsonText) }.getOrNull() as? JsonObject
-            ?: return null
-        val value = jsonObject[key] ?: return null
-        val array = value as? JsonArray ?: return null
-        val ids = array.mapNotNull { element ->
-            element.jsonPrimitiveOrNull
-                ?.contentOrNull
-                ?.let { raw -> runCatching { Uuid.parse(raw) }.getOrNull() }
-        }
-        return ids.filter { it in allowList }.distinct()
-    }
-
-    private fun extractJsonObjectOrNull(text: String): String? {
-        if (text.isBlank()) return null
-        val trimmed = text.trim()
-            .removePrefix("```json")
-            .removePrefix("```")
-            .removeSuffix("```")
-            .trim()
-        val start = trimmed.indexOf('{')
-       val end = trimmed.lastIndexOf('}')
-       if (start < 0 || end <= start) return null
-       return trimmed.substring(start, end + 1)
     }
 
 
