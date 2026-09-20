@@ -31,7 +31,6 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DragIndicator
@@ -370,22 +369,22 @@ internal fun ColumnScope.ModelList(
         0
     }
 
-    // List state for scrolling
-    val lazyListState = rememberLazyListState()
+    // Open directly near the selected model instead of composing from the top first.
+    val lazyListState = rememberLazyListState(
+        initialFirstVisibleItemIndex = selectedModelPosition
+    )
     
     // Get viewport height for centering calculation
     val density = androidx.compose.ui.platform.LocalDensity.current
     var viewportHeight by remember { mutableStateOf(0) }
     
-    // Scroll to selected model centered on first composition
+    // Center the selected model without playing a long-distance scroll animation.
     LaunchedEffect(currentModel, viewportHeight) {
         if (currentModel != null && selectedModelPosition > 0 && viewportHeight > 0) {
-            // Small delay to ensure list is composed
-            delay(100)
             // Scroll with negative offset to center the item (approximate item height ~60dp)
             val itemHeightPx = with(density) { 60.dp.toPx().toInt() }
             val centerOffset = -(viewportHeight / 2) + (itemHeightPx / 2)
-            lazyListState.animateScrollToItem(selectedModelPosition, centerOffset)
+            lazyListState.requestScrollToItem(selectedModelPosition, centerOffset)
         }
     }
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
