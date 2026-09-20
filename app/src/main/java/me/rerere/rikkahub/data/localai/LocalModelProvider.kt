@@ -69,6 +69,7 @@ class LocalModelProvider(
                     is LocalInferenceEvent.Text -> thinkingParser.append(event.value).forEach { segment ->
                         send(segmentChunk(params.model, segment))
                     }
+                    is LocalInferenceEvent.Reasoning -> send(reasoningChunk(params.model, event.value))
                     is LocalInferenceEvent.ToolCall -> send(toolCallChunk(params.model, event))
                     is LocalInferenceEvent.Finished -> finishReason = event.reason
                 }

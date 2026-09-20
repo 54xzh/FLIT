@@ -2673,10 +2673,13 @@
     <string name="local_models_runtime">執行支援</string>
     <string name="local_models_runtime_ready">已就緒</string>
     <string name="local_models_runtime_missing">使用本機模型前，請先下載執行支援。</string>
+    <string name="local_models_runtime_required">請先在本機模型設定中下載 %1$s 執行支援。</string>
+    <string name="local_models_runtime_missing_status">尚未安裝</string>
     <string name="local_models_runtime_release_hint">執行套件會與應用程式分開安裝。</string>
     <string name="local_models_import_runtime">匯入執行支援包</string>
     <string name="local_models_runtime_imported">執行支援已安裝</string>
     <string name="local_models_import">從手機匯入模型</string>
+    <string name="local_models_invalid_file">所選檔案不是有效的 %1$s 模型。</string>
     <string name="local_models_installed">已安裝模型</string>
     <string name="local_models_ready">已就緒</string>
     <string name="local_models_release">退出模型並釋放記憶體</string>
@@ -2694,6 +2697,9 @@
     <string name="local_models_model_name">模型顯示名稱</string>
     <string name="local_models_memory_released">已結束模型並釋放記憶體</string>
     <string name="local_models_runtime_error">異常</string>
+    <string name="local_models_runtime_download_failed">下載失敗：%1$s</string>
+    <string name="local_models_runtime_retry">重試下載執行支援</string>
+    <string name="local_models_runtime_litert_cpu_hint">LiteRT-LM 目前僅支援 CPU 文字推理。</string>
     <string name="local_models_runtime_size">體積</string>
     <string name="local_models_download_runtime">下載執行支援</string>
     <string name="local_models_runtime_downloading">正在下載 %1$s / %2$s</string>

@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.localai
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -253,10 +254,13 @@ class LocalModelRepository(
     }
 
     private fun validateHeader(file: File, format: LocalModelFormat) {
-        if (format != LocalModelFormat.GGUF) return
-        val header = ByteArray(4)
-        file.inputStream().use { check(it.read(header) == 4) { "Invalid GGUF file" } }
-        check(header.decodeToString() == "GGUF") { "Invalid GGUF file" }
+        try {
+            file.inputStream().use { validateLocalModelHeader(it, format) }
+        } catch (error: java.io.EOFException) {
+            throw IllegalArgumentException(context.getString(me.rerere.rikkahub.R.string.local_models_invalid_file, format.extension), error)
+        } catch (error: IllegalArgumentException) {
+            throw IllegalArgumentException(context.getString(me.rerere.rikkahub.R.string.local_models_invalid_file, format.extension), error)
+        }
     }
 
     private fun relativePath(file: File): String = file.relativeTo(File(context.noBackupFilesDir, "local-ai")).path
@@ -280,5 +284,13 @@ class LocalModelRepository(
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun queryDisplayName(uri: Uri): String? = uri.lastPathSegment?.substringAfterLast('/')
+    private fun queryDisplayName(uri: Uri): String? {
+        // Document providers commonly put an opaque ID (not a filename) in the URI.
+        val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
+            }
+        return name?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment?.substringAfterLast('/')
+    }
 }

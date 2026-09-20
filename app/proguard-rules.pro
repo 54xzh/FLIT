@@ -32,3 +32,6 @@
 -dontwarn java.lang.management.RuntimeMXBean
 
 -dontobfuscate
+
+# Downloaded LiteRT-LM JNI looks up these classes and members by name.
+-keep class com.google.ai.edge.litertlm.** { *; }

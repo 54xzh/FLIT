@@ -220,6 +220,8 @@ android {
         jniLibs {
             useLegacyPackaging = true
             pickFirsts += "lib/*/libtermux.so"
+            // LiteRT-LM native code is installed on demand, independently of the APK.
+            excludes += "lib/*/liblitertlm_jni.so"
         }
     }
     externalNativeBuild {
@@ -297,6 +299,8 @@ composeCompiler {
 }
 
 dependencies {
+    // Must match LocalRuntimePackage.LITERT_VERSION and the downloaded AAR checksum.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.lifecycle.runtime.ktx)

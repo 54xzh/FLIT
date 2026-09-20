@@ -4,11 +4,15 @@ import android.content.Context
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -91,19 +95,23 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.rikkahub.R
-import me.rerere.rikkahub.data.localai.LocalModelRecord
 import me.rerere.rikkahub.data.localai.LocalModelCatalogEntry
 import me.rerere.rikkahub.data.localai.LocalModelCatalogRepository
 import me.rerere.rikkahub.data.localai.LocalModelDownloadManager
 import me.rerere.rikkahub.data.localai.LocalModelDownloadState
+import me.rerere.rikkahub.data.localai.LocalModelFormat
+import me.rerere.rikkahub.data.localai.LocalModelRecord
 import me.rerere.rikkahub.data.localai.LocalModelRepository
 import me.rerere.rikkahub.data.localai.LocalModelState
 import me.rerere.rikkahub.data.localai.LocalRuntimeManager
+import me.rerere.rikkahub.data.localai.LocalRuntimePackage
 import me.rerere.rikkahub.data.localai.LocalRuntimeState
 import me.rerere.rikkahub.data.localai.RuntimeDownloadManager
 import me.rerere.rikkahub.data.localai.RuntimeDownloadState
@@ -137,18 +145,42 @@ private data class InstalledRuntimeInfo(
     val librarySizeBytes: Long,
 )
 
-private fun getInstalledRuntimeInfo(context: Context): InstalledRuntimeInfo? {
-    val runtimeDir = File(context.noBackupFilesDir, "local-ai/runtime")
-    val installedFile = File(runtimeDir, "installed.json")
-    if (!installedFile.isFile) return null
-    return runCatching {
-        val text = installedFile.readText()
-        val version = Regex("\"version\"\\s*:\\s*\"([A-Za-z0-9._-]+)\"").find(text)?.groupValues?.getOrNull(1) ?: return null
-        val abi = Regex("\"abi\"\\s*:\\s*\"([A-Za-z0-9._-]+)\"").find(text)?.groupValues?.getOrNull(1) ?: return null
-        val libFile = File(runtimeDir, "$version/lib/libflit_local_llama.so")
-        val size = if (libFile.isFile) libFile.length() else 0L
-        InstalledRuntimeInfo(version = version, abi = abi, librarySizeBytes = size)
+private suspend fun getInstalledRuntimeInfo(
+    context: Context,
+    runtimePackage: LocalRuntimePackage,
+): InstalledRuntimeInfo? = withContext(Dispatchers.IO) {
+    runCatching {
+        val installedDirectory = runtimePackage.installedDirectory(context) ?: return@runCatching null
+        val libraryFile = runtimePackage.libraryFile(context)
+        if (!installedDirectory.isDirectory && libraryFile?.isFile != true) return@runCatching null
+
+        // GGUF packages carry their ABI in installed.json. LiteRT-LM packages use the current
+        // device ABI and expose their version through the activated directory name.
+        val marker = File(runtimePackage.root(context), "installed.json")
+        val markerText = marker.takeIf(File::isFile)?.readText().orEmpty()
+        val version = Regex("\"version\"\\s*:\\s*\"([A-Za-z0-9._-]+)\"")
+            .find(markerText)?.groupValues?.getOrNull(1)
+            ?: installedDirectory.name.takeIf { it.isNotBlank() }
+            ?: return@runCatching null
+        val abi = Regex("\"abi\"\\s*:\\s*\"([A-Za-z0-9._-]+)\"")
+            .find(markerText)?.groupValues?.getOrNull(1)
+            ?: Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
+        InstalledRuntimeInfo(
+            version = version,
+            abi = abi,
+            librarySizeBytes = libraryFile?.takeIf(File::isFile)?.length() ?: 0L,
+        )
     }.getOrNull()
+}
+
+private fun LocalRuntimePackage.formatLabel(): String = when (this) {
+    LocalRuntimePackage.GGUF -> "GGUF"
+    LocalRuntimePackage.LITERT_LM -> "LiteRT-LM"
+}
+
+private fun LocalModelFormat.toRuntimePackage(): LocalRuntimePackage = when (this) {
+    LocalModelFormat.GGUF -> LocalRuntimePackage.GGUF
+    LocalModelFormat.LITERT_LM -> LocalRuntimePackage.LITERT_LM
 }
 
 private fun formatFileSize(bytes: Long): String = when {
@@ -210,15 +242,47 @@ fun LocalModelSettingsPage(
     val localModels by repository.observeModels().collectAsStateWithLifecycle(emptyList())
     val partialDownloadBytes by repository.observePartialDownloadBytes().collectAsStateWithLifecycle(emptyMap())
     val runtimeState by runtime.state.collectAsStateWithLifecycle()
-    val runtimeDownloadState by runtimeDownload.observe().collectAsStateWithLifecycle(RuntimeDownloadState.Idle)
+    val installedRuntimePackages by runtime.installedPackages.collectAsStateWithLifecycle()
+    val ggufDownloadState by runtimeDownload
+        .observe(LocalRuntimePackage.GGUF)
+        .collectAsStateWithLifecycle(RuntimeDownloadState.Idle)
+    val liteRtDownloadState by runtimeDownload
+        .observe(LocalRuntimePackage.LITERT_LM)
+        .collectAsStateWithLifecycle(RuntimeDownloadState.Idle)
     val modelDownloadStates by modelDownload.observe().collectAsStateWithLifecycle(emptyMap())
-    val runtimeReady = runtimeState is LocalRuntimeState.Ready || runtimeState is LocalRuntimeState.Loaded
     val pagerState = rememberPagerState { 2 }
 
     var recommendedModels by remember { mutableStateOf<List<LocalModelCatalogEntry>>(emptyList()) }
     var catalogLoading by remember { mutableStateOf(true) }
     var catalogError by remember { mutableStateOf<String?>(null) }
-    val runtimeInfo = remember(runtimeState) { getInstalledRuntimeInfo(context) }
+    var runtimeInfos by remember {
+        mutableStateOf<Map<LocalRuntimePackage, InstalledRuntimeInfo?>>(emptyMap())
+    }
+
+    // Runtime metadata can involve marker and library file reads. Keep them off the Compose
+    // thread and refresh when the manager's installed package set changes.
+    LaunchedEffect(installedRuntimePackages) {
+        val refreshedInfos = mutableMapOf<LocalRuntimePackage, InstalledRuntimeInfo?>()
+        for (runtimePackage in LocalRuntimePackage.entries) {
+            refreshedInfos[runtimePackage] = getInstalledRuntimeInfo(context, runtimePackage)
+        }
+        runtimeInfos = refreshedInfos
+    }
+
+    LaunchedEffect(Unit) {
+        runtime.refresh()
+    }
+
+    val activeRuntimePackage = remember(runtimeState, localModels) {
+        val modelId = when (val state = runtimeState) {
+            is LocalRuntimeState.Loading -> state.modelId
+            is LocalRuntimeState.Loaded -> state.modelId
+            else -> null
+        }
+        modelId?.let { id ->
+            localModels.firstOrNull { it.entity.modelId == id.toString() }?.format?.toRuntimePackage()
+        }
+    }
 
     val memoryReleasedText = stringResource(R.string.local_models_memory_released)
 
@@ -340,19 +404,21 @@ fun LocalModelSettingsPage(
                 0 -> LocalConfigurationPage(
                     provider = currentProvider,
                     runtimeState = runtimeState,
-                    runtimeDownloadState = runtimeDownloadState,
-                    runtimeReady = runtimeReady,
-                    runtimeInfo = runtimeInfo,
+                    installedRuntimePackages = installedRuntimePackages,
+                    runtimeInfos = runtimeInfos,
+                    ggufDownloadState = ggufDownloadState,
+                    liteRtDownloadState = liteRtDownloadState,
+                    activeRuntimePackage = activeRuntimePackage,
                     providerTags = currentTags,
                     onEdit = currentOnEdit,
                     onUpdateTags = currentOnUpdateTags,
-                    onDownloadRuntime = {
+                    onDownloadRuntime = { runtimePackage ->
                         haptics.perform(HapticPattern.Pop)
-                        runtimeDownload.download()
+                        runtimeDownload.download(runtimePackage)
                     },
-                    onPauseRuntimeDownload = {
+                    onPauseRuntimeDownload = { runtimePackage ->
                         haptics.perform(HapticPattern.Tick)
-                        scope.launch { runtimeDownload.pause() }
+                        scope.launch { runtimeDownload.pause(runtimePackage) }
                     },
                     onReleaseMemory = {
                         haptics.perform(HapticPattern.Thud)
@@ -414,14 +480,16 @@ fun LocalModelSettingsPage(
 private fun LocalConfigurationPage(
     provider: ProviderSetting.Local,
     runtimeState: LocalRuntimeState,
-    runtimeDownloadState: RuntimeDownloadState,
-    runtimeReady: Boolean,
-    runtimeInfo: InstalledRuntimeInfo?,
+    installedRuntimePackages: Set<LocalRuntimePackage>,
+    runtimeInfos: Map<LocalRuntimePackage, InstalledRuntimeInfo?>,
+    ggufDownloadState: RuntimeDownloadState,
+    liteRtDownloadState: RuntimeDownloadState,
+    activeRuntimePackage: LocalRuntimePackage?,
     providerTags: List<DataTag>,
     onEdit: (ProviderSetting) -> Unit,
     onUpdateTags: (ProviderSetting, List<DataTag>) -> Unit,
-    onDownloadRuntime: () -> Unit,
-    onPauseRuntimeDownload: () -> Unit,
+    onDownloadRuntime: (LocalRuntimePackage) -> Unit,
+    onPauseRuntimeDownload: (LocalRuntimePackage) -> Unit,
     onReleaseMemory: () -> Unit,
     contentPadding: PaddingValues,
 ) {
@@ -453,12 +521,27 @@ private fun LocalConfigurationPage(
             )
         }
 
-        // Runtime Support Card
+        // Keep the two runtime packages independent: each package has its own install marker,
+        // download worker and status. The loaded model state is shared by the runtime manager,
+        // so only the package matching the loaded model shows the active state.
         RuntimeSupportCard(
+            runtimePackage = LocalRuntimePackage.GGUF,
             runtimeState = runtimeState,
-            runtimeDownloadState = runtimeDownloadState,
-            runtimeReady = runtimeReady,
-            runtimeInfo = runtimeInfo,
+            installed = LocalRuntimePackage.GGUF in installedRuntimePackages,
+            runtimeDownloadState = ggufDownloadState,
+            runtimeInfo = runtimeInfos[LocalRuntimePackage.GGUF],
+            activeRuntimePackage = activeRuntimePackage,
+            onDownloadRuntime = onDownloadRuntime,
+            onPauseRuntimeDownload = onPauseRuntimeDownload,
+            onReleaseMemory = onReleaseMemory,
+        )
+        RuntimeSupportCard(
+            runtimePackage = LocalRuntimePackage.LITERT_LM,
+            runtimeState = runtimeState,
+            installed = LocalRuntimePackage.LITERT_LM in installedRuntimePackages,
+            runtimeDownloadState = liteRtDownloadState,
+            runtimeInfo = runtimeInfos[LocalRuntimePackage.LITERT_LM],
+            activeRuntimePackage = activeRuntimePackage,
             onDownloadRuntime = onDownloadRuntime,
             onPauseRuntimeDownload = onPauseRuntimeDownload,
             onReleaseMemory = onReleaseMemory,
@@ -495,14 +578,32 @@ private fun LocalConfigurationPage(
 
 @Composable
 private fun RuntimeSupportCard(
+    runtimePackage: LocalRuntimePackage,
     runtimeState: LocalRuntimeState,
+    installed: Boolean,
     runtimeDownloadState: RuntimeDownloadState,
-    runtimeReady: Boolean,
     runtimeInfo: InstalledRuntimeInfo?,
-    onDownloadRuntime: () -> Unit,
-    onPauseRuntimeDownload: () -> Unit,
+    activeRuntimePackage: LocalRuntimePackage?,
+    onDownloadRuntime: (LocalRuntimePackage) -> Unit,
+    onPauseRuntimeDownload: (LocalRuntimePackage) -> Unit,
     onReleaseMemory: () -> Unit,
 ) {
+    val packageState = when {
+        activeRuntimePackage == runtimePackage && runtimeState is LocalRuntimeState.Loading -> runtimeState
+        activeRuntimePackage == runtimePackage && runtimeState is LocalRuntimeState.Loaded -> runtimeState
+        runtimeState is LocalRuntimeState.Failed &&
+            runtimeState.format?.toRuntimePackage() == runtimePackage -> runtimeState
+        installed -> LocalRuntimeState.Ready
+        else -> LocalRuntimeState.Missing
+    }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val buttonScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.85f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+        label = "runtime_button_scale",
+    )
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = AppShapes.CardLarge,
@@ -527,10 +628,10 @@ private fun RuntimeSupportCard(
                         .clip(CircleShape)
                         .background(
                             when {
-                                runtimeState is LocalRuntimeState.Loaded -> MaterialTheme.colorScheme.primaryContainer
-                                runtimeReady -> MaterialTheme.colorScheme.secondaryContainer
-                                runtimeState is LocalRuntimeState.Loading -> MaterialTheme.colorScheme.tertiaryContainer
-                                runtimeState is LocalRuntimeState.Failed -> MaterialTheme.colorScheme.errorContainer
+                                packageState is LocalRuntimeState.Loaded -> MaterialTheme.colorScheme.primaryContainer
+                                packageState is LocalRuntimeState.Ready -> MaterialTheme.colorScheme.secondaryContainer
+                                packageState is LocalRuntimeState.Loading -> MaterialTheme.colorScheme.tertiaryContainer
+                                packageState is LocalRuntimeState.Failed -> MaterialTheme.colorScheme.errorContainer
                                 else -> MaterialTheme.colorScheme.surfaceContainerHighest
                             }
                         ),
@@ -538,19 +639,19 @@ private fun RuntimeSupportCard(
                 ) {
                     Icon(
                         imageVector = when {
-                            runtimeState is LocalRuntimeState.Loaded -> Icons.Rounded.RocketLaunch
-                            runtimeReady -> Icons.Rounded.Memory
-                            runtimeState is LocalRuntimeState.Loading -> Icons.Rounded.HourglassTop
-                            runtimeState is LocalRuntimeState.Failed -> Icons.Rounded.ExtensionOff
+                            packageState is LocalRuntimeState.Loaded -> Icons.Rounded.RocketLaunch
+                            packageState is LocalRuntimeState.Ready -> Icons.Rounded.Memory
+                            packageState is LocalRuntimeState.Loading -> Icons.Rounded.HourglassTop
+                            packageState is LocalRuntimeState.Failed -> Icons.Rounded.ExtensionOff
                             else -> Icons.Rounded.CloudDownload
                         },
                         contentDescription = null,
                         modifier = Modifier.size(24.dp),
                         tint = when {
-                            runtimeState is LocalRuntimeState.Loaded -> MaterialTheme.colorScheme.onPrimaryContainer
-                            runtimeReady -> MaterialTheme.colorScheme.onSecondaryContainer
-                            runtimeState is LocalRuntimeState.Loading -> MaterialTheme.colorScheme.onTertiaryContainer
-                            runtimeState is LocalRuntimeState.Failed -> MaterialTheme.colorScheme.onErrorContainer
+                            packageState is LocalRuntimeState.Loaded -> MaterialTheme.colorScheme.onPrimaryContainer
+                            packageState is LocalRuntimeState.Ready -> MaterialTheme.colorScheme.onSecondaryContainer
+                            packageState is LocalRuntimeState.Loading -> MaterialTheme.colorScheme.onTertiaryContainer
+                            packageState is LocalRuntimeState.Failed -> MaterialTheme.colorScheme.onErrorContainer
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         },
                     )
@@ -559,16 +660,19 @@ private fun RuntimeSupportCard(
                 // Title & Subtitle
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = stringResource(R.string.local_models_runtime),
+                        text = runtimePackage.displayName,
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        text = when (runtimeState) {
+                        text = when (packageState) {
                             is LocalRuntimeState.Loaded -> stringResource(R.string.local_models_runtime_loaded_desc)
                             is LocalRuntimeState.Loading -> stringResource(R.string.loading)
                             is LocalRuntimeState.Ready -> stringResource(R.string.local_models_runtime_ready_desc)
-                            is LocalRuntimeState.Failed -> runtimeState.message
-                            is LocalRuntimeState.Missing -> stringResource(R.string.local_models_runtime_missing)
+                            is LocalRuntimeState.Failed -> packageState.message
+                            is LocalRuntimeState.Missing -> stringResource(
+                                R.string.local_models_runtime_required,
+                                runtimePackage.displayName,
+                            )
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -576,7 +680,7 @@ private fun RuntimeSupportCard(
                 }
 
                 // Status Tag Badge
-                when (runtimeState) {
+                when (packageState) {
                     is LocalRuntimeState.Loaded -> Tag(type = TagType.INFO) {
                         Text(stringResource(R.string.local_models_runtime_loaded))
                     }
@@ -590,13 +694,21 @@ private fun RuntimeSupportCard(
                         Text(stringResource(R.string.local_models_runtime_error))
                     }
                     is LocalRuntimeState.Missing -> Tag(type = TagType.WARNING) {
-                        Text(stringResource(R.string.local_models_runtime_missing).take(4))
+                        Text(stringResource(R.string.local_models_runtime_missing_status))
                     }
                 }
             }
 
+            if (runtimePackage == LocalRuntimePackage.LITERT_LM) {
+                Text(
+                    text = stringResource(R.string.local_models_runtime_litert_cpu_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             // Specs / Details Grid (shown when installed)
-            if (runtimeReady && runtimeInfo != null) {
+            if (installed && runtimeInfo != null) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = AppShapes.CardMedium,
@@ -643,7 +755,7 @@ private fun RuntimeSupportCard(
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                text = "GGUF",
+                                text = runtimePackage.formatLabel(),
                                 style = MaterialTheme.typography.labelLarge,
                             )
                         }
@@ -667,16 +779,26 @@ private fun RuntimeSupportCard(
             }
 
             // Action Buttons
-            if (!runtimeReady) {
+            if (!installed) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Button(
                         onClick = if (runtimeDownloadState is RuntimeDownloadState.Downloading ||
-                            runtimeDownloadState is RuntimeDownloadState.Installing) onPauseRuntimeDownload else onDownloadRuntime,
-                        modifier = Modifier.fillMaxWidth(),
+                            runtimeDownloadState is RuntimeDownloadState.Installing) {
+                            { onPauseRuntimeDownload(runtimePackage) }
+                        } else {
+                            { onDownloadRuntime(runtimePackage) }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                scaleX = buttonScale
+                                scaleY = buttonScale
+                            },
                         shape = AppShapes.ButtonPill,
+                        interactionSource = interactionSource,
                     ) {
                         Icon(Icons.Rounded.CloudDownload, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
@@ -689,8 +811,21 @@ private fun RuntimeSupportCard(
                                 )
                                 RuntimeDownloadState.Installing -> stringResource(R.string.local_models_runtime_installing)
                                 RuntimeDownloadState.Paused -> stringResource(R.string.local_models_runtime_resume)
+                                is RuntimeDownloadState.Failed -> stringResource(R.string.local_models_runtime_retry)
                                 else -> stringResource(R.string.local_models_download_runtime)
                             },
+                        )
+                    }
+                    if (runtimeDownloadState is RuntimeDownloadState.Failed) {
+                        Text(
+                            text = stringResource(
+                                R.string.local_models_runtime_download_failed,
+                                runtimeDownloadState.message,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                     Text(
@@ -706,11 +841,17 @@ private fun RuntimeSupportCard(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (runtimeState is LocalRuntimeState.Loaded) {
+                    if (packageState is LocalRuntimeState.Loaded) {
                         Button(
                             onClick = onReleaseMemory,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    scaleX = buttonScale
+                                    scaleY = buttonScale
+                                },
                             shape = AppShapes.ButtonPill,
+                            interactionSource = interactionSource,
                         ) {
                             Icon(Icons.Rounded.PowerSettingsNew, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))

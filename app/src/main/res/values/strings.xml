@@ -2683,10 +2683,13 @@
     <string name="local_models_runtime">Runtime support</string>
     <string name="local_models_runtime_ready">Ready</string>
     <string name="local_models_runtime_missing">Download runtime support before starting a local model.</string>
+    <string name="local_models_runtime_required">Please download %1$s runtime support in Local Model settings first.</string>
+    <string name="local_models_runtime_missing_status">Not installed</string>
     <string name="local_models_runtime_release_hint">Runtime packages are installed separately from the app.</string>
     <string name="local_models_import_runtime">Import runtime package</string>
     <string name="local_models_runtime_imported">Runtime support installed</string>
     <string name="local_models_import">Import model from phone</string>
+    <string name="local_models_invalid_file">The selected file is not a valid %1$s model.</string>
     <string name="local_models_installed">Installed models</string>
     <string name="local_models_ready">Ready</string>
     <string name="local_models_release">Exit model and release memory</string>
@@ -2704,6 +2707,9 @@
     <string name="local_models_model_name">Model display name</string>
     <string name="local_models_memory_released">Model unloaded and memory released</string>
     <string name="local_models_runtime_error">Error</string>
+    <string name="local_models_runtime_download_failed">Download failed: %1$s</string>
+    <string name="local_models_runtime_retry">Retry runtime download</string>
+    <string name="local_models_runtime_litert_cpu_hint">LiteRT-LM currently supports CPU text inference only.</string>
     <string name="local_models_runtime_size">Size</string>
     <string name="local_models_download_runtime">Download runtime support</string>
     <string name="local_models_runtime_downloading">Downloading %1$s / %2$s</string>
