@@ -337,6 +337,7 @@ class KeywordMemoryRetrieverTest {
         pinned = pinned,
         timestamp = 0L,
         significance = null,
+        projectId = null,
     )
 
     private fun word(value: String) = KeywordToken(value, 1f, KeywordTokenKind.WORD)
