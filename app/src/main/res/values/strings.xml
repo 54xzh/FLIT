@@ -1299,6 +1299,7 @@
     <string name="setting_provider_page_balance_json_key">Balance JSON Key</string>
     <string name="setting_provider_page_basic_settings">Basic Settings</string>
     <string name="setting_provider_page_chat_model">Chat</string>
+    <string name="setting_provider_page_decision_model">Decision</string>
     <string name="setting_provider_page_configuration">Configuration</string>
     <string name="setting_provider_page_configure_provider_override">Configure Override</string>
     <string name="setting_provider_page_delete_dialog_text">Are you sure you want to delete this provider? This cannot be undone.</string>

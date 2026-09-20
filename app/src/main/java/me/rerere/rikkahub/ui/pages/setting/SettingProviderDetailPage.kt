@@ -127,6 +127,7 @@ import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ModelCapabilitySource
 import me.rerere.ai.provider.ModelQuotaGroup
 import me.rerere.ai.provider.ModelType
+import me.rerere.ai.provider.withDetectedDecisionType
 import me.rerere.ai.provider.ImageGenerationMethod
 import me.rerere.ai.provider.ModelQuota
 import me.rerere.ai.provider.ProviderManager
@@ -3112,7 +3113,7 @@ private fun ModelSettingsForm(
                 modelId = id,
                 displayName = id,
                 providerSlug = providerSlug
-            ).withRegistryCapabilities()
+            ).withDetectedDecisionType().withRegistryCapabilities()
         )
     }
 
@@ -4112,6 +4113,7 @@ private fun ModelTypeSelector(
                                 ModelType.CHAT -> R.string.setting_provider_page_chat_model
                                 ModelType.EMBEDDING -> R.string.setting_provider_page_embedding_model
                                 ModelType.IMAGE -> R.string.setting_provider_page_image_model
+                                ModelType.DECISION -> R.string.setting_provider_page_decision_model
                             }
                         )
                     )

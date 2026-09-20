@@ -18,9 +18,11 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.CustomBody
 import me.rerere.ai.provider.CustomHeader
+import me.rerere.ai.provider.DecisionParams
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.providers.resolveDecisionEndpoint
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.util.RawResponseException
@@ -82,6 +84,13 @@ private data class EmbeddingParamsLog(
 private data class EmbeddingResponseLog(
     val embeddingCount: Int,
     val dimensions: Int?,
+)
+
+@Serializable
+private data class DecisionParamsLog(
+    val questionIds: List<String>,
+    val customHeaders: List<CustomHeader>,
+    val customBody: List<CustomBody>,
 )
 
 class AIRequestLogManager(
@@ -250,6 +259,75 @@ class AIRequestLogManager(
             dao.pruneKeepLatest(REQUEST_LOG_KEEP_LATEST)
         }.onFailure {
             Log.w(TAG, "logEmbedding failed: ${it.message}", it)
+        }
+    }
+
+    suspend fun logDecision(
+        source: AIRequestSource,
+        providerSetting: ProviderSetting,
+        params: DecisionParams,
+        requestBodyJson: String?,
+        responseRawText: String,
+        durationMs: Long?,
+        error: Throwable? = null,
+    ) = withContext(Dispatchers.IO) {
+        runCatching {
+            val safeHeaders = params.customHeaders.map { header ->
+                if (header.name.isSensitiveName()) header.copy(value = MASKED_VALUE) else header
+            }
+            val safeBodies = params.customBody.map { body ->
+                if (body.key.isSensitiveName()) {
+                    body.copy(value = JsonPrimitive(MASKED_VALUE))
+                } else {
+                    body.copy(value = body.value.maskSensitiveValues())
+                }
+            }
+            val paramsJson = JsonInstant.encodeToString(
+                DecisionParamsLog.serializer(),
+                DecisionParamsLog(
+                    questionIds = params.questions.keys.toList(),
+                    customHeaders = safeHeaders,
+                    customBody = safeBodies,
+                ),
+            ).truncateTo(REQUEST_LOG_MAX_JSON_CHARS)
+            val requestPayloadJson = requestBodyJson
+                ?.takeIf { it.isNotBlank() }
+                ?.sanitizeRequestBodyJsonForLog()
+                ?: params.state.toString().truncateTo(REQUEST_LOG_MAX_JSON_CHARS)
+            val normalizedRawResponse = responseRawText
+                .ifBlank { error.extractRawResponseText() }
+                .trim()
+            val requestPreview = params.state.toString()
+                .replace("\r", "")
+                .replace("\n", " ")
+                .take(REQUEST_LOG_MAX_PREVIEW_CHARS)
+            val responsePreview = buildResponsePreview("", normalizedRawResponse)
+            val providerType = providerSetting::class.simpleName ?: "Provider"
+
+            dao.insert(
+                AIRequestLogEntity(
+                    createdAt = System.currentTimeMillis(),
+                    latencyMs = durationMs,
+                    durationMs = durationMs,
+                    source = source.name,
+                    providerName = providerSetting.name,
+                    providerType = providerType,
+                    modelId = params.model.modelId,
+                    modelDisplayName = params.model.displayName,
+                    stream = false,
+                    paramsJson = paramsJson,
+                    requestMessagesJson = requestPayloadJson,
+                    requestUrl = buildDecisionRequestUrl(providerSetting),
+                    requestPreview = requestPreview,
+                    responsePreview = responsePreview,
+                    responseText = normalizedRawResponse.truncateTo(REQUEST_LOG_MAX_JSON_CHARS),
+                    responseRawText = normalizedRawResponse.truncateTo(REQUEST_LOG_MAX_JSON_CHARS),
+                    error = error?.let { "[${it.javaClass.simpleName}] ${it.message}".take(800) },
+                )
+            )
+            dao.pruneKeepLatest(REQUEST_LOG_KEEP_LATEST)
+        }.onFailure {
+            Log.w(TAG, "logDecision failed: ${it.message}", it)
         }
     }
 
@@ -534,6 +612,13 @@ private fun buildEmbeddingRequestUrl(providerSetting: ProviderSetting, model: Mo
         is ProviderSetting.OpenAICodex,
         is ProviderSetting.Local -> ""
 
+        else -> ""
+    }
+}
+
+private fun buildDecisionRequestUrl(providerSetting: ProviderSetting): String {
+    return when (providerSetting) {
+        is ProviderSetting.OpenAI -> providerSetting.resolveDecisionEndpoint().url
         else -> ""
     }
 }

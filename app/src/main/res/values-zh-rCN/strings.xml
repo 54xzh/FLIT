@@ -1716,6 +1716,7 @@
     <string name="setting_provider_page_base_url_hint_v1beta">Base URL 通常以 `/v1beta` 结尾</string>
   <string name="setting_provider_page_basic_settings">基本设置</string>
   <string name="setting_provider_page_chat_model">聊天</string>
+  <string name="setting_provider_page_decision_model">决策</string>
     <string name="setting_provider_page_choose_provider">添加模型提供商</string>
   <string name="setting_provider_page_configuration">配置</string>
   <string name="setting_provider_page_configure_provider_override">配置提供商重写</string>

@@ -33,6 +33,8 @@ import me.rerere.ai.core.ToolCallContext
 import me.rerere.ai.core.merge
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.CustomBody
+import me.rerere.ai.provider.DecisionParams
+import me.rerere.ai.provider.DecisionResult
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.Modality
@@ -366,6 +368,69 @@ class GenerationHandler(
     private val requestLogManager: AIRequestLogManager,
     private val embeddingService: EmbeddingService,
 ) {
+    internal suspend fun evaluateDecision(
+        settings: Settings,
+        model: Model,
+        state: JsonElement,
+        questions: JsonObject,
+        source: AIRequestSource = AIRequestSource.OTHER,
+    ): DecisionResult {
+        val provider = model.findProvider(settings.providers) ?: error("Provider not found")
+        val providerImpl = providerManager.getProviderByType(provider)
+        var requestBodyJson: String? = null
+        val params = DecisionParams(
+            model = model,
+            state = state,
+            questions = questions,
+            customHeaders = model.customHeaders,
+            customBody = model.customBodies,
+            onRequestBody = { requestBodyJson = it },
+        )
+        val startAt = System.currentTimeMillis()
+        var failure: Throwable? = null
+        var result: DecisionResult? = null
+        val maxHttpRetries = settings.getHttpRetryMaxRetries()
+        val httpRetryDelayMs = computeHttpRetryDelayMs(settings.getHttpRetryDelaySeconds())
+        var attempt = 0
+
+        try {
+            while (result == null) {
+                attempt += 1
+                try {
+                    result = providerImpl.evaluateDecision(
+                        providerSetting = provider,
+                        params = params,
+                    )
+                } catch (t: Throwable) {
+                    if (!shouldRetryHttpRequest(t, attempt = attempt, maxRetries = maxHttpRetries)) {
+                        throw t
+                    }
+                    Log.w(
+                        TAG,
+                        "evaluateDecision: got retryable HTTP/network error, retry ${attempt}/$maxHttpRetries in ${httpRetryDelayMs}ms",
+                        t,
+                    )
+                    delay(httpRetryDelayMs)
+                }
+            }
+        } catch (t: Throwable) {
+            failure = t
+            throw t
+        } finally {
+            requestLogManager.logDecision(
+                source = source,
+                providerSetting = provider,
+                params = params,
+                requestBodyJson = requestBodyJson,
+                responseRawText = result?.rawResponse.orEmpty(),
+                durationMs = System.currentTimeMillis() - startAt,
+                error = failure,
+            )
+        }
+
+        return checkNotNull(result)
+    }
+
     internal fun generateText(
         settings: Settings,
         model: Model,

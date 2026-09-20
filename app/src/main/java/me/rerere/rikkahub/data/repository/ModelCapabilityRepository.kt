@@ -10,6 +10,7 @@ import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelCapabilitySource
 import me.rerere.ai.provider.ModelType
+import me.rerere.ai.provider.withDetectedDecisionType
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.providers.openai.OpenRouterModelCapabilityProvider
 import me.rerere.ai.registry.ModelsDevCapabilityParser
@@ -103,7 +104,7 @@ class ModelCapabilityRepository(
     }
 
     suspend fun applyNewModelDefaultsForProvider(model: Model, provider: ProviderSetting): Model {
-        val withCapabilities = applyCapabilitiesForProvider(model, provider)
+        val withCapabilities = applyCapabilitiesForProvider(model.withDetectedDecisionType(), provider)
         if (!provider.canUseRemoteModelCapabilityDefaults()) {
             return withCapabilities
         }
@@ -191,7 +192,7 @@ fun Model.markCapabilitiesManual(): Model {
 
 fun Model.withSafeChatDefaults(): Model {
     return when (type) {
-        ModelType.CHAT, ModelType.IMAGE -> copy(
+        ModelType.CHAT, ModelType.IMAGE, ModelType.DECISION -> copy(
             inputModalities = inputModalities.ifEmpty { listOf(Modality.TEXT) },
             outputModalities = outputModalities.ifEmpty { listOf(Modality.TEXT) },
         )

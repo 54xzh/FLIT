@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.ImageGenerationResult
@@ -54,7 +55,31 @@ interface Provider<T : ProviderSetting> {
     ): String? {
         return null
     }
+
+    suspend fun evaluateDecision(
+        providerSetting: T,
+        params: DecisionParams,
+    ): DecisionResult {
+        error("Provider ${providerSetting::class.simpleName} does not support decision models")
+    }
 }
+
+data class DecisionParams(
+    val model: Model,
+    val state: JsonElement,
+    val questions: JsonObject,
+    val customHeaders: List<CustomHeader> = emptyList(),
+    val customBody: List<CustomBody> = emptyList(),
+    val onRequestBody: ((String) -> Unit)? = null,
+)
+
+data class DecisionResult(
+    val model: String,
+    val answers: JsonObject,
+    val inputTokens: Long? = null,
+    val outputTokens: Long? = null,
+    val rawResponse: String,
+)
 
 @Serializable
 data class TextGenerationParams(

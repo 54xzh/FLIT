@@ -1003,6 +1003,7 @@
   <string name="setting_provider_page_balance_json_key">結果 JSON 鍵值</string>
   <string name="setting_provider_page_basic_settings">基本設定</string>
   <string name="setting_provider_page_chat_model">聊天</string>
+  <string name="setting_provider_page_decision_model">決策</string>
   <string name="setting_provider_page_configuration">配置</string>
   <string name="setting_provider_page_configure_provider_override">配置提供商覆寫</string>
   <string name="setting_provider_page_delete_dialog_text">確定要刪除這個提供商嗎？此操作無法撤銷。</string>

@@ -5,16 +5,22 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import me.rerere.ai.provider.DecisionParams
+import me.rerere.ai.provider.DecisionResult
 import me.rerere.ai.provider.ImageGenerationParams
 import me.rerere.ai.provider.ModelCapabilitySource
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.Provider
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
+import me.rerere.ai.provider.withDetectedDecisionType
 import me.rerere.ai.provider.providers.openai.ChatCompletionsAPI
 import me.rerere.ai.provider.providers.openai.OpenRouterModelCapabilityProvider
 import me.rerere.ai.provider.providers.openai.ResponseAPI
@@ -25,7 +31,10 @@ import me.rerere.ai.ui.MessageChunk
 import me.rerere.ai.ui.ResolutionTier
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.util.KeyRoulette
+import me.rerere.ai.util.HttpStatusException
+import me.rerere.ai.util.RawResponseException
 import me.rerere.ai.util.configureClientWithProxy
+import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.toHeaders
@@ -55,7 +64,7 @@ class OpenAIProvider(
             
             // Fetch regular models
             val regularModels = fetchModelsFromUrl(
-                url = "${providerSetting.baseUrl}/models",
+                url = providerSetting.resolveModelsEndpoint(),
                 key = key,
                 providerSetting = providerSetting
             )
@@ -103,22 +112,26 @@ class OpenAIProvider(
         }
 
         val bodyStr = response.body?.string() ?: ""
-        val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
-        val data = bodyJson["data"]?.jsonArray ?: return emptyList()
+        val bodyJson = json.parseToJsonElement(bodyStr) as? JsonObject ?: return emptyList()
+        val data = (bodyJson["data"] as? JsonArray)
+            ?: (bodyJson["models"] as? JsonArray)
+            ?: return emptyList()
 
         return data.mapNotNull { modelJson ->
-            val modelObj = modelJson.jsonObject
-            val id = modelObj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val modelObj = modelJson as? JsonObject ?: return@mapNotNull null
+            val id = modelObj["id"]?.jsonPrimitiveOrNull?.contentOrNull
+                ?: modelObj["name"]?.jsonPrimitiveOrNull?.contentOrNull
+                ?: return@mapNotNull null
 
             // Check if model is embedding type via:
             // 1. Model ID contains "embed"
             // 2. architecture.modality contains "embedding" (OpenRouter format)
             // 3. architecture.output_modalities contains "embedding" (OpenRouter array format)
             // 4. Forced by forceEmbeddingType parameter (for OpenRouter embedding endpoint)
-            val architecture = modelObj["architecture"]?.jsonObject
-            val modality = architecture?.get("modality")?.jsonPrimitive?.contentOrNull
-            val outputModalities = architecture?.get("output_modalities")?.jsonArray
-                ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+            val architecture = modelObj["architecture"] as? JsonObject
+            val modality = architecture?.get("modality")?.jsonPrimitiveOrNull?.contentOrNull
+            val outputModalities = (architecture?.get("output_modalities") as? JsonArray)
+                ?.mapNotNull { it.jsonPrimitiveOrNull?.contentOrNull }
                 ?: emptyList()
             
             val isEmbedding = forceEmbeddingType ||
@@ -127,8 +140,8 @@ class OpenAIProvider(
                 outputModalities.any { it.contains("embedding", ignoreCase = true) }
             
             // Extract icon URL if available (some APIs provide this)
-            val iconUrl = modelObj["icon"]?.jsonPrimitive?.contentOrNull
-                ?: architecture?.get("icon")?.jsonPrimitive?.contentOrNull
+            val iconUrl = modelObj["icon"]?.jsonPrimitiveOrNull?.contentOrNull
+                ?: architecture?.get("icon")?.jsonPrimitiveOrNull?.contentOrNull
             
             // Extract provider slug from model ID (e.g., "anthropic/claude-3.5" -> "anthropic")
             // Used for LobeHub CDN icon lookup
@@ -136,12 +149,14 @@ class OpenAIProvider(
             
             val baseModel = Model(
                 modelId = id,
-                displayName = modelObj["name"]?.jsonPrimitive?.contentOrNull ?: id,
+                displayName = modelObj["display_name"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?: modelObj["name"]?.jsonPrimitiveOrNull?.contentOrNull
+                    ?: id,
                 type = if (isEmbedding) me.rerere.ai.provider.ModelType.EMBEDDING else me.rerere.ai.provider.ModelType.CHAT,
                 outputModalities = listOf(me.rerere.ai.provider.Modality.TEXT),
                 iconUrl = iconUrl,
                 providerSlug = providerSlug
-            )
+            ).withDetectedDecisionType()
 
             if (forceEmbeddingType) {
                 baseModel
@@ -338,6 +353,73 @@ class OpenAIProvider(
         model: Model,
     ): String {
         return json.encodeToString(buildEmbeddingRequestBody(input = input, model = model))
+    }
+
+    override suspend fun evaluateDecision(
+        providerSetting: ProviderSetting.OpenAI,
+        params: DecisionParams,
+    ): DecisionResult = withContext(Dispatchers.IO) {
+        val key = keyRoulette.next(providerSetting)
+        val endpoint = providerSetting.resolveDecisionEndpoint()
+        val requestBodyJson = json.encodeToString(
+            buildJsonObject {
+                put("model", params.model.modelId)
+                put("state", params.state)
+                put("questions", params.questions)
+            }
+                .mergeCustomBody(params.customBody)
+                .adaptDecisionRequestBody(endpoint.protocol)
+        )
+        params.onRequestBody?.invoke(requestBodyJson)
+
+        val request = Request.Builder()
+            .url(endpoint.url)
+            .headers(params.customHeaders.toHeaders())
+            .addHeader("Authorization", "Bearer $key")
+            .addHeader("Content-Type", "application/json")
+            .configureReferHeaders(providerSetting.baseUrl)
+            .post(requestBodyJson.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        val response = client.configureClientWithProxy(providerSetting.proxy).newCall(request).await()
+        if (!response.isSuccessful) {
+            val body = response.body?.string().orEmpty()
+            val detail = body.ifBlank { response.message }
+            throw HttpStatusException(
+                statusCode = response.code,
+                message = "Failed to evaluate decision: ${response.code} $detail",
+                cause = body.takeIf { it.isNotBlank() }?.let {
+                    RawResponseException(
+                        message = "Decision request failed",
+                        rawResponse = it,
+                    )
+                },
+            )
+        }
+
+        val bodyStr = response.body?.string().orEmpty()
+        val bodyJson = runCatching { json.parseToJsonElement(bodyStr) as? JsonObject }
+            .getOrNull()
+            ?: throw RawResponseException(
+                message = "Invalid decision response",
+                rawResponse = bodyStr,
+            )
+        val answers = (bodyJson["answers"] as? JsonObject)
+            ?: throw RawResponseException(
+                message = "No answers in decision response",
+                rawResponse = bodyStr,
+            )
+        val usage = bodyJson["usage"] as? JsonObject
+
+        DecisionResult(
+            model = bodyJson["model"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty(),
+            answers = answers.normalizeDecisionAnswers(endpoint.protocol),
+            inputTokens = usage?.get("input_tokens")?.jsonPrimitiveOrNull?.longOrNull
+                ?: usage?.get("inputTokens")?.jsonPrimitiveOrNull?.longOrNull,
+            outputTokens = usage?.get("output_tokens")?.jsonPrimitiveOrNull?.longOrNull
+                ?: usage?.get("outputTokens")?.jsonPrimitiveOrNull?.longOrNull,
+            rawResponse = bodyStr,
+        )
     }
 
     // gpt-image-2 支持任意满足约束的分辨率: 两边都是 16 的倍数、长边 < 3840、长宽比 ≤ 3:1、

@@ -120,6 +120,7 @@ fun ModelSelector(
     modelId: Uuid?,
     providers: List<ProviderSetting>,
     type: ModelType,
+    additionalTypes: Set<ModelType> = emptySet(),
     modifier: Modifier = Modifier,
     onlyIcon: Boolean = false,
     allowClear: Boolean = false,
@@ -225,12 +226,14 @@ fun ModelSelector(
                 val filteredProviderSettings = filterModelSelectorProviders(
                     providers = providers,
                     type = type,
+                    additionalTypes = additionalTypes,
                     includeDisabledProviders = includeDisabledProviders,
                 )
                 ModelList(
                     currentModel = modelId,
                     providers = filteredProviderSettings,
                     modelType = type,
+                    additionalModelTypes = additionalTypes,
                     onSelect = {
                         onSelect(it)
                         scope.launch {
@@ -253,10 +256,14 @@ fun ModelSelector(
 internal fun filterModelSelectorProviders(
     providers: List<ProviderSetting>,
     type: ModelType,
+    additionalTypes: Set<ModelType> = emptySet(),
     includeDisabledProviders: Boolean = false,
-): List<ProviderSetting> = providers.fastFilter { provider ->
-    (includeDisabledProviders || provider.enabled) &&
-        provider.models.fastAny { model -> model.type == type }
+): List<ProviderSetting> {
+    val acceptedTypes = additionalTypes + type
+    return providers.fastFilter { provider ->
+        (includeDisabledProviders || provider.enabled) &&
+            provider.models.fastAny { model -> model.type in acceptedTypes }
+    }
 }
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
@@ -265,6 +272,7 @@ internal fun ColumnScope.ModelList(
     currentModel: Uuid? = null,
     providers: List<ProviderSetting>,
     modelType: ModelType,
+    additionalModelTypes: Set<ModelType> = emptySet(),
     onSelect: (Model) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -273,9 +281,10 @@ internal fun ColumnScope.ModelList(
     val settings = settingsStore.settingsFlow
         .collectAsStateWithLifecycle()
 
+    val acceptedModelTypes = additionalModelTypes + modelType
     val favoriteModels = settings.value.favoriteModels.mapNotNull { modelId ->
         val model = providers.findModelById(modelId) ?: return@mapNotNull null
-        if (model.type != modelType) return@mapNotNull null
+        if (model.type !in acceptedModelTypes) return@mapNotNull null
         val provider = model.findProvider(providers = providers, checkOverwrite = false) ?: return@mapNotNull null
         model to provider
     }
@@ -292,12 +301,12 @@ internal fun ColumnScope.ModelList(
     // Build a flat list of items for the LazyColumn - this enables precise scrolling to any model
     // Structure: [provider header, model, model, ...] for each provider
 
-    val providerListItems = remember(displayProviderGroups, modelType, searchKeywords, settings.value.favoriteModels) {
+    val providerListItems = remember(displayProviderGroups, acceptedModelTypes, searchKeywords, settings.value.favoriteModels) {
         buildList {
             displayProviderGroups.forEach { group ->
                 val filteredModels = group.providers.flatMap { provider ->
                     provider.models.fastFilter {
-                        it.type == modelType && it.displayName.contains(searchKeywords, true)
+                        it.type in acceptedModelTypes && it.displayName.contains(searchKeywords, true)
                     }.map { model -> model to provider }
                 }
 
@@ -1082,6 +1091,7 @@ fun ModelTypeTag(model: Model) {
                     ModelType.CHAT -> R.string.setting_provider_page_chat_model
                     ModelType.EMBEDDING -> R.string.setting_provider_page_embedding_model
                     ModelType.IMAGE -> R.string.setting_provider_page_image_model
+                    ModelType.DECISION -> R.string.setting_provider_page_decision_model
                 }
             )
         )

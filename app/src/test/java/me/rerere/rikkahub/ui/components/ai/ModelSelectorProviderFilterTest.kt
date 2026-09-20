@@ -9,6 +9,7 @@ import org.junit.Test
 class ModelSelectorProviderFilterTest {
     private val chatModel = Model(modelId = "chat", type = ModelType.CHAT)
     private val imageModel = Model(modelId = "image", type = ModelType.IMAGE)
+    private val decisionModel = Model(modelId = "jev-latest", type = ModelType.DECISION)
 
     @Test
     fun defaultFilterExcludesDisabledProviders() {
@@ -47,5 +48,20 @@ class ModelSelectorProviderFilterTest {
         )
 
         assertEquals(listOf(disabledWithChat), result)
+    }
+
+    @Test
+    fun hostSelectorCanIncludeChatAndDecisionModels() {
+        val chatProvider = ProviderSetting.OpenAI(name = "chat", models = listOf(chatModel))
+        val decisionProvider = ProviderSetting.OpenAI(name = "decision", models = listOf(decisionModel))
+        val imageProvider = ProviderSetting.OpenAI(name = "image", models = listOf(imageModel))
+
+        val result = filterModelSelectorProviders(
+            providers = listOf(chatProvider, decisionProvider, imageProvider),
+            type = ModelType.CHAT,
+            additionalTypes = setOf(ModelType.DECISION),
+        )
+
+        assertEquals(listOf(chatProvider, decisionProvider), result)
     }
 }

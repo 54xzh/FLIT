@@ -270,6 +270,7 @@ fun GroupChatTemplateDetailPage(
                             modelId = currentTemplate.hostModelId,
                             providers = settings.providers,
                             type = ModelType.CHAT,
+                            additionalTypes = setOf(ModelType.DECISION),
                             onSelect = { model ->
                                 vm.updateHostModel(model.id)
                             },

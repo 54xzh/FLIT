@@ -104,7 +104,15 @@ enum class ModelType {
     CHAT,
     IMAGE,
     EMBEDDING,
+    DECISION,
 }
+
+fun Model.withDetectedDecisionType(): Model =
+    if (modelId.contains("jev", ignoreCase = true)) {
+        copy(type = ModelType.DECISION)
+    } else {
+        this
+    }
 
 @Serializable
 enum class Modality {
