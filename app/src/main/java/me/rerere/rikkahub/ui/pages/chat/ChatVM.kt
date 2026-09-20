@@ -55,8 +55,9 @@ import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.ChatTarget
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.Project
-import me.rerere.rikkahub.data.model.replaceRegexes
 import me.rerere.rikkahub.data.model.id
+import me.rerere.rikkahub.data.model.inheritForkStateFrom
+import me.rerere.rikkahub.data.model.replaceRegexes
 import me.rerere.rikkahub.data.model.resolveProjectPreviewId
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryConsolidationScheduler
@@ -935,15 +936,7 @@ class ChatVM(
                 messageNodes = nodes,
                 rootId = sourceConversation.rootId,
                 branchNumber = branchNumber,
-                // 分支继承源会话的工作区覆写：与 ChatService.forkConversationAtMessage 保持一致，
-                // 避免 UI 分叉入口漏带这个设置导致分支退回助手默认工作区。
-                workspaceOverrideId = sourceConversation.workspaceOverrideId,
-                // 分支继承源会话的注入开关与会话记忆：模式注入、技能注入、会话级记忆
-                // 都是「每会话独立存储」的状态，不会随 assistantId 继承，需显式带过来。
-                enabledModeIds = sourceConversation.enabledModeIds,
-                explicitSkillContexts = sourceConversation.explicitSkillContexts,
-                sessionMemories = sourceConversation.sessionMemories,
-            )
+            ).inheritForkStateFrom(sourceConversation)
         }
     }
 

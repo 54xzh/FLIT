@@ -187,6 +187,17 @@ data class Conversation(
     }
 }
 
+/**
+ * 继承创建分支时仍应属于当前会话的状态，避免不同分支入口各自复制字段后产生遗漏。
+ */
+internal fun Conversation.inheritForkStateFrom(source: Conversation): Conversation = copy(
+    workspaceOverrideId = source.workspaceOverrideId,
+    enabledModeIds = source.enabledModeIds,
+    explicitSkillContexts = source.explicitSkillContexts,
+    sessionMemories = source.sessionMemories,
+    projectId = source.projectId,
+)
+
 @Serializable
 data class MessageNode(
     val id: Uuid = Uuid.random(),
@@ -246,4 +257,3 @@ fun Conversation.hasMessagesForConsolidation(): Boolean {
 
     return false
 }
-

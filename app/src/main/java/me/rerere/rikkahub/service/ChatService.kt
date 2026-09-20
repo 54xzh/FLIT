@@ -103,7 +103,6 @@ import me.rerere.rikkahub.data.ai.tools.SearchAgentTools
 import me.rerere.rikkahub.data.ai.tools.WorkspaceToolFactory
 import me.rerere.rikkahub.data.ai.transformers.Base64ImageToLocalFileTransformer
 import me.rerere.rikkahub.data.ai.transformers.DocumentAsPromptTransformer
-import me.rerere.rikkahub.data.model.resolveNewConversationProjectId
 import me.rerere.rikkahub.data.ai.transformers.OcrTransformer
 import me.rerere.rikkahub.data.ai.transformers.PlaceholderTransformer
 import me.rerere.rikkahub.data.ai.transformers.QuotedFollowUpTransformer
@@ -141,6 +140,8 @@ import me.rerere.rikkahub.data.model.GroupChatTemplate
 import me.rerere.rikkahub.data.model.Skill
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
 import me.rerere.rikkahub.data.model.id
+import me.rerere.rikkahub.data.model.inheritForkStateFrom
+import me.rerere.rikkahub.data.model.resolveNewConversationProjectId
 import me.rerere.rikkahub.data.model.toMessageNode
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.LorebookEntryRevisionRepository
@@ -1682,17 +1683,7 @@ class ChatService(
                 messageNodes = nodesToCopy,
                 rootId = currentConversation.rootId,
                 branchNumber = branchNumber,
-                // 分支继承源会话的工作区覆写：分支与源会话通常共享同一助手，
-                // 覆写语义（「这个对话换用别的工作区」）在分叉后也应继续生效。
-                workspaceOverrideId = currentConversation.workspaceOverrideId,
-                // 分支继承源会话的注入开关与会话记忆：模式注入、技能注入、会话级记忆
-                // 都是「每会话独立存储」的状态，不会随 assistantId 继承，需显式带过来。
-                enabledModeIds = currentConversation.enabledModeIds,
-                explicitSkillContexts = currentConversation.explicitSkillContexts,
-                sessionMemories = currentConversation.sessionMemories,
-                // 分支继承源会话的项目归属：分支依旧保持在原项目中
-                projectId = currentConversation.projectId,
-            )
+            ).inheritForkStateFrom(currentConversation)
         }
     }
 
