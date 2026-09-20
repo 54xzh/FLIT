@@ -1222,7 +1222,9 @@ private fun RecommendedModelPickerItem(
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(entry.displayName, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Tag(type = TagType.INFO) { Text(entry.format) }
+                    Tag(type = TagType.INFO) {
+                        Text(LocalModelFormat.valueOf(entry.format).toRuntimePackage().formatLabel())
+                    }
                     Tag(type = TagType.DEFAULT) { Text(entry.parameterSize) }
                     Tag(type = TagType.DEFAULT) { Text(formatFileSize(entry.sizeBytes)) }
                     if (installed) Tag(type = TagType.SUCCESS) { Text(stringResource(R.string.local_models_ready)) }

@@ -70,6 +70,66 @@
       "sizeBytes": 3106738272,
       "parameterSize": "E2B",
       "supportsTools": false
+    },
+    {
+      "id": "qwen35-08b-litert-int8",
+      "displayName": "Qwen3.5 0.8B INT8",
+      "format": "LITERT_LM",
+      "sourceUrl": "https://huggingface.co/litert-community/Qwen3.5-0.8B/resolve/c23b16e43ada6ead533b12593fe500bbe268014f/Qwen3.5-0.8B_int8.litertlm",
+      "sha256": "684d4d34adf7176eb47f6026ff65c33d42584737254e5524a8d1ad62edc21b98",
+      "sizeBytes": 963184864,
+      "parameterSize": "0.8B",
+      "supportsTools": false
+    },
+    {
+      "id": "qwen35-2b-litert-int8",
+      "displayName": "Qwen3.5 2B INT8",
+      "format": "LITERT_LM",
+      "sourceUrl": "https://huggingface.co/litert-community/Qwen3.5-2B/resolve/0d50110e55d80ac7be6233d047e0d5f0fb8394c4/Qwen3.5-2B_int8.litertlm",
+      "sha256": "86c97baba6d3fb4109588562f0b9411e502c883be7fc2479f93ce3a6ea3efb6b",
+      "sizeBytes": 2116592816,
+      "parameterSize": "2B",
+      "supportsTools": false
+    },
+    {
+      "id": "qwen35-4b-litert-mixed-int4",
+      "displayName": "Qwen3.5 4B Mixed INT4",
+      "format": "LITERT_LM",
+      "sourceUrl": "https://huggingface.co/litert-community/Qwen3.5-4B/resolve/f06d1275eb219ff140d11d08b586cf9bb55b8fd6/Qwen3.5-4B_mixed_int4.litertlm",
+      "sha256": "176b5a2b6c20bde7739fba98e653a04f5d5b4a753a4b9dd0ff529aba7c35be99",
+      "sizeBytes": 2754365536,
+      "parameterSize": "4B",
+      "supportsTools": false
+    },
+    {
+      "id": "gemma4-e2b-litert",
+      "displayName": "Gemma 4 E2B",
+      "format": "LITERT_LM",
+      "sourceUrl": "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1/gemma-4-E2B-it.litertlm",
+      "sha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+      "sizeBytes": 2588147712,
+      "parameterSize": "E2B",
+      "supportsTools": false
+    },
+    {
+      "id": "gemma4-e4b-litert",
+      "displayName": "Gemma 4 E4B",
+      "format": "LITERT_LM",
+      "sourceUrl": "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/2eee7ac325f20eb8c9ac1d0e972f7c84663062da/gemma-4-E4B-it.litertlm",
+      "sha256": "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
+      "sizeBytes": 3659530240,
+      "parameterSize": "E4B",
+      "supportsTools": false
+    },
+    {
+      "id": "nemotron3-nano-4b-litert-int8",
+      "displayName": "Nemotron-3-Nano-4B INT8",
+      "format": "LITERT_LM",
+      "sourceUrl": "https://huggingface.co/litert-community/Nemotron-3-Nano-4B/resolve/c8febc96e163c4c008b60cde2f3c490a663517e1/Nemotron-3-Nano-4B_int8.litertlm",
+      "sha256": "ba73d2ad1d878bc2b796eb3a1d993eb1b3bd5105743cd85bd6fa9d86e58a013d",
+      "sizeBytes": 4126697184,
+      "parameterSize": "4B",
+      "supportsTools": false
     }
   ]
 }
