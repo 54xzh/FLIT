@@ -103,7 +103,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             providerSetting.agentPlatformMode == AgentPlatformMode.EXPRESS -> {
                 "https://aiplatform.googleapis.com/v1/$path".toHttpUrl()
                     .newBuilder()
-                    .addQueryParameter("key", providerSetting.apiKey.trim())
+                    .addQueryParameter("key", keyRoulette.next(providerSetting))
                     .build()
             }
 

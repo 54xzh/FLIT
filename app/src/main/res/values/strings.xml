@@ -1324,6 +1324,8 @@
     <string name="setting_provider_page_import_dialog_title">Import Config</string>
     <string name="setting_provider_page_import_success">Import Success</string>
     <string name="setting_provider_page_import_service_account_json">Import Service Account JSON</string>
+    <string name="setting_provider_page_import_from_file">Import from file</string>
+    <string name="setting_provider_page_service_account_json">Service Account JSON</string>
     <string name="setting_provider_page_service_account_import_success">Service account imported</string>
     <string name="setting_provider_page_service_account_import_failed">Couldn\'t import service account JSON</string>
     <string name="setting_provider_page_input_modality">Input Modality</string>

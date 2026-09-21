@@ -13,6 +13,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -20,6 +24,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -27,6 +33,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +62,7 @@ import me.rerere.rikkahub.ui.components.ui.ClickableIconPicker
 import me.rerere.rikkahub.ui.components.ui.ProviderIcon
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
+import me.rerere.rikkahub.ui.theme.AppShapes
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -588,16 +596,11 @@ private fun ColumnScope.ProviderConfigureAgentPlatform(
     val context = LocalContext.current
     val toaster = LocalToaster.current
     val haptics = rememberPremiumHaptics()
-    val serviceAccountJsonLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
+    var showServiceAccountImportSheet by remember { mutableStateOf(false) }
+    var serviceAccountJsonText by remember { mutableStateOf("") }
 
-        try {
-            val content = context.contentResolver.openInputStream(uri)
-                ?.bufferedReader()
-                ?.use { it.readText() }
-                ?: throw IllegalArgumentException()
+    fun importServiceAccountJson(content: String): Boolean {
+        return try {
             val serviceAccount = Json.parseToJsonElement(content) as? JsonObject
                 ?: throw IllegalArgumentException()
             val importedProjectId = (serviceAccount["project_id"] as? JsonPrimitive)
@@ -625,6 +628,26 @@ private fun ColumnScope.ProviderConfigureAgentPlatform(
                 context.getString(R.string.setting_provider_page_service_account_import_success),
                 type = ToastType.Success,
             )
+            true
+        } catch (_: Exception) {
+            toaster.show(
+                context.getString(R.string.setting_provider_page_service_account_import_failed),
+                type = ToastType.Error,
+            )
+            false
+        }
+    }
+
+    val serviceAccountJsonLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+
+        try {
+            serviceAccountJsonText = context.contentResolver.openInputStream(uri)
+                ?.bufferedReader()
+                ?.use { it.readText() }
+                ?: throw IllegalArgumentException()
         } catch (_: Exception) {
             toaster.show(
                 context.getString(R.string.setting_provider_page_service_account_import_failed),
@@ -670,6 +693,7 @@ private fun ColumnScope.ProviderConfigureAgentPlatform(
             modifier = Modifier
                 .fillMaxWidth()
                 .onFocusChanged { if (!it.isFocused) apiKeyVisible = false },
+            enabled = !provider.multiKeyEnabled,
             maxLines = if (apiKeyVisible) 3 else 1,
             visualTransformation = if (apiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
@@ -681,11 +705,15 @@ private fun ColumnScope.ProviderConfigureAgentPlatform(
                 }
             },
         )
+
+        ProviderMultiKeySection(provider = provider) { updated ->
+            (updated as? ProviderSetting.Google)?.let(onEdit)
+        }
     } else {
         OutlinedButton(
             onClick = {
                 haptics.perform(HapticPattern.Pop)
-                serviceAccountJsonLauncher.launch(arrayOf("application/json", "*/*"))
+                showServiceAccountImportSheet = true
             },
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -697,14 +725,30 @@ private fun ColumnScope.ProviderConfigureAgentPlatform(
             label = { Text(stringResource(id = R.string.setting_provider_page_service_account_email)) },
             modifier = Modifier.fillMaxWidth(),
         )
+        var privateKeyVisible by remember { mutableStateOf(false) }
         OutlinedTextField(
             value = provider.privateKey,
             onValueChange = { onEdit(provider.copy(privateKey = it.trim())) },
             label = { Text(stringResource(id = R.string.setting_provider_page_private_key)) },
-            modifier = Modifier.fillMaxWidth(),
-            maxLines = 6,
-            minLines = 3,
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { if (!it.isFocused) privateKeyVisible = false },
+            maxLines = if (privateKeyVisible) 6 else 1,
+            minLines = if (privateKeyVisible) 3 else 1,
             textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            visualTransformation = if (privateKeyVisible) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation()
+            },
+            trailingIcon = {
+                IconButton(onClick = { privateKeyVisible = !privateKeyVisible }) {
+                    Icon(
+                        imageVector = if (privateKeyVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                        contentDescription = if (privateKeyVisible) "Hide" else "Show",
+                    )
+                }
+            },
         )
         OutlinedTextField(
             value = provider.location,
@@ -718,5 +762,68 @@ private fun ColumnScope.ProviderConfigureAgentPlatform(
             label = { Text(stringResource(id = R.string.setting_provider_page_project_id)) },
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+
+    if (showServiceAccountImportSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showServiceAccountImportSheet = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = AppShapes.BottomSheet,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.setting_provider_page_import_service_account_json),
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                OutlinedTextField(
+                    value = serviceAccountJsonText,
+                    onValueChange = { serviceAccountJsonText = it },
+                    label = { Text(stringResource(R.string.setting_provider_page_service_account_json)) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 260.dp),
+                    minLines = 10,
+                    maxLines = 14,
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            serviceAccountJsonLauncher.launch(arrayOf("application/json", "*/*"))
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = AppShapes.ButtonPill,
+                    ) {
+                        Text(stringResource(R.string.setting_provider_page_import_from_file))
+                    }
+                    FilledTonalButton(
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            if (importServiceAccountJson(serviceAccountJsonText)) {
+                                haptics.perform(HapticPattern.Success)
+                                serviceAccountJsonText = ""
+                                showServiceAccountImportSheet = false
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = AppShapes.ButtonPill,
+                    ) {
+                        Text(stringResource(R.string.confirm))
+                    }
+                }
+            }
+        }
     }
 }

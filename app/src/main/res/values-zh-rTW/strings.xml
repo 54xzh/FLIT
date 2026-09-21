@@ -1024,6 +1024,8 @@
   <string name="setting_provider_page_import_dialog_title">匯入供應商配置</string>
   <string name="setting_provider_page_import_success">匯入成功</string>
   <string name="setting_provider_page_import_service_account_json">匯入服務帳戶 JSON</string>
+  <string name="setting_provider_page_import_from_file">從檔案匯入</string>
+  <string name="setting_provider_page_service_account_json">服務帳戶 JSON</string>
   <string name="setting_provider_page_service_account_import_success">服務帳戶已匯入</string>
   <string name="setting_provider_page_service_account_import_failed">無法匯入服務帳戶 JSON</string>
   <string name="setting_provider_page_input_modality">輸入模態</string>

@@ -1745,6 +1745,8 @@
   <string name="setting_provider_page_import_dialog_title">导入供应商配置</string>
   <string name="setting_provider_page_import_success">导入成功</string>
   <string name="setting_provider_page_import_service_account_json">导入服务账户 JSON</string>
+  <string name="setting_provider_page_import_from_file">从文件导入</string>
+  <string name="setting_provider_page_service_account_json">服务账户 JSON</string>
   <string name="setting_provider_page_service_account_import_success">服务账户已导入</string>
   <string name="setting_provider_page_service_account_import_failed">无法导入服务账户 JSON</string>
   <string name="setting_provider_page_input_modality">输入模态</string>
