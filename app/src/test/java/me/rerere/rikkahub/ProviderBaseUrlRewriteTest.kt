@@ -1,30 +1,12 @@
 package me.rerere.rikkahub
 
 import me.rerere.ai.provider.ProviderSetting
-import me.rerere.ai.provider.GooglePlatform
 import me.rerere.rikkahub.ui.pages.setting.components.convertTo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderBaseUrlRewriteTest {
-    @Test
-    fun `convertTo should restore Agent Platform after switching away from Google`() {
-        val agentPlatform = ProviderSetting.Google(
-            name = "Agent Platform",
-            platform = GooglePlatform.AGENT_PLATFORM,
-        )
-
-        val openAI = agentPlatform.convertTo(ProviderSetting.OpenAI::class)
-        val claude = openAI.convertTo(ProviderSetting.Claude::class)
-        val restored = claude.convertTo(
-            type = ProviderSetting.Google::class,
-            googlePlatform = agentPlatform.platform,
-        ) as ProviderSetting.Google
-
-        assertEquals(GooglePlatform.AGENT_PLATFORM, restored.platform)
-    }
-
     @Test
     fun `convertTo should rewrite v1 to v1beta when switching to Google`() {
         val provider = ProviderSetting.OpenAI(

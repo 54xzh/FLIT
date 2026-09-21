@@ -57,12 +57,6 @@ fun ProviderConfigure(
     modifier: Modifier = Modifier,
     onEdit: (provider: ProviderSetting) -> Unit
 ) {
-    var lastGooglePlatform by remember(provider.id) {
-        mutableStateOf(
-            (provider as? ProviderSetting.Google)?.platform ?: GooglePlatform.GEMINI
-        )
-    }
-
     Column(
         verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = modifier
@@ -95,7 +89,10 @@ fun ProviderConfigure(
         }
 
         // 2. Type selector (for non-built-in providers)
-        if (!provider.builtIn) {
+        if (
+            !provider.builtIn &&
+            (provider !is ProviderSetting.Google || provider.platform != GooglePlatform.AGENT_PLATFORM)
+        ) {
             SingleChoiceSegmentedButtonRow(
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -108,10 +105,7 @@ fun ProviderConfigure(
                         label = { Text(type.simpleName ?: "") },
                         selected = provider::class == type,
                         onClick = {
-                            if (provider is ProviderSetting.Google) {
-                                lastGooglePlatform = provider.platform
-                            }
-                            onEdit(provider.convertTo(type, lastGooglePlatform))
+                            onEdit(provider.convertTo(type))
                         }
                     )
                 }
@@ -198,7 +192,6 @@ fun ProviderConfigure(
  */
 fun ProviderSetting.convertTo(
     type: KClass<out ProviderSetting>,
-    googlePlatform: GooglePlatform = GooglePlatform.GEMINI,
 ): ProviderSetting {
     // If same type, return unchanged
     if (this::class == type) return this
@@ -283,7 +276,6 @@ fun ProviderSetting.convertTo(
             keyStrategy = keyStrategy,
             legacyApiKeyBackup = legacyApiKeyBackup,
             baseUrl = rewrittenBaseUrl,
-            platform = googlePlatform,
         )
         ProviderSetting.Claude::class -> ProviderSetting.Claude(
             id = this.id,
