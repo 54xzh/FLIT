@@ -977,6 +977,8 @@
   <string name="setting_provider_page_claude_prompt_cache_ttl_5m">5 分鐘</string>
   <string name="setting_provider_page_claude_prompt_cache_ttl_1h">1 小時</string>
   <string name="setting_provider_page_api_key">API Key</string>
+  <string name="setting_provider_page_agent_platform_mode_standard">標準模式</string>
+  <string name="setting_provider_page_agent_platform_mode_express">Express</string>
   <string name="setting_provider_page_api_path">API 路徑</string>
   <string name="setting_provider_page_manage_multi_keys_with_count">管理 Key（已啟用 %1$d/%2$d）</string>
   <string name="setting_provider_page_multi_key_add">新增 Key</string>
@@ -1021,8 +1023,11 @@
   <string name="setting_provider_page_import_dialog_message">請選擇匯入方式：</string>
   <string name="setting_provider_page_import_dialog_title">匯入供應商配置</string>
   <string name="setting_provider_page_import_success">匯入成功</string>
+  <string name="setting_provider_page_import_service_account_json">匯入服務帳戶 JSON</string>
+  <string name="setting_provider_page_service_account_import_success">服務帳戶已匯入</string>
+  <string name="setting_provider_page_service_account_import_failed">無法匯入服務帳戶 JSON</string>
   <string name="setting_provider_page_input_modality">輸入模態</string>
-  <string name="setting_provider_page_location">位置（例如 us-central1）</string>
+  <string name="setting_provider_page_location">位置（例如 global）</string>
   <string name="setting_provider_page_model_count">%d個模型</string>
   <string name="setting_provider_page_model_display_name">模型顯示名稱</string>
   <string name="setting_provider_page_model_display_name_placeholder">例如：GPT-3.5, 用於UI顯示</string>

@@ -60,6 +60,16 @@ enum class GooglePlatform {
     AGENT_PLATFORM,
 }
 
+/** Agent Platform 的认证与请求模式。 */
+@Serializable
+enum class AgentPlatformMode {
+    @SerialName("standard")
+    STANDARD,
+
+    @SerialName("express")
+    EXPRESS,
+}
+
 @Serializable
 sealed class ProviderSetting {
     abstract val id: Uuid
@@ -199,9 +209,10 @@ sealed class ProviderSetting {
         var legacyApiKeyBackup: String = "",
         var baseUrl: String = "https://generativelanguage.googleapis.com/v1beta", // only for google AI
         var platform: GooglePlatform = GooglePlatform.GEMINI,
+        var agentPlatformMode: AgentPlatformMode = AgentPlatformMode.STANDARD,
         var privateKey: String = "",
         var serviceAccountEmail: String = "",
-        var location: String = "us-central1",
+        var location: String = "global",
         var projectId: String = "",
     ) : ProviderSetting() {
         override fun addModel(model: Model): ProviderSetting {

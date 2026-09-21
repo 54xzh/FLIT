@@ -1,6 +1,7 @@
 package me.rerere.rikkahub
 
 import me.rerere.ai.provider.BalanceOption
+import me.rerere.ai.provider.AgentPlatformMode
 import me.rerere.ai.provider.GooglePlatform
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderProxy
@@ -16,6 +17,27 @@ import kotlin.io.encoding.Base64
 import kotlin.uuid.Uuid
 
 class ShareSheetTest {
+    @Test
+    fun `Agent Platform Express configuration survives sharing`() {
+        val original = ProviderSetting.Google(
+            name = "Agent Platform",
+            platform = GooglePlatform.AGENT_PLATFORM,
+            agentPlatformMode = AgentPlatformMode.EXPRESS,
+            apiKey = "express-api-key",
+            projectId = "standard-project",
+            serviceAccountEmail = "service@example.iam.gserviceaccount.com",
+            privateKey = "private-key",
+        )
+
+        val decoded = decodeProviderSetting(original.encodeForShare()) as ProviderSetting.Google
+
+        assertEquals(AgentPlatformMode.EXPRESS, decoded.agentPlatformMode)
+        assertEquals("express-api-key", decoded.apiKey)
+        assertEquals("standard-project", decoded.projectId)
+        assertEquals("service@example.iam.gserviceaccount.com", decoded.serviceAccountEmail)
+        assertEquals("private-key", decoded.privateKey)
+    }
+
     @Test
     fun `Codex share keeps configuration and contains no credentials`() {
         val model = Model(

@@ -8,6 +8,36 @@ import org.junit.Test
 
 class ProviderApiKeyTest {
     @Test
+    fun `Agent Platform defaults to standard mode with global location`() {
+        val provider = ProviderSetting.Google(platform = GooglePlatform.AGENT_PLATFORM)
+
+        assertEquals(AgentPlatformMode.STANDARD, provider.agentPlatformMode)
+        assertEquals("global", provider.location)
+    }
+
+    @Test
+    fun `Agent Platform mode changes retain both configurations`() {
+        val standard = ProviderSetting.Google(
+            platform = GooglePlatform.AGENT_PLATFORM,
+            projectId = "standard-project",
+            location = "global",
+            serviceAccountEmail = "service@example.iam.gserviceaccount.com",
+            privateKey = "private-key",
+        )
+        val express = standard.copy(
+            agentPlatformMode = AgentPlatformMode.EXPRESS,
+            apiKey = "express-api-key",
+        )
+        val restoredStandard = express.copy(agentPlatformMode = AgentPlatformMode.STANDARD)
+
+        assertEquals("express-api-key", restoredStandard.apiKey)
+        assertEquals("standard-project", restoredStandard.projectId)
+        assertEquals("global", restoredStandard.location)
+        assertEquals("service@example.iam.gserviceaccount.com", restoredStandard.serviceAccountEmail)
+        assertEquals("private-key", restoredStandard.privateKey)
+    }
+
+    @Test
     fun `splitProviderApiKeys supports comma spaces and line breaks`() {
         val keys = splitProviderApiKeys(" key-a, key-b\nkey-c  key-a ")
 

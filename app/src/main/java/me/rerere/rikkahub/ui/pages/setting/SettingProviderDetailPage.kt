@@ -134,6 +134,7 @@ import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderProxy
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.GooglePlatform
+import me.rerere.ai.provider.AgentPlatformMode
 import me.rerere.ai.provider.providers.codex.CodexCredential
 import me.rerere.ai.provider.providers.codex.CodexQuotaSnapshot
 import me.rerere.ai.provider.providers.codex.CodexQuotaWindow
@@ -3629,7 +3630,11 @@ private fun ModelPickerFab(
                             val hasApiKey = when (parentProvider) {
                                 is ProviderSetting.OpenAI -> parentProvider.apiKey.isNotBlank()
                                 is ProviderSetting.Google -> if (parentProvider.platform == GooglePlatform.AGENT_PLATFORM) {
-                                    parentProvider.serviceAccountEmail.isNotBlank()
+                                    if (parentProvider.agentPlatformMode == AgentPlatformMode.EXPRESS) {
+                                        parentProvider.apiKey.isNotBlank()
+                                    } else {
+                                        parentProvider.serviceAccountEmail.isNotBlank()
+                                    }
                                 } else {
                                     parentProvider.apiKey.isNotBlank()
                                 }
@@ -3961,7 +3966,11 @@ private fun ModelPicker(
                             val hasApiKey = when (parentProvider) {
                                 is ProviderSetting.OpenAI -> parentProvider.apiKey.isNotBlank()
                                 is ProviderSetting.Google -> if (parentProvider.platform == GooglePlatform.AGENT_PLATFORM) {
-                                    parentProvider.serviceAccountEmail.isNotBlank()
+                                    if (parentProvider.agentPlatformMode == AgentPlatformMode.EXPRESS) {
+                                        parentProvider.apiKey.isNotBlank()
+                                    } else {
+                                        parentProvider.serviceAccountEmail.isNotBlank()
+                                    }
                                 } else {
                                     parentProvider.apiKey.isNotBlank()
                                 }

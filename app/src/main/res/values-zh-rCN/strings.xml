@@ -1709,6 +1709,8 @@
   <string name="setting_provider_page_claude_prompt_cache_ttl_5m">5 分钟</string>
   <string name="setting_provider_page_claude_prompt_cache_ttl_1h">1 小时</string>
   <string name="setting_provider_page_api_key">API Key</string>
+  <string name="setting_provider_page_agent_platform_mode_standard">标准模式</string>
+  <string name="setting_provider_page_agent_platform_mode_express">Express</string>
   <string name="setting_provider_page_api_path">API 路径</string>
   <string name="setting_provider_page_balance_api_path">余额 API 路径</string>
   <string name="setting_provider_page_balance_info">获取账户余额</string>
@@ -1742,8 +1744,11 @@
   <string name="setting_provider_page_import_dialog_message">请选择导入方式：</string>
   <string name="setting_provider_page_import_dialog_title">导入供应商配置</string>
   <string name="setting_provider_page_import_success">导入成功</string>
+  <string name="setting_provider_page_import_service_account_json">导入服务账户 JSON</string>
+  <string name="setting_provider_page_service_account_import_success">服务账户已导入</string>
+  <string name="setting_provider_page_service_account_import_failed">无法导入服务账户 JSON</string>
   <string name="setting_provider_page_input_modality">输入模态</string>
-  <string name="setting_provider_page_location">位置（例如 us-central1）</string>
+  <string name="setting_provider_page_location">位置（例如 global）</string>
     <string name="setting_provider_page_manage_multi_keys_with_count">管理 Key（已启用 %1$d/%2$d）</string>
   <string name="setting_provider_page_model_count">%d个模型</string>
   <string name="setting_provider_page_model_display_name">模型显示名称</string>

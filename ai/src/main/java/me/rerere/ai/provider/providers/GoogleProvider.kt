@@ -29,6 +29,7 @@ import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.core.parametersOrEmptyObject
 import me.rerere.ai.provider.BuiltInTools
+import me.rerere.ai.provider.AgentPlatformMode
 import me.rerere.ai.provider.GooglePlatform
 import me.rerere.ai.provider.ImageGenerationParams
 import me.rerere.ai.provider.Modality
@@ -90,14 +91,25 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
     }
 
     private fun buildUrl(providerSetting: ProviderSetting.Google, path: String): HttpUrl {
-        return if (providerSetting.platform != GooglePlatform.AGENT_PLATFORM) {
-            val key = keyRoulette.next(providerSetting)
-            "${providerSetting.baseUrl}/$path".toHttpUrl()
-                .newBuilder()
-                .addQueryParameter("key", key)
-                .build()
-        } else {
-            "https://aiplatform.googleapis.com/v1/projects/${providerSetting.projectId}/locations/${providerSetting.location}/$path".toHttpUrl()
+        return when {
+            providerSetting.platform != GooglePlatform.AGENT_PLATFORM -> {
+                val key = keyRoulette.next(providerSetting)
+                "${providerSetting.baseUrl}/$path".toHttpUrl()
+                    .newBuilder()
+                    .addQueryParameter("key", key)
+                    .build()
+            }
+
+            providerSetting.agentPlatformMode == AgentPlatformMode.EXPRESS -> {
+                "https://aiplatform.googleapis.com/v1/$path".toHttpUrl()
+                    .newBuilder()
+                    .addQueryParameter("key", providerSetting.apiKey.trim())
+                    .build()
+            }
+
+            else -> {
+                "https://aiplatform.googleapis.com/v1/projects/${providerSetting.projectId}/locations/${providerSetting.location}/$path".toHttpUrl()
+            }
         }
     }
 
@@ -105,7 +117,10 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         providerSetting: ProviderSetting.Google,
         request: Request
     ): Request {
-        return if (providerSetting.platform == GooglePlatform.AGENT_PLATFORM) {
+        return if (
+            providerSetting.platform == GooglePlatform.AGENT_PLATFORM &&
+            providerSetting.agentPlatformMode == AgentPlatformMode.STANDARD
+        ) {
             val accessToken = serviceAccountTokenProvider.fetchAccessToken(
                 serviceAccountEmail = providerSetting.serviceAccountEmail.trim(),
                 privateKeyPem = StringEscapeUtils.unescapeJson(providerSetting.privateKey.trim()),
@@ -120,6 +135,13 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
 
     override suspend fun listModels(providerSetting: ProviderSetting.Google): List<Model> =
         withContext(Dispatchers.IO) {
+            // Express 模式的公开 REST 接口没有模型列表端点，模型可在界面中手动添加。
+            if (
+                providerSetting.platform == GooglePlatform.AGENT_PLATFORM &&
+                providerSetting.agentPlatformMode == AgentPlatformMode.EXPRESS
+            ) {
+                return@withContext emptyList()
+            }
             val url = buildUrl(providerSetting = providerSetting, path = "models?pageSize=100")
             val request = transformRequest(
                 providerSetting = providerSetting,

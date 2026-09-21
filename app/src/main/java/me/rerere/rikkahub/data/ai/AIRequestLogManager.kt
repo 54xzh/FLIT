@@ -19,6 +19,7 @@ import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.CustomBody
 import me.rerere.ai.provider.CustomHeader
 import me.rerere.ai.provider.DecisionParams
+import me.rerere.ai.provider.AgentPlatformMode
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.ProviderSetting
@@ -574,7 +575,11 @@ private fun buildTextGenerationRequestUrl(providerSetting: ProviderSetting, para
 
         is ProviderSetting.Google -> {
             if (providerSetting.platform == GooglePlatform.AGENT_PLATFORM) {
-                "https://aiplatform.googleapis.com/v1/projects/${providerSetting.projectId}/locations/${providerSetting.location}/publishers/google/models/${params.model.modelId}:generateContent"
+                if (providerSetting.agentPlatformMode == AgentPlatformMode.EXPRESS) {
+                    "https://aiplatform.googleapis.com/v1/publishers/google/models/${params.model.modelId}:generateContent"
+                } else {
+                    "https://aiplatform.googleapis.com/v1/projects/${providerSetting.projectId}/locations/${providerSetting.location}/publishers/google/models/${params.model.modelId}:generateContent"
+                }
             } else {
                 val base = providerSetting.baseUrl.trimEnd('/')
                 "$base/models/${params.model.modelId}:generateContent"
@@ -602,7 +607,11 @@ private fun buildEmbeddingRequestUrl(providerSetting: ProviderSetting, model: Mo
 
         is ProviderSetting.Google -> {
             if (providerSetting.platform == GooglePlatform.AGENT_PLATFORM) {
-                "https://aiplatform.googleapis.com/v1/projects/${providerSetting.projectId}/locations/${providerSetting.location}/publishers/google/models/${model.modelId}:embedContent"
+                if (providerSetting.agentPlatformMode == AgentPlatformMode.EXPRESS) {
+                    "https://aiplatform.googleapis.com/v1/publishers/google/models/${model.modelId}:embedContent"
+                } else {
+                    "https://aiplatform.googleapis.com/v1/projects/${providerSetting.projectId}/locations/${providerSetting.location}/publishers/google/models/${model.modelId}:embedContent"
+                }
             } else {
                 val base = providerSetting.baseUrl.trimEnd('/')
                 "$base/models/${model.modelId}:embedContent"

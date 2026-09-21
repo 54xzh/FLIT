@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.ui.pages.setting.components
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -18,6 +20,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -32,12 +35,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import me.rerere.rikkahub.ui.components.ui.ToastType
 import me.rerere.ai.provider.ClaudePromptCacheTtl
+import me.rerere.ai.provider.AgentPlatformMode
 import me.rerere.ai.provider.GooglePlatform
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.rikkahub.R
@@ -48,6 +53,12 @@ import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.rikkahub.ui.components.ui.AutoAIIconWithUrl
 import me.rerere.rikkahub.ui.components.ui.ClickableIconPicker
 import me.rerere.rikkahub.ui.components.ui.ProviderIcon
+import me.rerere.rikkahub.ui.hooks.HapticPattern
+import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import kotlin.reflect.KClass
 
@@ -574,33 +585,138 @@ private fun ColumnScope.ProviderConfigureAgentPlatform(
     provider: ProviderSetting.Google,
     onEdit: (provider: ProviderSetting.Google) -> Unit,
 ) {
+    val context = LocalContext.current
+    val toaster = LocalToaster.current
+    val haptics = rememberPremiumHaptics()
+    val serviceAccountJsonLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+
+        try {
+            val content = context.contentResolver.openInputStream(uri)
+                ?.bufferedReader()
+                ?.use { it.readText() }
+                ?: throw IllegalArgumentException()
+            val serviceAccount = Json.parseToJsonElement(content) as? JsonObject
+                ?: throw IllegalArgumentException()
+            val importedProjectId = (serviceAccount["project_id"] as? JsonPrimitive)
+                ?.contentOrNull
+                ?.takeIf { it.isNotBlank() }
+            val importedEmail = (serviceAccount["client_email"] as? JsonPrimitive)
+                ?.contentOrNull
+                ?.takeIf { it.isNotBlank() }
+            val importedPrivateKey = (serviceAccount["private_key"] as? JsonPrimitive)
+                ?.contentOrNull
+                ?.takeIf { it.isNotBlank() }
+
+            if (importedProjectId == null && importedEmail == null && importedPrivateKey == null) {
+                throw IllegalArgumentException()
+            }
+
+            onEdit(
+                provider.copy(
+                    projectId = importedProjectId ?: provider.projectId,
+                    serviceAccountEmail = importedEmail ?: provider.serviceAccountEmail,
+                    privateKey = importedPrivateKey ?: provider.privateKey,
+                )
+            )
+            toaster.show(
+                context.getString(R.string.setting_provider_page_service_account_import_success),
+                type = ToastType.Success,
+            )
+        } catch (_: Exception) {
+            toaster.show(
+                context.getString(R.string.setting_provider_page_service_account_import_failed),
+                type = ToastType.Error,
+            )
+        }
+    }
+
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        AgentPlatformMode.entries.forEachIndexed { index, mode ->
+            SegmentedButton(
+                shape = SegmentedButtonDefaults.itemShape(
+                    index = index,
+                    count = AgentPlatformMode.entries.size,
+                ),
+                label = {
+                    Text(
+                        stringResource(
+                            when (mode) {
+                                AgentPlatformMode.STANDARD -> R.string.setting_provider_page_agent_platform_mode_standard
+                                AgentPlatformMode.EXPRESS -> R.string.setting_provider_page_agent_platform_mode_express
+                            }
+                        )
+                    )
+                },
+                selected = provider.agentPlatformMode == mode,
+                onClick = {
+                    haptics.perform(HapticPattern.Pop)
+                    onEdit(provider.copy(agentPlatformMode = mode))
+                },
+            )
+        }
+    }
+
     provider.description()
 
-    OutlinedTextField(
-        value = provider.serviceAccountEmail,
-        onValueChange = { onEdit(provider.copy(serviceAccountEmail = it.trim())) },
-        label = { Text(stringResource(id = R.string.setting_provider_page_service_account_email)) },
-        modifier = Modifier.fillMaxWidth(),
-    )
-    OutlinedTextField(
-        value = provider.privateKey,
-        onValueChange = { onEdit(provider.copy(privateKey = it.trim())) },
-        label = { Text(stringResource(id = R.string.setting_provider_page_private_key)) },
-        modifier = Modifier.fillMaxWidth(),
-        maxLines = 6,
-        minLines = 3,
-        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-    )
-    OutlinedTextField(
-        value = provider.location,
-        onValueChange = { onEdit(provider.copy(location = it.trim())) },
-        label = { Text(stringResource(id = R.string.setting_provider_page_location)) },
-        modifier = Modifier.fillMaxWidth(),
-    )
-    OutlinedTextField(
-        value = provider.projectId,
-        onValueChange = { onEdit(provider.copy(projectId = it.trim())) },
-        label = { Text(stringResource(id = R.string.setting_provider_page_project_id)) },
-        modifier = Modifier.fillMaxWidth(),
-    )
+    if (provider.agentPlatformMode == AgentPlatformMode.EXPRESS) {
+        var apiKeyVisible by remember { mutableStateOf(false) }
+        OutlinedTextField(
+            value = provider.apiKey,
+            onValueChange = { onEdit(provider.copy(apiKey = it.trim())) },
+            label = { Text(stringResource(id = R.string.setting_provider_page_api_key)) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { if (!it.isFocused) apiKeyVisible = false },
+            maxLines = if (apiKeyVisible) 3 else 1,
+            visualTransformation = if (apiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { apiKeyVisible = !apiKeyVisible }) {
+                    Icon(
+                        imageVector = if (apiKeyVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                        contentDescription = if (apiKeyVisible) "Hide" else "Show",
+                    )
+                }
+            },
+        )
+    } else {
+        OutlinedButton(
+            onClick = {
+                haptics.perform(HapticPattern.Pop)
+                serviceAccountJsonLauncher.launch(arrayOf("application/json", "*/*"))
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.setting_provider_page_import_service_account_json))
+        }
+        OutlinedTextField(
+            value = provider.serviceAccountEmail,
+            onValueChange = { onEdit(provider.copy(serviceAccountEmail = it.trim())) },
+            label = { Text(stringResource(id = R.string.setting_provider_page_service_account_email)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = provider.privateKey,
+            onValueChange = { onEdit(provider.copy(privateKey = it.trim())) },
+            label = { Text(stringResource(id = R.string.setting_provider_page_private_key)) },
+            modifier = Modifier.fillMaxWidth(),
+            maxLines = 6,
+            minLines = 3,
+            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+        )
+        OutlinedTextField(
+            value = provider.location,
+            onValueChange = { onEdit(provider.copy(location = it.trim())) },
+            label = { Text(stringResource(id = R.string.setting_provider_page_location)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = provider.projectId,
+            onValueChange = { onEdit(provider.copy(projectId = it.trim())) },
+            label = { Text(stringResource(id = R.string.setting_provider_page_project_id)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
