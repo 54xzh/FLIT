@@ -1361,6 +1361,8 @@
     <string name="setting_provider_page_reasoning">Reasoning</string>
     <string name="setting_provider_page_response_api">Response API</string>
     <string name="setting_provider_page_response_api_warning">Response API is OpenAI\'s new API. Most providers don\'t support it. Keep off if unsure.</string>
+    <string name="setting_provider_page_interactions_api">Interactions API</string>
+    <string name="setting_provider_page_interactions_api_warning">Interactions API is Google\'s next-generation API. Express mode does not support this API.</string>
     <string name="setting_provider_page_save">Save</string>
     <string name="setting_provider_page_save_success">Save Success</string>
     <string name="setting_provider_page_scan_error">Error: %s</string>

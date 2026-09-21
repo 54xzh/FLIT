@@ -214,6 +214,7 @@ sealed class ProviderSetting {
         var serviceAccountEmail: String = "",
         var location: String = "global",
         var projectId: String = "",
+        var useInteractionsApi: Boolean = false,
     ) : ProviderSetting() {
         override fun addModel(model: Model): ProviderSetting {
             return copy(models = models + model)

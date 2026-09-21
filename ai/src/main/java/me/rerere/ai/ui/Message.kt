@@ -1160,7 +1160,7 @@ sealed class UIMessagePart {
             return ToolCall(
                 toolCallId = toolCallId.ifBlank { other.toolCallId },
                 toolName = mergeStreamedToolName(toolName, other.toolName),
-                arguments = arguments + other.arguments,
+                arguments = mergeStreamedArguments(arguments, other.arguments),
                 index = index ?: other.index,
                 metadata = if(other.metadata != null) other.metadata else metadata,
             )
@@ -1175,6 +1175,13 @@ sealed class UIMessagePart {
                 delta.isBlank() -> current
                 current.isBlank() -> delta
                 current == delta -> current
+                else -> current + delta
+            }
+
+            private fun mergeStreamedArguments(current: String, delta: String): String = when {
+                current.isBlank() -> delta
+                delta.isBlank() -> current
+                current == "{}" -> delta
                 else -> current + delta
             }
         }

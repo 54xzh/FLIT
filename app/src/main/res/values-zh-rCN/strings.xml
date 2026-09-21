@@ -1802,6 +1802,8 @@
   <string name="setting_provider_page_reasoning">推理</string>
   <string name="setting_provider_page_response_api">Response API</string>
   <string name="setting_provider_page_response_api_warning">Response API是OpenAI新一代API，大部分提供商并不支持，如果你不知道这是什么，不要开启</string>
+  <string name="setting_provider_page_interactions_api">Interactions API</string>
+  <string name="setting_provider_page_interactions_api_warning">Interactions API 是 Google 新一代 API，Express 模式暂不支持此接口。</string>
   <string name="setting_provider_page_save">保存</string>
   <string name="setting_provider_page_save_success">保存成功</string>
   <string name="setting_provider_page_scan_error">错误: %s</string>

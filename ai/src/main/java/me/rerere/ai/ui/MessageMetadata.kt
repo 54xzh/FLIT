@@ -28,11 +28,15 @@ data class ClaudeReasoningMetadata(
 ) : PartMetadata
 
 /**
- * Google Gemini 部件(text/functionCall/inlineData)的 thoughtSignature, 回传时需要携带
+ * Google Gemini 的 thought signature，以及 Interactions API 中需要原样回传的步骤。
+ *
+ * generateContent 把 signature 附在内容部件上；Interactions API 则把它放在独立的
+ * thought / 内置工具步骤中。后者在无状态续聊时必须保留原始结构。
  */
 @Serializable
 data class GoogleThoughtMetadata(
     val thoughtSignature: String? = null,
+    val interactionStep: JsonObject? = null,
 ) : PartMetadata
 
 /**

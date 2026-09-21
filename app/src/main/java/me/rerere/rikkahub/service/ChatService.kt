@@ -3046,7 +3046,8 @@ class ChatService(
                 "max_tokens",
                 "max_output_tokens",
                 "max_tokens_exceeded",
-                "token_limit_reached" -> true
+                "token_limit_reached",
+                "incomplete" -> true
                 else -> false
             }
         }

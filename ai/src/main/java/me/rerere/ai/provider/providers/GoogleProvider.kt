@@ -82,12 +82,17 @@ import java.util.concurrent.TimeUnit
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
+import me.rerere.ai.provider.providers.google.InteractionsAPI
+
 private const val TAG = "GoogleProvider"
 
 class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSetting.Google> {
     private val keyRoulette = KeyRoulette.default()
     private val serviceAccountTokenProvider by lazy {
         ServiceAccountTokenProvider(client)
+    }
+    private val interactionsAPI by lazy {
+        InteractionsAPI(client, keyRoulette, serviceAccountTokenProvider)
     }
 
     private fun buildUrl(providerSetting: ProviderSetting.Google, path: String): HttpUrl {
@@ -179,11 +184,20 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             }
         }
 
+    private fun canUseInteractions(providerSetting: ProviderSetting.Google): Boolean {
+        return providerSetting.useInteractionsApi &&
+            !(providerSetting.platform == GooglePlatform.AGENT_PLATFORM && providerSetting.agentPlatformMode == AgentPlatformMode.EXPRESS)
+    }
+
     override suspend fun generateText(
         providerSetting: ProviderSetting.Google,
         messages: List<UIMessage>,
         params: TextGenerationParams,
-    ): MessageChunk = withContext(Dispatchers.IO) {
+    ): MessageChunk {
+        if (canUseInteractions(providerSetting)) {
+            return interactionsAPI.generateText(providerSetting, messages, params)
+        }
+        return withContext(Dispatchers.IO) {
         val requestBody = buildCompletionRequestBody(messages, params)
         val requestBodyJson = json.encodeToString(requestBody)
         params.onRequestBody?.invoke(requestBodyJson)
@@ -263,12 +277,17 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
             )
         }
     }
+}
 
     override suspend fun streamText(
         providerSetting: ProviderSetting.Google,
         messages: List<UIMessage>,
         params: TextGenerationParams,
-    ): Flow<MessageChunk> = callbackFlow {
+    ): Flow<MessageChunk> {
+        if (canUseInteractions(providerSetting)) {
+            return interactionsAPI.streamText(providerSetting, messages, params)
+        }
+        return callbackFlow {
         val requestBody = buildCompletionRequestBody(messages, params)
         val requestBodyJson = json.encodeToString(requestBody)
         params.onRequestBody?.invoke(requestBodyJson)
@@ -409,6 +428,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         }
         // SSE 回调线程用 trySend 推送且不检查结果，默认 64 容量在下游繁忙时会静默丢块，放开为无限缓冲
     }.buffer(Channel.UNLIMITED)
+    }
 
     private fun buildCompletionRequestBody(
         messages: List<UIMessage>,

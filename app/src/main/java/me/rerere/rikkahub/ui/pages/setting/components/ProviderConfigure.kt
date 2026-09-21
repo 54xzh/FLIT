@@ -539,6 +539,7 @@ private fun ColumnScope.ProviderConfigureGoogle(
         return
     }
 
+    val toaster = LocalToaster.current
     provider.description()
 
     var apiKeyVisible by remember { mutableStateOf(false) }
@@ -586,6 +587,26 @@ private fun ColumnScope.ProviderConfigureGoogle(
             }
         } else null
     )
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(stringResource(id = R.string.setting_provider_page_interactions_api), modifier = Modifier.weight(1f))
+        val interactionsAPIWarning = stringResource(id = R.string.setting_provider_page_interactions_api_warning)
+        Checkbox(
+            checked = provider.useInteractionsApi,
+            onCheckedChange = {
+                onEdit(provider.copy(useInteractionsApi = it))
+
+                if (it && !provider.baseUrl.contains("googleapis.com")) {
+                    toaster.show(
+                        message = interactionsAPIWarning,
+                        type = ToastType.Warning
+                    )
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -676,7 +697,12 @@ private fun ColumnScope.ProviderConfigureAgentPlatform(
                 selected = provider.agentPlatformMode == mode,
                 onClick = {
                     haptics.perform(HapticPattern.Pop)
-                    onEdit(provider.copy(agentPlatformMode = mode))
+                    onEdit(
+                        provider.copy(
+                            agentPlatformMode = mode,
+                            useInteractionsApi = if (mode == AgentPlatformMode.EXPRESS) false else provider.useInteractionsApi,
+                        )
+                    )
                 },
             )
         }
@@ -762,6 +788,17 @@ private fun ColumnScope.ProviderConfigureAgentPlatform(
             label = { Text(stringResource(id = R.string.setting_provider_page_project_id)) },
             modifier = Modifier.fillMaxWidth(),
         )
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(stringResource(id = R.string.setting_provider_page_interactions_api), modifier = Modifier.weight(1f))
+            Checkbox(
+                checked = provider.useInteractionsApi,
+                onCheckedChange = {
+                    onEdit(provider.copy(useInteractionsApi = it))
+                }
+            )
+        }
     }
 
     if (showServiceAccountImportSheet) {
