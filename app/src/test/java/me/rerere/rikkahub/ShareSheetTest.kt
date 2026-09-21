@@ -1,6 +1,7 @@
 package me.rerere.rikkahub
 
 import me.rerere.ai.provider.BalanceOption
+import me.rerere.ai.provider.GooglePlatform
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderProxy
 import me.rerere.ai.provider.ProviderSetting
@@ -84,7 +85,7 @@ class ShareSheetTest {
             models = emptyList(),
             apiKey = "test-google-key",
             baseUrl = "https://generativelanguage.googleapis.com/v1beta",
-            vertexAI = false
+            platform = GooglePlatform.GEMINI,
         )
 
         val encoded = original.encodeForShare()
@@ -95,7 +96,7 @@ class ShareSheetTest {
         assertEquals(originalId, decodedGoogle.id)
         assertEquals("Test Google", decodedGoogle.name)
         assertEquals("test-google-key", decodedGoogle.apiKey)
-        assertEquals(false, decodedGoogle.vertexAI)
+        assertEquals(GooglePlatform.GEMINI, decodedGoogle.platform)
     }
 
     @Test
@@ -199,7 +200,7 @@ class ShareSheetTest {
             ProviderSetting.Google(
                 name = "Google Test",
                 apiKey = "key2",
-                vertexAI = true,
+                platform = GooglePlatform.AGENT_PLATFORM,
                 projectId = "project-123"
             ),
             ProviderSetting.Claude(

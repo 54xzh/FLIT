@@ -38,6 +38,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import me.rerere.rikkahub.ui.components.ui.ToastType
 import me.rerere.ai.provider.ClaudePromptCacheTtl
+import me.rerere.ai.provider.GooglePlatform
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -56,6 +57,12 @@ fun ProviderConfigure(
     modifier: Modifier = Modifier,
     onEdit: (provider: ProviderSetting) -> Unit
 ) {
+    var lastGooglePlatform by remember(provider.id) {
+        mutableStateOf(
+            (provider as? ProviderSetting.Google)?.platform ?: GooglePlatform.GEMINI
+        )
+    }
+
     Column(
         verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = modifier
@@ -98,12 +105,13 @@ fun ProviderConfigure(
                             index = index,
                             count = ProviderSetting.Types.size
                         ),
-                        label = {
-                            Text(type.simpleName ?: "")
-                        },
+                        label = { Text(type.simpleName ?: "") },
                         selected = provider::class == type,
                         onClick = {
-                            onEdit(provider.convertTo(type))
+                            if (provider is ProviderSetting.Google) {
+                                lastGooglePlatform = provider.platform
+                            }
+                            onEdit(provider.convertTo(type, lastGooglePlatform))
                         }
                     )
                 }
@@ -188,7 +196,10 @@ fun ProviderConfigure(
 /**
  * Convert a provider to a different type while preserving all common properties.
  */
-fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSetting {
+fun ProviderSetting.convertTo(
+    type: KClass<out ProviderSetting>,
+    googlePlatform: GooglePlatform = GooglePlatform.GEMINI,
+): ProviderSetting {
     // If same type, return unchanged
     if (this::class == type) return this
 
@@ -255,7 +266,7 @@ fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSettin
             apiKeys = apiKeys,
             keyStrategy = keyStrategy,
             legacyApiKeyBackup = legacyApiKeyBackup,
-            baseUrl = rewrittenBaseUrl
+            baseUrl = rewrittenBaseUrl,
         )
         ProviderSetting.Google::class -> ProviderSetting.Google(
             id = this.id,
@@ -271,7 +282,8 @@ fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSettin
             apiKeys = apiKeys,
             keyStrategy = keyStrategy,
             legacyApiKeyBackup = legacyApiKeyBackup,
-            baseUrl = rewrittenBaseUrl
+            baseUrl = rewrittenBaseUrl,
+            platform = googlePlatform,
         )
         ProviderSetting.Claude::class -> ProviderSetting.Claude(
             id = this.id,
@@ -511,110 +523,92 @@ private fun ColumnScope.ProviderConfigureGoogle(
     provider: ProviderSetting.Google,
     onEdit: (provider: ProviderSetting.Google) -> Unit
 ) {
+    if (provider.platform == GooglePlatform.AGENT_PLATFORM) {
+        ProviderConfigureAgentPlatform(provider, onEdit)
+        return
+    }
+
     provider.description()
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(stringResource(id = R.string.setting_provider_page_vertex_ai), modifier = Modifier.weight(1f))
-        Checkbox(
-            checked = provider.vertexAI,
-            onCheckedChange = {
-                onEdit(provider.copy(vertexAI = it))
+    var apiKeyVisible by remember { mutableStateOf(false) }
+    OutlinedTextField(
+        value = provider.apiKey,
+        onValueChange = {
+            onEdit(provider.copy(apiKey = it.trim()))
+        },
+        label = {
+            Text(stringResource(id = R.string.setting_provider_page_api_key))
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { if (!it.isFocused) apiKeyVisible = false },
+        enabled = !provider.multiKeyEnabled,
+        maxLines = if (apiKeyVisible) 3 else 1,
+        visualTransformation = if (apiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = {
+            IconButton(onClick = { apiKeyVisible = !apiKeyVisible }) {
+                Icon(
+                    imageVector = if (apiKeyVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                    contentDescription = if (apiKeyVisible) "Hide" else "Show"
+                )
             }
-        )
-    }
-
-    if (!provider.vertexAI) {
-        var apiKeyVisible by remember { mutableStateOf(false) }
-        OutlinedTextField(
-            value = provider.apiKey,
-            onValueChange = {
-                onEdit(provider.copy(apiKey = it.trim()))
-            },
-            label = {
-                Text(stringResource(id = R.string.setting_provider_page_api_key))
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .onFocusChanged { if (!it.isFocused) apiKeyVisible = false },
-            enabled = !provider.multiKeyEnabled,
-            maxLines = if (apiKeyVisible) 3 else 1,
-            visualTransformation = if (apiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = {
-                IconButton(onClick = { apiKeyVisible = !apiKeyVisible }) {
-                    Icon(
-                        imageVector = if (apiKeyVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                        contentDescription = if (apiKeyVisible) "Hide" else "Show"
-                    )
-                }
-            }
-        )
-
-        ProviderMultiKeySection(provider = provider) { updated ->
-            (updated as? ProviderSetting.Google)?.let(onEdit)
         }
+    )
 
-        OutlinedTextField(
-            value = provider.baseUrl,
-            onValueChange = {
-                onEdit(provider.copy(baseUrl = it.trim()))
-            },
-            label = {
-                Text(stringResource(id = R.string.setting_provider_page_api_base_url))
-            },
-            modifier = Modifier.fillMaxWidth(),
-            isError = !provider.baseUrl.endsWith("/v1beta"),
-            supportingText = if (!provider.baseUrl.endsWith("/v1beta")) {
-                {
-                    Text(stringResource(R.string.setting_provider_page_base_url_hint_v1beta))
-                }
-            } else null
-        )
-    } else {
-        OutlinedTextField(
-            value = provider.serviceAccountEmail,
-            onValueChange = {
-                onEdit(provider.copy(serviceAccountEmail = it.trim()))
-            },
-            label = {
-                Text(stringResource(id = R.string.setting_provider_page_service_account_email))
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            value = provider.privateKey,
-            onValueChange = {
-                onEdit(provider.copy(privateKey = it.trim()))
-            },
-            label = {
-                Text(stringResource(id = R.string.setting_provider_page_private_key))
-            },
-            modifier = Modifier.fillMaxWidth(),
-            maxLines = 6,
-            minLines = 3,
-            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-        )
-        OutlinedTextField(
-            value = provider.location,
-            onValueChange = {
-                onEdit(provider.copy(location = it.trim()))
-            },
-            label = {
-                // https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations#available-regions
-                Text(stringResource(id = R.string.setting_provider_page_location))
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            value = provider.projectId,
-            onValueChange = {
-                onEdit(provider.copy(projectId = it.trim()))
-            },
-            label = {
-                Text(stringResource(id = R.string.setting_provider_page_project_id))
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
+    ProviderMultiKeySection(provider = provider) { updated ->
+        (updated as? ProviderSetting.Google)?.let(onEdit)
     }
+
+    OutlinedTextField(
+        value = provider.baseUrl,
+        onValueChange = {
+            onEdit(provider.copy(baseUrl = it.trim()))
+        },
+        label = {
+            Text(stringResource(id = R.string.setting_provider_page_api_base_url))
+        },
+        modifier = Modifier.fillMaxWidth(),
+        isError = !provider.baseUrl.endsWith("/v1beta"),
+        supportingText = if (!provider.baseUrl.endsWith("/v1beta")) {
+            {
+                Text(stringResource(R.string.setting_provider_page_base_url_hint_v1beta))
+            }
+        } else null
+    )
+}
+
+@Composable
+private fun ColumnScope.ProviderConfigureAgentPlatform(
+    provider: ProviderSetting.Google,
+    onEdit: (provider: ProviderSetting.Google) -> Unit,
+) {
+    provider.description()
+
+    OutlinedTextField(
+        value = provider.serviceAccountEmail,
+        onValueChange = { onEdit(provider.copy(serviceAccountEmail = it.trim())) },
+        label = { Text(stringResource(id = R.string.setting_provider_page_service_account_email)) },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    OutlinedTextField(
+        value = provider.privateKey,
+        onValueChange = { onEdit(provider.copy(privateKey = it.trim())) },
+        label = { Text(stringResource(id = R.string.setting_provider_page_private_key)) },
+        modifier = Modifier.fillMaxWidth(),
+        maxLines = 6,
+        minLines = 3,
+        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+    )
+    OutlinedTextField(
+        value = provider.location,
+        onValueChange = { onEdit(provider.copy(location = it.trim())) },
+        label = { Text(stringResource(id = R.string.setting_provider_page_location)) },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    OutlinedTextField(
+        value = provider.projectId,
+        onValueChange = { onEdit(provider.copy(projectId = it.trim())) },
+        label = { Text(stringResource(id = R.string.setting_provider_page_project_id)) },
+        modifier = Modifier.fillMaxWidth(),
+    )
 }

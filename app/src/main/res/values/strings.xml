@@ -1777,6 +1777,7 @@
     <string name="codex_provider_preset_description">Use OpenAI Codex OAuth</string>
     <string name="provider_preset_openai_description">Creator of GPT models, industry-leading AI</string>
     <string name="provider_preset_google_gemini_description">Multimodal AI with text, image, audio, and video</string>
+    <string name="provider_preset_agent_platform_description">Formerly Vertex AI</string>
     <string name="provider_preset_anthropic_claude_description">Safety-focused AI with strong reasoning</string>
     <string name="provider_preset_openrouter_description">Access 300+ models via a single API</string>
     <string name="provider_preset_ollama_description">Cloud LLMs hosted by Ollama</string>

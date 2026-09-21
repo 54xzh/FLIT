@@ -29,6 +29,7 @@ import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.core.parametersOrEmptyObject
 import me.rerere.ai.provider.BuiltInTools
+import me.rerere.ai.provider.GooglePlatform
 import me.rerere.ai.provider.ImageGenerationParams
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Model
@@ -89,7 +90,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
     }
 
     private fun buildUrl(providerSetting: ProviderSetting.Google, path: String): HttpUrl {
-        return if (!providerSetting.vertexAI) {
+        return if (providerSetting.platform != GooglePlatform.AGENT_PLATFORM) {
             val key = keyRoulette.next(providerSetting)
             "${providerSetting.baseUrl}/$path".toHttpUrl()
                 .newBuilder()
@@ -104,7 +105,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
         providerSetting: ProviderSetting.Google,
         request: Request
     ): Request {
-        return if (providerSetting.vertexAI) {
+        return if (providerSetting.platform == GooglePlatform.AGENT_PLATFORM) {
             val accessToken = serviceAccountTokenProvider.fetchAccessToken(
                 serviceAccountEmail = providerSetting.serviceAccountEmail.trim(),
                 privateKeyPem = StringEscapeUtils.unescapeJson(providerSetting.privateKey.trim()),
@@ -167,7 +168,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
 
         val url = buildUrl(
             providerSetting = providerSetting,
-            path = if (providerSetting.vertexAI) {
+            path = if (providerSetting.platform == GooglePlatform.AGENT_PLATFORM) {
                 "publishers/google/models/${params.model.modelId}:generateContent"
             } else {
                 "models/${params.model.modelId}:generateContent"
@@ -252,7 +253,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
 
         val url = buildUrl(
             providerSetting = providerSetting,
-            path = if (providerSetting.vertexAI) {
+            path = if (providerSetting.platform == GooglePlatform.AGENT_PLATFORM) {
                 "publishers/google/models/${params.model.modelId}:streamGenerateContent"
             } else {
                 "models/${params.model.modelId}:streamGenerateContent"
@@ -871,7 +872,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
 
         val url = buildUrl(
             providerSetting = providerSetting,
-            path = if (providerSetting.vertexAI) {
+            path = if (providerSetting.platform == GooglePlatform.AGENT_PLATFORM) {
                 "publishers/google/models/${params.model.modelId}:predict"
             } else {
                 "models/${params.model.modelId}:predict"
@@ -946,7 +947,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
 
         val url = buildUrl(
             providerSetting = providerSetting,
-            path = if (providerSetting.vertexAI) {
+            path = if (providerSetting.platform == GooglePlatform.AGENT_PLATFORM) {
                 "publishers/google/models/${params.model.modelId}:generateContent"
             } else {
                 "models/${params.model.modelId}:generateContent"
@@ -1014,7 +1015,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
 
             val url = buildUrl(
                 providerSetting = providerSetting,
-                path = if (providerSetting.vertexAI) {
+                path = if (providerSetting.platform == GooglePlatform.AGENT_PLATFORM) {
                     "publishers/google/models/${model.modelId}:embedContent"
                 } else {
                     "models/${model.modelId}:embedContent"
@@ -1061,7 +1062,7 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
 
             val url = buildUrl(
                 providerSetting = providerSetting,
-                path = if (providerSetting.vertexAI) {
+                path = if (providerSetting.platform == GooglePlatform.AGENT_PLATFORM) {
                     "publishers/google/models/${model.modelId}:batchEmbedContents"
                 } else {
                     "models/${model.modelId}:batchEmbedContents"

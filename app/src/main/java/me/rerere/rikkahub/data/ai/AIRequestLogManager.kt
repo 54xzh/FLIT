@@ -22,6 +22,7 @@ import me.rerere.ai.provider.DecisionParams
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.GooglePlatform
 import me.rerere.ai.provider.providers.resolveDecisionEndpoint
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
@@ -572,7 +573,7 @@ private fun buildTextGenerationRequestUrl(providerSetting: ProviderSetting, para
         }
 
         is ProviderSetting.Google -> {
-            if (providerSetting.vertexAI) {
+            if (providerSetting.platform == GooglePlatform.AGENT_PLATFORM) {
                 "https://aiplatform.googleapis.com/v1/projects/${providerSetting.projectId}/locations/${providerSetting.location}/publishers/google/models/${params.model.modelId}:generateContent"
             } else {
                 val base = providerSetting.baseUrl.trimEnd('/')
@@ -600,7 +601,7 @@ private fun buildEmbeddingRequestUrl(providerSetting: ProviderSetting, model: Mo
         }
 
         is ProviderSetting.Google -> {
-            if (providerSetting.vertexAI) {
+            if (providerSetting.platform == GooglePlatform.AGENT_PLATFORM) {
                 "https://aiplatform.googleapis.com/v1/projects/${providerSetting.projectId}/locations/${providerSetting.location}/publishers/google/models/${model.modelId}:embedContent"
             } else {
                 val base = providerSetting.baseUrl.trimEnd('/')

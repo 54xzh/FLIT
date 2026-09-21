@@ -2248,6 +2248,7 @@
     <string name="codex_provider_preset_description">使用 OpenAI Codex OAuth</string>
     <string name="provider_preset_openai_description">GPT 模型的创造者，业界领先的 AI</string>
     <string name="provider_preset_google_gemini_description">支持文本、图像、音频和视频的多模态 AI</string>
+    <string name="provider_preset_agent_platform_description">原 Vertex AI</string>
     <string name="provider_preset_anthropic_claude_description">注重安全并具备强大推理能力的 AI</string>
     <string name="provider_preset_openrouter_description">通过单个 API 访问 300 多个模型</string>
     <string name="provider_preset_ollama_description">由 Ollama 托管的云端大语言模型</string>

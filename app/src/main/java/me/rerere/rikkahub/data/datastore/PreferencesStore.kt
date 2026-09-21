@@ -52,6 +52,8 @@ import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV1Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV2Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV3Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV4Migration
+import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV5Migration
+import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV6Migration
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantSearchMode
 import me.rerere.rikkahub.data.model.Avatar
@@ -229,6 +231,8 @@ internal val Context.settingsDataStore by preferencesDataStore(
             PreferenceStoreV2Migration(),
             PreferenceStoreV3Migration(),
             PreferenceStoreV4Migration(),
+            PreferenceStoreV5Migration(),
+            PreferenceStoreV6Migration(),
         )
     }
 )
@@ -998,7 +1002,7 @@ class SettingsStore(
         withContext(NonCancellable) {
             dataStore.edit { preferences ->
                 preferences[SETTINGS_WRITE_GENERATION] = generation
-                preferences[VERSION] = 4
+                preferences[VERSION] = 6
                 preferences[DYNAMIC_COLOR] = finalSettingsToSave.dynamicColor
                 preferences[THEME_ID] = finalSettingsToSave.themeId
                 preferences[DEVELOPER_MODE] = finalSettingsToSave.developerMode

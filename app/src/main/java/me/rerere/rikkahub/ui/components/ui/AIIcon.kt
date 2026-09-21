@@ -760,6 +760,7 @@ private fun matchProviderPattern(providerName: String): String? {
         // Companies with their own icons
         providerName == "openai" -> "openai.svg"
         providerName == "google" -> "google-color.svg"
+        providerName == "agent platform" -> "googlecloud-color.svg"
         providerName == "anthropic" -> "claude-color.svg" // Anthropic = Claude
         providerName == "meta-llama" || providerName == "meta" -> "meta-color.svg"
         providerName == "mistralai" || providerName == "mistral" -> "mistral-color.svg"

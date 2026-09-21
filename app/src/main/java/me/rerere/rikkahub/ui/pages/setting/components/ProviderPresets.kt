@@ -3,6 +3,7 @@ package me.rerere.rikkahub.ui.pages.setting.components
 import android.content.Context
 import androidx.annotation.StringRes
 import me.rerere.ai.provider.BalanceOption
+import me.rerere.ai.provider.GooglePlatform
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.rikkahub.R
 import kotlin.reflect.KClass
@@ -15,6 +16,7 @@ data class ProviderPreset(
     @param:StringRes val descriptionRes: Int,
     val type: KClass<out ProviderSetting>,
     val baseUrl: String,
+    val googlePlatform: GooglePlatform = GooglePlatform.GEMINI,
     val balanceOption: BalanceOption = BalanceOption(),
     val useResponseApi: Boolean = false,
     val chatCompletionsPath: String = "/chat/completions",
@@ -45,6 +47,13 @@ val PROVIDER_PRESETS = listOf(
         descriptionRes = R.string.provider_preset_google_gemini_description,
         type = ProviderSetting.Google::class,
         baseUrl = "https://generativelanguage.googleapis.com/v1beta"
+    ),
+    ProviderPreset(
+        name = "Agent Platform",
+        descriptionRes = R.string.provider_preset_agent_platform_description,
+        type = ProviderSetting.Google::class,
+        baseUrl = "https://generativelanguage.googleapis.com/v1beta",
+        googlePlatform = GooglePlatform.AGENT_PLATFORM,
     ),
     ProviderPreset(
         name = "Anthropic Claude",
@@ -334,7 +343,8 @@ fun ProviderPreset.toProviderSetting(): ProviderSetting {
         ProviderSetting.Google::class -> ProviderSetting.Google(
             name = name,
             baseUrl = baseUrl,
-            balanceOption = balanceOption
+            balanceOption = balanceOption,
+            platform = googlePlatform,
         )
         ProviderSetting.Claude::class -> ProviderSetting.Claude(
             name = name,

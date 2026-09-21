@@ -133,6 +133,7 @@ import me.rerere.ai.provider.ModelQuota
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderProxy
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.GooglePlatform
 import me.rerere.ai.provider.providers.codex.CodexCredential
 import me.rerere.ai.provider.providers.codex.CodexQuotaSnapshot
 import me.rerere.ai.provider.providers.codex.CodexQuotaWindow
@@ -3627,7 +3628,11 @@ private fun ModelPickerFab(
                         item {
                             val hasApiKey = when (parentProvider) {
                                 is ProviderSetting.OpenAI -> parentProvider.apiKey.isNotBlank()
-                                is ProviderSetting.Google -> parentProvider.apiKey.isNotBlank()
+                                is ProviderSetting.Google -> if (parentProvider.platform == GooglePlatform.AGENT_PLATFORM) {
+                                    parentProvider.serviceAccountEmail.isNotBlank()
+                                } else {
+                                    parentProvider.apiKey.isNotBlank()
+                                }
                                 is ProviderSetting.Claude -> parentProvider.apiKey.isNotBlank()
                                 is ProviderSetting.OpenAICodex -> codexLoggedIn == true
                                 is ProviderSetting.Local -> false
@@ -3955,7 +3960,11 @@ private fun ModelPicker(
                             // Check if provider has an API key
                             val hasApiKey = when (parentProvider) {
                                 is ProviderSetting.OpenAI -> parentProvider.apiKey.isNotBlank()
-                                is ProviderSetting.Google -> parentProvider.apiKey.isNotBlank()
+                                is ProviderSetting.Google -> if (parentProvider.platform == GooglePlatform.AGENT_PLATFORM) {
+                                    parentProvider.serviceAccountEmail.isNotBlank()
+                                } else {
+                                    parentProvider.apiKey.isNotBlank()
+                                }
                                 is ProviderSetting.Claude -> parentProvider.apiKey.isNotBlank()
                                 is ProviderSetting.OpenAICodex -> codexLoggedIn == true
                                 is ProviderSetting.Local -> false

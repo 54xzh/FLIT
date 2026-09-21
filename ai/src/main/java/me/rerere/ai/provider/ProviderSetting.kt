@@ -50,6 +50,16 @@ data class ModelQuotaGroup(
     val modelIds: Set<Uuid> = emptySet(),
 )
 
+/** Google 类型提供商所使用的平台。 */
+@Serializable
+enum class GooglePlatform {
+    @SerialName("gemini")
+    GEMINI,
+
+    @SerialName("agent_platform")
+    AGENT_PLATFORM,
+}
+
 @Serializable
 sealed class ProviderSetting {
     abstract val id: Uuid
@@ -188,11 +198,11 @@ sealed class ProviderSetting {
         var keyStrategy: ProviderKeyStrategy = ProviderKeyStrategy.RANDOM,
         var legacyApiKeyBackup: String = "",
         var baseUrl: String = "https://generativelanguage.googleapis.com/v1beta", // only for google AI
-        var vertexAI: Boolean = false,
-        var privateKey: String = "", // only for vertex AI
-        var serviceAccountEmail: String = "", // only for vertex AI
-        var location: String = "us-central1", // only for vertex AI
-        var projectId: String = "", // only for vertex AI
+        var platform: GooglePlatform = GooglePlatform.GEMINI,
+        var privateKey: String = "",
+        var serviceAccountEmail: String = "",
+        var location: String = "us-central1",
+        var projectId: String = "",
     ) : ProviderSetting() {
         override fun addModel(model: Model): ProviderSetting {
             return copy(models = models + model)

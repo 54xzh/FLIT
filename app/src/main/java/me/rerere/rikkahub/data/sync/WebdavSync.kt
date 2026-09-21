@@ -28,6 +28,7 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.WebDavConfig
 import me.rerere.rikkahub.data.datastore.migration.migrateLegacyReasoningSettingsJson
+import me.rerere.rikkahub.data.datastore.migration.migrateLegacyVertexAiProvidersSettingsJson
 import me.rerere.rikkahub.data.datastore.migrateLegacyEmbeddingRetrievalTimeoutSettingsJson
 import me.rerere.rikkahub.data.datastore.sanitize
 import me.rerere.rikkahub.data.db.AppDatabase
@@ -790,8 +791,9 @@ class WebdavSync(
                         }
                         val timeoutMigratedJson = migrateLegacyEmbeddingRetrievalTimeoutSettingsJson(migratedJson)
                         val reasoningMigratedJson = migrateLegacyReasoningSettingsJson(timeoutMigratedJson)
-                        settingsJsonHolder.json = reasoningMigratedJson
-                        val settings = json.decodeFromString<Settings>(reasoningMigratedJson)
+                        val vertexAiMigratedJson = migrateLegacyVertexAiProvidersSettingsJson(reasoningMigratedJson)
+                        settingsJsonHolder.json = vertexAiMigratedJson
+                        val settings = json.decodeFromString<Settings>(vertexAiMigratedJson)
                         val (cleaned, cleanupResult) = settings.sanitize(context)
                         settingsCleanupResult += cleanupResult
                         cleaned
