@@ -3110,14 +3110,43 @@ private fun ModelSettingsForm(
     fun setModelId(id: String) {
         // Extract providerSlug from model ID if it contains "/" (e.g., "anthropic/claude-3.5" -> "anthropic")
         val providerSlug = if (id.contains("/")) id.substringBefore("/") else null
-        onModelChange(
+        val updatedModel = if (isEdit) {
+            val originalModel = parentProvider?.models?.firstOrNull { it.id == model.id }
+            model.copy(
+                modelId = id,
+                displayName = if (model.displayName == model.modelId) id else model.displayName,
+                providerSlug = if (model.providerSlug == model.modelId.substringBefore("/", "")) {
+                    providerSlug
+                } else {
+                    model.providerSlug
+                },
+                iconUrl = if (id == originalModel?.modelId) originalModel.iconUrl else null,
+            ).let { updated ->
+                when {
+                    updated.capabilitySource != ModelCapabilitySource.AUTO -> updated
+                    originalModel != null && id == originalModel.modelId &&
+                        originalModel.capabilitySource == ModelCapabilitySource.AUTO ->
+                        updated.copy(
+                            inputModalities = originalModel.inputModalities,
+                            outputModalities = originalModel.outputModalities,
+                            abilities = originalModel.abilities,
+                        )
+                    else -> updated.withRegistryCapabilities()
+                }
+            }
+        } else {
             model.copy(
                 modelId = id,
                 displayName = id,
                 providerSlug = providerSlug
             ).withDetectedDecisionType().withRegistryCapabilities()
-        )
+        }
+        onModelChange(updatedModel)
     }
+
+    val duplicateModelId = model.modelId.isNotBlank() && parentProvider?.models?.any {
+        it.id != model.id && it.modelId == model.modelId
+    } == true
 
     Column {
         SecondaryTabRow(
@@ -3169,11 +3198,7 @@ private fun ModelSettingsForm(
                     ) {
                         OutlinedTextField(
                             value = model.modelId,
-                            onValueChange = {
-                                if (!isEdit) {
-                                    setModelId(it.trim())
-                                }
-                            },
+                            onValueChange = { setModelId(it.trim()) },
                             label = { Text(stringResource(R.string.setting_provider_page_model_id)) },
                             modifier = Modifier.fillMaxWidth(),
                             placeholder = {
@@ -3181,7 +3206,10 @@ private fun ModelSettingsForm(
                                     Text(stringResource(R.string.setting_provider_page_model_id_placeholder))
                                 }
                             },
-                            enabled = !isEdit
+                            isError = duplicateModelId,
+                            supportingText = if (duplicateModelId) {
+                                { Text(stringResource(R.string.setting_provider_page_model_id_duplicate)) }
+                            } else null,
                         )
 
                         // Display name with icon picker
@@ -4328,12 +4356,31 @@ private fun ModelCard(
     var syncedProvider by remember(model.id, parentProvider) {
         mutableStateOf<ProviderSetting?>(null)
     }
+    var showModelIdChangeConfirmation by remember(model.id) { mutableStateOf(false) }
+    val haptics = rememberPremiumHaptics()
 
     if (dialogState.isEditing) {
         dialogState.currentState?.let { editingModel ->
+            fun saveModel() {
+                val providerToSave = syncedProvider
+                if (providerToSave != null) {
+                    onUpdateProvider(
+                        providerToSave.copyProvider(
+                            models = providerToSave.models.map { syncedModel ->
+                                if (syncedModel.id == editingModel.id) editingModel else syncedModel
+                            },
+                        ).ensureVisibleQuotaGroups()
+                    )
+                    dialogState.dismiss()
+                } else {
+                    dialogState.confirm()
+                }
+            }
+
             val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
             ModalBottomSheet(
                 onDismissRequest = {
+                    showModelIdChangeConfirmation = false
                     dialogState.dismiss()
                 },
                 sheetState = sheetState,
@@ -4355,6 +4402,7 @@ private fun ModelCard(
                             onClick = {
                                 scope.launch {
                                     sheetState.hide()
+                                    showModelIdChangeConfirmation = false
                                     dialogState.dismiss()
                                 }
                             },
@@ -4400,6 +4448,7 @@ private fun ModelCard(
                     ) {
                         TextButton(
                             onClick = {
+                                showModelIdChangeConfirmation = false
                                 dialogState.dismiss()
                             },
                         ) {
@@ -4407,27 +4456,53 @@ private fun ModelCard(
                         }
                         TextButton(
                             onClick = {
-                                if (editingModel.displayName.isNotBlank()) {
-                                    val providerToSave = syncedProvider
-                                    if (providerToSave != null) {
-                                        onUpdateProvider(
-                                            providerToSave.copyProvider(
-                                                models = providerToSave.models.map { syncedModel ->
-                                                    if (syncedModel.id == editingModel.id) editingModel else syncedModel
-                                                },
-                                            ).ensureVisibleQuotaGroups()
-                                        )
-                                        dialogState.dismiss()
-                                    } else {
-                                        dialogState.confirm()
-                                    }
+                                haptics.perform(HapticPattern.Pop)
+                                if (editingModel.modelId != model.modelId) {
+                                    showModelIdChangeConfirmation = true
+                                } else {
+                                    saveModel()
                                 }
                             },
+                            enabled = editingModel.modelId.isNotBlank() &&
+                                editingModel.displayName.isNotBlank() &&
+                                parentProvider.models.none {
+                                    it.id != editingModel.id && it.modelId == editingModel.modelId
+                                },
                         ) {
                             Text(stringResource(R.string.confirm))
                         }
                     }
                 }
+            }
+
+            if (showModelIdChangeConfirmation) {
+                AlertDialog(
+                    onDismissRequest = { showModelIdChangeConfirmation = false },
+                    title = { Text(stringResource(R.string.setting_provider_page_model_id_change_title)) },
+                    text = {
+                        Text(
+                            stringResource(
+                                R.string.setting_provider_page_model_id_change_message,
+                                model.modelId,
+                                editingModel.modelId,
+                            )
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            haptics.perform(HapticPattern.Thud)
+                            showModelIdChangeConfirmation = false
+                            saveModel()
+                        }) {
+                            Text(stringResource(R.string.confirm))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showModelIdChangeConfirmation = false }) {
+                            Text(stringResource(R.string.cancel))
+                        }
+                    },
+                )
             }
         }
     }

@@ -1335,6 +1335,9 @@
     <string name="setting_provider_page_model_display_name_placeholder">e.g. GPT-3.5 (for UI)</string>
     <string name="setting_provider_page_model_id">Model ID</string>
     <string name="setting_provider_page_model_id_placeholder">e.g. gpt-3.5-turbo</string>
+    <string name="setting_provider_page_model_id_duplicate">This model ID is already in this provider.</string>
+    <string name="setting_provider_page_model_id_change_title">Change model ID?</string>
+    <string name="setting_provider_page_model_id_change_message">%1$s → %2$s\n\nExisting settings will be kept. Future requests will use the new model ID.</string>
     <string name="setting_provider_page_model_name">Model Name</string>
     <string name="setting_provider_page_generate_model_name">Generate Model Name</string>
     <string name="setting_provider_page_generate_model_name_failed">Failed to generate model name.</string>

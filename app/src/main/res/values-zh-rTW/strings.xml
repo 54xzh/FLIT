@@ -1035,6 +1035,9 @@
   <string name="setting_provider_page_model_display_name_placeholder">例如：GPT-3.5, 用於UI顯示</string>
   <string name="setting_provider_page_model_id">模型ID</string>
   <string name="setting_provider_page_model_id_placeholder">例如：gpt-3.5-turbo</string>
+  <string name="setting_provider_page_model_id_duplicate">此供應商中已有相同的模型 ID。</string>
+  <string name="setting_provider_page_model_id_change_title">修改模型 ID？</string>
+  <string name="setting_provider_page_model_id_change_message">%1$s → %2$s\n\n現有設定會保留，之後的請求將使用新的模型 ID。</string>
   <string name="setting_provider_page_model_name">模型名稱</string>
   <string name="setting_provider_page_generate_model_name">生成模型名稱</string>
   <string name="setting_provider_page_generate_model_name_failed">模型名稱生成失敗</string>
