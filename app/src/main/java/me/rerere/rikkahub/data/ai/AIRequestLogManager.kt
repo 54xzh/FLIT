@@ -146,7 +146,7 @@ class AIRequestLogManager(
             )
 
             val providerType = providerSetting::class.simpleName ?: "Provider"
-            val requestUrl = buildTextGenerationRequestUrl(providerSetting, params)
+            val requestUrl = buildTextGenerationRequestUrl(providerSetting, params, stream)
 
             dao.insert(
                 AIRequestLogEntity(
@@ -561,7 +561,11 @@ private fun JsonElement.truncateJsonForLog(maxChars: Int): JsonElement {
     )
 }
 
-private fun buildTextGenerationRequestUrl(providerSetting: ProviderSetting, params: TextGenerationParams): String {
+private fun buildTextGenerationRequestUrl(
+    providerSetting: ProviderSetting,
+    params: TextGenerationParams,
+    stream: Boolean,
+): String {
     return when (providerSetting) {
         is ProviderSetting.OpenAI -> {
             val base = providerSetting.baseUrl.trimEnd('/')
@@ -574,15 +578,28 @@ private fun buildTextGenerationRequestUrl(providerSetting: ProviderSetting, para
         }
 
         is ProviderSetting.Google -> {
-            if (providerSetting.platform == GooglePlatform.AGENT_PLATFORM) {
-                if (providerSetting.agentPlatformMode == AgentPlatformMode.EXPRESS) {
-                    "https://aiplatform.googleapis.com/v1/publishers/google/models/${params.model.modelId}:generateContent"
+            val isAgentPlatform = providerSetting.platform == GooglePlatform.AGENT_PLATFORM
+            val useInteractions = providerSetting.useInteractionsApi &&
+                !(isAgentPlatform && providerSetting.agentPlatformMode == AgentPlatformMode.EXPRESS)
+
+            if (useInteractions) {
+                if (isAgentPlatform) {
+                    "https://aiplatform.googleapis.com/v1beta1/projects/${providerSetting.projectId}/locations/${providerSetting.location}/interactions"
                 } else {
-                    "https://aiplatform.googleapis.com/v1/projects/${providerSetting.projectId}/locations/${providerSetting.location}/publishers/google/models/${params.model.modelId}:generateContent"
+                    "${providerSetting.baseUrl.trimEnd('/')}/interactions"
                 }
             } else {
-                val base = providerSetting.baseUrl.trimEnd('/')
-                "$base/models/${params.model.modelId}:generateContent"
+                val method = if (stream) "streamGenerateContent" else "generateContent"
+                val url = when {
+                    isAgentPlatform && providerSetting.agentPlatformMode == AgentPlatformMode.EXPRESS ->
+                        "https://aiplatform.googleapis.com/v1/publishers/google/models/${params.model.modelId}:$method"
+
+                    isAgentPlatform ->
+                        "https://aiplatform.googleapis.com/v1/projects/${providerSetting.projectId}/locations/${providerSetting.location}/publishers/google/models/${params.model.modelId}:$method"
+
+                    else -> "${providerSetting.baseUrl.trimEnd('/')}/models/${params.model.modelId}:$method"
+                }
+                if (stream) "$url?alt=sse" else url
             }
         }
 
