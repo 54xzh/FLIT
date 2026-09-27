@@ -209,10 +209,7 @@ class InteractionsAPI(
                 if (rawEventBuffer.isNotEmpty()) rawEventBuffer.append("\n")
                 rawEventBuffer.append(data)
 
-                val jsonData = runCatching {
-                    json.parseToJsonElement(data) as? JsonObject
-                        ?: error("Interactions API stream event is not a JSON object")
-                }
+                val jsonData = runCatching { parseStreamEventData(data) }
                     .getOrElse { throwable ->
                         close(
                             RawResponseException(
@@ -223,6 +220,10 @@ class InteractionsAPI(
                         )
                         return
                     }
+                if (jsonData == null) {
+                    close()
+                    return
+                }
 
                 val messageChunk = runCatching {
                     parseStreamMessageChunk(
@@ -313,6 +314,12 @@ class InteractionsAPI(
             eventSource.cancel()
         }
     }.buffer(Channel.UNLIMITED)
+
+    internal fun parseStreamEventData(data: String): JsonObject? {
+        if (data.trim() == "[DONE]") return null
+        return json.parseToJsonElement(data) as? JsonObject
+            ?: error("Interactions API stream event is not a JSON object")
+    }
 
     internal fun buildRequestBody(
         messages: List<UIMessage>,

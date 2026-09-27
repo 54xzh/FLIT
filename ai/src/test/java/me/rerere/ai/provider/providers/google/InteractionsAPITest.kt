@@ -26,6 +26,7 @@ import me.rerere.ai.util.KeyRoulette
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -36,6 +37,41 @@ class InteractionsAPITest {
         keyRoulette = KeyRoulette.default(),
         serviceAccountTokenProvider = ServiceAccountTokenProvider(OkHttpClient()),
     )
+
+    @Test
+    fun `stream completion marker does not turn a completed response into an error`() {
+        val tracker = InteractionsAPI.StepContextTracker()
+        val events = listOf(
+            """{"event_type":"step.start","index":0,"step":{"type":"model_output"}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"text","text":"Hello"}}""",
+            """{"event_type":"step.stop","index":0}""",
+            """{"event_type":"interaction.completed","interaction":{"id":"v1_test","status":"completed","usage":{"total_tokens":2}}}""",
+            "[DONE]",
+        )
+
+        val chunks = events.mapNotNull { data ->
+            interactionsAPI.parseStreamEventData(data)?.let { event ->
+                interactionsAPI.parseStreamMessageChunk(
+                    jsonData = event,
+                    eventType = event["event_type"]?.jsonPrimitive?.contentOrNull,
+                    modelId = "gemini-2.5-pro",
+                    rawResponse = data,
+                    stepTracker = tracker,
+                )
+            }
+        }
+
+        assertTrue(chunks.any { chunk ->
+            chunk.choices.any { choice ->
+                choice.delta?.parts?.any { part -> part is UIMessagePart.Text && part.text == "Hello" } == true
+            }
+        })
+        assertEquals("completed", chunks.last().finishReasons.single())
+        assertEquals(2, chunks.last().usage?.totalTokens)
+        assertThrows(IllegalStateException::class.java) {
+            interactionsAPI.parseStreamEventData("[]")
+        }
+    }
 
     @Test
     fun `buildRequestBody should format system instruction, input steps, thinking and tools properly`() {
