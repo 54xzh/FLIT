@@ -679,7 +679,7 @@
   <string name="setting_model_page_reset_to_default">重置為預設值</string>
   <string name="setting_model_page_suggestion_model">聊天建議模型</string>
   <string name="setting_model_page_suggestion_model_desc">用於生成對話建議的模型, 推薦使用快速且便宜的模型</string>
-  <string name="setting_model_page_suggestion_prompt_vars">變數: 對話內容: {content}, 語言: {locale}</string>
+  <string name="setting_model_page_suggestion_prompt_vars">變數: 對話內容: {content}, 最近的使用者訊息: {recent_user_messages}, 語言: {locale}</string>
   <string name="setting_model_page_title">模型設定</string>
   <string name="setting_model_page_title_model">標題摘要模型</string>
   <string name="setting_model_page_title_model_desc">用於摘要對話標題的模型, 推薦使用快速且便宜的模型</string>

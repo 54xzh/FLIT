@@ -973,7 +973,7 @@
     <string name="setting_model_page_reset_to_default">Reset to Default</string>
     <string name="setting_model_page_suggestion_model">Suggestion Model</string>
     <string name="setting_model_page_suggestion_model_desc">Model for generating chat suggestions. Recommend fast/cheap model.</string>
-    <string name="setting_model_page_suggestion_prompt_vars">Vars: Content: {content}, Locale: {locale}</string>
+    <string name="setting_model_page_suggestion_prompt_vars">Vars: Content: {content}, Recent user messages: {recent_user_messages}, Locale: {locale}</string>
     <string name="setting_model_page_title">Default Models</string>
     <string name="setting_model_page_title_model">Title Model</string>
     <string name="setting_model_page_title_model_desc">Model for summarizing chat titles. Recommend fast/cheap model.</string>

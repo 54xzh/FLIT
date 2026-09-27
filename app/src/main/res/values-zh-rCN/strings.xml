@@ -1559,7 +1559,7 @@
     <string name="setting_model_page_search_agent_model_desc">用于执行搜索、读取网页并总结结果。</string>
   <string name="setting_model_page_suggestion_model">聊天建议模型</string>
   <string name="setting_model_page_suggestion_model_desc">用于生成对话建议的模型, 推荐使用快速且便宜的模型</string>
-  <string name="setting_model_page_suggestion_prompt_vars">变量: 对话内容: {content}, 语言: {locale}</string>
+  <string name="setting_model_page_suggestion_prompt_vars">变量: 对话内容: {content}, 最近的用户消息: {recent_user_messages}, 语言: {locale}</string>
   <string name="setting_model_page_title">模型设置</string>
   <string name="setting_model_page_title_model">标题总结模型</string>
   <string name="setting_model_page_title_model_desc">用于总结对话标题的模型, 推荐使用快速且便宜的模型</string>

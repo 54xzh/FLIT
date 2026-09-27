@@ -96,6 +96,8 @@ import me.rerere.rikkahub.data.ai.AskUserHandler
 import me.rerere.rikkahub.data.ai.AskUserRequest
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_CONTEXT_SUMMARY_PROMPT
+import me.rerere.rikkahub.data.ai.prompts.buildContentForSuggestion
+import me.rerere.rikkahub.data.ai.prompts.buildRecentUserMessagesForSuggestion
 import me.rerere.rikkahub.data.ai.rag.EmbeddingService
 import me.rerere.rikkahub.data.ai.tools.ASK_USER_SYSTEM_PROMPT_TEMPLATE
 import me.rerere.rikkahub.data.ai.tools.LorebookTools
@@ -4658,13 +4660,23 @@ class ChatService(
             )
 
             val providerHandler = providerManager.getProviderByType(provider)
+            val presetMessageIds = settings.getAssistantById(conversation.assistantId)
+                ?.presetMessages
+                ?.mapTo(mutableSetOf()) { it.id }
+                .orEmpty()
             val requestMessages = listOf(
                 UIMessage.user(
                     settings.suggestionPrompt.applyPlaceholders(
                         "locale" to Locale.getDefault().displayName,
-                        "content" to conversation.currentMessages.truncate(conversation.truncateIndex)
-                            .takeLast(8)
-                            .joinToString("\n\n") { it.summaryAsText() },
+                        "content" to buildContentForSuggestion(
+                            messages = conversation.currentMessages,
+                            truncateIndex = conversation.truncateIndex,
+                        ),
+                        "recent_user_messages" to buildRecentUserMessagesForSuggestion(
+                            messages = conversation.currentMessages,
+                            truncateIndex = conversation.truncateIndex,
+                            presetMessageIds = presetMessageIds,
+                        ),
                     ),
                 )
             )
@@ -4689,6 +4701,7 @@ class ChatService(
                 rawSuggestions.split("\n")
                     .map { it.trim() }
                     .filter { it.isNotBlank() }
+                    .distinct()
             } catch (t: Throwable) {
                 failure = t
                 throw t
