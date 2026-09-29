@@ -39,6 +39,7 @@ class RuntimeDownloadWorker(appContext: Context, params: WorkerParameters) :
         val runtimePackage = LocalRuntimePackage.fromEngine(inputData.getString(INPUT_ENGINE))
             ?: return@withContext Result.failure(workDataOf(OUTPUT_ERROR to "Unknown runtime engine"))
         transferLocks.getValue(runtimePackage).withLock {
+            currentCoroutineContext().ensureActive()
             val directory = File(applicationContext.cacheDir, "local-ai-runtime-download")
             val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: return@withLock Result.failure()
             val fileName = if (runtimePackage == LocalRuntimePackage.GGUF) "$abi.zip.part"
@@ -161,6 +162,11 @@ class RuntimeDownloadWorker(appContext: Context, params: WorkerParameters) :
         private const val MAX_RETRIES = 2
         private const val NOTIFICATION_CHANNEL_ID = "local_runtime_downloads"
         private const val NOTIFICATION_ID = 3102
+        internal suspend fun <T> withTransfersIdle(block: suspend () -> T): T =
+            transferLocks.getValue(LocalRuntimePackage.GGUF).withLock {
+                transferLocks.getValue(LocalRuntimePackage.LITERT_LM).withLock { block() }
+            }
+
         private val transferLocks = LocalRuntimePackage.entries.associateWith { Mutex() }
     }
 }

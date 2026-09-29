@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -49,6 +52,13 @@ fun ProviderIcon(
     contentColor: Color = LocalContentColor.current,
     padding: Dp = 4.dp,
 ) {
+    if (provider is ProviderSetting.Local && provider.customIconUri.isNullOrBlank()) {
+        Surface(modifier = modifier, shape = rememberAvatarShape(loading), color = color) {
+            Icon(Icons.Rounded.Memory, contentDescription = null,
+                modifier = Modifier.padding(padding), tint = contentColor)
+        }
+        return
+    }
     // Get base URL for provider type detection
     val baseUrl = when (provider) {
         is ProviderSetting.OpenAI -> provider.baseUrl

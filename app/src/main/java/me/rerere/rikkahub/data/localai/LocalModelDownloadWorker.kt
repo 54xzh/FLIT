@@ -11,6 +11,11 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.koin.core.component.KoinComponent
@@ -29,7 +34,15 @@ class LocalModelDownloadWorker(
     private val client: OkHttpClient by inject()
     private val repository: LocalModelRepository by inject()
 
-    override suspend fun doWork(): Result = runCatching {
+    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val modelId = inputData.getString(INPUT_MODEL_ID) ?: return@withContext Result.failure()
+        withTransferIdle(modelId) {
+            currentCoroutineContext().ensureActive()
+            downloadModel()
+        }
+    }
+
+    private suspend fun downloadModel(): Result = runCatching {
         setForeground(createForegroundInfo())
         val modelId = Uuid.parse(requireNotNull(inputData.getString(INPUT_MODEL_ID)))
         val url = requireNotNull(inputData.getString(INPUT_URL))
@@ -100,6 +113,11 @@ class LocalModelDownloadWorker(
     }
 
     companion object {
+        private val transferLocks = ConcurrentHashMap<String, Mutex>()
+
+        internal suspend fun <T> withTransferIdle(modelId: String, block: suspend () -> T): T =
+            transferLocks.getOrPut(modelId) { Mutex() }.withLock { block() }
+
         const val INPUT_CATALOG_ID = "catalog_id"
         const val INPUT_MODEL_ID = "model_id"
         const val INPUT_NAME = "name"

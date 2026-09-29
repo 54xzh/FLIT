@@ -658,11 +658,6 @@ class SettingsStore(
         }
         .map {
             var providers = it.providers.ifEmpty { DEFAULT_PROVIDERS }.toMutableList()
-            // The local provider is a device feature, not a user-created remote endpoint.
-            // Keep exactly one so existing installations gain the entry without re-adding all defaults.
-            if (providers.none { provider -> provider is ProviderSetting.Local }) {
-                providers.add(ProviderSetting.Local())
-            }
             // DEFAULT_PROVIDERS.forEach { defaultProvider ->
             //     if (providers.none { it.id == defaultProvider.id }) {
             //         providers.add(defaultProvider.copyProvider())

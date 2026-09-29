@@ -78,6 +78,10 @@ class LocalModelDownloadManager(
         }
     }
 
+    suspend fun cancelAll() = withContext(Dispatchers.IO) {
+        workManager.cancelAllWorkByTag(TAG).result.get()
+    }
+
     private fun WorkInfo.toState(): LocalModelDownloadState = when (state) {
         WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED, WorkInfo.State.RUNNING -> LocalModelDownloadState.Downloading(
             downloadedBytes = progress.getLong(LocalModelDownloadWorker.PROGRESS_DOWNLOADED, 0L),

@@ -108,6 +108,21 @@ class RuntimePackageInstaller(private val context: Context) {
         val expectedFiles: List<PackageFile> = emptyList(),
     )
 
+    /** Call after downloads stop and the active inference bridge has been released. */
+    suspend fun removeAll() = withContext(Dispatchers.IO) {
+        RuntimeDownloadWorker.withTransfersIdle {
+            installationLock.withLock {
+                val directories = LocalRuntimePackage.entries.map { it.root(context) } + listOf(
+                    File(context.cacheDir, "local-ai-runtime-download"),
+                    File(context.cacheDir, "local-ai-runtime-import"),
+                )
+                directories.forEach { directory ->
+                    check(!directory.exists() || directory.deleteRecursively()) { "Unable to remove runtime files" }
+                }
+            }
+        }
+    }
+
     /** Imports a locally selected runtime archive. */
     suspend fun installFromUri(uri: Uri): VerifiedPackage = withContext(Dispatchers.IO) {
         val importDirectory = File(context.cacheDir, "local-ai-runtime-import")

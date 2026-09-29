@@ -180,7 +180,10 @@ class LocalRuntimeManager(
         }
     }
 
-    suspend fun release() {
+    suspend fun release() = withReleasedModel { }
+
+    /** Keep new inference from loading files while they are being removed. */
+    suspend fun withReleasedModel(block: suspend () -> Unit) {
         // Do not cancel backgroundRelease here: it may be the coroutine executing this release.
         activeGenerationJob?.cancel()
         withContext(Dispatchers.IO) { activeBridge?.cancel() }
@@ -190,7 +193,12 @@ class LocalRuntimeManager(
                 bridge = null
                 loadedModelId = null
                 loadedFormat = null
-                _state.value = initialState()
+                try {
+                    withContext(Dispatchers.IO) { block() }
+                } finally {
+                    withContext(NonCancellable + Dispatchers.IO) { scanInstalledPackages() }
+                    _state.value = initialState()
+                }
             }
         }
     }

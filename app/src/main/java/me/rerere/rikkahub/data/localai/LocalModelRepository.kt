@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.dao.LocalModelDao
 import me.rerere.rikkahub.data.db.entity.LocalModelEntity
@@ -184,6 +185,19 @@ class LocalModelRepository(
         }
     }
 
+    /** Downloads must be cancelled before entering this method. */
+    suspend fun removeAll() = withContext(Dispatchers.IO) {
+        dao.getAll().forEach { entity ->
+            LocalModelDownloadWorker.withTransferIdle(entity.modelId) {
+                safeModelFile(entity.relativePath)?.parentFile?.let { directory ->
+                    check(!directory.exists() || directory.deleteRecursively()) { "Unable to remove model files" }
+                }
+                remove(Uuid.parse(entity.modelId))
+            }
+        }
+        check(!root.exists() || root.deleteRecursively()) { "Unable to remove model files" }
+    }
+
     suspend fun renameModel(modelId: Uuid, newName: String) = withContext(Dispatchers.IO) {
         dao.get(modelId.toString())?.let { entity ->
             dao.upsert(entity.copy(displayName = newName))
@@ -208,18 +222,7 @@ class LocalModelRepository(
                 null
             } else if (entity.state == LocalModelState.READY.name) entity else null
         }
-        val readyIds = ready.map { it.modelId }.toSet()
-        settingsStore.update { settings ->
-            val local = settings.providers.filterIsInstance<ProviderSetting.Local>().firstOrNull()
-                ?: ProviderSetting.Local()
-            val retained = local.models.filter { it.id.toString() in readyIds }
-            val added = ready.filter { entity -> retained.none { it.id.toString() == entity.modelId } }
-                .map(::modelFromEntity)
-            val normalized = local.copy(models = retained + added)
-            settings.copy(
-                providers = settings.providers.filterNot { it is ProviderSetting.Local } + normalized,
-            )
-        }
+        settingsStore.update { settings -> settings.withLocalModels(ready.map(::modelFromEntity)) }
     }
 
     fun fileFor(record: LocalModelRecord): File =
@@ -228,9 +231,9 @@ class LocalModelRepository(
     private suspend fun ensureProviderModel(model: Model) {
         settingsStore.update { settings ->
             val local = settings.providers.filterIsInstance<ProviderSetting.Local>().firstOrNull()
-                ?: ProviderSetting.Local()
+                ?: return@update settings
             val updated = if (local.models.any { it.id == model.id }) local else local.addModel(model) as ProviderSetting.Local
-            settings.copy(providers = settings.providers.filterNot { it is ProviderSetting.Local } + updated)
+            settings.copy(providers = settings.providers.map { if (it.id == local.id) updated else it })
         }
     }
 
@@ -293,4 +296,14 @@ class LocalModelRepository(
             }
         return name?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment?.substringAfterLast('/')
     }
+}
+
+/** Sync device files only into an explicitly present provider, preserving its position and edits. */
+internal fun Settings.withLocalModels(readyModels: List<Model>): Settings {
+    val local = providers.filterIsInstance<ProviderSetting.Local>().firstOrNull() ?: return this
+    val readyIds = readyModels.map { it.id }.toSet()
+    val retained = local.models.filter { it.id in readyIds }
+    val retainedIds = retained.map { it.id }.toSet()
+    val normalized = local.copy(models = retained + readyModels.filterNot { it.id in retainedIds })
+    return copy(providers = providers.map { if (it.id == local.id) normalized else it })
 }

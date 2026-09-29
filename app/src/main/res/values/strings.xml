@@ -2775,4 +2775,11 @@
     <string name="project_icon">Project icon</string>
     <string name="project_tap_to_change_icon">Tap to change icon</string>
     <string name="project_select_icon">Select Icon</string>
+    <string name="provider_preset_local_description">Run models privately on this device</string>
+    <string name="local_provider_remove_title">Remove local provider?</string>
+    <string name="local_provider_remove_entry">Remove entry only</string>
+    <string name="local_provider_remove_all">Remove entry, inference engines and models</string>
+    <string name="local_provider_remove_entry_description">Keep downloaded engines and models. Add this preset again to use them.</string>
+    <string name="local_provider_remove_all_description">Stop downloads and inference, then permanently delete downloaded engines and all local models stored by this app. Original imported files are kept.</string>
+    <string name="local_provider_remove_failed">Removal could not be completed. Some files may already have been removed. Please try again.</string>
 </resources>

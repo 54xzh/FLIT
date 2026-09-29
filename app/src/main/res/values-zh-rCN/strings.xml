@@ -2698,4 +2698,11 @@
     <string name="project_icon">项目图标</string>
     <string name="project_tap_to_change_icon">点击更换图标</string>
     <string name="project_select_icon">选择图标</string>
+    <string name="provider_preset_local_description">在此设备上私密运行模型</string>
+    <string name="local_provider_remove_title">移除本地模型提供商？</string>
+    <string name="local_provider_remove_entry">仅移除入口</string>
+    <string name="local_provider_remove_all">移除入口、推理引擎和模型</string>
+    <string name="local_provider_remove_entry_description">保留已下载的引擎和模型。重新添加此预设后即可继续使用。</string>
+    <string name="local_provider_remove_all_description">停止下载和推理，并永久删除应用内保存的推理引擎和所有本地模型。导入时的原始文件将保留。</string>
+    <string name="local_provider_remove_failed">未能完成移除，部分文件可能已删除，请重试。</string>
 </resources>

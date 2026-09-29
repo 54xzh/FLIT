@@ -172,6 +172,7 @@ import me.rerere.rikkahub.ui.pages.setting.components.PROVIDER_PRESETS
 import me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigure
 import me.rerere.rikkahub.ui.pages.setting.components.resolveDescription
 import me.rerere.rikkahub.ui.pages.setting.components.toProviderSetting
+import me.rerere.rikkahub.ui.pages.setting.components.resolveName
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.ImageUtils
 import org.koin.androidx.compose.koinViewModel
@@ -245,11 +246,7 @@ fun SettingProviderPage(vm: SettingVM = koinViewModel()) {
                             providerAddScrollTrigger++
                         },
                         onAdd = { provider ->
-                            vm.updateSettings { currentSettings ->
-                                currentSettings.copy(
-                                    providers = listOf(provider) + currentSettings.providers
-                                )
-                            }
+                            scope.launch { vm.addProvider(provider) }
                             providerAddScrollTrigger++
                         },
                     )
@@ -320,15 +317,18 @@ fun SettingProviderPage(vm: SettingVM = koinViewModel()) {
                     vm.updateSettings(settings.copy(providers = newProviders))
                 },
                 onAddProvider = { provider ->
-                    vm.updateSettings { latest ->
-                        latest.copy(providers = listOf(provider) + latest.providers)
-                    }
+                    scope.launch { vm.addProvider(provider) }
                     providerAddScrollTrigger++
                 }
             )
             
             // Delete confirmation dialog
-            if (showDeleteDialog && providerToDelete != null) {
+            if (showDeleteDialog && providerToDelete is ProviderSetting.Local) {
+                LocalProviderRemovalDialog(
+                    onDismiss = { showDeleteDialog = false; providerToDelete = null },
+                    onRemove = { vm.removeProvider(requireNotNull(providerToDelete).id) },
+                )
+            } else if (showDeleteDialog && providerToDelete != null) {
                 AlertDialog(
                     onDismissRequest = { 
                         showDeleteDialog = false
@@ -445,7 +445,7 @@ private fun ProviderListView(
         if (providers.isEmpty() && searchQuery.isNotBlank()) {
             PROVIDER_PRESETS.find { preset ->
                 !preset.requiresCodexLogin && (
-                    preset.name.contains(searchQuery, ignoreCase = true) ||
+                    preset.resolveName(context).contains(searchQuery, ignoreCase = true) ||
                         preset.resolveDescription(context).contains(searchQuery, ignoreCase = true)
                     )
             }
@@ -480,7 +480,7 @@ private fun ProviderListView(
                     
                     Surface(
                         onClick = {
-                            val provider = matchingPreset.toProviderSetting()
+                            val provider = matchingPreset.toProviderSetting(context)
                             onAddProvider(provider)
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -494,14 +494,13 @@ private fun ProviderListView(
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            AutoProviderIcon(
-                                name = matchingPreset.name,
-                                baseUrl = matchingPreset.baseUrl,
+                            PresetIcon(
+                                preset = matchingPreset,
                                 modifier = Modifier.size(40.dp)
                             )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = matchingPreset.name,
+                                    text = matchingPreset.resolveName(context),
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
@@ -566,7 +565,7 @@ private fun ProviderListView(
                     androidx.compose.runtime.key(canDelete) {
                         PhysicsSwipeToDelete(
                             position = position,
-                            deleteEnabled = canDelete,
+                            deleteEnabled = canDelete || provider is ProviderSetting.Local,
                             onDelete = {
                                 onDeleteRequest(provider)
                             },
@@ -880,7 +879,7 @@ private fun AddButton(
                         PROVIDER_PRESETS
                     } else {
                         PROVIDER_PRESETS.filter { preset ->
-                            preset.name.contains(searchQuery, ignoreCase = true) ||
+                            preset.resolveName(context).contains(searchQuery, ignoreCase = true) ||
                             preset.resolveDescription(context).contains(searchQuery, ignoreCase = true)
                         }
                     }
@@ -974,7 +973,7 @@ private fun AddButton(
                         Surface(
                             onClick = {
                                 haptics.perform(HapticPattern.Pop)
-                                val provider = preset.toProviderSetting()
+                                val provider = preset.toProviderSetting(context)
                                 showBottomSheet = false
                                 if (preset.requiresCodexLogin && provider is ProviderSetting.OpenAICodex) {
                                     codexLoginProvider = provider
@@ -993,9 +992,8 @@ private fun AddButton(
                                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                AutoProviderIcon(
-                                    name = preset.name,
-                                    baseUrl = preset.baseUrl,
+                                PresetIcon(
+                                    preset = preset,
                                     modifier = Modifier.size(40.dp)
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
@@ -1003,7 +1001,7 @@ private fun AddButton(
                                         text = if (preset.requiresCodexLogin) {
                                             stringResource(R.string.codex_provider_name)
                                         } else {
-                                            preset.name
+                                            preset.resolveName(context)
                                         },
                                         style = MaterialTheme.typography.titleMedium
                                     )
@@ -1504,5 +1502,17 @@ private fun ProviderTagsFilterRow(
                 label = { Text(tag.name) }
             )
         }
+    }
+}
+
+@Composable
+private fun PresetIcon(
+    preset: me.rerere.rikkahub.ui.pages.setting.components.ProviderPreset,
+    modifier: Modifier = Modifier,
+) {
+    if (preset.type == ProviderSetting.Local::class) {
+        ProviderIcon(provider = preset.toProviderSetting(LocalContext.current), modifier = modifier)
+    } else {
+        AutoProviderIcon(name = preset.name, baseUrl = preset.baseUrl, modifier = modifier)
     }
 }

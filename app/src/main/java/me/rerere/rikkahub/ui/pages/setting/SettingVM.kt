@@ -19,6 +19,7 @@ class SettingVM(
     private val settingsStore: SettingsStore,
     private val mcpManager: McpManager,
     private val scheduledTaskDao: ScheduledTaskDao,
+    private val localModels: me.rerere.rikkahub.data.localai.LocalModelRepository,
 ) :
     ViewModel() {
     val settings: StateFlow<Settings> = settingsStore.settingsFlow
@@ -42,6 +43,7 @@ class SettingVM(
                 providers = listOf(provider) + latest.providers,
             )
         }
+        if (provider is me.rerere.ai.provider.ProviderSetting.Local) localModels.reconcile()
     }
 
     suspend fun removeProvider(providerId: kotlin.uuid.Uuid) {

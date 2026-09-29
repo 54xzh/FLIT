@@ -21,6 +21,7 @@ data class ProviderPreset(
     val useResponseApi: Boolean = false,
     val chatCompletionsPath: String = "/chat/completions",
     val requiresCodexLogin: Boolean = false,
+    @param:StringRes val nameRes: Int? = null,
 )
 
 /**
@@ -60,6 +61,13 @@ val PROVIDER_PRESETS = listOf(
         descriptionRes = R.string.provider_preset_anthropic_claude_description,
         type = ProviderSetting.Claude::class,
         baseUrl = "https://api.anthropic.com/v1"
+    ),
+    ProviderPreset(
+        name = "Local models",
+        nameRes = R.string.local_models_title,
+        descriptionRes = R.string.provider_preset_local_description,
+        type = ProviderSetting.Local::class,
+        baseUrl = "",
     ),
     ProviderPreset(
         name = "OpenRouter",
@@ -324,6 +332,8 @@ val PROVIDER_PRESETS = listOf(
     ),
 )
 
+fun ProviderPreset.resolveName(context: Context): String = nameRes?.let(context::getString) ?: name
+
 fun ProviderPreset.resolveDescription(context: Context): String {
     return context.getString(descriptionRes)
 }
@@ -331,8 +341,9 @@ fun ProviderPreset.resolveDescription(context: Context): String {
 /**
  * Creates a ProviderSetting from a preset
  */
-fun ProviderPreset.toProviderSetting(): ProviderSetting {
+fun ProviderPreset.toProviderSetting(context: Context? = null): ProviderSetting {
     return when (type) {
+        ProviderSetting.Local::class -> ProviderSetting.Local(name = context?.let(::resolveName) ?: name)
         ProviderSetting.OpenAI::class -> ProviderSetting.OpenAI(
             name = name,
             baseUrl = baseUrl,

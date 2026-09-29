@@ -2765,4 +2765,11 @@
     <string name="project_icon">專案圖示</string>
     <string name="project_tap_to_change_icon">點擊更換圖示</string>
     <string name="project_select_icon">選取圖示</string>
+    <string name="provider_preset_local_description">在此裝置上私密執行模型</string>
+    <string name="local_provider_remove_title">移除本機模型供應商？</string>
+    <string name="local_provider_remove_entry">僅移除入口</string>
+    <string name="local_provider_remove_all">移除入口、推論引擎和模型</string>
+    <string name="local_provider_remove_entry_description">保留已下載的引擎和模型。重新新增此預設後即可繼續使用。</string>
+    <string name="local_provider_remove_all_description">停止下載和推論，並永久刪除應用程式內儲存的推論引擎和所有本機模型。匯入時的原始檔案將保留。</string>
+    <string name="local_provider_remove_failed">未能完成移除，部分檔案可能已刪除，請重試。</string>
 </resources>
