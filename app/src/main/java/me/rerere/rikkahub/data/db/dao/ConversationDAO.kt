@@ -75,6 +75,11 @@ interface ConversationDAO {
         WHERE assistant_id = :assistantId 
           AND is_consolidated = 0 
           AND id NOT IN (SELECT conversation_id FROM memory_consolidation_records WHERE assistant_id = :assistantId)
+          AND NOT EXISTS (
+              SELECT 1 FROM projects
+              WHERE projects.id = conversationentity.project_id
+                AND projects.enable_consolidation = 0
+          )
         ORDER BY update_at DESC
     """)
     fun getUnconsolidatedConversationsOfAssistantFlow(assistantId: String): Flow<List<ConversationEntity>>
