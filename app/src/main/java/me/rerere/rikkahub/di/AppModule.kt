@@ -189,6 +189,7 @@ val appModule = module {
             settingsStore = get(),
             readPositionStore = get(),
             conversationRepo = get(),
+            interactiveStateRepo = get(),
             toolResultArchiveRepository = get(),
             memoryRepository = get(),
             memorySummaryRepository = get(),

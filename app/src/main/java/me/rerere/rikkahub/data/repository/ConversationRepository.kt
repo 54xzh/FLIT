@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.repository
 
+import me.rerere.rikkahub.data.model.BuiltInSkills
 import android.content.Context
 import android.util.Log
 import androidx.paging.Pager
@@ -1084,7 +1085,7 @@ class ConversationRepository(
         var changed = 0
         val rows = runCatching { conversationDAO.getAllExplicitSkillContexts() }.getOrNull() ?: return@withContext 0
         for (row in rows) {
-            val rewritten = rewriteSkillContextsColumnKeepValid(row.explicitSkillContextIds, validNames) ?: continue
+            val rewritten = rewriteSkillContextsColumnKeepValid(row.explicitSkillContextIds, validNames + BuiltInSkills.ids) ?: continue
             runCatching { conversationDAO.updateExplicitSkillContexts(row.id, rewritten) }
             changed += 1
         }

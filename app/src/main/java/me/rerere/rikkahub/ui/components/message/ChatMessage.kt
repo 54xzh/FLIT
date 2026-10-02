@@ -1,5 +1,12 @@
 package me.rerere.rikkahub.ui.components.message
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import me.rerere.rikkahub.ui.components.interactive.LocalInteractiveContentContext
+import me.rerere.rikkahub.data.interactive.transformAroundInteractiveFences
+import me.rerere.rikkahub.service.ChatService
+import org.koin.compose.koinInject
+
 import android.content.Intent
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -608,6 +615,7 @@ private fun MessagePartsBlock(
             }
 
             is MessageRenderBlock.TextBlock -> {
+                InteractiveTextContext(conversationId, messageId, block.part, role, block.sourceParts, block.sourcePartIndex) {
                 MessageTextPart(
                     assistant = assistant,
                     role = role,
@@ -621,6 +629,7 @@ private fun MessagePartsBlock(
                     loading = loading,
                     onQuoteFollowUp = onQuoteFollowUp,
                 )
+                }
             }
 
             is MessageRenderBlock.ImageGroup -> {
@@ -784,6 +793,17 @@ internal fun QuotedFollowUpLine(
 }
 
 @Composable
+private fun InteractiveTextContext(conversationId: Uuid?, messageId: Uuid?, part: UIMessagePart.Text, role: MessageRole, sourceParts: List<UIMessagePart>?, sourcePartIndex: Int?, content: @Composable () -> Unit) {
+    val host = if (conversationId != null && messageId != null && role == MessageRole.ASSISTANT && part.text.contains("a2ui", true)) {
+        val service = koinInject<ChatService>()
+        val conversation by remember(conversationId) { service.getConversationFlow(conversationId) }.collectAsState()
+        val job by remember(conversationId) { service.getGenerationJobStateFlow(conversationId) }.collectAsState(initial = null)
+        remember(conversation, job, messageId, part, sourceParts, sourcePartIndex) { service.interactiveContext(conversationId, messageId, part, sourceParts, sourcePartIndex) }
+    } else null
+    CompositionLocalProvider(LocalInteractiveContentContext provides host, content = content)
+}
+
+@Composable
 private fun MessageTextPart(
     assistant: Assistant?,
     role: MessageRole,
@@ -844,12 +864,13 @@ private fun MessageTextPart(
         return
     }
 
-    val displayText = remember(part.text, assistant?.regexes) {
-        part.text.stripInterruptedAppContextForDisplay().replaceRegexes(
-            assistant = assistant,
-            scope = AssistantAffectScope.ASSISTANT,
-            visual = true,
-        )
+    val interactiveHost = LocalInteractiveContentContext.current
+    val displayText = remember(part.text, assistant?.regexes, interactiveHost != null) {
+        if (interactiveHost == null) part.text.stripInterruptedAppContextForDisplay().replaceRegexes(
+            assistant = assistant, scope = AssistantAffectScope.ASSISTANT, visual = true,
+        ) else transformAroundInteractiveFences(part.text) {
+            it.stripInterruptedAppContextForDisplay().replaceRegexes(assistant = assistant, scope = AssistantAffectScope.ASSISTANT, visual = true)
+        }
     }
     Column {
         if (loading) {

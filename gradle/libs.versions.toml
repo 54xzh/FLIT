@@ -1,4 +1,5 @@
 [versions]
+a2ui = "1.0.0-alpha01"
 agp = "9.2.0"
 barcodeScanning = "17.3.0"
 cameraCore = "1.5.1"
@@ -70,6 +71,9 @@ xz = "1.10"
 termux = "0.118.0"
 
 [libraries]
+androidx-a2ui-engine = { module = "androidx.a2ui:a2ui-engine", version.ref = "a2ui" }
+androidx-a2ui-compose = { module = "androidx.a2ui.compose:compose-ui", version.ref = "a2ui" }
+androidx-a2ui-material3 = { module = "androidx.compose.material3:material3-a2ui", version.ref = "a2ui" }
 androidx-camera-core = { module = "androidx.camera:camera-core", version.ref = "cameraCore" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-media3-common = { module = "androidx.media3:media3-common", version.ref = "media3" }
@@ -103,6 +107,7 @@ androidx-material3-adaptive = { group = "androidx.compose.material3.adaptive", n
 androidx-material3-adaptive-layout = { group = "androidx.compose.material3.adaptive", name = "adaptive-layout", version.ref = "material3AdaptiveNav3" }
 androidx-material3-adaptive-navigation3 = { group = "androidx.compose.material3.adaptive", name = "adaptive-navigation3", version.ref = "nav3Material" }
 androidx-lifecycle-viewmodel-navigation3 = { module = "androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "lifecycleViewmodelNav3" }
+androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-room-paging = { group = "androidx.room", name = "room-paging", version.ref = "room" }

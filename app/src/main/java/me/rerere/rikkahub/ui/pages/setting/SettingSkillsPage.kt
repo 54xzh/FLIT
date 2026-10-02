@@ -1,6 +1,10 @@
 package me.rerere.rikkahub.ui.pages.setting
 
 
+import me.rerere.rikkahub.data.model.BuiltInSkills
+import me.rerere.rikkahub.data.model.includingBuiltInSkills
+import me.rerere.rikkahub.ui.components.ai.displayName
+import androidx.compose.material3.ListItem
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -25,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
@@ -456,7 +461,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
             }
         }
     ) { paddingValues ->
-        if (settings.skills.isEmpty() && settings.skillFolders.isEmpty()) {
+        if (settings.skills.includingBuiltInSkills().isEmpty() && settings.skillFolders.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -503,6 +508,16 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                items(BuiltInSkills.skills, key = { it.name }) { builtIn ->
+                    ListItem(
+                        headlineContent = { Text(builtIn.displayName()) },
+                        supportingContent = { Text(stringResource(R.string.interactive_components_skill_description)) },
+                        modifier = Modifier.clickable {
+                            haptics.perform(HapticPattern.Pop)
+                            navController.navigate(Screen.SettingSkillDetail(builtIn.name))
+                        },
+                    )
+                }
                 settings.skillFolders.forEachIndexed { folderIndex, folder ->
                     val skillsInFolder = settings.skills.filter { it.folderId == folder.id }
 

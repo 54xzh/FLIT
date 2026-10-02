@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.datastore
 
+import me.rerere.rikkahub.data.model.BuiltInSkills
 import android.content.Context
 import android.util.Log
 import java.io.File
@@ -701,7 +702,7 @@ class SettingsStore(
                 }
             }
             val validModeIds = settings.modes.map { it.id }.toSet()
-            val validSkillNames = sanitizedSkills.map { it.name }.toSet()
+            val validSkillNames = sanitizedSkills.map { it.name }.toSet() + BuiltInSkills.ids
             val dedupedAssistants = settings.assistants.distinctBy { it.id }.map { assistant ->
                 assistant.copy(
                     mcpServers = assistant.mcpServers.filter { serverId ->
@@ -2213,7 +2214,7 @@ fun Settings.sanitize(context: Context? = null): Pair<Settings, me.rerere.rikkah
             skill
         }
     }
-    val validSkillNames = cleanedSkills.map { it.name }.toSet()
+    val validSkillNames = cleanedSkills.map { it.name }.toSet() + BuiltInSkills.ids
     val validModeIds = modes.map { it.id }.toSet()
     val cleanedConversationWorkspaceRoots = conversationWorkspaceRoots
         .mapNotNull { (conversationId, uriString) ->

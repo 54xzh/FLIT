@@ -46,6 +46,9 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 val dataSourceModule = module {
+    single { get<AppDatabase>().interactiveComponentStateDao() }
+    single { me.rerere.rikkahub.data.interactive.InteractiveStateRepository(get(), get()) }
+
     single {
         SettingsStore(context = get(), scope = get())
     }
@@ -87,6 +90,7 @@ val dataSourceModule = module {
                 AppDatabase.MIGRATION_52_53,
                 AppDatabase.MIGRATION_53_54,
                 AppDatabase.MIGRATION_54_55,
+                AppDatabase.MIGRATION_55_56,
             )
             .build()
     }
@@ -307,6 +311,7 @@ val dataSourceModule = module {
             context = get(),
             database = get(),
             skillUuidMigration = get(),
+            interactiveStateRepo = get(),
             codexCredentialStore = get(),
             codexCredentialTransactionGate = get(),
         )

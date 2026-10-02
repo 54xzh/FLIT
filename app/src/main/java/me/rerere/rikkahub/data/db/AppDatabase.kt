@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.data.db
 
+import me.rerere.rikkahub.data.db.entity.InteractiveComponentStateEntity
+import me.rerere.rikkahub.data.db.dao.InteractiveComponentStateDao
 import android.util.Log
 import androidx.room.AutoMigration
 import androidx.room.Database
@@ -66,6 +68,7 @@ import me.rerere.rikkahub.utils.JsonInstant
 @Database(
     entities = [
         ConversationEntity::class,
+        InteractiveComponentStateEntity::class,
         ConversationBranchCounterEntity::class,
         MemoryEntity::class,
         GenMediaEntity::class,
@@ -94,7 +97,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         LocalModelEntity::class,
         ProjectEntity::class,
     ],
-    version = 55,
+    version = 56,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -151,6 +154,8 @@ import me.rerere.rikkahub.utils.JsonInstant
 )
 @TypeConverters(TokenUsageConverter::class)
 abstract class AppDatabase : RoomDatabase() {
+    abstract fun interactiveComponentStateDao(): InteractiveComponentStateDao
+
     abstract fun projectDao(): ProjectDAO
 
     abstract fun conversationDao(): ConversationDAO
@@ -193,6 +198,18 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         const val TAG = "AppDatabase"
+        val MIGRATION_55_56 = object : Migration(55, 56) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""CREATE TABLE IF NOT EXISTS interactive_component_state (
+                    conversationId TEXT NOT NULL, messageId TEXT NOT NULL, partIndex INTEGER NOT NULL,
+                    blockOffset INTEGER NOT NULL, fingerprint TEXT NOT NULL, surfaceId TEXT NOT NULL,
+                    dataModel TEXT NOT NULL, submissionId TEXT, submitted INTEGER NOT NULL,
+                    PRIMARY KEY(conversationId, messageId, partIndex, blockOffset),
+                    FOREIGN KEY(conversationId) REFERENCES ConversationEntity(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                )""")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_interactive_component_state_conversationId ON interactive_component_state(conversationId)")
+            }
+        }
         
         val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {

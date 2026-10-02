@@ -114,4 +114,12 @@ class MarkdownBlockSnapshotTest {
         assertTrue("edited paragraph should invalidate its snapshot", changedCount >= 1)
         assertEquals(originalSnapshots.last(), editedSnapshots.last())
     }
+    @Test
+    fun `interactive descriptions retain literal thinking tags and math during preprocessing`() {
+        val code = """{"version":"v0.9.1","updateDataModel":{"surfaceId":"card","value":{"label":"<thinking>Literal label</thinking>"}}}"""
+        val content = "Before\n\n```a2ui\n$code\n```\nAfter"
+        val processed = parseMarkdownForTest(content).preprocessed
+        assertEquals(code, me.rerere.rikkahub.data.interactive.interactiveFences(processed).single().code)
+    }
+
 }

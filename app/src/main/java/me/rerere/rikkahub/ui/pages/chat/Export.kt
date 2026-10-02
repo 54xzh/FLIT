@@ -93,6 +93,10 @@ import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.ai.provider.Model
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
+import me.rerere.rikkahub.ui.components.interactive.LocalInteractiveExport
+import me.rerere.rikkahub.ui.components.interactive.LocalInteractiveContentContext
+import me.rerere.rikkahub.service.ChatService
+import org.koin.compose.koinInject
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.components.richtext.MermaidExportAssets
 import me.rerere.rikkahub.ui.components.richtext.MermaidImageRenderer
@@ -598,6 +602,7 @@ private fun ExportedChatImage(
                             ?: settings.getAssistantById(conversation.assistantId)
                         ExportedChatMessage(
                             message = message,
+                            conversationId = conversation.id,
                             previousRole = previousRole,
                             options = options,
                             model = model,
@@ -624,6 +629,7 @@ private fun ExportedChatImage(
 @Composable
 private fun ExportedChatMessage(
     message: UIMessage,
+    conversationId: kotlin.uuid.Uuid,
     previousRole: MessageRole? = null,
     model: Model? = null,
     assistant: Assistant? = null,
@@ -642,6 +648,7 @@ private fun ExportedChatMessage(
         forceUseAssistantAvatar = forceUseAssistantAvatar,
         defaultAssistantName = defaultAssistantName,
     )
+    val chatService = koinInject<ChatService>()
     val showHeader = message.role == MessageRole.ASSISTANT && previousRole != message.role
     val messageContent: @Composable () -> Unit = {
         Column(
@@ -673,11 +680,16 @@ private fun ExportedChatMessage(
                                 )
                             ) {
                                 ProvideTextStyle(MaterialTheme.typography.bodyMedium) {
+                                    CompositionLocalProvider(
+                                        LocalInteractiveExport provides (message.role == MessageRole.ASSISTANT),
+                                        LocalInteractiveContentContext provides chatService.interactiveContext(conversationId, message.id, part),
+                                    ) {
                                     MarkdownBlock(
                                         content = part.text,
                                         modifier = Modifier.padding(12.dp),
                                         exportAssets = mermaidAssets,
                                     )
+                                    }
                                 }
                             }
                         }

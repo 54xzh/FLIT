@@ -1,5 +1,8 @@
 package me.rerere.rikkahub.ui.pages.assistant.detail
 
+import me.rerere.rikkahub.ui.components.ai.displayDescription
+import me.rerere.rikkahub.ui.components.ai.displayName
+import me.rerere.rikkahub.data.model.includingBuiltInSkills
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -363,7 +366,7 @@ fun AssistantToolsSubPage(
                 onClick = { navController.navigate(Screen.SettingSkills) }
             )
 
-            if (settings.skills.isEmpty()) {
+            if (settings.skills.includingBuiltInSkills().isEmpty()) {
                 SettingGroupItem(
                     title = stringResource(R.string.skills_page_empty),
                     subtitle = stringResource(R.string.skills_page_empty_hint),
@@ -371,12 +374,12 @@ fun AssistantToolsSubPage(
                 )
             } else {
                 val foldersById = settings.skillFolders.associateBy { it.id }
-                val ungroupedSkills = settings.skills.filter { skill ->
+                val ungroupedSkills = settings.skills.includingBuiltInSkills().filter { skill ->
                     skill.folderId == null || skill.folderId !in foldersById
                 }
 
                 settings.skillFolders.forEach { folder ->
-                    val skillsInFolder = settings.skills.filter { it.folderId == folder.id }
+                    val skillsInFolder = settings.skills.includingBuiltInSkills().filter { it.folderId == folder.id }
                     if (skillsInFolder.isEmpty()) return@forEach
 
                     val folderSkillNames = skillsInFolder.map { it.name }.toSet()
@@ -450,8 +453,8 @@ fun AssistantToolsSubPage(
                                 skillsInFolder.forEach { skill ->
                                     val isEnabled = assistant.enabledSkills.contains(skill.name)
                                     SettingGroupItem(
-                                        title = skill.name.ifBlank { stringResource(R.string.skills_unnamed) },
-                                        subtitle = skill.description.ifBlank { stringResource(R.string.skills_no_description) },
+                                        title = skill.displayName().ifBlank { stringResource(R.string.skills_unnamed) },
+                                        subtitle = skill.displayDescription().ifBlank { stringResource(R.string.skills_no_description) },
                                         trailing = {
                                             HapticSwitch(
                                                 checked = isEnabled,
@@ -538,8 +541,8 @@ fun AssistantToolsSubPage(
                                 ungroupedSkills.forEach { skill ->
                                     val isEnabled = assistant.enabledSkills.contains(skill.name)
                                     SettingGroupItem(
-                                        title = skill.name.ifBlank { stringResource(R.string.skills_unnamed) },
-                                        subtitle = skill.description.ifBlank { stringResource(R.string.skills_no_description) },
+                                        title = skill.displayName().ifBlank { stringResource(R.string.skills_unnamed) },
+                                        subtitle = skill.displayDescription().ifBlank { stringResource(R.string.skills_no_description) },
                                         trailing = {
                                             HapticSwitch(
                                                 checked = isEnabled,

@@ -1,5 +1,10 @@
 package me.rerere.rikkahub.service
 
+import me.rerere.rikkahub.data.model.includingBuiltInSkills
+import me.rerere.rikkahub.data.interactive.*
+import me.rerere.rikkahub.data.db.entity.InteractiveComponentStateEntity
+import me.rerere.rikkahub.ui.components.interactive.InteractiveContentContext
+import me.rerere.rikkahub.ui.components.interactive.InteractiveSubmission
 import android.Manifest
 import android.app.Application
 import android.app.PendingIntent
@@ -384,6 +389,7 @@ class ChatService(
     private val settingsStore: SettingsStore,
     private val readPositionStore: ChatReadPositionStore,
     private val conversationRepo: ConversationRepository,
+    private val interactiveStateRepo: InteractiveStateRepository,
     private val toolResultArchiveRepository: ToolResultArchiveRepository,
     private val memoryRepository: MemoryRepository,
     private val memorySummaryRepository: MemorySummaryRepository,
@@ -1305,6 +1311,7 @@ class ChatService(
         return generationJobs
     }
 
+    @Synchronized
     private fun setGenerationJob(conversationId: Uuid, job: Job?) {
         if (job == null) {
             removeGenerationJob(conversationId)
@@ -1522,6 +1529,7 @@ class ChatService(
         return updatedConversation
     }
 
+    @Synchronized
     private fun removeGenerationJob(conversationId: Uuid) {
         _generationJobs.value = _generationJobs.value.toMutableMap().apply {
             remove(conversationId)
@@ -1791,7 +1799,7 @@ class ChatService(
         val sourceTitle = (rootTitle ?: currentConversation.title).ifBlank {
             context.getString(R.string.chat_page_new_chat)
         }
-        return createForkConversation(currentConversation.rootId) { branchNumber ->
+        val fork = createForkConversation(currentConversation.rootId) { branchNumber ->
             val forkTitle = if (branchNumber <= 1) {
                 context.getString(R.string.chat_page_fork_title, sourceTitle)
             } else {
@@ -1806,6 +1814,8 @@ class ChatService(
                 branchNumber = branchNumber,
             ).inheritForkStateFrom(currentConversation)
         }
+        interactiveStateRepo.copyToBranch(conversationId.toString(), fork.id.toString(), fork.currentMessages, isTemporaryConversation(conversationId))
+        return fork
     }
 
     /**
@@ -1967,13 +1977,105 @@ class ChatService(
         }
     }
 
+    fun isTemporaryConversation(conversationId: Uuid): Boolean = conversationId in temporaryConversations
+
+    fun interactiveContext(conversationId: Uuid, preferredMessageId: Uuid, part: UIMessagePart.Text, sourceParts: List<UIMessagePart>? = null, sourcePartIndex: Int? = null): InteractiveContentContext? {
+        val messages = getConversationFlow(conversationId).value.currentMessages
+        // 合并气泡保留原始片段列表身份，避免两条相同卡片文本被归到同一来源。
+        val source = sourceParts?.let { parts -> messages.firstOrNull { it.parts === parts } }
+            ?: messages.firstOrNull { it.id == preferredMessageId && part in it.parts }
+            ?: sourceParts?.let { parts -> messages.firstOrNull { it.parts == parts } }
+            ?: messages.firstOrNull { it.id == preferredMessageId }
+            ?: return null
+        if (source.role != MessageRole.ASSISTANT) return null
+        val partIndex = sourcePartIndex ?: source.parts.indexOf(part)
+        val originalPart = source.parts.getOrNull(partIndex) as? UIMessagePart.Text ?: return null
+        return InteractiveContentContext(
+            conversationId, source.id, partIndex, source.speakerAssistantId, source.speakerSeatId,
+            isGenerating(conversationId), isTemporaryConversation(conversationId), interactiveFences(originalPart.text),
+            isReadOnly = { surfaceId, offset, fingerprint ->
+                val current = getConversationFlow(conversationId).value.currentMessages
+                latestInteractiveMessage(current, source, surfaceId)?.id != source.id ||
+                    interactiveSubmissionExists(current, source.id.toString(), partIndex, offset, fingerprint)
+            },
+            onSubmit = ::submitInteractiveComponent,
+            generationActive = { isGenerating(conversationId) },
+        )
+    }
+
+    /** 检查、登记与普通发送共用入口锁，中间不挂起，避免提交中断刚启动的回复。 */
+    @Synchronized
+    fun submitInteractiveComponent(request: InteractiveSubmission): Boolean {
+        val origin = request.origin
+        val conversationId = origin.conversationId
+        if (isGenerating(conversationId) || conversationId in deletedConversationIds) return false
+        val conversation = getConversationFlow(conversationId).value
+        val source = conversation.currentMessages.firstOrNull { it.id == origin.messageId } ?: return false
+        if (source.role != MessageRole.ASSISTANT) return false
+        val routingSettings = settingsStore.settingsFlow.value
+        val sourceSeat = source.speakerSeatId?.let { seatId ->
+            routingSettings.groupChatTemplates.firstOrNull { it.id == conversation.assistantId }?.seats?.firstOrNull { it.id == seatId }
+        }
+        if (source.speakerSeatId != null && (sourceSeat == null ||
+                (source.speakerAssistantId != null && sourceSeat.assistantId != source.speakerAssistantId))) return false
+        val part = source.parts.getOrNull(origin.partIndex) as? UIMessagePart.Text ?: return false
+        val fence = interactiveFences(part.text).firstOrNull { it.offset == request.offset && it.closed } ?: return false
+        if (interactiveFingerprint(fence.code) != request.fingerprint) return false
+        if (latestInteractiveMessage(conversation.currentMessages, source, request.surfaceId)?.id != source.id) return false
+        if (interactiveSubmissionExists(conversation.currentMessages, source.id.toString(), origin.partIndex, request.offset, request.fingerprint)) return false
+        val sourceAssistantId = source.speakerAssistantId ?: sourceSeat?.assistantId ?: conversation.assistantId
+        if (source.speakerSeatId == null && routingSettings.getAssistantById(sourceAssistantId) == null) return false
+        val submissionId = java.util.UUID.nameUUIDFromBytes(
+            "$conversationId/${source.id}/${origin.partIndex}/${request.offset}/${request.fingerprint}".toByteArray()
+        ).toString()
+        val event = buildJsonObject {
+            put("version", "v0.9.1")
+            put("sourceMessageId", source.id.toString())
+            put("sourceAssistantId", sourceAssistantId.toString())
+            source.speakerSeatId?.let { put("sourceSeatId", it.toString()) }
+            put("partIndex", origin.partIndex)
+            put("blockOffset", request.offset)
+            put("fingerprint", request.fingerprint)
+            put("submissionId", submissionId)
+            put("action", buildJsonObject {
+                put("name", request.eventName)
+                put("surfaceId", request.surfaceId)
+                put("sourceComponentId", request.componentId)
+                put("timestamp", java.time.Instant.ofEpochMilli(request.timestamp).toString())
+                put("context", request.values)
+            })
+        }
+        fun readable(value: JsonElement): String = when (value) {
+            is JsonPrimitive -> value.content
+            is JsonArray -> value.joinToString(", ") { readable(it) }
+            is JsonObject -> value.entries.joinToString(", ") { (key, item) -> "$key: ${readable(item)}" }
+        }
+        val text = buildString {
+            append(context.getString(R.string.interactive_components_submission, request.buttonLabel))
+            request.values.forEach { (key, value) -> append("\n$key: ${readable(value)}") }
+        }
+        val state = InteractiveComponentStateEntity(
+            conversationId.toString(), source.id.toString(), origin.partIndex, request.offset,
+            request.fingerprint, request.surfaceId, request.dataModel.toString(), submissionId, true,
+        )
+        sendMessage(
+            conversationId, listOf(UIMessagePart.Text(text, metadata = buildJsonObject { put(INTERACTIVE_ACTION_METADATA, event) })),
+            isTemporaryChat = isTemporaryConversation(conversationId),
+            groupChatSpeakerSeatIdsOverride = source.speakerSeatId?.let { listOf(it) },
+            interactiveSubmission = state,
+        )
+        return true
+    }
+
     // 发送消息
+    @Synchronized
     fun sendMessage(
         conversationId: Uuid,
         content: List<UIMessagePart>,
         answer: Boolean=true,
         isTemporaryChat: Boolean = false,
         groupChatSpeakerSeatIdsOverride: List<Uuid>? = null,
+        interactiveSubmission: InteractiveComponentStateEntity? = null,
     ) {
         // 标记为临时对话
         if (isTemporaryChat) {
@@ -2024,6 +2126,9 @@ class ChatService(
                     title = currentConversation.title.ifBlank { fallbackTitle },
                 )
                 saveConversation(conversationId, newConversation)
+                interactiveSubmission?.let {
+                    interactiveStateRepo.update(it, isTemporaryChat, immediate = true)
+                }
 
                 // 记录每日活跃（用于连续聊天天数统计，独立于对话数据，避免删除聊天导致 streak 丢失）
                 try {
@@ -2065,8 +2170,8 @@ class ChatService(
         setGenerationJob(conversationId, job)
         job.invokeOnCompletion {
             // 只在当前 job 仍是自己时才清空，避免旧任务的回调误清新任务的进度状态
-            if (getGenerationJob(conversationId) == job) {
-                setGenerationJob(conversationId, null)
+            synchronized(this@ChatService) {
+                if (getGenerationJob(conversationId) == job) setGenerationJob(conversationId, null)
             }
             // 取消生成任务后，检查是否有其他任务在进行
             appScope.launch {
@@ -2077,6 +2182,7 @@ class ChatService(
     }
 
     // 重新生成消息
+    @Synchronized
     fun regenerateAtMessage(
         conversationId: Uuid,
         message: UIMessage,
@@ -2134,8 +2240,8 @@ class ChatService(
         setGenerationJob(conversationId, job)
         job.invokeOnCompletion {
             // 只在当前 job 仍是自己时才清空，避免旧任务的回调误清新任务的进度状态
-            if (getGenerationJob(conversationId) == job) {
-                setGenerationJob(conversationId, null)
+            synchronized(this@ChatService) {
+                if (getGenerationJob(conversationId) == job) setGenerationJob(conversationId, null)
             }
             // 取消生成任务后，检查是否有其他任务在进行
             appScope.launch {
@@ -2147,6 +2253,7 @@ class ChatService(
 
     // 编辑某条用户消息后, 在其所在 MessageNode 内追加新版本并切换 selectIndex,
     // 随后直接触发 AI 补全. 用于 fork 用户消息进入分支会话后的"编辑并发送".
+    @Synchronized
     fun editUserMessageAndComplete(
         conversationId: Uuid,
         messageId: Uuid,
@@ -2201,8 +2308,8 @@ class ChatService(
 
         setGenerationJob(conversationId, job)
         job.invokeOnCompletion {
-            if (getGenerationJob(conversationId) == job) {
-                setGenerationJob(conversationId, null)
+            synchronized(this@ChatService) {
+                if (getGenerationJob(conversationId) == job) setGenerationJob(conversationId, null)
             }
             appScope.launch {
                 delay(500)
@@ -2211,6 +2318,7 @@ class ChatService(
         }
     }
 
+    @Synchronized
     fun continueAtMessage(
         conversationId: Uuid,
         message: UIMessage,
@@ -2270,8 +2378,8 @@ class ChatService(
         setGenerationJob(conversationId, job)
         job.invokeOnCompletion {
             // 只在当前 job 仍是自己时才清空，避免旧任务的回调误清新任务的进度状态
-            if (getGenerationJob(conversationId) == job) {
-                setGenerationJob(conversationId, null)
+            synchronized(this@ChatService) {
+                if (getGenerationJob(conversationId) == job) setGenerationJob(conversationId, null)
             }
             appScope.launch {
                 delay(500)
@@ -2291,7 +2399,28 @@ class ChatService(
         // 最近一轮重试时复用上次成功注入的记忆，跳过 query embedding + 检索
         reuseLastRagMemories: Boolean = false,
     ) {
-        val settings = settingsStore.settingsFlow.first()
+        val snapshot = settingsStore.settingsFlow.first()
+        val requestConversation = getConversationFlow(conversationId).value
+        val requestMessages = requestConversation.currentMessages.let { messages ->
+            if (messageRange == null) messages else messages.drop(messageRange.start).take(messageRange.endInclusive - messageRange.start + 1)
+        }
+        val route = interactiveRequestRoute(requestMessages)
+        val sourceSeat = route?.seatId
+        val effectiveSpeakerSeats = groupChatSpeakerSeatIdsOverride ?: sourceSeat?.let { listOf(it) }
+        if (sourceSeat != null) {
+            val seat = snapshot.groupChatTemplates.firstOrNull { it.id == requestConversation.assistantId }?.seats?.firstOrNull { it.id == sourceSeat }
+            check(seat != null && (route?.assistantId == null || seat.assistantId == route.assistantId)) {
+                context.getString(R.string.interactive_components_submit_unavailable)
+            }
+        }
+        val sourceAssistant = route?.assistantId?.takeIf { sourceSeat == null }
+        if (sourceAssistant != null) check(snapshot.getAssistantById(sourceAssistant) != null) {
+            context.getString(R.string.interactive_components_submit_unavailable)
+        }
+        // 仅调整本次请求的设置快照，卡片来源不随全局助手选择或页面切换而改变。
+        val settings = if (sourceAssistant == null) snapshot else snapshot.copy(
+            assistantId = sourceAssistant, chatTarget = ChatTarget.Assistant(sourceAssistant),
+        )
         val useLiveUpdate = shouldUseLiveUpdate(settings)
         val useGenerationKeepAlive = shouldUseKeepAliveDuringGeneration(settings)
         var latestFinishReasons: Set<String> = emptySet()
@@ -2348,6 +2477,7 @@ class ChatService(
                 }
             }
             val quotaBaselineMessages = conversation.currentMessages
+            val existingMessageIds = conversation.currentMessages.map { it.id }.toSet()
 
             val persistentConversationId =
                 conversationId.takeIf { !temporaryConversations.contains(conversationId) }
@@ -2413,7 +2543,7 @@ class ChatService(
                     settings = settings,
                     conversation = conversation,
                     template = groupTemplate,
-                    forcedSpeakerSeatIds = groupChatSpeakerSeatIdsOverride,
+                    forcedSpeakerSeatIds = effectiveSpeakerSeats,
                     baseMessages = baseMessages,
                     appContextTransformer = appContextTransformer,
                     useLiveUpdate = useLiveUpdate,
@@ -2700,7 +2830,7 @@ class ChatService(
                         )
                     }
                     addAll(workspaceToolSet.tools)
-                    val enabledSkills = settings.skills.filter { skill -> skill.name in assistant.enabledSkills }
+                    val enabledSkills = settings.skills.includingBuiltInSkills().filter { skill -> skill.name in assistant.enabledSkills }
                     if (enabledSkills.isNotEmpty()) {
                         add(localTools.createSkillFileTool(enabledSkills))
                     }
@@ -2850,7 +2980,7 @@ class ChatService(
                         }
                         val currentConversation = getConversationFlow(conversationId).value
                         val updatedConversation = currentConversation
-                            .updateCurrentMessages(chunk.messages)
+                            .updateCurrentMessages(chunk.messages.withInteractiveOwners(existingMessageIds, assistant.id))
                             .copy(updateAt = Instant.now())
                         val shouldSaveNow = shouldSaveGenerationDraftImmediately(
                             previousConversation = currentConversation,
@@ -3239,7 +3369,7 @@ class ChatService(
                         )
                     )
                 }
-                val enabledSkills = settings.skills.filter { skill -> skill.name in seatAssistant.enabledSkills }
+                val enabledSkills = settings.skills.includingBuiltInSkills().filter { skill -> skill.name in seatAssistant.enabledSkills }
                 if (enabledSkills.isNotEmpty()) {
                     add(localTools.createSkillFileTool(enabledSkills))
                     if (seatAssistant.localTools.contains(LocalToolOption.GetCurrentTime)) {
@@ -4760,6 +4890,7 @@ class ChatService(
      */
     private fun markConversationDeleted(conversationId: Uuid): Job? {
         deletedConversationIds.add(conversationId)
+        interactiveStateRepo.forgetConversation(conversationId.toString())
         conversations.remove(conversationId)
         // 取消遗留的抽屉删除 job (4 秒撤销窗口) 并清撤销快照: 若同一会话先被抽屉删、4 秒内
         // 又被其它入口删, 抽屉遗留 job 到期后会清工作区/文件并 remove 标记, 干扰本次删除的

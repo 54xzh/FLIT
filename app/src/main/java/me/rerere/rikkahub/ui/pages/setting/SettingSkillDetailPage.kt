@@ -1,5 +1,9 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import me.rerere.rikkahub.data.files.SkillSource
+import me.rerere.rikkahub.data.model.Skill
+import me.rerere.rikkahub.data.model.includingBuiltInSkills
+import me.rerere.rikkahub.ui.components.ai.displayName
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -86,7 +90,9 @@ fun SettingSkillDetailPage(
     val haptics = rememberPremiumHaptics()
     val scope = rememberCoroutineScope()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val skillsRoot = remember(context) { File(context.filesDir, "skills") }
+    val skill = settings.skills.includingBuiltInSkills().firstOrNull { it.name == skillName } ?: Skill(name = skillName)
+    val source = remember(context) { SkillSource(context) }
+    var skillDirectory by remember(skillName) { mutableStateOf<File?>(null) }
     val fileViewerState = remember { WorkspaceFileViewerState() }
 
     var treeState by remember { mutableStateOf<SkillTreeState>(SkillTreeState.Loading) }
@@ -95,10 +101,11 @@ fun SettingSkillDetailPage(
     LaunchedEffect(skillName) {
         treeState = SkillTreeState.Loading
         treeState = withContext(Dispatchers.IO) {
-            val skillDir = SkillPaths.resolveSkillDir(skillsRoot, skillName)
+            val skillDir = source.directory(skill)
+            skillDirectory = skillDir
             when {
                 skillDir?.isDirectory != true -> SkillTreeState.Missing
-                else -> SkillTreeState.Ready(SkillDirectoryTree.load(skillsRoot, skillName))
+                else -> SkillTreeState.Ready(SkillDirectoryTree.build(skillDir))
             }
         }
     }
@@ -107,7 +114,7 @@ fun SettingSkillDetailPage(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             OneUITopAppBar(
-                title = skillName,
+                title = skill.displayName(),
                 navigationIcon = { BackButton() },
                 scrollBehavior = scrollBehavior,
             )
@@ -164,7 +171,7 @@ fun SettingSkillDetailPage(
                                 onOpenFile = { relativePath ->
                                     scope.launch {
                                         val file = withContext(Dispatchers.IO) {
-                                            val skillDir = SkillPaths.resolveSkillDir(skillsRoot, skillName)
+                                            val skillDir = source.directory(skill)
                                                 ?: return@withContext null
                                             SkillPaths.resolveSkillFile(skillDir, relativePath)
                                                 ?.takeIf { it.isFile }
@@ -191,7 +198,7 @@ fun SettingSkillDetailPage(
         resolveFileUri = { target ->
             if (target is ViewerTarget.LocalFile) {
                 runCatching {
-                    val skillDir = SkillPaths.resolveSkillDir(skillsRoot, skillName) ?: return@runCatching null
+                    val skillDir = skillDirectory ?: return@runCatching null
                     val canonicalDir = skillDir.canonicalFile
                     val canonicalTarget = target.file.canonicalFile
                     val relativePath = canonicalTarget.relativeTo(canonicalDir).invariantSeparatorsPath
@@ -211,7 +218,7 @@ fun SettingSkillDetailPage(
 
     if (showAssistantToggleSheet) {
         AssistantToggleSheet(
-            title = skillName,
+            title = skill.displayName(),
             assistants = settings.assistants,
             isEnabled = { assistant -> skillName in assistant.enabledSkills },
             onToggle = { assistant, enabled ->

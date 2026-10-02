@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.components.ai
 
+import me.rerere.rikkahub.data.model.includingBuiltInSkills
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -834,8 +835,8 @@ private fun MinimalPickerContent(
     val mcpServers = settings.mcpServers
     val mcpSyncStatus by mcpManager.syncingStatus.collectAsStateWithLifecycle()
     val mcpLoading = mcpSyncStatus.values.any { it == McpStatus.Connecting }
-    val enabledSkills = remember(settings.skills, assistant.enabledSkills) {
-        settings.skills.filter { skill -> skill.name in assistant.enabledSkills }
+    val enabledSkills = remember(settings.skills.includingBuiltInSkills(), assistant.enabledSkills) {
+        settings.skills.includingBuiltInSkills().filter { skill -> skill.name in assistant.enabledSkills }
     }
 
     // 会话工作区同时影响工作区工具与 STDIO MCP，因此入口不依赖工作区文件工具。

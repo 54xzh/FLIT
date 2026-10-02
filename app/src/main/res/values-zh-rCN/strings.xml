@@ -2705,4 +2705,13 @@
     <string name="local_provider_remove_entry_description">保留已下载的引擎和模型。重新添加此预设后即可继续使用。</string>
     <string name="local_provider_remove_all_description">停止下载和推理，并永久删除应用内保存的推理引擎和所有本地模型。导入时的原始文件将保留。</string>
     <string name="local_provider_remove_failed">未能完成移除，部分文件可能已删除，请重试。</string>
+    <string name="interactive_components_skill_name">可交互组件</string>
+    <string name="interactive_components_skill_description">在聊天中创建可交互组件。</string>
+    <string name="interactive_components_loading">正在准备组件…</string>
+    <string name="interactive_components_error">无法显示此组件</string>
+    <string name="interactive_components_view_source">查看源码</string>
+    <string name="interactive_components_hide_source">收起源码</string>
+    <string name="interactive_components_open_media">打开媒体</string>
+    <string name="interactive_components_submission">已提交：%1$s</string>
+    <string name="interactive_components_submit_unavailable">当前无法提交此组件。</string>
 </resources>

@@ -1,5 +1,9 @@
 package me.rerere.rikkahub.data.ai
 
+import me.rerere.rikkahub.data.interactive.withInteractiveActionsForModel
+import me.rerere.rikkahub.data.model.BuiltInSkills
+import me.rerere.rikkahub.data.model.includingBuiltInSkills
+import me.rerere.rikkahub.data.files.SkillSource
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CancellationException
@@ -1777,7 +1781,7 @@ class GenerationHandler(
             explicitSkillContexts = explicitSkillContexts,
             currentProject = currentProject,
         )
-        val internalMessages = buildResult.messages
+        val internalMessages = buildResult.messages.withInteractiveActionsForModel()
             .transforms(
                 transformers = transformers,
                 context = context,
@@ -2369,26 +2373,23 @@ class GenerationHandler(
         assistant: Assistant,
         explicitSkillContexts: Set<String>,
     ): String {
-        if (explicitSkillContexts.isEmpty()) return ""
+        if (explicitSkillContexts.isEmpty() && assistant.enabledSkills.none { it in BuiltInSkills.ids }) return ""
         val enabledSkillNames = assistant.enabledSkills
         if (enabledSkillNames.isEmpty()) return ""
 
-        val skillsByName = settings.skills
+        val skillsByName = settings.skills.includingBuiltInSkills()
             .asSequence()
             .filter { skill -> skill.name in enabledSkillNames }
             .associateBy { it.name }
         if (skillsByName.isEmpty()) return ""
 
-        val selectedSkills = explicitSkillContexts.mapNotNull { name -> skillsByName[name] }
+        val selectedSkills = (explicitSkillContexts + (enabledSkillNames intersect BuiltInSkills.ids)).mapNotNull { name -> skillsByName[name] }
         if (selectedSkills.isEmpty()) return ""
 
-        val skillsRoot = File(context.filesDir, "skills")
         val loadedSkills = withContext(Dispatchers.IO) {
             selectedSkills.mapNotNull { skill ->
-                val skillDir = SkillPaths.resolveSkillDir(skillsRoot, skill.name) ?: return@mapNotNull null
-                val skillFile = File(skillDir, "SKILL.md")
                 val content = runCatching {
-                    if (skillFile.isFile) skillFile.readText() else ""
+                    SkillSource(context).read(skill, "SKILL.md").orEmpty()
                 }.getOrElse { error ->
                     Log.w(TAG, "Failed to read explicit SKILL.md for ${skill.name}", error)
                     ""
@@ -2396,7 +2397,7 @@ class GenerationHandler(
                 if (content.isBlank()) {
                     null
                 } else {
-                    skill to content
+                    skill to if (skill.isBuiltIn) content + "\nSupported catalogId: ${androidx.a2ui.compose.ui.catalog.A2uiBasicCatalogV1.CatalogId}" else content
                 }
             }
         }

@@ -18,6 +18,8 @@ internal sealed interface MessageRenderBlock {
     data class TextBlock(
         val part: UIMessagePart.Text,
         val textIndex: Int,
+        val sourceParts: List<UIMessagePart>? = null,
+        val sourcePartIndex: Int? = null,
     ) : MessageRenderBlock
 
     data class ImageGroup(
@@ -130,6 +132,8 @@ internal fun buildMessageRenderBlocks(
                 blocks += MessageRenderBlock.TextBlock(
                     part = part,
                     textIndex = textIndex++,
+                    sourceParts = parts.takeIf { part.text.contains("a2ui", true) },
+                    sourcePartIndex = parts.indexOf(part).takeIf { part.text.contains("a2ui", true) },
                 )
             }
 

@@ -1,5 +1,9 @@
 package me.rerere.rikkahub.ui.components.richtext
 
+import me.rerere.rikkahub.ui.components.interactive.*
+import me.rerere.rikkahub.data.interactive.interactiveFences
+import me.rerere.rikkahub.data.interactive.transformAroundInteractiveFences
+
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -555,6 +559,7 @@ private val markdownAstCache = object : android.util.LruCache<String, MarkdownRe
 @Immutable
 internal class MarkdownBlockSnapshot(
     val blockText: String,
+    val sourceOffset: Int = 0,
     val hasNextSibling: Boolean,
     val node: ASTNode,
     // 合成父节点（为 node 提供"后面还有内容"的兄弟关系）。渲染不直接读取它，
@@ -564,6 +569,7 @@ internal class MarkdownBlockSnapshot(
     override fun equals(other: Any?): Boolean = this === other ||
         (other is MarkdownBlockSnapshot &&
             other.blockText == blockText &&
+            other.sourceOffset == sourceOffset &&
             other.hasNextSibling == hasNextSibling)
 
     override fun hashCode(): Int = 31 * blockText.hashCode() + hasNextSibling.hashCode()
@@ -625,6 +631,7 @@ private fun buildBlockSnapshots(
         if (
             prev != null &&
             prev.hasNextSibling == hasNextSibling &&
+            prev.sourceOffset == start &&
             prev.node.type == child.type &&
             prev.blockText.length == end - start &&
             preprocessed.startsWith(prev.blockText, start)
@@ -659,6 +666,7 @@ private fun createBlockSnapshot(
     }
     return MarkdownBlockSnapshot(
         blockText = blockText,
+        sourceOffset = sourceNode.startOffset,
         hasNextSibling = hasNextSibling,
         node = rebased,
         syntheticParent = syntheticParent,
@@ -692,7 +700,9 @@ private fun markdownParseThrottleIntervalMs(contentLength: Int): Long = when {
 }
 
 // 预处理markdown内容
-private fun preProcess(content: String): String {
+private fun preProcess(content: String): String = transformAroundInteractiveFences(content, ::preProcessPlain)
+
+private fun preProcessPlain(content: String): String {
     // 先找出所有代码块的位置
     val codeBlocks = mutableListOf<IntRange>()
     CODE_BLOCK_REGEX.findAll(content).forEach { match ->
@@ -881,8 +891,12 @@ fun MarkdownBlock(
         exportAssets == null &&
         data.preprocessed.length >= MARKDOWN_LAZY_RENDER_MIN_CHARS &&
         data.snapshots.size >= MARKDOWN_LAZY_RENDER_MIN_BLOCKS
+    val interactiveOrigin = LocalInteractiveContentContext.current
     // Provide rpStyleRules to entire tree via CompositionLocal
     CompositionLocalProvider(
+        LocalMarkdownInteractiveFences provides remember(data.preprocessed, interactiveOrigin) {
+            if (interactiveOrigin != null) interactiveFences(data.preprocessed) else emptyList()
+        },
         LocalRpStyleRules provides rpStyleRules,
         LocalWorkspaceFileLinkClick provides stableOnClickWorkspaceFile,
     ) {
@@ -894,9 +908,8 @@ fun MarkdownBlock(
                     // 导出走离屏一次性渲染，无流式增量需求，保持直接遍历
                     exportAssets != null -> {
                         data.snapshots.fastForEach { snapshot ->
-                            MarkdownNode(
-                                node = snapshot.node,
-                                content = snapshot.blockText,
+                            MarkdownSnapshot(
+                                snapshot = snapshot,
                                 onClickCitation = stableOnClickCitation,
                                 exportAssets = exportAssets,
                             )
@@ -936,6 +949,17 @@ fun MarkdownBlock(
     }
 }
 
+
+private val LocalMarkdownBlockOffset = androidx.compose.runtime.compositionLocalOf { 0 }
+private val LocalMarkdownInteractiveFences = androidx.compose.runtime.compositionLocalOf { emptyList<me.rerere.rikkahub.data.interactive.InteractiveFence>() }
+
+@Composable
+private fun MarkdownSnapshot(snapshot: MarkdownBlockSnapshot, onClickCitation: (String) -> Unit, exportAssets: MermaidExportAssets? = null) {
+    CompositionLocalProvider(LocalMarkdownBlockOffset provides snapshot.sourceOffset) {
+        MarkdownNode(node = snapshot.node, content = snapshot.blockText, onClickCitation = onClickCitation, exportAssets = exportAssets)
+    }
+}
+
 // 顶层块的独立重组作用域：快照相等（按块源文本比较）时整块跳过重组，
 // 流式追加每 tick 只会真正重建正在增长的尾部块
 @Composable
@@ -943,9 +967,8 @@ private fun MarkdownTopLevelBlock(
     snapshot: MarkdownBlockSnapshot,
     onClickCitation: (String) -> Unit,
 ) {
-    MarkdownNode(
-        node = snapshot.node,
-        content = snapshot.blockText,
+    MarkdownSnapshot(
+        snapshot = snapshot,
         onClickCitation = onClickCitation,
     )
 }
@@ -1047,9 +1070,8 @@ private fun LazyMarkdownChildren(
             val nodeHeightsPx = if (hasDynamicHeight) localHeightsPx else measuredHeightsPx
             val initialNodeHeightsPx = if (hasDynamicHeight) persistentHeightsPx else null
             if (blankNodeFlags[index]) {
-                MarkdownNode(
-                    node = snapshot.node,
-                    content = snapshot.blockText,
+                MarkdownSnapshot(
+                    snapshot = snapshot,
                     onClickCitation = onClickCitation,
                     exportAssets = null,
                 )
@@ -1156,9 +1178,8 @@ private fun LazyMarkdownNode(
                     }
                 }
             ) {
-                MarkdownNode(
-                    node = snapshot.node,
-                    content = snapshot.blockText,
+                MarkdownSnapshot(
+                    snapshot = snapshot,
                     onClickCitation = onClickCitation,
                     exportAssets = null,
                 )
@@ -1544,7 +1565,15 @@ private fun MarkdownNode(
             val hasEnd = node.findChildOfTypeRecursive(MarkdownTokenTypes.CODE_FENCE_END) != null
 
             // Mermaid diagrams: render directly without HighlightCodeBlock wrapper
-            if (hasEnd && language == "mermaid") {
+            val interactiveHost = LocalInteractiveContentContext.current
+            val interactiveExport = LocalInteractiveExport.current
+            if (language.trim().equals("a2ui", true) && (interactiveHost != null || interactiveExport)) {
+                val displayedOffset = LocalMarkdownBlockOffset.current + node.startOffset
+                val ordinal = LocalMarkdownInteractiveFences.current.indexOfFirst { it.offset == displayedOffset }
+                val sourceOffset = interactiveHost?.fences?.getOrNull(ordinal)?.offset ?: displayedOffset
+                InteractiveBlock(code = code, closed = hasEnd, offset = sourceOffset, export = interactiveExport,
+                    modifier = Modifier.padding(bottom = 4.dp).fillMaxWidth())
+            } else if (hasEnd && language == "mermaid") {
                 val mermaidImage = exportAssets?.images?.get(mermaidExportKey(code))
                 if (mermaidImage != null) {
                     ComposeImage(

@@ -139,4 +139,16 @@ class ChatMessageRenderPlannerTest {
         assertEquals(MessageRenderBlock.ImageGroup(listOf(thirdImage)), blocks[2])
         assertTrue(blocks[3] is MessageRenderBlock.DocumentGroup)
     }
+    @Test
+    fun `identical interactive text in merged segments retains each original source`() {
+        val first = listOf(UIMessagePart.Text("```a2ui\n{}\n```"))
+        val second = listOf(UIMessagePart.Text("```a2ui\n{}\n```"))
+        val blocks = buildMessageRenderBlocksFromSegments(listOf(first, second))
+            .filterIsInstance<MessageRenderBlock.TextBlock>()
+        org.junit.Assert.assertSame(first, blocks.first().sourceParts)
+        org.junit.Assert.assertSame(second, blocks.last().sourceParts)
+        assertEquals(0, blocks.first().sourcePartIndex)
+        assertEquals(0, blocks.last().sourcePartIndex)
+    }
+
 }

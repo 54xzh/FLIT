@@ -1,5 +1,8 @@
 package me.rerere.rikkahub.ui.components.ai
 
+import me.rerere.rikkahub.ui.components.ai.displayDescription
+import me.rerere.rikkahub.ui.components.ai.displayName
+import me.rerere.rikkahub.data.model.includingBuiltInSkills
 import android.content.Context
 import android.content.Intent
 
@@ -608,7 +611,7 @@ fun ChatInput(
                         assistant.enabledSkills,
                         settings.modes,
                         settings.lorebooks,
-                        settings.skills,
+                        settings.skills.includingBuiltInSkills(),
                     ) {
                         val activeModeCount = settings.modes.count { mode ->
                             mode.id in conversation.enabledModeIds
@@ -616,7 +619,7 @@ fun ChatInput(
                         val activeLorebookCount = settings.lorebooks.count { lorebook ->
                             lorebook.id in assistant.enabledLorebookIds
                         }
-                        val validSkillNames = settings.skills
+                        val validSkillNames = settings.skills.includingBuiltInSkills()
                             .asSequence()
                             .filter { skill -> skill.name in assistant.enabledSkills }
                             .map { skill -> skill.name }
@@ -1597,8 +1600,8 @@ private fun FilesPicker(
     }
 
     val mcpServers = settings.mcpServers
-    val enabledSkills = remember(settings.skills, assistant.enabledSkills) {
-        settings.skills.filter { skill -> skill.name in assistant.enabledSkills }
+    val enabledSkills = remember(settings.skills.includingBuiltInSkills(), assistant.enabledSkills) {
+        settings.skills.includingBuiltInSkills().filter { skill -> skill.name in assistant.enabledSkills }
     }
     val activeExplicitSkillNames = remember(
         conversation.explicitSkillContexts,
@@ -2988,14 +2991,14 @@ private fun ExplicitSkillsPickerContent(
                     )
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = skill.name.ifBlank { stringResource(R.string.skills_unnamed) },
+                            text = skill.displayName().ifBlank { stringResource(R.string.skills_unnamed) },
                             style = MaterialTheme.typography.bodyLarge,
                             color = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = skill.description.trim().ifBlank { stringResource(R.string.skills_no_description) },
+                            text = skill.displayDescription().trim().ifBlank { stringResource(R.string.skills_no_description) },
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodySmall,

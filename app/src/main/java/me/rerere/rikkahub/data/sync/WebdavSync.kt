@@ -192,6 +192,7 @@ class WebdavSync(
     private val context: Context,
     private val database: AppDatabase,
     private val skillUuidMigration: SkillUuidMigration,
+    private val interactiveStateRepo: me.rerere.rikkahub.data.interactive.InteractiveStateRepository,
     private val codexCredentialStore: CodexCredentialStore,
     private val codexCredentialTransactionGate: CodexCredentialTransactionGate,
 ) {
@@ -506,7 +507,8 @@ class WebdavSync(
             }
     }
 
-    private fun exportDatabaseSnapshot(targetFile: File) {
+    private suspend fun exportDatabaseSnapshot(targetFile: File) {
+        interactiveStateRepo.flushAll()
         val path = targetFile.absolutePath.replace("'", "''")
         database.openHelper.writableDatabase.execSQL("VACUUM INTO '$path'")
     }
@@ -864,6 +866,7 @@ class WebdavSync(
                     if (cleanDb != null) {
                         // 从调用开始就视为需要回滚：事务提交后 DETACH 仍可能报错。
                         databaseApplied = true
+                        interactiveStateRepo.invalidatePersistentState()
                         replaceDatabaseContents(cleanDb)
 
                         Log.i(TAG, "Database restored and sanitized: $sanitizationResult")

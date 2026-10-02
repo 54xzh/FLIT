@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.ai.tools
 
+import me.rerere.rikkahub.data.files.SkillSource
 import android.content.Context
 import com.whl.quickjs.android.QuickJSLoader
 import com.whl.quickjs.wrapper.QuickJSContext
@@ -443,6 +444,10 @@ class LocalTools(
                             put("type", "string")
                             put("description", "Skill name from the available skills list.")
                         })
+                        put("source", buildJsonObject {
+                            put("type", "string")
+                            put("description", "Use builtin for app-provided packages; user for imported packages.")
+                        })
                         put("path", buildJsonObject {
                             put("type", "string")
                             put("description", "Relative path inside the skill folder (default: SKILL.md)")
@@ -471,7 +476,9 @@ class LocalTools(
                     return@Tool buildJsonObject { put("error", "Missing skill_name") }
                 }
 
-                val resolvedSkill = allowedSkillsByName[skillNameRaw.lowercase(Locale.ROOT)]
+                val source = obj["source"]?.jsonPrimitiveOrNull?.contentOrNull
+                val lookupName = if (source == "builtin") "builtin:${skillNameRaw.removePrefix("builtin:")}" else skillNameRaw
+                val resolvedSkill = allowedSkillsByName[lookupName.lowercase(Locale.ROOT)]
                     ?: return@Tool buildJsonObject { put("error", "Skill not allowed: $skillNameRaw") }
 
                 val pathRaw = obj["path"]?.jsonPrimitiveOrNull?.contentOrNull?.trim().orEmpty()
@@ -479,21 +486,11 @@ class LocalTools(
 
                 val maxChars = obj["max_chars"]?.jsonPrimitiveOrNull?.intOrNull?.coerceIn(1, 200_000) ?: 20_000
 
-                val skillsRoot = File(context.filesDir, "skills")
-                val skillRoot = SkillPaths.resolveSkillDir(skillsRoot, resolvedSkill.name)
-                    ?: return@Tool buildJsonObject { put("error", "Invalid skill directory") }
-                val target = SkillPaths.resolveSkillFile(skillRoot, relativePath)
-                    ?: return@Tool buildJsonObject { put("error", "Invalid path") }
-
-                if (!target.exists() || !target.isFile) {
-                    return@Tool buildJsonObject { put("error", "File not found: $relativePath") }
-                }
-
                 val text = try {
-                    withContext(Dispatchers.IO) {
-                        target.readText(Charsets.UTF_8)
-                    }
-                } catch (e: Exception) {
+                    SkillSource(context).read(resolvedSkill, relativePath)
+                        ?: return@Tool buildJsonObject { put("error", "Invalid path or file not found: $relativePath") }
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) {
                     return@Tool buildJsonObject { put("error", "Failed to read file: ${e.message}") }
                 }
 
@@ -518,6 +515,7 @@ class LocalTools(
             allowedSkills.forEach { skill ->
                 append("- ")
                 append(skill.name)
+                if (skill.isBuiltIn) append(" | source: builtin | package: ${skill.packageName} | SKILL.md already loaded")
                 if (skill.description.isNotBlank()) {
                     append(" | desc: ")
                     append(skill.description.replace('\n', ' ').trim())

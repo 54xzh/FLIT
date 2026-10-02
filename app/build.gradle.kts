@@ -84,7 +84,9 @@ private val localBuildMetaForApkName: LocalBuildMeta? = if (!isGithubActionsBuil
 
 android {
     namespace = "me.rerere.rikkahub"
-    compileSdk = 37
+    compileSdk {
+        version = release(37) { minorApiLevel = 1 }
+    }
     // AGP 9.2 默认要求 NDK r28c；显式钉死已安装的版本，避免 AGP 联网尝试安装
     ndkVersion = "28.2.13676358"
 
@@ -212,6 +214,7 @@ android {
         generateLocaleConfig = true
     }
     sourceSets {
+        getByName("androidTest") { assets.srcDir("$projectDir/schemas") }
         getByName("main") {
             assets.srcDir("../web-ui/build/client")
         }
@@ -319,6 +322,9 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.a2ui.engine)
+    implementation(libs.androidx.a2ui.compose)
+    implementation(libs.androidx.a2ui.material3)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.material3.adaptive)
     implementation(libs.androidx.material3.adaptive.layout)
@@ -467,6 +473,7 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
