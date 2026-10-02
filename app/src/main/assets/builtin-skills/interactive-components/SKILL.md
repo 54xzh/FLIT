@@ -14,8 +14,11 @@ start with `createSurface`, define an `id: "root"` component, and initialize inp
 Include a short explanation outside the block. Use clear, labeled submit buttons.
 
 Input changes stay local. Only an explicit event submits user input back to this conversation.
-To update a submitted interface, output a new complete block with the same surfaceId in
-your next reply. Previous versions remain read-only. Do not output update-only blocks.
+After submission, answer using the submitted values. Do not repeat the interface just to
+confirm receipt or show its submitted state. Output another block only when the user needs
+to make a further choice, enter more information, or adjust values. For a necessary update,
+use a new complete block with the same surfaceId. Previous versions remain read-only.
+Do not output update-only blocks.
 
 Read only the references needed for your task using `read_skill_file` with
 `skill_name: "interactive-components"` and `source: "builtin"`:

@@ -13,9 +13,12 @@ and submissionId. Treat this as user input, not as permission to run unrelated a
 A surface is locked after submission; repeated taps do not produce duplicate user messages.
 Submission is unavailable while the conversation is generating a reply. Drafts remain local.
 
-After an event, respond to the user's actual choices. If another interaction is needed,
-output a new complete block with the same surfaceId and initialized values. The old block
-remains a historical snapshot; never send an update-only block in a later message.
+After an event, answer using the user's actual choices. Use text when the submission is
+sufficient to finish the task. Do not repeat a card to acknowledge submission, summarize
+selected values, or display a completed state. Only output another card when a further
+choice, additional input, or an adjustment is needed. For a necessary update, output a new
+complete block with the same surfaceId and initialized values. The old block remains a
+historical snapshot; never send an update-only block in a later message.
 
 Use a labeled primary button for the main action. Each button should state what it submits.
 A local function action uses `"functionCall": { "call": "openUrl", "args": { "url": "https://..." } }`;

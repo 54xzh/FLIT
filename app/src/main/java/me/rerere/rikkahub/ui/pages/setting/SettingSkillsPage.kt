@@ -4,7 +4,7 @@ package me.rerere.rikkahub.ui.pages.setting
 import me.rerere.rikkahub.data.model.BuiltInSkills
 import me.rerere.rikkahub.data.model.includingBuiltInSkills
 import me.rerere.rikkahub.ui.components.ai.displayName
-import androidx.compose.material3.ListItem
+import me.rerere.rikkahub.ui.components.ai.displayDescription
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
@@ -67,6 +66,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -123,6 +123,7 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
     var knownFolderIds by remember { mutableStateOf<Set<Uuid>>(emptySet()) }
     var foldersInitialized by remember { mutableStateOf(false) }
     var ungroupedExpanded by remember { mutableStateOf(true) }
+    var systemExpanded by rememberSaveable { mutableStateOf(true) }
     var skillPreviews by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
 
     var showMoveSheet by remember { mutableStateOf(false) }
@@ -508,15 +509,51 @@ fun SettingSkillsPage(vm: SettingVM = koinViewModel()) {
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(BuiltInSkills.skills, key = { it.name }) { builtIn ->
-                    ListItem(
-                        headlineContent = { Text(builtIn.displayName()) },
-                        supportingContent = { Text(stringResource(R.string.interactive_components_skill_description)) },
-                        modifier = Modifier.clickable {
-                            haptics.perform(HapticPattern.Pop)
-                            navController.navigate(Screen.SettingSkillDetail(builtIn.name))
-                        },
-                    )
+                item(key = "folder_group_system") {
+                    Column {
+                        FolderHeader(
+                            title = stringResource(R.string.skills_folder_system),
+                            count = BuiltInSkills.skills.size,
+                            expanded = systemExpanded,
+                            onToggleExpanded = { systemExpanded = !systemExpanded },
+                            onRename = null,
+                            clickEnabled = true,
+                        )
+                        AnimatedVisibility(
+                            visible = systemExpanded,
+                            enter = expandVertically(
+                                animationSpec = spring(dampingRatio = 0.7f, stiffness = 300f)
+                            ) + fadeIn(animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f)),
+                            exit = shrinkVertically(
+                                animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f)
+                            ) + fadeOut(animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f)),
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                BuiltInSkills.skills.forEachIndexed { index, builtIn ->
+                                    val position = when {
+                                        BuiltInSkills.skills.size == 1 -> ItemPosition.ONLY
+                                        index == 0 -> ItemPosition.FIRST
+                                        index == BuiltInSkills.skills.lastIndex -> ItemPosition.LAST
+                                        else -> ItemPosition.MIDDLE
+                                    }
+                                    SkillCard(
+                                        skill = builtIn,
+                                        position = position,
+                                        preview = null,
+                                        onClick = {
+                                            haptics.perform(HapticPattern.Pop)
+                                            navController.navigate(Screen.SettingSkillDetail(builtIn.name))
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                if (settings.skillFolders.isNotEmpty() || ungroupedSkills.isNotEmpty()) {
+                    item(key = "folder_spacer_system") {
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
                 }
                 settings.skillFolders.forEachIndexed { folderIndex, folder ->
                     val skillsInFolder = settings.skills.filter { it.folderId == folder.id }
@@ -994,12 +1031,12 @@ private fun SkillRowContent(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
-                text = skill.name.ifBlank { stringResource(R.string.skills_unnamed) },
+                text = skill.displayName().ifBlank { stringResource(R.string.skills_unnamed) },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = preview ?: skill.description.trim().ifBlank { stringResource(R.string.skills_no_description) },
+                text = preview ?: skill.displayDescription().trim().ifBlank { stringResource(R.string.skills_no_description) },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 3,

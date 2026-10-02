@@ -17,6 +17,7 @@ import androidx.compose.material3.a2ui.catalog.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import me.rerere.rikkahub.ui.components.richtext.ZoomableAsyncImage
@@ -92,7 +93,11 @@ private object InteractiveCard : A2uiBasicCatalogV1.Card {
     @Composable
     override fun A2uiComponentScope.TypedContent(childId: String, accessibility: A2uiBasicCatalogV1.AccessibilityAttributes?, modifier: Modifier) {
         val child = observeA2uiComponentState(childId)
-        OutlinedCard(modifier = modifier.interactiveAccessibility(accessibility), shape = AppShapes.CardLarge) {
+        Card(
+            modifier = modifier.interactiveAccessibility(accessibility),
+            shape = AppShapes.CardLarge,
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        ) {
             Box(Modifier.padding(16.dp)) {
                 when (val state = child) {
                     is A2uiComponentState.Success -> A2uiComponent(component = state.component)

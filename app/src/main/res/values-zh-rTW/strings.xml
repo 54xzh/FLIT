@@ -923,6 +923,7 @@
   <string name="skills_folder_name_exists">資料夾已存在：%1$s</string>
   <string name="skills_folder_unnamed">未命名資料夾</string>
   <string name="skills_folder_ungrouped">未分組</string>
+  <string name="skills_folder_system">系統</string>
   <string name="skills_folder_empty">空資料夾</string>
   <string name="skills_folder_delete_title">刪除資料夾？</string>
   <string name="skills_folder_delete_desc">將刪除「%1$s」。</string>
@@ -2776,8 +2777,6 @@
     <string name="interactive_components_skill_description">在聊天中建立可互動元件。</string>
     <string name="interactive_components_loading">正在準備元件…</string>
     <string name="interactive_components_error">無法顯示此元件</string>
-    <string name="interactive_components_view_source">檢視原始碼</string>
-    <string name="interactive_components_hide_source">收起原始碼</string>
     <string name="interactive_components_open_media">開啟媒體</string>
     <string name="interactive_components_submission">已提交：%1$s</string>
     <string name="interactive_components_submit_unavailable">目前無法提交此元件。</string>

@@ -26,12 +26,16 @@ Replace `<supported catalogId>` with the app-provided identifier. Translate visi
 {"version":"v0.9.1","updateDataModel":{"surfaceId":"preferences","value":{"budget":1000}}}
 ```
 
-## Follow-up version
+## Answer after submission
 
-After submission, emit the complete block again with the same surfaceId, new components as needed, and submitted values as initial data.
+User submits `{ "Budget": 1500 }` for recommendations. Use that budget to answer in text.
+Do not repeat the slider or generate a confirmation card.
 
+## Follow-up when another interaction is needed
 
-User submits `{ "Budget": 1500 }`. Explain the result and include an independently restorable update:
+Only generate a follow-up card when another choice or adjustment is needed. For example,
+the user explicitly asks to revise the submitted budget of 1500. Explain briefly, then
+include a complete block with the same surfaceId and the submitted value as initial data:
 
 ```a2ui
 {"version":"v0.9.1","createSurface":{"surfaceId":"preferences","catalogId":"<supported catalogId>"}}

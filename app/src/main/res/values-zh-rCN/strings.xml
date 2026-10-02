@@ -2011,6 +2011,7 @@
   <string name="skills_folder_rename_action">重命名</string>
   <string name="skills_folder_rename_title">重命名文件夹</string>
   <string name="skills_folder_ungrouped">未分组</string>
+  <string name="skills_folder_system">系统</string>
   <string name="skills_folder_unnamed">未命名文件夹</string>
   <string name="skills_group_title">技能</string>
   <string name="skills_import_folder_default">导入的技能</string>
@@ -2709,8 +2710,6 @@
     <string name="interactive_components_skill_description">在聊天中创建可交互组件。</string>
     <string name="interactive_components_loading">正在准备组件…</string>
     <string name="interactive_components_error">无法显示此组件</string>
-    <string name="interactive_components_view_source">查看源码</string>
-    <string name="interactive_components_hide_source">收起源码</string>
     <string name="interactive_components_open_media">打开媒体</string>
     <string name="interactive_components_submission">已提交：%1$s</string>
     <string name="interactive_components_submit_unavailable">当前无法提交此组件。</string>

@@ -1216,6 +1216,7 @@
     <string name="skills_folder_name_exists">Folder already exists: %1$s</string>
     <string name="skills_folder_unnamed">Unnamed folder</string>
     <string name="skills_folder_ungrouped">Ungrouped</string>
+    <string name="skills_folder_system">System</string>
     <string name="skills_folder_empty">Empty folder</string>
     <string name="skills_folder_delete_title">Delete folder?</string>
     <string name="skills_folder_delete_desc">This will delete ЁА%1$sЁБ.</string>
@@ -2786,8 +2787,6 @@
     <string name="interactive_components_skill_description">Create interactive components in chat.</string>
     <string name="interactive_components_loading">Preparing component…</string>
     <string name="interactive_components_error">Unable to display this component</string>
-    <string name="interactive_components_view_source">View source</string>
-    <string name="interactive_components_hide_source">Hide source</string>
     <string name="interactive_components_open_media">Open media</string>
     <string name="interactive_components_submission">Submitted: %1$s</string>
     <string name="interactive_components_submit_unavailable">This component cannot be submitted right now.</string>

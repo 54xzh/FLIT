@@ -2,6 +2,7 @@
 
 The app supports the AndroidX Material 3 Basic Catalog. App colors, typography, card shapes,
 button press feedback, and motion are supplied by the host; do not specify arbitrary styling.
+Cards have transparent backgrounds and no borders so their contents blend into the chat.
 
 | Component | Main properties |
 | --- | --- |

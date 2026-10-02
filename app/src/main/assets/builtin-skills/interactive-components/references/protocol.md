@@ -20,8 +20,9 @@ Children may arrive later during streaming, but all references must be resolved 
 `updateDataModel` replaces the value at its JSON Pointer path. Omit `value` to remove it.
 Use `/` to replace the root object. Escape pointer segments with `~0` and `~1` as needed.
 
-In later replies, create a complete independent surface using the same logical surfaceId.
-Include the latest data and all components. Do not modify earlier message contents.
+Only when further interaction is needed in a later reply, create a complete independent
+surface using the same logical surfaceId. Include the latest data and all components.
+Do not repeat a surface solely to confirm submission. Do not modify earlier message contents.
 Do not emit Kotlin, JavaScript, HTML, custom JSON wrappers, or v0.8 message names.
 
 The AndroidX renderer requires an object at the data model root. Put strings, numbers,

@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.a2ui.A2uiSurface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -20,7 +21,6 @@ import kotlinx.serialization.json.*
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.db.entity.InteractiveComponentStateEntity
 import me.rerere.rikkahub.data.interactive.*
-import me.rerere.rikkahub.ui.components.richtext.HighlightCodeBlock
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
@@ -63,7 +63,6 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
     var notice by remember(epoch) { mutableStateOf<String?>(null) }
     var pending by remember(epoch) { mutableStateOf(false) }
     var persisted by remember(epoch) { mutableStateOf<InteractiveComponentStateEntity?>(null) }
-    var sourceVisible by remember { mutableStateOf(false) }
     var renderedCode by remember(epoch) { mutableStateOf(code) }
     val fingerprint = remember(code) { interactiveFingerprint(code) }
     if ((ready || error != null) && renderedCode != code) {
@@ -183,7 +182,10 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (error != null || expansionError != null) {
-            OutlinedCard(shape = AppShapes.CardLarge) {
+            Card(
+                shape = AppShapes.CardLarge,
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+            ) {
                 Column(Modifier.padding(16.dp)) {
                     Text(stringResource(R.string.interactive_components_error), color = MaterialTheme.colorScheme.error)
                     Text((error ?: expansionError).orEmpty(), style = MaterialTheme.typography.bodySmall)
@@ -199,10 +201,5 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
             }
         } else if (!decoder.deleted) Text(stringResource(R.string.interactive_components_loading))
         notice?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        if (!export) {
-            InteractiveAuxiliaryButton(onClick = { sourceVisible = !sourceVisible },
-                label = stringResource(if (sourceVisible) R.string.interactive_components_hide_source else R.string.interactive_components_view_source))
-            if (sourceVisible) HighlightCodeBlock(code = code, language = "a2ui", completeCodeBlock = closed)
-        }
     }
 }
