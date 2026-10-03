@@ -96,11 +96,12 @@ class InteractiveDocumentTest {
     }
 
     @Test fun `all packaged examples describe independent valid surfaces`() {
-        val file = File("src/main/assets/builtin-skills/interactive-components/references/examples.md")
-        val source = file.readText()
-        val examples = interactiveFences(source)
-        assertEquals(4, examples.size)
-        examples.forEach { assertTrue(InteractiveDocument("<supported catalogId>").consume(it.code, true).size >= 3) }
+        listOf("SKILL.md", "references/examples.md").forEach { path ->
+            val source = File("src/main/assets/builtin-skills/interactive-components/$path").readText()
+            val examples = interactiveFences(source)
+            assertTrue("Missing examples in $path", examples.isNotEmpty())
+            examples.forEach { assertTrue(InteractiveDocument("<supported catalogId>").consume(it.code, true).size >= 3) }
+        }
     }
     @Test fun `invalid layout weights fail locally before invoking Compose`() {
         val invalid = components.replace("\"text\":\"Hello\"", "\"text\":\"Hello\",\"weight\":-1")

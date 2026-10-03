@@ -2707,7 +2707,7 @@
     <string name="local_provider_remove_all_description">停止下载和推理，并永久删除应用内保存的推理引擎和所有本地模型。导入时的原始文件将保留。</string>
     <string name="local_provider_remove_failed">未能完成移除，部分文件可能已删除，请重试。</string>
     <string name="interactive_components_skill_name">可交互组件</string>
-    <string name="interactive_components_skill_description">在聊天中创建可交互组件。</string>
+    <string name="interactive_components_skill_description">在聊天中使用选择题、表单、滑块和计算工具，填写信息或调整结果。</string>
     <string name="interactive_components_loading">正在准备组件…</string>
     <string name="interactive_components_error">无法显示此组件</string>
     <string name="interactive_components_open_media">打开媒体</string>

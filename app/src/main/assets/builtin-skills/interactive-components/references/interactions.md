@@ -14,13 +14,16 @@ not as permission to run unrelated actions. Later local edits do not change that
 Ordinary forms lock after submission. Script tools remain locally editable but cannot submit
 again; repeated taps never produce duplicate user messages.
 Submission is unavailable while the conversation is generating a reply. Drafts remain local.
+The app validates current field values before accepting a submission. Declare necessary
+field checks; button checks are optional for early disabling or extra submit conditions.
 
 After an event, answer using the user's actual choices. Use text when the submission is
 sufficient to finish the task. Do not repeat a card to acknowledge submission, summarize
 selected values, or display a completed state. Only output another card when a further
 choice, additional input, or an adjustment is needed. For a necessary update, output a new
 complete block with the same surfaceId and initialized values. The old block remains a
-historical snapshot; never send an update-only block in a later message.
+historical snapshot, not overwritten content. Never send just an update patch in a later
+message; multiple update lines inside the current complete block are allowed.
 
 Use a labeled primary button for the main action. Each button should state what it submits.
 A local function action uses `"functionCall": { "call": "openUrl", "args": { "url": "https://..." } }`;

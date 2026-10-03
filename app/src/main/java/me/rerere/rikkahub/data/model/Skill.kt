@@ -25,7 +25,15 @@ data class Skill(
 
 object BuiltInSkills {
     const val INTERACTIVE_COMPONENTS_ID = "builtin:interactive-components"
-    val skills = listOf(Skill(INTERACTIVE_COMPONENTS_ID, "Create interactive components in chat."))
+    val skills = listOf(
+        Skill(
+            INTERACTIVE_COMPONENTS_ID,
+            "Create native interactive forms and local tools directly in chat using A2UI. " +
+                "Use when users need to choose options, enter structured information, adjust values, " +
+                "or interact with a calculator, filter, or scoring tool. " +
+                "Prefer plain text for simple answers and acknowledgments.",
+        ),
+    )
     val ids = skills.map { it.name }.toSet()
 }
 

@@ -29,10 +29,15 @@ fetch, files, application tools, imports, timers, promises, async handlers, or p
 global variables are provided. Use finite numbers and ordinary JSON values only.
 Return all modifications together; invalid results never apply partially.
 
-Limits: 500 ms execution, 32 KiB UTF-8 source, 128 KiB input model/arguments/result,
-16 MiB engine memory, 512 KiB stack, 200 items per collection, 32 nesting levels.
+Keep calculations short and bounded. Limits: 500 ms execution, 32 KiB UTF-8 source,
+128 KiB input model/arguments/result, 200 items per collection, 32 nesting levels.
 Keep tools small. Errors preserve the last valid result and pause automatic execution
 until the user chooses Retry. Purely local tools do not send conversation messages.
+
+Initialize all data before components. Keep results and necessary feedback in components
+that are present from the start, with concise initial text; update their bound values.
+Avoid temporary status components and large text-height changes on every input edit.
+Use dynamic list filtering only when needed, with a small result set to limit height changes.
 
 Use an event button only when the user needs assistant analysis. Each card submits once.
 After submission, local editing and calculations continue, but the assistant receives only

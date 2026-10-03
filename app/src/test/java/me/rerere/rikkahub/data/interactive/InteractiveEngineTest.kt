@@ -15,6 +15,11 @@ import org.junit.Test
 import java.io.File
 
 class InteractiveEngineTest {
+    private fun formExamples() = listOf("SKILL.md", "references/examples.md").flatMap { path ->
+        interactiveFences(File("src/main/assets/builtin-skills/interactive-components/$path").readText())
+            .also { assertTrue("Missing examples in $path", it.isNotEmpty()) }
+    }
+
     /** Android 的 JSON Reader 在设备测试验证；此处把同一描述交给真实引擎和目录校验。 */
     private suspend fun CoroutineScope.withSurface(code: String, check: suspend (A2uiCoreSurfaceModel, MutableList<A2uiClientToServerMessage>) -> Unit) {
         val catalog = interactiveCatalog {}
@@ -57,7 +62,7 @@ class InteractiveEngineTest {
     }
 
     @Test fun `packaged examples pass the official catalog schema and resolve edited submission values`() = runBlocking {
-        val examples = interactiveFences(File("src/main/assets/builtin-skills/interactive-components/references/examples.md").readText())
+        val examples = formExamples()
         examples.forEach { fence ->
             withSurface(fence.code) { surface, events ->
                 assertTrue("Official catalog errors: $events", events.none { it is A2uiClientErrorMessage })
@@ -68,6 +73,20 @@ class InteractiveEngineTest {
                     withTimeout(5_000) { while (events.none { it is A2uiClientEventMessage }) delay(1) }
                     val event = events.filterIsInstance<A2uiClientEventMessage>().single()
                     assertEquals(1500.0, (event.context["Budget"] as Number).toDouble(), 0.0)
+                }
+                if (surface.dataModel[A2uiDataPath("/mode")] != null) {
+                    surface.dataModel.update(A2uiDataPath("/mode"), listOf("car"))
+                    surface.dispatchAction("submit", mapOf("event" to mapOf("name" to "submit_preferences",
+                        "context" to mapOf("Travel mode" to mapOf("path" to "/mode")))))
+                    withTimeout(5_000) { while (events.none { it is A2uiClientEventMessage }) delay(1) }
+                    assertEquals(listOf("car"), events.filterIsInstance<A2uiClientEventMessage>().single().context["Travel mode"])
+                }
+                if (surface.dataModel[A2uiDataPath("/name")] != null) {
+                    val decoder = InteractiveDocument("<supported catalogId>")
+                    decoder.consume(fence.code, true)
+                    assertEquals("Enter your name", interactiveValidationError(surface, decoder.componentSnapshot))
+                    surface.dataModel.update(A2uiDataPath("/name"), "Alice")
+                    assertNull(interactiveValidationError(surface, decoder.componentSnapshot))
                 }
             }
         }
@@ -88,7 +107,7 @@ class InteractiveEngineTest {
     }
 
     @Test fun `streamed component previews remain valid official protocol messages`() = runBlocking {
-        val examples = interactiveFences(File("src/main/assets/builtin-skills/interactive-components/references/examples.md").readText())
+        val examples = formExamples()
         examples.forEach { fence ->
             val decoder = InteractiveDocument("<supported catalogId>")
             val messages = mutableListOf<String>()
