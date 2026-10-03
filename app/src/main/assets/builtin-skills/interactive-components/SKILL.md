@@ -12,6 +12,8 @@ Output A2UI v0.9.1 JSON Lines inside a fenced block labeled `a2ui`, directly in 
 Use the supported catalogId supplied by the app. Each block describes one surface and must
 start with `createSurface`, define an `id: "root"` component, and initialize input data.
 Include a short explanation outside the block. Use clear, labeled submit buttons.
+Emit the root and layout early, then add components in small batches in visual order.
+Initialize bound data early so inputs can appear as their descriptions arrive.
 
 Input changes stay local. Only an explicit event submits user input back to this conversation.
 After submission, answer using the submitted values. Do not repeat the interface just to

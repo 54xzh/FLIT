@@ -11,7 +11,6 @@ import androidx.compose.material3.*
 import androidx.compose.material3.a2ui.A2uiSurface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -21,14 +20,13 @@ import kotlinx.serialization.json.*
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.db.entity.InteractiveComponentStateEntity
 import me.rerere.rikkahub.data.interactive.*
-import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
 import me.rerere.rikkahub.utils.openUrl
 import org.koin.compose.koinInject
 import java.util.UUID
 
-/** 不完整行只缓冲，完成的协议消息在同一个处理器上消费一次。 */
+/** 已闭合的组件逐步显示，未完成的组件继续缓冲；同一前缀不重复应用。 */
 @Composable
 fun InteractiveBlock(code: String, closed: Boolean, offset: Int, modifier: Modifier = Modifier, export: Boolean = false) {
     val origin = LocalInteractiveContentContext.current
@@ -46,6 +44,7 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
     val currentOrigin by rememberUpdatedState(origin)
     var epoch by remember { mutableIntStateOf(0) }
     val decoder = remember(epoch) { InteractiveDocument(A2uiBasicCatalogV1.CatalogId) }
+    var componentSnapshot by remember(epoch) { mutableStateOf<Map<String, JsonObject>>(emptyMap()) }
     if (decoder.hasChangedPrefix(code)) {
         LaunchedEffect(code) { epoch++ }
         return
@@ -136,6 +135,7 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
         try {
             val complete = closed || currentOrigin?.generating != true
             val lines = decoder.consume(code, complete)
+            componentSnapshot = decoder.componentSnapshot
             lines.forEach { processor.processMessage(parser.parse(it)) }
             if (complete && !decoder.deleted && !restorationQueued) {
                 val host = currentOrigin
@@ -154,8 +154,8 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
 
     LaunchedEffect(surface, marker) {
         if (surface == null) return@LaunchedEffect
-        snapshotFlow { interactiveJson(surface.dataModel[A2uiDataPath("/")]) }.collect { model ->
-            try { interactiveInstances(decoder.componentSnapshot, model) }
+        snapshotFlow { componentSnapshot to interactiveJson(surface.dataModel[A2uiDataPath("/")]) }.collect { (components, model) ->
+            try { interactiveInstances(components, model) }
             catch (e: IllegalArgumentException) { error = e.message; return@collect }
             if (ready) {
                 val state = persisted ?: return@collect
@@ -178,18 +178,13 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
     }
 
     val expansionError = surface?.let {
-        runCatching { interactiveInstances(decoder.componentSnapshot, interactiveJson(it.dataModel[A2uiDataPath("/")])) }.exceptionOrNull()?.message
+        runCatching { interactiveInstances(componentSnapshot, interactiveJson(it.dataModel[A2uiDataPath("/")])) }.exceptionOrNull()?.message
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (error != null || expansionError != null) {
-            Card(
-                shape = AppShapes.CardLarge,
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(stringResource(R.string.interactive_components_error), color = MaterialTheme.colorScheme.error)
-                    Text((error ?: expansionError).orEmpty(), style = MaterialTheme.typography.bodySmall)
-                }
+            Column(Modifier.padding(vertical = 8.dp)) {
+                Text(stringResource(R.string.interactive_components_error), color = MaterialTheme.colorScheme.error)
+                Text((error ?: expansionError).orEmpty(), style = MaterialTheme.typography.bodySmall)
             }
         } else if (surface != null && !decoder.deleted) {
             CompositionLocalProvider(LocalInteractiveControls provides controls) {

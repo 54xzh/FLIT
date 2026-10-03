@@ -6,8 +6,10 @@ Replace `<supported catalogId>` with the app-provided identifier. Translate visi
 
 ```a2ui
 {"version":"v0.9.1","createSurface":{"surfaceId":"preferences","catalogId":"<supported catalogId>"}}
-{"version":"v0.9.1","updateComponents":{"surfaceId":"preferences","components":[{"id":"root","component":"Card","child":"body"},{"id":"body","component":"Column","children":["mode","submit"]},{"id":"mode","component":"ChoicePicker","label":"Travel mode","variant":"mutuallyExclusive","options":[{"label":"Train","value":"train"},{"label":"Car","value":"car"}],"value":{"path":"/mode"}},{"id":"submit-label","component":"Text","text":"Submit preferences"},{"id":"submit","component":"Button","child":"submit-label","variant":"primary","action":{"event":{"name":"submit_preferences","context":{"Travel mode":{"path":"/mode"}}}}}]}}
 {"version":"v0.9.1","updateDataModel":{"surfaceId":"preferences","value":{"mode":["train"]}}}
+{"version":"v0.9.1","updateComponents":{"surfaceId":"preferences","components":[{"id":"root","component":"Card","child":"body"},{"id":"body","component":"Column","children":["mode","submit"]}]}}
+{"version":"v0.9.1","updateComponents":{"surfaceId":"preferences","components":[{"id":"mode","component":"ChoicePicker","label":"Travel mode","variant":"mutuallyExclusive","options":[{"label":"Train","value":"train"},{"label":"Car","value":"car"}],"value":{"path":"/mode"}}]}}
+{"version":"v0.9.1","updateComponents":{"surfaceId":"preferences","components":[{"id":"submit-label","component":"Text","text":"Submit preferences"},{"id":"submit","component":"Button","child":"submit-label","variant":"primary","action":{"event":{"name":"submit_preferences","context":{"Travel mode":{"path":"/mode"}}}}}]}}
 ```
 
 ## Collect a name and preferences

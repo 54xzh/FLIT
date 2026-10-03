@@ -51,9 +51,11 @@ fun interactiveFences(text: String): List<InteractiveFence> {
 fun interactiveFingerprint(text: String): String = MessageDigest.getInstance("SHA-256")
     .digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
-/** 只消费完整行；新文本不是旧前缀时，由宿主重建处理器。 */
+/** 完整行按协议消费，大数组内已闭合的组件提前显示；应用过的前缀变化时重建。 */
 class InteractiveDocument(private val catalogId: String) {
     private var prefix = ""
+    private var previewPrefix = ""
+    private var componentStream: InteractiveComponentStream? = null
     private val components = linkedMapOf<String, JsonObject>()
     var surfaceId: String? = null
         private set
@@ -61,7 +63,7 @@ class InteractiveDocument(private val catalogId: String) {
         private set
     val componentSnapshot: Map<String, JsonObject> get() = components.toMap()
 
-    fun hasChangedPrefix(code: String): Boolean = !code.startsWith(prefix)
+    fun hasChangedPrefix(code: String): Boolean = !code.startsWith(prefix) || !code.startsWith(previewPrefix)
 
     fun consume(code: String, complete: Boolean): List<String> {
         require(code.length <= MAX_CHARS) { "Interface exceeds the size limit" }
@@ -75,10 +77,22 @@ class InteractiveDocument(private val catalogId: String) {
             val line = code.substring(cursor, end).trim()
             if (line.isNotEmpty()) {
                 validate(line)
-                result += line
+                val preview = componentStream
+                if (preview != null && preview.count > 0) preview.remaining(line)?.let(result::add)
+                else result += line
             }
+            componentStream = null
+            previewPrefix = ""
             cursor = if (newline < 0) end else end + 1
             prefix = code.substring(0, cursor)
+        }
+        if (!complete && cursor < code.length) {
+            val stream = componentStream ?: InteractiveComponentStream().also { componentStream = it }
+            stream.drain(code.substring(cursor)).forEach { message ->
+                validate(message)
+                result += message
+            }
+            if (stream.appliedEnd > 0) previewPrefix = code.substring(0, cursor + stream.appliedEnd)
         }
         if (complete && !deleted) {
             require(surfaceId != null) { "Missing createSurface" }

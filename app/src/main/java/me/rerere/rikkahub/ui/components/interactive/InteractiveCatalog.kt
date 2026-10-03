@@ -17,7 +17,6 @@ import androidx.compose.material3.a2ui.catalog.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import me.rerere.rikkahub.ui.components.richtext.ZoomableAsyncImage
@@ -49,6 +48,7 @@ internal fun interactiveCatalog(localeProvider: A2uiLocaleProvider = A2uiLocaleP
     messageFormatter = A2uiMessageFormatter { pattern, locale, arguments -> MessageFormat(pattern, locale).format(arguments) },
     localeProvider = localeProvider,
     button = InteractiveButton, card = InteractiveCard,
+    column = InteractiveColumn, row = InteractiveRow, list = InteractiveList,
     textField = InteractiveTextField, checkBox = InteractiveCheckBox,
     choicePicker = InteractiveChoicePicker, slider = InteractiveSlider,
     dateTimeInput = InteractiveDateTimeInput,
@@ -93,17 +93,11 @@ private object InteractiveCard : A2uiBasicCatalogV1.Card {
     @Composable
     override fun A2uiComponentScope.TypedContent(childId: String, accessibility: A2uiBasicCatalogV1.AccessibilityAttributes?, modifier: Modifier) {
         val child = observeA2uiComponentState(childId)
-        Card(
-            modifier = modifier.interactiveAccessibility(accessibility),
-            shape = AppShapes.CardLarge,
-            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        ) {
-            Box(Modifier.padding(16.dp)) {
-                when (val state = child) {
-                    is A2uiComponentState.Success -> A2uiComponent(component = state.component)
-                    is A2uiComponentState.Error -> Text(stringResource(R.string.interactive_components_error))
-                    else -> Text(stringResource(R.string.interactive_components_loading))
-                }
+        Box(modifier.interactiveAccessibility(accessibility).padding(vertical = 8.dp)) {
+            when (val state = child) {
+                is A2uiComponentState.Success -> A2uiComponent(component = state.component)
+                is A2uiComponentState.Error -> Text(stringResource(R.string.interactive_components_error))
+                else -> Text(stringResource(R.string.interactive_components_loading))
             }
         }
     }
@@ -271,7 +265,7 @@ private object InteractiveDateTimeInput : A2uiBasicCatalogV1.DateTimeInput {
     }
 }
 
-private fun Modifier.interactiveAccessibility(attributes: A2uiBasicCatalogV1.AccessibilityAttributes?): Modifier =
+internal fun Modifier.interactiveAccessibility(attributes: A2uiBasicCatalogV1.AccessibilityAttributes?): Modifier =
     if (attributes == null) this else semantics {
         contentDescription = listOfNotNull(attributes.label, attributes.description).joinToString(", ")
     }

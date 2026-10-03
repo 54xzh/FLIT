@@ -90,4 +90,34 @@ class InteractiveComponentTest {
         compose.onNode(hasSetTextAction()).assertIsEnabled()
     }
 
+    @Test fun completeComponentsRenderBeforeTheBatchAndBlockFinish() {
+        val lines = description("Initial").lines()
+        val prelude = "${lines[0]}\n${lines[2]}\n"
+        val batch = lines[1]
+        var code by mutableStateOf(prelude + batch.substring(0, batch.indexOf("{\"id\":\"label\"")))
+        var closed by mutableStateOf(false)
+        var generating by mutableStateOf(true)
+        val origin = InteractiveContentContext(Uuid.random(), Uuid.random(), 0, null, null, true, true,
+            emptyList(), isReadOnly = { _, _, _ -> false }, onSubmit = { fail("Streaming must not submit"); false })
+        compose.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalInteractiveContentContext provides origin.copy(generating = generating)) {
+                    InteractiveBlock(code, closed, 0)
+                }
+            }
+        }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Initial").assertExists()
+        compose.onNode(hasSetTextAction()).assertIsNotEnabled()
+        compose.onNodeWithText("Send").assertDoesNotExist()
+        compose.runOnIdle { code = prelude + batch }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Send")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Send").assertIsNotEnabled()
+        compose.runOnIdle { closed = true; generating = false }
+        compose.waitUntil(10_000) {
+            compose.onAllNodes(hasSetTextAction() and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Initial").assertExists()
+    }
+
 }

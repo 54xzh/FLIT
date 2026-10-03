@@ -83,6 +83,20 @@ class InteractiveEngineTest {
             assertNull(interactiveValidationError(surface, mapOf("root" to component)))
         }
     }
+
+    @Test fun `streamed component previews remain valid official protocol messages`() = runBlocking {
+        val examples = interactiveFences(File("src/main/assets/builtin-skills/interactive-components/references/examples.md").readText())
+        examples.forEach { fence ->
+            val decoder = InteractiveDocument("<supported catalogId>")
+            val messages = mutableListOf<String>()
+            for (length in 1..fence.code.length step 17) messages += decoder.consume(fence.code.take(length), false)
+            messages += decoder.consume(fence.code, true)
+            withSurface(messages.joinToString("\n")) { surface, events ->
+                assertTrue("Official catalog errors: $events", events.none { it is A2uiClientErrorMessage })
+                assertEquals("preferences", surface.id)
+            }
+        }
+    }
     @Test fun `readiness barrier preserves object models without adding host fields`() = runBlocking {
         val code = """
             {"createSurface":{"surfaceId":"root-model"}}
