@@ -486,12 +486,18 @@ class LocalTools(
 
                 val maxChars = obj["max_chars"]?.jsonPrimitiveOrNull?.intOrNull?.coerceIn(1, 200_000) ?: 20_000
 
-                val text = try {
+                val fileText = try {
                     SkillSource(context).read(resolvedSkill, relativePath)
                         ?: return@Tool buildJsonObject { put("error", "Invalid path or file not found: $relativePath") }
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                 catch (e: Exception) {
                     return@Tool buildJsonObject { put("error", "Failed to read file: ${e.message}") }
+                }
+
+                val text = if (resolvedSkill.isBuiltIn && relativePath == "SKILL.md") {
+                    fileText + "\nSupported catalogId: ${me.rerere.rikkahub.data.interactive.FLIT_INTERACTIVE_CATALOG}"
+                } else {
+                    fileText
                 }
 
                 val truncated = text.length > maxChars
@@ -515,7 +521,7 @@ class LocalTools(
             allowedSkills.forEach { skill ->
                 append("- ")
                 append(skill.name)
-                if (skill.isBuiltIn) append(" | source: builtin | package: ${skill.packageName} | SKILL.md already loaded")
+                if (skill.isBuiltIn) append(" | source: builtin | package: ${skill.packageName}")
                 if (skill.description.isNotBlank()) {
                     append(" | desc: ")
                     append(skill.description.replace('\n', ' ').trim())

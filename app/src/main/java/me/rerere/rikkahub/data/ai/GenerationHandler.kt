@@ -1,7 +1,6 @@
 package me.rerere.rikkahub.data.ai
 
 import me.rerere.rikkahub.data.interactive.withInteractiveActionsForModel
-import me.rerere.rikkahub.data.model.BuiltInSkills
 import me.rerere.rikkahub.data.model.includingBuiltInSkills
 import me.rerere.rikkahub.data.files.SkillSource
 import android.content.Context
@@ -2373,7 +2372,7 @@ class GenerationHandler(
         assistant: Assistant,
         explicitSkillContexts: Set<String>,
     ): String {
-        if (explicitSkillContexts.isEmpty() && assistant.enabledSkills.none { it in BuiltInSkills.ids }) return ""
+        if (explicitSkillContexts.isEmpty()) return ""
         val enabledSkillNames = assistant.enabledSkills
         if (enabledSkillNames.isEmpty()) return ""
 
@@ -2383,7 +2382,7 @@ class GenerationHandler(
             .associateBy { it.name }
         if (skillsByName.isEmpty()) return ""
 
-        val selectedSkills = (explicitSkillContexts + (enabledSkillNames intersect BuiltInSkills.ids)).mapNotNull { name -> skillsByName[name] }
+        val selectedSkills = explicitSkillContexts.mapNotNull { name -> skillsByName[name] }
         if (selectedSkills.isEmpty()) return ""
 
         val loadedSkills = withContext(Dispatchers.IO) {
