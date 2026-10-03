@@ -2713,7 +2713,6 @@
     <string name="interactive_components_open_media">打开媒体</string>
     <string name="interactive_components_submission">已提交：%1$s</string>
     <string name="interactive_components_submit_unavailable">当前无法提交此组件。</string>
-  <string name="interactive_script_running">正在更新…</string>
   <string name="interactive_script_error">小工具更新失败，已保留上次结果。</string>
   <string name="interactive_script_stale">输入已变化，请重新执行此操作。</string>
   <string name="interactive_script_retry">重试</string>

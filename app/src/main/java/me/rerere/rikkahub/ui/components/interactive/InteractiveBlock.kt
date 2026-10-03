@@ -272,7 +272,6 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
         } else if (!decoder.deleted) Text(stringResource(R.string.interactive_components_loading))
         notice?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         if (runtimeConfig != null && submitted && !export) Text(stringResource(R.string.interactive_script_submitted), style = MaterialTheme.typography.bodySmall)
-        if (runtimeStatus.busy) Text(stringResource(R.string.interactive_script_running), style = MaterialTheme.typography.bodySmall)
         runtimeStatus.error?.let { failure ->
             Text(stringResource(if (failure == "STALE_INPUT") R.string.interactive_script_stale else R.string.interactive_script_error),
                 color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
