@@ -26,8 +26,14 @@ import androidx.compose.ui.semantics.semantics
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.hooks.*
 import me.rerere.rikkahub.ui.theme.AppShapes
+import androidx.a2ui.model.catalog.A2uiFunction
+import androidx.a2ui.model.catalog.A2uiFunctionDefinition
+import androidx.a2ui.model.catalog.A2uiFunctionReturnType
+import androidx.a2ui.model.protocol.A2uiExecutionContext
+import androidx.a2ui.model.schema.A2uiSchema
+import me.rerere.rikkahub.data.interactive.FLIT_INTERACTIVE_CATALOG
 
-internal data class InteractiveControls(val readOnly: Boolean = true, val canSubmit: Boolean = false)
+internal data class InteractiveControls(val readOnly: Boolean = true, val canSubmit: Boolean = false, val scriptBusy: Boolean = false)
 internal val LocalInteractiveControls = compositionLocalOf { InteractiveControls() }
 
 internal fun interactiveCatalog(localeProvider: A2uiLocaleProvider = A2uiLocaleProvider.Default, openUrl: (String) -> Unit): A2uiCatalog = materialA2uiBasicCatalogV1(
@@ -54,6 +60,28 @@ internal fun interactiveCatalog(localeProvider: A2uiLocaleProvider = A2uiLocaleP
     dateTimeInput = InteractiveDateTimeInput,
 )
 
+/** 同一原生组件目录，增加仅供动作拦截器调度的脚本函数。 */
+internal fun interactiveScriptCatalog(base: A2uiCatalog): A2uiCatalog = A2uiCatalog(
+    catalogId = FLIT_INTERACTIVE_CATALOG,
+    components = base.components.toList(),
+    functions = base.functions.toList() + InteractiveScriptFunction,
+    themeSchema = base.themeSchema,
+)
+
+private object InteractiveScriptFunction : A2uiFunction {
+    override val definition: A2uiFunctionDefinition = object : A2uiFunctionDefinition {
+        override val name = "runScript"
+        override val description = "Run a local script handler from an explicit button action."
+        override val returnType = A2uiFunctionReturnType.VOID
+        override val argumentSchema: A2uiSchema = androidx.a2ui.model.schema.A2uiObjectSchema(
+            properties = mapOf("handler" to androidx.a2ui.model.schema.A2uiStringSchema(), "args" to androidx.a2ui.model.schema.A2uiObjectSchema(isAdditionalPropertiesAllowed = true)),
+            required = setOf("handler"),
+        )
+    }
+    // 求值阶段没有副作用。只有动作拦截器能进入隔离脚本服务。
+    override fun execute(args: Map<String, Any>, executionContext: A2uiExecutionContext): Any? = null
+}
+
 private object InteractiveButton : A2uiBasicCatalogV1.Button {
     @Composable
     override fun A2uiComponentScope.TypedContent(
@@ -67,7 +95,8 @@ private object InteractiveButton : A2uiBasicCatalogV1.Button {
         val scale by animateFloatAsState(if (pressed) 0.85f else 1f, spring(dampingRatio = 0.6f, stiffness = 300f), label = "InteractiveButton")
         val child = observeA2uiComponentState(childId)
         val failed = checks.firstOrNull { !it.condition }
-        val enabled = !flags.readOnly && (!action.containsKey("event") || flags.canSubmit) && child is A2uiComponentState.Success && failed == null
+        val scriptAction = (action["functionCall"] as? Map<*, *>)?.get("call") == "runScript"
+        val enabled = !flags.readOnly && (!scriptAction || !flags.scriptBusy) && (!action.containsKey("event") || flags.canSubmit) && child is A2uiComponentState.Success && failed == null
         val click = { haptics.perform(HapticPattern.Pop); dispatchAction(action) }
         val content: @Composable RowScope.() -> Unit = {
             when (val state = child) {

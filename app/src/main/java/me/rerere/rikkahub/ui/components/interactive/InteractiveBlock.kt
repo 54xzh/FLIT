@@ -41,10 +41,16 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
     val context = LocalContext.current
     val currentAndroidContext by rememberUpdatedState(context)
     val repository = koinInject<InteractiveStateRepository>()
+    val scriptRunner = koinInject<InteractiveScriptRunner>()
     val currentOrigin by rememberUpdatedState(origin)
+    val currentClosed by rememberUpdatedState(closed)
+    val currentCode by rememberUpdatedState(code)
     var epoch by remember { mutableIntStateOf(0) }
     val decoder = remember(epoch) { InteractiveDocument(A2uiBasicCatalogV1.CatalogId) }
     var componentSnapshot by remember(epoch) { mutableStateOf<Map<String, JsonObject>>(emptyMap()) }
+    var runtimeConfig by remember(epoch) { mutableStateOf<InteractiveRuntime?>(null) }
+    var scriptSession by remember(epoch) { mutableStateOf<InteractiveRuntimeSession?>(null) }
+    var runtimeStatus by remember(epoch) { mutableStateOf(InteractiveRuntimeStatus()) }
     if (decoder.hasChangedPrefix(code)) {
         LaunchedEffect(code) { epoch++ }
         return
@@ -55,6 +61,7 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
         // 与正文链接使用相同的打开方式，只有用户点击才执行。
         if (android.net.Uri.parse(url).scheme in setOf("https", "http")) currentAndroidContext.openUrl(url)
     } }
+    val scriptCatalog = remember(catalog) { interactiveScriptCatalog(catalog) }
     var runtimeSurface by remember(epoch) { mutableStateOf<A2uiCoreSurfaceModel?>(null) }
     var restorationQueued by remember(epoch) { mutableStateOf(false) }
     var ready by remember(epoch) { mutableStateOf(false) }
@@ -69,15 +76,33 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
         return
     }
     SideEffect { renderedCode = code }
-    val readOnly = export || origin == null || pending || persisted?.submitted == true ||
-        decoder.surfaceId?.let { origin.isReadOnly(it, offset, fingerprint) } == true
-    val controls = InteractiveControls(readOnly = readOnly || !ready || error != null, canSubmit = closed && ready && !readOnly && origin?.generating == false)
+    val submitted = persisted?.submitted == true || origin?.hasSubmitted?.invoke(offset, fingerprint) == true
+    val historical = decoder.surfaceId?.let { origin?.isSuperseded?.invoke(it) } == true
+    val readOnly = export || origin == null || historical || pending ||
+        (runtimeConfig == null && (submitted || decoder.surfaceId?.let { origin.isReadOnly(it, offset, fingerprint) } == true))
+    val scriptWaiting = runtimeStatus.busy || runtimeStatus.error != null ||
+        (runtimeConfig != null && closed && ready && scriptSession?.canSubmit() != true)
+    val controls = InteractiveControls(readOnly = readOnly || !ready || error != null,
+        canSubmit = closed && ready && !readOnly && !submitted && !scriptWaiting && origin?.generating == false,
+        scriptBusy = scriptWaiting)
     val currentControls by rememberUpdatedState(controls)
     val processor = remember(catalog, epoch) {
-        A2uiMessageProcessor(listOf(catalog), listOf(A2uiActionInterceptor { action ->
+        A2uiMessageProcessor(listOf(catalog, scriptCatalog), listOf(A2uiActionInterceptor { action ->
             val flags = currentControls
-            if (pending || flags.readOnly || (action is A2uiEventAction && !flags.canSubmit)) null
-            else if (action is A2uiEventAction) {
+            if (pending || flags.readOnly || (action is A2uiEventAction &&
+                    (!flags.canSubmit || (runtimeConfig != null && scriptSession?.canSubmit() != true)))) null
+            else if (action is A2uiFunctionCallAction && action.functionName == "runScript") {
+                val configured = runtimeConfig
+                val button = decoder.componentSnapshot[action.componentId]
+                val call = (button?.get("action") as? JsonObject)?.get("functionCall") as? JsonObject
+                if (configured != null && currentClosed && call?.get("call")?.jsonPrimitiveOrNull?.contentOrNull == "runScript") {
+                    runCatching {
+                        scriptSession?.runButton(interactiveHandler(interactiveJson(action.args["handler"])),
+                            interactiveJson(action.args["args"]) as? JsonObject ?: JsonObject(emptyMap()))
+                    }.onFailure { notice = context.getString(R.string.interactive_script_error) }
+                }
+                null
+            } else if (action is A2uiEventAction) {
                 val validation = runtimeSurface?.let { interactiveValidationError(it, decoder.componentSnapshot) }
                 if (validation != null) { notice = validation; null } else action
             } else action
@@ -98,17 +123,21 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
                         if (event.code == marker) {
                             val active = processor.activeSurfaces.value.firstOrNull() as? A2uiCoreSurfaceModel
                             if (active != null && error == null) {
-                                val restored = persisted?.dataModel?.takeIf { it.isNotBlank() }?.let {
+                                val saved = if (export && persisted?.submitted == true) persisted?.submittedDataModel ?: persisted?.dataModel else persisted?.dataModel
+                                val restored = saved?.takeIf { it.isNotBlank() }?.let {
                                     runCatching { JsonInstant.parseToJsonElement(it) }.getOrNull()
                                 }
-                                if (restored != null) active.dataModel.update(A2uiDataPath("/"), restored.toInteractiveValue())
+                                if (restored != null && (runtimeConfig == null ||
+                                        runCatching { validateInteractiveRuntimeData(restored) }.isSuccess)) {
+                                    active.dataModel.update(A2uiDataPath("/"), restored.toInteractiveValue())
+                                }
                                 ready = true
                             }
                         } else if (event.code == "VALIDATION_FAILED") notice = event.message else error = event.message.take(240)
                     }
                     is A2uiClientEventMessage -> {
                         val host = currentOrigin ?: return@collect
-                        if (pending || !currentControls.canSubmit) return@collect
+                        if (pending || !currentControls.canSubmit || (runtimeConfig != null && scriptSession?.canSubmit() != true)) return@collect
                         val active = processor.activeSurfaces.value.firstOrNull() as? A2uiCoreSurfaceModel ?: return@collect
                         val data = interactiveJson(active.dataModel[A2uiDataPath("/")])
                         val button = decoder.componentSnapshot[event.componentId]
@@ -136,7 +165,8 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
             val complete = closed || currentOrigin?.generating != true
             val lines = decoder.consume(code, complete)
             componentSnapshot = decoder.componentSnapshot
-            lines.forEach { processor.processMessage(parser.parse(it)) }
+            runtimeConfig = decoder.runtime
+            lines.forEach { processor.processMessage(parser.parse(interactiveRendererMessage(it))) }
             if (complete && !decoder.deleted && !restorationQueued) {
                 val host = currentOrigin
                 val initial = host?.let { InteractiveComponentStateEntity(it.conversationId.toString(), it.messageId.toString(),
@@ -152,19 +182,64 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
         catch (e: Exception) { error = e.message?.take(240) ?: context.getString(R.string.interactive_components_error) }
     }
 
+    LaunchedEffect(surface, runtimeConfig, ready, readOnly, closed, epoch) {
+        val activeSurface = surface ?: return@LaunchedEffect
+        val runtime = runtimeConfig ?: return@LaunchedEffect
+        if (!ready || readOnly || !closed || decoder.deleted) return@LaunchedEffect
+        val sessionCode = code
+        coroutineScope {
+            fun model(): JsonObject = interactiveJson(activeSurface.dataModel[A2uiDataPath("/")]) as? JsonObject
+                ?: error("Root data model must be an object")
+            val session = InteractiveRuntimeSession(runtime, this,
+                execute = { handler, input -> scriptRunner.execute(runtime, handler, input) },
+                model = ::model,
+                apply = { updated ->
+                    activeSurface.dataModel.update(A2uiDataPath("/"), updated.toInteractiveValue())
+                },
+                active = {
+                    currentClosed && currentCode == sessionCode && !currentControls.readOnly && !decoder.deleted &&
+                        currentOrigin?.isSuperseded?.invoke(activeSurface.id) != true
+                },
+                validate = { updated -> interactiveInstances(componentSnapshot, updated) },
+            )
+            scriptSession = session
+            try {
+                launch { session.status.collect { runtimeStatus = it } }
+                runtime.watch.forEachIndexed { index, rule ->
+                    launch {
+                        var initial = true
+                        snapshotFlow {
+                            val current = interactiveJson(activeSurface.dataModel[A2uiDataPath("/")])
+                            rule.paths.map { interactivePathValue(current, it) }
+                        }.collect {
+                            session.scheduleWatch(index, immediate = initial)
+                            initial = false
+                        }
+                    }
+                }
+                awaitCancellation()
+            } finally {
+                scriptSession = null
+                runtimeStatus = InteractiveRuntimeStatus()
+            }
+        }
+    }
+
     LaunchedEffect(surface, marker) {
         if (surface == null) return@LaunchedEffect
-        snapshotFlow { componentSnapshot to interactiveJson(surface.dataModel[A2uiDataPath("/")]) }.collect { (components, model) ->
+        snapshotFlow { Triple(componentSnapshot, interactiveJson(surface.dataModel[A2uiDataPath("/")]), ready) }.collect { (components, model, restored) ->
             try { interactiveInstances(components, model) }
             catch (e: IllegalArgumentException) { error = e.message; return@collect }
-            if (ready) {
+            if (restored) {
                 val state = persisted ?: return@collect
-                if (!export && !state.submitted && !currentControls.readOnly) {
-                    repository.update(state.copy(dataModel = model.toString()), currentOrigin?.temporary == true)
+                if (!export && (!state.submitted || runtimeConfig != null) && !currentControls.readOnly) {
+                    repository.update(state.copy(dataModel = model.toString()), currentOrigin?.temporary == true,
+                        allowSubmittedEditing = runtimeConfig != null)
                 }
             }
         }
     }
+    LaunchedEffect(submitted) { if (submitted) pending = false }
     LaunchedEffect(persisted?.fingerprint) {
         val initial = persisted ?: return@LaunchedEffect
         repository.observe(initial).filterNotNull().collect { if (it.fingerprint == initial.fingerprint) persisted = it }
@@ -196,5 +271,13 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
             }
         } else if (!decoder.deleted) Text(stringResource(R.string.interactive_components_loading))
         notice?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        if (runtimeConfig != null && submitted && !export) Text(stringResource(R.string.interactive_script_submitted), style = MaterialTheme.typography.bodySmall)
+        if (runtimeStatus.busy) Text(stringResource(R.string.interactive_script_running), style = MaterialTheme.typography.bodySmall)
+        runtimeStatus.error?.let { failure ->
+            Text(stringResource(if (failure == "STALE_INPUT") R.string.interactive_script_stale else R.string.interactive_script_error),
+                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            if (!readOnly) InteractiveAuxiliaryButton(onClick = { scriptSession?.retry() },
+                label = stringResource(R.string.interactive_script_retry))
+        }
     }
 }

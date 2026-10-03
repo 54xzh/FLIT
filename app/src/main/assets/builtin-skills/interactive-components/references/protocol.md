@@ -29,7 +29,9 @@ Use `/` to replace the root object. Escape pointer segments with `~0` and `~1` a
 Only when further interaction is needed in a later reply, create a complete independent
 surface using the same logical surfaceId. Include the latest data and all components.
 Do not repeat a surface solely to confirm submission. Do not modify earlier message contents.
-Do not emit Kotlin, JavaScript, HTML, custom JSON wrappers, or v0.8 message names.
+Do not emit Kotlin, HTML, custom JSON wrappers, or v0.8 message names.
+JavaScript is allowed only in `createSurface.flitRuntime.code` with the supplied FLIT catalog;
+read references/scripts.md before creating a local script tool.
 
 The AndroidX renderer requires an object at the data model root. Put strings, numbers,
 booleans, and arrays under named fields; bind inputs to those fields rather than the root.

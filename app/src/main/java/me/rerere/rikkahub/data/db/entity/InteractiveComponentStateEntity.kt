@@ -20,4 +20,5 @@ data class InteractiveComponentStateEntity(
     val dataModel: String,
     val submissionId: String? = null,
     val submitted: Boolean = false,
+    val submittedDataModel: String? = null,
 )

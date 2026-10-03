@@ -61,6 +61,10 @@ class InteractiveDocument(private val catalogId: String) {
         private set
     var deleted: Boolean = false
         private set
+    var runtime: InteractiveRuntime? = null
+        private set
+    var usesFlitCatalog: Boolean = false
+        private set
     val componentSnapshot: Map<String, JsonObject> get() = components.toMap()
 
     fun hasChangedPrefix(code: String): Boolean = !code.startsWith(prefix) || !code.startsWith(previewPrefix)
@@ -116,7 +120,13 @@ class InteractiveDocument(private val catalogId: String) {
         require(!id.isNullOrBlank() && id.length <= 128) { "Invalid surfaceId" }
         if (type == "createSurface") {
             require(surfaceId == null) { "One surface per block; duplicate createSurface" }
-            require(body["catalogId"]?.jsonPrimitiveOrNull?.contentOrNull == catalogId) { "Unsupported catalogId" }
+            val requestedCatalog = body["catalogId"]?.jsonPrimitiveOrNull?.contentOrNull
+            require(requestedCatalog == catalogId || requestedCatalog == FLIT_INTERACTIVE_CATALOG) { "Unsupported catalogId" }
+            usesFlitCatalog = requestedCatalog == FLIT_INTERACTIVE_CATALOG
+            body["flitRuntime"]?.let {
+                require(usesFlitCatalog) { "Scripts require the FLIT catalog" }
+                runtime = InteractiveRuntime.parse(it)
+            }
             surfaceId = id
         } else {
             require(surfaceId == id && !deleted) { "Create this surface before updating it" }
@@ -139,6 +149,16 @@ class InteractiveDocument(private val catalogId: String) {
                         require(value["call"]?.jsonPrimitiveOrNull?.contentOrNull != "openUrl" || value === allowedUrlCall) {
                             "openUrl is only allowed as an explicit button action"
                         }
+                        if (value["call"]?.jsonPrimitiveOrNull?.contentOrNull == "runScript") {
+                            require(runtime != null && value === allowedUrlCall &&
+                                component["component"]?.jsonPrimitiveOrNull?.contentOrNull == "Button") {
+                                "runScript is only allowed as an explicit script button action"
+                            }
+                            val args = value["args"] as? JsonObject ?: error("Missing script arguments")
+                            require(args.keys.all { it in setOf("handler", "args") }) { "Invalid script arguments" }
+                            interactiveHandler(args["handler"])
+                            args["args"]?.let { require(it is JsonObject) { "Expected handler arguments object" } }
+                        }
                         value.values.forEach(::checkLocalCalls)
                     } else if (value is JsonArray) value.forEach(::checkLocalCalls)
                 }
@@ -150,6 +170,7 @@ class InteractiveDocument(private val catalogId: String) {
         }
         if (type == "updateDataModel") {
             val path = body["path"]?.jsonPrimitiveOrNull?.contentOrNull ?: "/"
+            if (runtime != null && path == "/") require(body["value"] is JsonObject) { "Script data model root must be an object" }
             if (path == "/") require(body["value"] == null || body["value"] == JsonNull || body["value"] is JsonObject) {
                 "Root data model must be an object"
             }
@@ -202,7 +223,7 @@ class InteractiveDocument(private val catalogId: String) {
         const val MAX_DEPTH = 32
         private val CHILD_KEYS = setOf("child", "componentId", "entryPointChild", "contentChild", "trigger", "content")
         val COMPONENT_NAMES = setOf("Text", "Icon", "Image", "Video", "AudioPlayer", "Row", "Column", "List", "Card", "Tabs", "Modal", "Divider", "Button", "TextField", "CheckBox", "ChoicePicker", "Slider", "DateTimeInput")
-        private fun validateJsonDepth(text: String) {
+        fun validateJsonDepth(text: String) {
             var depth = 0
             var quoted = false
             var escaped = false

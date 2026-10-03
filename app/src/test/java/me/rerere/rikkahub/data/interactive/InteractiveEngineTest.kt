@@ -8,6 +8,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 import me.rerere.rikkahub.ui.components.interactive.interactiveCatalog
+import me.rerere.rikkahub.ui.components.interactive.interactiveScriptCatalog
 import me.rerere.rikkahub.utils.JsonInstant
 import org.junit.Assert.*
 import org.junit.Test
@@ -16,7 +17,8 @@ import java.io.File
 class InteractiveEngineTest {
     /** Android 的 JSON Reader 在设备测试验证；此处把同一描述交给真实引擎和目录校验。 */
     private suspend fun CoroutineScope.withSurface(code: String, check: suspend (A2uiCoreSurfaceModel, MutableList<A2uiClientToServerMessage>) -> Unit) {
-        val processor = A2uiMessageProcessor(listOf(interactiveCatalog {}))
+        val catalog = interactiveCatalog {}
+        val processor = A2uiMessageProcessor(listOf(catalog, interactiveScriptCatalog(catalog)))
         val events = mutableListOf<A2uiClientToServerMessage>()
         val observer = launch(start = CoroutineStart.UNDISPATCHED) { processor.outboundEvents.collect { events += it } }
         val engine = launch { processor.collectMessages() }
@@ -26,7 +28,8 @@ class InteractiveEngineTest {
                 when {
                     "createSurface" in envelope -> {
                         val body = envelope["createSurface"] as JsonObject
-                        processor.processMessage(A2uiCreateSurfaceMessage(body.getValue("surfaceId").jsonPrimitive.content, A2uiBasicCatalogV1.CatalogId))
+                        processor.processMessage(A2uiCreateSurfaceMessage(body.getValue("surfaceId").jsonPrimitive.content,
+                            body["catalogId"]?.jsonPrimitive?.content?.takeUnless { it == "<supported catalogId>" } ?: A2uiBasicCatalogV1.CatalogId))
                     }
                     "updateComponents" in envelope -> {
                         val body = envelope["updateComponents"] as JsonObject
@@ -108,6 +111,19 @@ class InteractiveEngineTest {
             surface.dataModel.update(A2uiDataPath("/name"), "Draft")
             assertEquals(JsonInstant.parseToJsonElement("""{"name":"Draft"}"""), interactiveJson(surface.dataModel[A2uiDataPath("/")]))
             assertTrue(events.isEmpty())
+        }
+    }
+
+    @Test fun `script examples pass the native catalog schema including script button actions`() = runBlocking {
+        val examples = interactiveFences(File("src/main/assets/builtin-skills/interactive-components/references/script-examples.md").readText())
+        examples.forEach { fence ->
+            withSurface(fence.code) { surface, events ->
+                assertTrue("Script catalog errors: $events", events.none { it is A2uiClientErrorMessage })
+                assertEquals(FLIT_INTERACTIVE_CATALOG, surface.catalog.id)
+                // 即使求值器接收到函数调用，也不能进入脚本服务或抛出未处理异常。
+                assertNull(surface.evaluatePayload("root", valueResolver = { surface.dataModel[it] },
+                    dataPath = A2uiDataPath("/"), payload = mapOf("call" to "runScript", "args" to mapOf("handler" to "score"))))
+            }
         }
     }
 

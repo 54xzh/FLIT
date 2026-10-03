@@ -46,6 +46,7 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 val dataSourceModule = module {
+    single { me.rerere.rikkahub.data.interactive.InteractiveScriptRunner(get()) }
     single { get<AppDatabase>().interactiveComponentStateDao() }
     single { me.rerere.rikkahub.data.interactive.InteractiveStateRepository(get(), get()) }
 
@@ -91,6 +92,7 @@ val dataSourceModule = module {
                 AppDatabase.MIGRATION_53_54,
                 AppDatabase.MIGRATION_54_55,
                 AppDatabase.MIGRATION_55_56,
+                AppDatabase.MIGRATION_56_57,
             )
             .build()
     }

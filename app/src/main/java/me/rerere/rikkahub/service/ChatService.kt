@@ -2000,6 +2000,14 @@ class ChatService(
             },
             onSubmit = ::submitInteractiveComponent,
             generationActive = { isGenerating(conversationId) },
+            isSuperseded = { surfaceId ->
+                val current = getConversationFlow(conversationId).value.currentMessages
+                current.none { it.id == source.id } || latestInteractiveMessage(current, source, surfaceId)?.id != source.id
+            },
+            hasSubmitted = { offset, fingerprint ->
+                interactiveSubmissionExists(getConversationFlow(conversationId).value.currentMessages,
+                    source.id.toString(), partIndex, offset, fingerprint)
+            },
         )
     }
 
@@ -2037,6 +2045,7 @@ class ChatService(
             put("blockOffset", request.offset)
             put("fingerprint", request.fingerprint)
             put("submissionId", submissionId)
+            put("dataModel", request.dataModel)
             put("action", buildJsonObject {
                 put("name", request.eventName)
                 put("surfaceId", request.surfaceId)
@@ -2056,7 +2065,7 @@ class ChatService(
         }
         val state = InteractiveComponentStateEntity(
             conversationId.toString(), source.id.toString(), origin.partIndex, request.offset,
-            request.fingerprint, request.surfaceId, request.dataModel.toString(), submissionId, true,
+            request.fingerprint, request.surfaceId, request.dataModel.toString(), submissionId, true, request.dataModel.toString(),
         )
         sendMessage(
             conversationId, listOf(UIMessagePart.Text(text, metadata = buildJsonObject { put(INTERACTIVE_ACTION_METADATA, event) })),

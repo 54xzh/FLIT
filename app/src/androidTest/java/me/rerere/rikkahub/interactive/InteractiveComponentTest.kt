@@ -120,4 +120,66 @@ class InteractiveComponentTest {
         compose.onNodeWithText("Initial").assertExists()
     }
 
+    @Test fun scriptToolContinuesLocallyAfterSubmittingAndExportUsesTheSubmissionSnapshot() {
+        val code = """
+            {"version":"v0.9.1","createSurface":{"surfaceId":"calculator","catalogId":"flit:interactive/v1","flitRuntime":{"version":1,"code":"({calculate({model}){return [{path:'/result',value:String(Number(model.amount)*2)}]}})","watch":[{"paths":["/amount"],"handler":"calculate"}]}}}
+            {"version":"v0.9.1","updateComponents":{"surfaceId":"calculator","components":[{"id":"root","component":"Column","children":["amount","result","send"]},{"id":"amount","component":"TextField","label":"Amount","value":{"path":"/amount"}},{"id":"result","component":"Text","text":{"path":"/result"}},{"id":"label","component":"Text","text":"Analyze"},{"id":"send","component":"Button","child":"label","action":{"event":{"name":"analyze","context":{"Result":{"path":"/result"}}}}}]}}
+            {"version":"v0.9.1","updateDataModel":{"surfaceId":"calculator","value":{"amount":"2","result":"0"}}}
+        """.trimIndent()
+        val submits = AtomicInteger()
+        val last = AtomicReference<InteractiveSubmission>()
+        var submitted by mutableStateOf(false)
+        var export by mutableStateOf(false)
+        val origin = InteractiveContentContext(Uuid.random(), Uuid.random(), 0, null, null, false, true,
+            emptyList(), isReadOnly = { _, _, _ -> submitted }, hasSubmitted = { _, _ -> submitted }, onSubmit = {
+                last.set(it)
+                submits.incrementAndGet()
+                val repo = org.koin.core.context.GlobalContext.get().get<me.rerere.rikkahub.data.interactive.InteractiveStateRepository>()
+                repo.update(me.rerere.rikkahub.data.db.entity.InteractiveComponentStateEntity(
+                    it.origin.conversationId.toString(), it.origin.messageId.toString(), 0, 0, it.fingerprint,
+                    it.surfaceId, it.dataModel.toString(), "one", true, it.dataModel.toString()), true, true)
+                submitted = true
+                true
+            })
+        compose.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalInteractiveContentContext provides origin) { InteractiveBlock(code, true, 0, export = export) }
+            }
+        }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("4")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Analyze").performClick()
+        compose.waitForIdle()
+        assertEquals(1, submits.get())
+        compose.onNode(hasSetTextAction()).assertIsEnabled().performTextReplacement("3")
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("6")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Analyze").assertIsNotEnabled()
+        assertEquals("\"4\"", last.get().values["Result"].toString())
+        compose.runOnIdle { export = true }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("4")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("6").assertDoesNotExist()
+        compose.onNode(hasSetTextAction()).assertIsNotEnabled()
+        assertEquals(1, submits.get())
+    }
+
+    @Test fun explicitScriptButtonsUpdateLocallyWithoutSubmitting() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val examples = context.assets.open("builtin-skills/interactive-components/references/script-examples.md")
+            .bufferedReader().use { it.readText() }
+        val code = interactiveFences(examples).last().code.replace("\"answer\":[]", "\"answer\":[\"4\"]")
+        val origin = InteractiveContentContext(Uuid.random(), Uuid.random(), 0, null, null, false, true,
+            emptyList(), isReadOnly = { _, _, _ -> false }, onSubmit = { fail("A local action must not submit"); false })
+        compose.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalInteractiveContentContext provides origin) { InteractiveBlock(code, true, 0) }
+            }
+        }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Check answer") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Check answer").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Correct: 1 point")).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Check answer") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Check answer").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Check answer") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Correct: 1 point").assertExists()
+    }
+
 }

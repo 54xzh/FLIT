@@ -35,14 +35,19 @@ class InteractiveStateRepository(private val dao: InteractiveComponentStateDao, 
         }
     }
 
-    fun update(state: InteractiveComponentStateEntity, temporary: Boolean, immediate: Boolean = false) {
+    fun update(state: InteractiveComponentStateEntity, temporary: Boolean, immediate: Boolean = false, allowSubmittedEditing: Boolean = false) {
         val stateKey = key(state)
         val flow = states.getOrPut(stateKey) { MutableStateFlow(null) }
         synchronized(flow) {
             val current = flow.value
             // 延迟草稿不能覆盖已提交的快照。
-            if (current?.fingerprint == state.fingerprint && current.submitted && !state.submitted) return
-            flow.value = state
+            if (current?.fingerprint == state.fingerprint && current.submitted) {
+                if (!allowSubmittedEditing) return
+                flow.value = state.copy(submitted = true, submissionId = current.submissionId,
+                    submittedDataModel = current.submittedDataModel ?: current.dataModel)
+            } else {
+                flow.value = state.copy(submittedDataModel = state.submittedDataModel ?: state.dataModel.takeIf { state.submitted })
+            }
         }
         writes.remove(stateKey)?.cancel()
         if (temporary) return
@@ -58,7 +63,7 @@ class InteractiveStateRepository(private val dao: InteractiveComponentStateDao, 
     }
 
     fun flush(initial: InteractiveComponentStateEntity, temporary: Boolean) {
-        states[key(initial)]?.value?.let { update(it, temporary, immediate = true) }
+        states[key(initial)]?.value?.let { update(it, temporary, immediate = true, allowSubmittedEditing = true) }
     }
 
     suspend fun flushAll() = withContext(Dispatchers.IO) {
@@ -73,7 +78,8 @@ class InteractiveStateRepository(private val dao: InteractiveComponentStateDao, 
             val ids = messages.map { it.id.toString() }.toSet()
             latest.values.filter { it.messageId in ids }.forEach { state ->
                 val submitted = interactiveSubmissionExists(messages, state.messageId, state.partIndex, state.blockOffset, state.fingerprint)
-                val copy = state.copy(conversationId = to, submitted = submitted, submissionId = state.submissionId.takeIf { submitted })
+                val copy = state.copy(conversationId = to, submitted = submitted, submissionId = state.submissionId.takeIf { submitted },
+                    submittedDataModel = state.submittedDataModel.takeIf { submitted })
                 dao.put(copy)
             }
         }

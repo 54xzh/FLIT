@@ -2780,4 +2780,9 @@
     <string name="interactive_components_open_media">開啟媒體</string>
     <string name="interactive_components_submission">已提交：%1$s</string>
     <string name="interactive_components_submit_unavailable">目前無法提交此元件。</string>
+  <string name="interactive_script_running">正在更新…</string>
+  <string name="interactive_script_error">小工具更新失敗，已保留上次結果。</string>
+  <string name="interactive_script_stale">輸入已變更，請重新執行此操作。</string>
+  <string name="interactive_script_retry">重試</string>
+  <string name="interactive_script_submitted">已提交，可繼續本機調整。</string>
 </resources>

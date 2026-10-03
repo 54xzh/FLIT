@@ -103,6 +103,7 @@ class LastChatApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        if (android.os.Process.isIsolated()) return
         instance = this
         startKoin {
             androidLogger()

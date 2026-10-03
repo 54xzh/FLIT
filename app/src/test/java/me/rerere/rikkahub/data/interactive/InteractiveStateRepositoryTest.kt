@@ -6,6 +6,12 @@ import me.rerere.rikkahub.data.db.dao.InteractiveComponentStateDao
 import me.rerere.rikkahub.data.db.entity.InteractiveComponentStateEntity
 import org.junit.Assert.*
 import org.junit.Test
+import me.rerere.ai.core.MessageRole
+import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlin.uuid.Uuid
 
 class InteractiveStateRepositoryTest {
     private class MemoryDao : InteractiveComponentStateDao {
@@ -63,6 +69,51 @@ class InteractiveStateRepositoryTest {
             assertEquals("{\"draft\":true}", repo.load(initial, true).dataModel)
             repo.forgetConversation(initial.conversationId)
             assertEquals("{}", repo.load(initial, true).dataModel)
+        } finally { scope.cancel() }
+    }
+
+    @Test fun `script edits retain immutable submission snapshot and submission identity`() = runBlocking {
+        val scope = AppScope()
+        try {
+            val dao = MemoryDao()
+            val repo = InteractiveStateRepository(dao, scope)
+            val initial = initial()
+            repo.load(initial, false)
+            repo.update(initial.copy(dataModel = "{\"value\":2}", submitted = true, submissionId = "one"), false, true)
+            repo.update(initial.copy(dataModel = "{\"value\":3}"), false, allowSubmittedEditing = true)
+            repo.flushAll()
+            assertEquals("{\"value\":3}", dao.state?.dataModel)
+            assertEquals("{\"value\":2}", dao.state?.submittedDataModel)
+            assertEquals("one", dao.state?.submissionId)
+            assertTrue(dao.state?.submitted == true)
+            val restored = InteractiveStateRepository(dao, scope).load(initial, false)
+            assertEquals(dao.state, restored)
+        } finally { scope.cancel() }
+    }
+
+    @Test fun `branches retain local data and submission status follows included events`() = runBlocking {
+        val scope = AppScope()
+        try {
+            val dao = MemoryDao()
+            val repo = InteractiveStateRepository(dao, scope)
+            val message = UIMessage(role = MessageRole.ASSISTANT, parts = emptyList())
+            val state = initial().copy(messageId = message.id.toString(), dataModel = "{\"value\":3}",
+                submitted = true, submissionId = "one", submittedDataModel = "{\"value\":2}")
+            repo.load(state, true)
+            repo.copyToBranch(state.conversationId, "without-event", listOf(message), true)
+            assertEquals(state.dataModel, dao.state?.dataModel)
+            assertFalse(dao.state?.submitted == true)
+            assertNull(dao.state?.submittedDataModel)
+            val event = buildJsonObject {
+                put("sourceMessageId", message.id.toString()); put("partIndex", 0)
+                put("blockOffset", 18); put("fingerprint", "hash")
+            }
+            val submission = UIMessage(role = MessageRole.USER, parts = listOf(UIMessagePart.Text("Submitted",
+                metadata = buildJsonObject { put(INTERACTIVE_ACTION_METADATA, event) })))
+            repo.copyToBranch(state.conversationId, "with-event", listOf(message, submission), true)
+            assertTrue(dao.state?.submitted == true)
+            assertEquals(state.submittedDataModel, dao.state?.submittedDataModel)
+            assertEquals("one", dao.state?.submissionId)
         } finally { scope.cancel() }
     }
 }

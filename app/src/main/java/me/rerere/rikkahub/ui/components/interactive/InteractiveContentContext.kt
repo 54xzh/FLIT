@@ -17,6 +17,8 @@ data class InteractiveContentContext(
     val isReadOnly: (surfaceId: String, offset: Int, fingerprint: String) -> Boolean,
     val onSubmit: (InteractiveSubmission) -> Boolean,
     val generationActive: () -> Boolean = { generating },
+    val isSuperseded: (surfaceId: String) -> Boolean = { false },
+    val hasSubmitted: (offset: Int, fingerprint: String) -> Boolean = { _, _ -> false },
 )
 
 data class InteractiveSubmission(

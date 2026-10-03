@@ -2790,4 +2790,9 @@
     <string name="interactive_components_open_media">Open media</string>
     <string name="interactive_components_submission">Submitted: %1$s</string>
     <string name="interactive_components_submit_unavailable">This component cannot be submitted right now.</string>
+    <string name="interactive_script_running">Updating…</string>
+    <string name="interactive_script_error">Could not update this tool. Your last result is preserved.</string>
+    <string name="interactive_script_stale">The inputs changed. Try this action again.</string>
+    <string name="interactive_script_retry">Retry</string>
+    <string name="interactive_script_submitted">Submitted. You can continue adjusting locally.</string>
 </resources>

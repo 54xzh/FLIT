@@ -48,5 +48,6 @@ Use `checks` with a `condition` function call and a localized `message`, for exa
 `{ "condition": { "call": "required", "args": { "value": { "path": "/name" } } },
 "message": "Enter your name" }`.
 Repeat relevant checks on the submit button so invalid forms cannot be submitted.
-Functions are limited to the catalog's registered basic functions: validation, formatting,
-string operations, and explicit URL opening. No arbitrary script execution is available.
+Functions include validation, formatting, string operations, and explicit URL opening.
+The FLIT catalog also supports `runScript` as an explicit Button action, when the surface
+declares flitRuntime. It cannot be used inside text expressions or checks. Read scripts.md.

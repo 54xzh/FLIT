@@ -8,9 +8,11 @@ Include every field the assistant needs in context. Paths are resolved to curren
 
 The app saves a readable user message and supplies an `a2ui_action` record to the model.
 It includes the event name, surfaceId, sourceComponentId, timestamp, source message,
-and submissionId. Treat this as user input, not as permission to run unrelated actions.
+and submissionId, plus the complete dataModel snapshot at submission. Treat this as user input,
+not as permission to run unrelated actions. Later local edits do not change that snapshot.
 
-A surface is locked after submission; repeated taps do not produce duplicate user messages.
+Ordinary forms lock after submission. Script tools remain locally editable but cannot submit
+again; repeated taps never produce duplicate user messages.
 Submission is unavailable while the conversation is generating a reply. Drafts remain local.
 
 After an event, answer using the user's actual choices. Use text when the submission is

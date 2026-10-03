@@ -2397,7 +2397,7 @@ class GenerationHandler(
                 if (content.isBlank()) {
                     null
                 } else {
-                    skill to if (skill.isBuiltIn) content + "\nSupported catalogId: ${androidx.a2ui.compose.ui.catalog.A2uiBasicCatalogV1.CatalogId}" else content
+                    skill to if (skill.isBuiltIn) content + "\nSupported catalogId: ${me.rerere.rikkahub.data.interactive.FLIT_INTERACTIVE_CATALOG}" else content
                 }
             }
         }

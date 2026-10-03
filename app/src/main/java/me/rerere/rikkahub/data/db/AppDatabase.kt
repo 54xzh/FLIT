@@ -97,7 +97,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         LocalModelEntity::class,
         ProjectEntity::class,
     ],
-    version = 56,
+    version = 57,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -198,6 +198,12 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         const val TAG = "AppDatabase"
+        val MIGRATION_56_57 = object : Migration(56, 57) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE interactive_component_state ADD COLUMN submittedDataModel TEXT")
+                db.execSQL("UPDATE interactive_component_state SET submittedDataModel = dataModel WHERE submitted = 1")
+            }
+        }
         val MIGRATION_55_56 = object : Migration(55, 56) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""CREATE TABLE IF NOT EXISTS interactive_component_state (
