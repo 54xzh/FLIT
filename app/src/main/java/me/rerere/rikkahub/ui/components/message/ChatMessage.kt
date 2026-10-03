@@ -3,6 +3,9 @@ package me.rerere.rikkahub.ui.components.message
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import me.rerere.rikkahub.ui.components.interactive.LocalInteractiveContentContext
+import me.rerere.rikkahub.ui.components.interactive.InteractiveHeightMotionState
+import me.rerere.rikkahub.ui.components.interactive.LocalInteractiveHeightMotion
+import me.rerere.rikkahub.data.interactive.interactiveFences
 import me.rerere.rikkahub.data.interactive.transformAroundInteractiveFences
 import me.rerere.rikkahub.service.ChatService
 import org.koin.compose.koinInject
@@ -56,6 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -78,6 +82,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.util.fastForEach
 import androidx.compose.ui.util.fastForEachIndexed
 import androidx.core.content.FileProvider
@@ -311,11 +316,41 @@ internal fun ChatMessage(
         )
     }
     val message = displayState.message
+    val hasInteractiveContent = conversationId != null && message.role == MessageRole.ASSISTANT &&
+        remember(displayState.renderBlocks) {
+            displayState.renderBlocks.filterIsInstance<MessageRenderBlock.TextBlock>()
+                .any { interactiveFences(it.part.text).isNotEmpty() }
+        }
+    // 只有亲眼经历生成结束的消息播放一次；滚出再滚回和后续交互不会补播。
+    var observedGeneration by rememberSaveable(message.id) { mutableStateOf(loading) }
+    var completionMotionPlayed by rememberSaveable(message.id) { mutableStateOf(false) }
+    val completionOffset = remember(message.id) { Animatable(0f) }
+    val completionDistancePx = with(LocalDensity.current) { 4.dp.toPx() }
+    LaunchedEffect(loading, hasInteractiveContent) {
+        if (loading) {
+            observedGeneration = true
+            completionOffset.snapTo(0f)
+        } else if (hasInteractiveContent && observedGeneration && !completionMotionPlayed) {
+            completionMotionPlayed = true
+            completionOffset.snapTo(-completionDistancePx)
+            completionOffset.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = 400f))
+        }
+    }
     val settings = LocalSettings.current.displaySetting
     val textStyle = LocalTextStyle.current.copy(
         fontSize = LocalTextStyle.current.fontSize * settings.fontSizeRatio,
         lineHeight = LocalTextStyle.current.lineHeight * settings.fontSizeRatio
     )
+    val footerFadeThresholdPx = with(LocalDensity.current) {
+        if (textStyle.lineHeight != TextUnit.Unspecified) {
+            (textStyle.lineHeight.toPx() * 2).roundToInt().coerceAtLeast(1)
+        } else {
+            48.dp.roundToPx()
+        }
+    }
+    val heightMotion = remember(message.id, footerFadeThresholdPx) {
+        InteractiveHeightMotionState(footerFadeThresholdPx)
+    }
     var showActionsSheet by remember { mutableStateOf(false) }
     var showSelectCopySheet by remember { mutableStateOf(false) }
     val navController = LocalNavController.current
@@ -377,7 +412,10 @@ internal fun ChatMessage(
                 )
             }
         }
-        ProvideTextStyle(textStyle) {
+        CompositionLocalProvider(
+            LocalTextStyle provides textStyle,
+            LocalInteractiveHeightMotion provides heightMotion,
+        ) {
             MessagePartsBlock(
                 assistant = assistant,
                 role = message.role,
@@ -398,6 +436,8 @@ internal fun ChatMessage(
                 usage = message.usage,
                 generationDurationMs = message.generationDurationMs,
                 showTokenUsage = settings.showTokenUsage && showInlineTokenUsage,
+                useInteractiveMotion = hasInteractiveContent,
+                completionOffset = { completionOffset.value },
                 streamingContentUpdateIntervalMs = streamingContentUpdateIntervalMs,
                 onQuoteFollowUp = onQuoteFollowUp,
                 onReferenceImage = onReferenceImage,
@@ -410,7 +450,14 @@ internal fun ChatMessage(
 
         AnimatedVisibility(
             visible = showActions,
-            enter = expandVertically(
+            modifier = Modifier.messageFooterMotion(
+                enabled = hasInteractiveContent && !loading,
+                completionOffset = { completionOffset.value },
+                heightMotion = heightMotion,
+            ),
+            enter = if (hasInteractiveContent) {
+                fadeIn(animationSpec = MessageFooterFadeSpec)
+            } else expandVertically(
                 animationSpec = spring(
                     dampingRatio = 0.7f,
                     stiffness = 300f
@@ -426,7 +473,9 @@ internal fun ChatMessage(
                     stiffness = 400f
                 )
             ),
-            exit = shrinkVertically(
+            exit = if (hasInteractiveContent) {
+                fadeOut(animationSpec = MessageFooterFadeSpec)
+            } else shrinkVertically(
                 animationSpec = spring(
                     dampingRatio = 0.8f,
                     stiffness = 400f
@@ -544,6 +593,8 @@ private fun MessagePartsBlock(
     usage: me.rerere.ai.core.TokenUsage? = null,
     generationDurationMs: Long? = null,
     showTokenUsage: Boolean = false,
+    useInteractiveMotion: Boolean = false,
+    completionOffset: () -> Float = { 0f },
     streamingContentUpdateIntervalMs: Long = 0L,
     onQuoteFollowUp: (String) -> Unit = {},
     onReferenceImage: (UIMessagePart.Image) -> Unit = {},
@@ -669,7 +720,10 @@ private fun MessagePartsBlock(
 
     AnimatedVisibility(
         visible = shouldShowTokenStats && workspaceFileReferencesReady,
-        enter = if (animateTokenStatsEntry) {
+        modifier = Modifier.messageFooterMotion(useInteractiveMotion && !loading, completionOffset),
+        enter = if (useInteractiveMotion) {
+            fadeIn(animationSpec = MessageFooterFadeSpec)
+        } else if (animateTokenStatsEntry) {
             fadeIn(
                 animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f),
             ) + expandVertically(
@@ -678,7 +732,9 @@ private fun MessagePartsBlock(
         } else {
             EnterTransition.None
         },
-        exit = if (animateTokenStatsEntry) {
+        exit = if (useInteractiveMotion) {
+            fadeOut(animationSpec = MessageFooterFadeSpec)
+        } else if (animateTokenStatsEntry) {
             fadeOut(
                 animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f),
             ) + shrinkVertically(
@@ -872,13 +928,23 @@ private fun MessageTextPart(
             it.stripInterruptedAppContextForDisplay().replaceRegexes(assistant = assistant, scope = AssistantAffectScope.ASSISTANT, visual = true)
         }
     }
+    val hasInteractiveContent = interactiveHost != null && remember(displayText) {
+        interactiveFences(displayText).isNotEmpty()
+    }
+    // A2UI 的布局变化直接传递给消息底部，避免外层正文弹簧再次追赶、裁剪组件高度。
+    // 同时覆盖流式和完成态；普通正文仍保留原有高度动画。
+    val contentModifier = if (hasInteractiveContent) {
+        Modifier
+    } else {
+        Modifier.limitedTextGrowthAnimation(contentLength = displayText.length)
+    }
     Column {
         if (loading) {
             MarkdownBlock(
                 content = displayText,
                 onClickCitation = onCitationClick,
                 onClickWorkspaceFile = onClickWorkspaceFile,
-                modifier = Modifier.limitedTextGrowthAnimation(contentLength = displayText.length),
+                modifier = contentModifier,
                 lazyRenderOffscreen = true,
                 lazyBlockHeightsCacheKey = lazyBlockHeightsCacheKey,
             )
@@ -890,8 +956,7 @@ private fun MessageTextPart(
                 onClickCitation = onCitationClick,
                 onClickWorkspaceFile = onClickWorkspaceFile,
                 lazyBlockHeightsCacheKey = lazyBlockHeightsCacheKey,
-                modifier = Modifier
-                    .limitedTextGrowthAnimation(contentLength = displayText.length),
+                modifier = contentModifier,
                 quoteFollowUpLabel = quoteFollowUpLabel,
                 onQuoteFollowUp = onQuoteFollowUp,
             )

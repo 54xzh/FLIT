@@ -54,7 +54,7 @@ internal fun interactiveCatalog(localeProvider: A2uiLocaleProvider = A2uiLocaleP
     messageFormatter = A2uiMessageFormatter { pattern, locale, arguments -> MessageFormat(pattern, locale).format(arguments) },
     localeProvider = localeProvider,
     button = InteractiveButton, card = InteractiveCard,
-    column = InteractiveColumn, row = InteractiveRow, list = InteractiveList,
+    column = InteractiveColumn, row = InteractiveRow, list = InteractiveList, tabs = InteractiveTabs,
     textField = InteractiveTextField, checkBox = InteractiveCheckBox,
     choicePicker = InteractiveChoicePicker, slider = InteractiveSlider,
     dateTimeInput = InteractiveDateTimeInput,
