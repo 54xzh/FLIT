@@ -146,6 +146,32 @@ class InteractiveEngineTest {
         }
     }
 
+    @Test fun `chart accepts literal series and data bindings in the FLIT catalog`() = runBlocking {
+        val code = """
+            {"version":"v0.9.1","createSurface":{"surfaceId":"spend-chart","catalogId":"$FLIT_INTERACTIVE_CATALOG"}}
+            {"version":"v0.9.1","updateDataModel":{"surfaceId":"spend-chart","path":"/","value":{"categories":["Jan","Feb"],"series":[{"label":"Food","values":[12,18]}]}}}
+            {"version":"v0.9.1","updateComponents":{"surfaceId":"spend-chart","components":[{"id":"root","component":"Column","children":["literal","wide","bound"]},{"id":"literal","component":"Chart","variant":"pie","title":"Share","weight":1,"accessibility":{"label":"Spend share"},"categories":["Food","Transit","Other"],"series":[{"label":"Spend","values":[40,null,60]}]},{"id":"wide","component":"Chart","series":[{"values":[1,2,3,4,5,6,7,8,9,10,11,12,13]},{"values":[1]},{"values":[1]},{"values":[1]},{"values":[1]}]},{"id":"bound","component":"Chart","variant":"line","categories":{"path":"/categories"},"series":{"path":"/series"}}]}}
+        """.trimIndent()
+        val decoder = InteractiveDocument(FLIT_INTERACTIVE_CATALOG)
+        decoder.consume(code, true)
+        assertFalse(decoder.hasIncompleteContent)
+        assertEquals("Chart", decoder.componentSnapshot.getValue("literal")["component"]?.jsonPrimitive?.content)
+        withSurface(code) { surface, events ->
+            assertTrue("Chart catalog errors: $events", events.none { it is A2uiClientErrorMessage })
+            assertEquals(listOf("Jan", "Feb"), surface.dataModel[A2uiDataPath("/categories")])
+        }
+    }
+
+    @Test fun `packaged chart example passes the FLIT catalog`() = runBlocking {
+        val fence = interactiveFences(File("src/main/assets/builtin-skills/interactive-components/references/components.md").readText()).single()
+        val decoder = InteractiveDocument(FLIT_INTERACTIVE_CATALOG)
+        decoder.consume(fence.code, true)
+        assertFalse(decoder.hasIncompleteContent)
+        withSurface(fence.code) { _, events ->
+            assertTrue("Chart example errors: $events", events.none { it is A2uiClientErrorMessage })
+        }
+    }
+
     @Test fun `script examples pass the native catalog schema including script button actions`() = runBlocking {
         val examples = packagedExamples().filter { fence ->
             val decoder = InteractiveDocument(FLIT_INTERACTIVE_CATALOG)

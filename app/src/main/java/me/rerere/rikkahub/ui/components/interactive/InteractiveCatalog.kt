@@ -60,10 +60,10 @@ internal fun interactiveCatalog(localeProvider: A2uiLocaleProvider = A2uiLocaleP
     dateTimeInput = InteractiveDateTimeInput,
 )
 
-/** 同一原生组件目录，增加仅供动作拦截器调度的脚本函数。 */
+/** 同一原生组件目录，增加图表和仅供动作拦截器调度的脚本函数。 */
 internal fun interactiveScriptCatalog(base: A2uiCatalog): A2uiCatalog = A2uiCatalog(
     catalogId = FLIT_INTERACTIVE_CATALOG,
-    components = base.components.toList(),
+    components = base.components.toList() + InteractiveChart,
     functions = base.functions.toList() + InteractiveScriptFunction,
     themeSchema = base.themeSchema,
 )

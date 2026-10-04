@@ -12,6 +12,35 @@
 | Modal | `trigger` and `content`: component IDs |
 | Icon | `name`: a catalog icon name listed below |
 
+## Charts
+
+`Chart` draws a small figure inside the card. It does not submit data.
+Tap a bar or point to see its category and value in a floating pill,
+with guides on the plot. Tap a pie slice to see its value and percentage of the positive total.
+The pill uses one line, adds no space below the chart, and appears only after selection.
+Single-series charts omit the series name; grouped charts include it.
+Tap the selected item again, another chart, or empty space to clear the previous details.
+Scrolling preserves the pill until its node or the pill leaves the visible chat area.
+The pill stays below the top bar and within the chat column. Overlapping
+points cycle between series on repeated taps. Bound data updates refresh the details.
+
+| Property | Value |
+| --- | --- |
+| variant | `bar` (default), `line`, `area`, or `pie` |
+| title | optional string or `{ "path": "/title" }` |
+| categories | optional string array, or `{ "path": "/categories" }`. At most 12 labels |
+| series | required. 1–4 objects `{ "label": "Name", "values": [1, 2] }`, or `{ "path": "/series" }` |
+
+Each `values` array lines up with `categories` by index and keeps at most 12 numbers.
+Further points and series are omitted. A missing or non-numeric point stays blank.
+Pie charts draw the first series; category labels name the slices. Positive numbers become slices.
+
+```a2ui
+{"version":"v0.9.1","createSurface":{"surfaceId":"spend-chart","catalogId":"flit:interactive/v1"}}
+{"version":"v0.9.1","updateDataModel":{"surfaceId":"spend-chart","path":"/","value":{"categories":["Jan","Feb","Mar"],"series":[{"label":"Food","values":[120,90,140]},{"label":"Transit","values":[40,55,30]}]}}}
+{"version":"v0.9.1","updateComponents":{"surfaceId":"spend-chart","components":[{"id":"root","component":"Column","children":["chart"]},{"id":"chart","component":"Chart","variant":"bar","title":"Monthly spend","categories":{"path":"/categories"},"series":{"path":"/series"}}]}}
+```
+
 ## Layout and optional properties
 
 Row and Column support `justify`: start, center, end, spaceBetween, spaceAround, spaceEvenly;

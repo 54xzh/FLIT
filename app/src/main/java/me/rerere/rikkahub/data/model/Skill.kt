@@ -28,9 +28,9 @@ object BuiltInSkills {
     val skills = listOf(
         Skill(
             INTERACTIVE_COMPONENTS_ID,
-            "Create native interactive forms and local tools directly in chat using A2UI. " +
+            "Create native interactive forms, charts, and local tools directly in chat using A2UI. " +
                 "Use when users need to choose options, enter structured information, adjust values, " +
-                "or interact with a calculator, filter, or scoring tool. " +
+                "see a chart of numeric results, or interact with a calculator, filter, or scoring tool. " +
                 "Prefer plain text for simple answers and acknowledgments.",
         ),
     )

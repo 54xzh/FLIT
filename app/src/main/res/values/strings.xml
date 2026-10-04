@@ -2784,7 +2784,11 @@
     <string name="local_provider_remove_all_description">Stop downloads and inference, then permanently delete downloaded engines and all local models stored by this app. Original imported files are kept.</string>
     <string name="local_provider_remove_failed">Removal could not be completed. Some files may already have been removed. Please try again.</string>
     <string name="interactive_components_skill_name">Interactive components</string>
-    <string name="interactive_components_skill_description">Use choices, forms, sliders, and calculation tools in chat to enter information or adjust results.</string>
+    <string name="interactive_components_skill_description">Use choices, forms, sliders, charts, and calculation tools in chat to enter information, view data, or adjust results.</string>
+    <string name="interactive_components_chart_empty">No data to chart</string>
+    <string name="interactive_components_chart_summary">Chart. %1$s</string>
+    <string name="interactive_components_chart_value_share">%1$s (%2$s)</string>
+    <string name="interactive_components_chart_tiny_share" formatted="false">&lt;0.01%</string>
     <string name="interactive_components_loading">Preparing component…</string>
     <string name="interactive_components_error">Unable to display this component</string>
     <string name="interactive_components_open_media">Open media</string>

@@ -1,9 +1,9 @@
 ---
 name: interactive-components
 description: >-
-  Create native interactive forms and local tools directly in chat using A2UI.
+  Create native interactive forms, charts, and local tools directly in chat using A2UI.
   Use when users need to choose options, enter structured information, adjust
-  values, or interact with a calculator, filter, or scoring tool.
+  values, see a chart of numeric results, or interact with a calculator, filter, or scoring tool.
   Prefer plain text for simple answers and acknowledgments.
 ---
 
@@ -12,6 +12,7 @@ description: >-
 Choose the simplest interaction that fits the task:
 
 - Collect choices or information with bound inputs and an `event` button.
+- Display a numeric comparison with Chart.
 - Display or validate values with catalog functions.
 - Calculate, filter data, or score locally with `flitRuntime`.
 
@@ -61,11 +62,19 @@ the block when useful.
 | ChoicePicker | `label`; `options`: `{ "label": "…", "value": "…" }` objects; bound array `value`; `variant`: mutuallyExclusive or multipleSelection |
 | CheckBox | `label`; `value`: bound boolean |
 | Slider | `label`, numeric `min`/`max`; `value`: bound number |
+| Chart | `variant`: bar, line, area, or pie; `series`: 1–4 `{ "label", "values" }` objects, each with at most 12 numbers. Optional `title` and `categories` in the same order as `values`. `series` and `categories` may be literals or `{ "path": "/field" }` |
 
 Bind editable values with `{ "path": "/field" }` and initialize them in updateDataModel.
 TextField values are strings (also for number inputs); ChoicePicker values are arrays of
 strings, even for a single selection. For searching fixed ChoicePicker options, use
 `filterable: true`; use a script when the result data must change.
+
+Chart does not submit data. Users can tap bars or points to inspect the category,
+series, and exact value, or tap pie slices to inspect their value and share.
+Pie uses the first series, and `categories` name the slices.
+Values line up with `categories` by index; extra points or series are omitted, and a
+missing point is left blank. Bind `series` when a slider or script should redraw the figure.
+A complete chart example is in [Components](references/components.md).
 
 Declare field validation as `checks`, with each function call inside `condition`:
 `[{ "condition": { "call": "required", "args": { "value": { "path": "/name" } } }, "message": "Enter your name" }]`.
@@ -160,5 +169,5 @@ Budget tool; both sliders calculate locally without submission:
 Ordinary forms and calculators need no further reads. Use `read_skill_file` with
 `skill_name: "interactive-components"`, `source: "builtin"`, and the corresponding `path`:
 
-- [Components](references/components.md): media, dates, tabs, modals, icon names, layout properties, or formatting functions.
+- [Components](references/components.md): charts, media, dates, tabs, modals, icon names, layout properties, or formatting functions.
 - [Script examples](references/script-examples.md): dynamic list templates with relative bindings, or a complete button-driven quiz.

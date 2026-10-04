@@ -61,6 +61,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import me.rerere.rikkahub.ui.components.interactive.InteractiveChartTooltipScope
+import me.rerere.rikkahub.ui.components.interactive.InteractiveChartTooltipLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.drawWithContent
@@ -542,78 +544,80 @@ fun ChatPage(
         }
     }
 
-    when {
-        isBigScreen -> {
-            PermanentNavigationDrawer(
-                drawerContent = {
-                    ChatDrawerContent(
+    InteractiveChartTooltipScope {
+        when {
+            isBigScreen -> {
+                PermanentNavigationDrawer(
+                    drawerContent = {
+                        ChatDrawerContent(
+                            navController = navController,
+                            currentId = id,
+                            vm = vm,
+                            settings = setting,
+                            currentExistsInStorage = conversationExistsInStorage,
+                            drawerState = null
+                        )
+                    }
+                ) {
+                    ChatPageContent(
+                        inputState = inputState,
+                        loadingJob = loadingJob,
+                        setting = setting,
+                        conversation = conversation,
+                        conversationExistsInStorage = conversationExistsInStorage,
+                        drawerState = drawerState,
                         navController = navController,
-                        currentId = id,
                         vm = vm,
-                        settings = setting,
-                        currentExistsInStorage = conversationExistsInStorage,
-                        drawerState = null
+                        chatListState = chatListState,
+                        enableWebSearch = enableWebSearch,
+                        currentSearchMode = currentSearchMode,
+                        currentChatModel = currentChatModel,
+                        bigScreen = true,
+                        initialSearchQuery = searchQuery,
+                        autoSend = autoSend,
+                        forkEdit = forkEdit,
+                        playWelcomeAnimation = playWelcomeAnimation,
                     )
                 }
-            ) {
-                ChatPageContent(
-                    inputState = inputState,
-                    loadingJob = loadingJob,
-                    setting = setting,
-                    conversation = conversation,
-                    conversationExistsInStorage = conversationExistsInStorage,
-                    drawerState = drawerState,
-                    navController = navController,
-                    vm = vm,
-                    chatListState = chatListState,
-                    enableWebSearch = enableWebSearch,
-                    currentSearchMode = currentSearchMode,
-                    currentChatModel = currentChatModel,
-                    bigScreen = true,
-                    initialSearchQuery = searchQuery,
-                    autoSend = autoSend,
-                    forkEdit = forkEdit,
-                    playWelcomeAnimation = playWelcomeAnimation,
-                )
             }
-        }
 
-        else -> {
-            ModalNavigationDrawer(
-                drawerState = drawerState,
-                drawerContent = {
-                    ChatDrawerContent(
+            else -> {
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        ChatDrawerContent(
+                            navController = navController,
+                            currentId = id,
+                            vm = vm,
+                            settings = setting,
+                            currentExistsInStorage = conversationExistsInStorage,
+                            drawerState = drawerState
+                        )
+                    }
+                ) {
+                    ChatPageContent(
+                        inputState = inputState,
+                        loadingJob = loadingJob,
+                        setting = setting,
+                        conversation = conversation,
+                        conversationExistsInStorage = conversationExistsInStorage,
+                        drawerState = drawerState,
                         navController = navController,
-                        currentId = id,
                         vm = vm,
-                        settings = setting,
-                        currentExistsInStorage = conversationExistsInStorage,
-                        drawerState = drawerState
+                        chatListState = chatListState,
+                        enableWebSearch = enableWebSearch,
+                        currentSearchMode = currentSearchMode,
+                        currentChatModel = currentChatModel,
+                        bigScreen = false,
+                        initialSearchQuery = searchQuery,
+                        autoSend = autoSend,
+                        forkEdit = forkEdit,
+                        playWelcomeAnimation = playWelcomeAnimation,
                     )
                 }
-            ) {
-                ChatPageContent(
-                    inputState = inputState,
-                    loadingJob = loadingJob,
-                    setting = setting,
-                    conversation = conversation,
-                    conversationExistsInStorage = conversationExistsInStorage,
-                    drawerState = drawerState,
-                    navController = navController,
-                    vm = vm,
-                    chatListState = chatListState,
-                    enableWebSearch = enableWebSearch,
-                    currentSearchMode = currentSearchMode,
-                    currentChatModel = currentChatModel,
-                    bigScreen = false,
-                    initialSearchQuery = searchQuery,
-                    autoSend = autoSend,
-                    forkEdit = forkEdit,
-                    playWelcomeAnimation = playWelcomeAnimation,
-                )
-            }
-            BackHandler(drawerState.isOpen) {
-                scope.launch { drawerState.close() }
+                BackHandler(drawerState.isOpen) {
+                    scope.launch { drawerState.close() }
+                }
             }
         }
     }
@@ -1925,6 +1929,12 @@ private fun ChatPageContent(
                         onDismiss = { showContextSummaryEditDialog = false },
                     )
                 }
+
+                InteractiveChartTooltipLayer(
+                    Modifier.matchParentSize()
+                        .padding(top = if (topBarBlurEnabled) topBarHeight else 0.dp,
+                            bottom = with(density) { chatInputHeightPx.toDp() }),
+                )
 
                 if (showLargeContextWarningDialog) {
                     LargeContextWarningDialog(

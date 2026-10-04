@@ -2774,7 +2774,11 @@
     <string name="local_provider_remove_all_description">停止下載和推論，並永久刪除應用程式內儲存的推論引擎和所有本機模型。匯入時的原始檔案將保留。</string>
     <string name="local_provider_remove_failed">未能完成移除，部分檔案可能已刪除，請重試。</string>
     <string name="interactive_components_skill_name">可互動元件</string>
-    <string name="interactive_components_skill_description">在聊天中使用選擇題、表單、滑桿和計算工具，填寫資訊或調整結果。</string>
+    <string name="interactive_components_skill_description">在聊天中使用選擇題、表單、滑桿、圖表和計算工具，填寫資訊、查看資料或調整結果。</string>
+    <string name="interactive_components_chart_empty">沒有可繪製的資料</string>
+    <string name="interactive_components_chart_summary">圖表。%1$s</string>
+    <string name="interactive_components_chart_value_share">%1$s（%2$s）</string>
+    <string name="interactive_components_chart_tiny_share" formatted="false">&lt;0.01%</string>
     <string name="interactive_components_loading">正在準備元件…</string>
     <string name="interactive_components_error">無法顯示此元件</string>
     <string name="interactive_components_open_media">開啟媒體</string>

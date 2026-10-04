@@ -278,7 +278,7 @@ class InteractiveDocument(
         const val MAX_COMPONENTS = 200
         const val MAX_DEPTH = 32
         private val CHILD_KEYS = setOf("child", "componentId", "entryPointChild", "contentChild", "trigger", "content")
-        val COMPONENT_NAMES = setOf("Text", "Icon", "Image", "Video", "AudioPlayer", "Row", "Column", "List", "Card", "Tabs", "Modal", "Divider", "Button", "TextField", "CheckBox", "ChoicePicker", "Slider", "DateTimeInput")
+        val COMPONENT_NAMES = setOf("Text", "Icon", "Image", "Video", "AudioPlayer", "Row", "Column", "List", "Card", "Tabs", "Modal", "Divider", "Button", "TextField", "CheckBox", "ChoicePicker", "Slider", "DateTimeInput", "Chart")
         fun validateJsonDepth(text: String) {
             var depth = 0
             var quoted = false
