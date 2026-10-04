@@ -59,12 +59,14 @@ class InteractiveRuntimeTest {
     }
 
     @Test fun `packaged local tools validate independently`() {
-        val examples = interactiveFences(File("src/main/assets/builtin-skills/interactive-components/references/script-examples.md").readText())
-        assertEquals(3, examples.size)
-        examples.forEach {
-            val decoder = InteractiveDocument("old")
-            decoder.consume(it.code, true)
-            assertNotNull(decoder.runtime)
-        }
+        val tools = listOf("SKILL.md", "references/script-examples.md").flatMap { path ->
+            interactiveFences(File("src/main/assets/builtin-skills/interactive-components/$path").readText())
+        }.map { fence ->
+            InteractiveDocument(FLIT_INTERACTIVE_CATALOG).also {
+                it.consume(fence.code, true)
+                assertFalse(it.hasIncompleteContent)
+            }
+        }.filter { it.runtime != null }
+        assertEquals(setOf("budget-tool", "filter-tool", "quiz-tool"), tools.map { it.surfaceId }.toSet())
     }
 }

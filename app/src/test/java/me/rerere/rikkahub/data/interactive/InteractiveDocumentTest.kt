@@ -101,11 +101,15 @@ class InteractiveDocumentTest {
     }
 
     @Test fun `all packaged examples describe independent valid surfaces`() {
-        listOf("SKILL.md", "references/examples.md").forEach { path ->
+        listOf("SKILL.md", "references/script-examples.md").forEach { path ->
             val source = File("src/main/assets/builtin-skills/interactive-components/$path").readText()
             val examples = interactiveFences(source)
             assertTrue("Missing examples in $path", examples.isNotEmpty())
-            examples.forEach { assertTrue(InteractiveDocument("<supported catalogId>").consume(it.code, true).size >= 3) }
+            examples.forEach {
+                val decoder = InteractiveDocument(FLIT_INTERACTIVE_CATALOG)
+                assertTrue(decoder.consume(it.code, true).size >= 3)
+                assertFalse("Rejected example in $path", decoder.hasIncompleteContent)
+            }
         }
     }
     @Test fun `invalid layout weights fail locally before invoking Compose`() {

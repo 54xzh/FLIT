@@ -1,61 +1,63 @@
-# Components
+# Additional components and properties
 
-The app supports the AndroidX Material 3 Basic Catalog. App colors, typography, card shapes,
-button press feedback, and motion are supplied by the host; do not specify arbitrary styling.
-Cards have transparent backgrounds and no borders so their contents blend into the chat.
-They add 8 dp vertical padding and no horizontal inset. A root Column needs no Card wrapper.
-The host spaces vertical children by 16 dp and horizontal
-children by 12 dp for the default arrangements; do not insert blank spacer components.
+## Media, dates, tabs, and modals
 
-| Component | Main properties |
+| Component | Properties |
 | --- | --- |
-| Text | `text` (string or path); `variant`: h1, h2, h3, h4, h5, caption, body |
-| Icon | `name` (catalog icon name) |
-| Image | `url`, `description`; `fit`: contain, cover, fill, none, scaleDown; `variant`: icon, avatar, smallFeature, mediumFeature, largeFeature, header |
-| Video | `url` |
-| AudioPlayer | `url`, `description` |
-| Row / Column | `children` (ID array), `align`, `justify`; child `weight` |
-| List | `children` (ID array or catalog collection template) |
-| Card | `child` (one component ID) |
+| Image | `url`, optional `description`; `fit`: contain, cover, fill, none, scaleDown; `variant`: icon, avatar, smallFeature, mediumFeature, largeFeature, header |
+| Video | `url`; opens media through a device handler |
+| AudioPlayer | `url`, optional `description`; opens media through a device handler |
+| DateTimeInput | bound ISO 8601 string `value`, optional `label`, boolean `enableDate`/`enableTime`, optional ISO `min`/`max`; initialize unset values with `""` |
 | Tabs | `tabs`: array of `{ "title": "Label", "child": "component-id" }` |
 | Modal | `trigger` and `content`: component IDs |
-| Divider | `axis`: horizontal or vertical |
-| Button | `child`, `variant`: default, primary, borderless; `action` |
-| TextField | `label`, `value`; `variant`: shortText, longText, number, obscured |
-| CheckBox | `label`, boolean `value` |
-| ChoicePicker | `options`: label/value objects; array `value`; mutuallyExclusive or multipleSelection variant |
-| Slider | `label`, numeric `min`, `max`, `value` |
-| DateTimeInput | `label`, ISO-formatted `value`, boolean `enableDate`/`enableTime`, optional ISO `min`/`max` |
+| Icon | `name`: a catalog icon name listed below |
 
-Prefer simple columns, text fields, checkboxes, choices, and sliders; add Card only when needed.
-Keep the component tree stable. Initialize necessary result and feedback components with
-short text, then update their values. Avoid unnecessary temporary components, repeated layout
-replacement, and large text-height changes. Use changing list lengths or tabs with very
-different heights only when the task needs them. Do not invent height or visibility properties.
+## Layout and optional properties
+
 Row and Column support `justify`: start, center, end, spaceBetween, spaceAround, spaceEvenly;
-`align`: start, center, end, stretch. List uses `direction`: vertical or horizontal and
-`align`: start, center, end, stretch. `weight` belongs to the child component and must be a positive finite number.
-ChoicePicker optionally uses `displayStyle`: chips or checkbox, and boolean `filterable`.
+`align`: start, center, end, stretch. A child's `weight` must be a positive finite number.
+List supports `children` (ID array or collection template), `direction`: vertical or horizontal,
+and `align`: start, center, end, stretch. Row and Column can also use collection templates;
+see [Script examples](script-examples.md) for the template shape and relative bindings.
+
+Text supports `variant`: h1, h2, h3, h4, h5, caption, body.
+ChoicePicker supports `displayStyle`: chips or checkbox.
 All components can use `accessibility: { "label": "…", "description": "…" }`.
-Icon names include add, check, close, search, settings, favorite, home, menu, person,
-arrowBack, arrowForward, info, warning, error, and delete.
 
-For dynamic child collections use `children: { "componentId": "item", "path": "/items" }`.
-The template's data context is the corresponding array element; relative paths bind within it.
-Static child ID arrays are simpler and preferred. Limits: 200 expanded components,
-262,144 characters per block, and 32 nesting levels. Keep interfaces small and avoid
-unnecessary nesting; count expanded collection items, not just template definitions.
+## Catalog icon names
 
-Bind editable values using `{ "path": "/field" }`; initialize them with updateDataModel.
-TextField uses strings, CheckBox booleans, ChoicePicker arrays of selected strings, and
-Slider numbers. Unbound literal values are useful for labels, not editable fields.
+Use these exact names:
 
-Use `checks` with a `condition` function call and a localized `message`, for example:
-`{ "condition": { "call": "required", "args": { "value": { "path": "/name" } } },
-"message": "Enter your name" }`.
-Declare necessary validation on the fields. The app rechecks field conditions against current
-values before accepting a submission. Button checks are optional for early disabling or
-additional submit conditions; do not mechanically duplicate every field check.
-Functions include validation, formatting, string operations, and explicit URL opening.
-The FLIT catalog also supports `runScript` as an explicit Button action, when the surface
-declares flitRuntime. It cannot be used inside text expressions or checks. Read scripts.md.
+```text
+accountCircle, add, arrowBack, arrowForward, attachFile, calendarToday, call, camera,
+check, close, delete, download, edit, event, error, fastForward, favorite, favoriteOff,
+folder, help, home, info, locationOn, lock, lockOpen, mail, menu, moreVert, moreHoriz,
+notificationsOff, notifications, pause, payment, person, phone, photo, play, print,
+refresh, rewind, search, send, settings, share, shoppingCart, skipNext, skipPrevious,
+star, starHalf, starOff, stop, upload, visibility, visibilityOff, volumeDown, volumeMute,
+volumeOff, volumeUp, warning
+```
+
+## Formatting functions
+
+Use `{ "call": "functionName", "args": {...} }` as a dynamic Text value.
+Required arguments come first below; arguments marked optional may be omitted.
+
+| `call` | `args` |
+| --- | --- |
+| formatString | string `value`, containing `${/path}` or named function expressions |
+| formatNumber | numeric `value`; optional numeric `decimals`, boolean `grouping` |
+| formatCurrency | numeric `value`, string `currency` (ISO 4217, e.g. USD); optional numeric `decimals` |
+| formatDate | `value` (date/time), string `format` (Unicode TR35, e.g. yyyy-MM-dd or HH:mm) |
+| pluralize | numeric `value`, string `other`; optional strings `zero`, `one`, `two`, `few`, `many` |
+
+For example, a Text component's `text` may be:
+
+```json
+{"call":"formatString","args":{"value":"Hello ${/name}; total ${formatNumber(value:${/total}, decimals:2)}"}}
+```
+
+Function expressions use named arguments. A raw Text string does not interpolate data;
+wrap it in formatString. To display a literal `${`, escape it as `\\${` in the JSON string.
+Formatting functions return strings; validation functions return booleans and belong in
+`checks.condition` as described in SKILL.md.

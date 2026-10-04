@@ -119,10 +119,10 @@ class InteractiveMessageIsolationTest {
 
     @Test fun `native preflight keeps all packaged form and script examples valid`() {
         val validator = interactiveMessageValidator(interactiveScriptCatalog(interactiveCatalog {}))
-        listOf("SKILL.md", "references/examples.md", "references/script-examples.md").forEach { path ->
+        listOf("SKILL.md", "references/script-examples.md").forEach { path ->
             val source = File("src/main/assets/builtin-skills/interactive-components/$path").readText()
             interactiveFences(source).forEach { fence ->
-                val decoder = InteractiveDocument("<supported catalogId>", validator)
+                val decoder = InteractiveDocument(FLIT_INTERACTIVE_CATALOG, validator)
                 decoder.consume(fence.code, true)
                 assertFalse("Rejected example in $path", decoder.hasIncompleteContent)
             }

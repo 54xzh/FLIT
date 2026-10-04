@@ -17,27 +17,37 @@ class InteractiveScriptServiceTest {
 
     @Test fun packagedToolsExecuteInTheIsolatedService() = runBlocking {
         val runner = InteractiveScriptRunner(context)
-        val examples = context.assets.open("builtin-skills/interactive-components/references/script-examples.md").bufferedReader().use { it.readText() }
-        interactiveFences(examples).forEachIndexed { index, fence ->
-            val decoder = InteractiveDocument("old")
+        val examples = listOf("SKILL.md", "references/script-examples.md").flatMap { path ->
+            val source = context.assets.open("builtin-skills/interactive-components/$path").bufferedReader().use { it.readText() }
+            interactiveFences(source)
+        }
+        val testedSurfaces = mutableSetOf<String>()
+        examples.forEach { fence ->
+            val decoder = InteractiveDocument(FLIT_INTERACTIVE_CATALOG)
             decoder.consume(fence.code, true)
-            val runtime = requireNotNull(decoder.runtime)
+            assertFalse(decoder.hasIncompleteContent)
+            val runtime = decoder.runtime ?: return@forEach
+            val surfaceId = requireNotNull(decoder.surfaceId)
             val original = fence.code.lines().map { JsonInstant.parseToJsonElement(it).jsonObject }
                 .firstNotNullOf { (it["updateDataModel"] as? JsonObject)?.get("value") as? JsonObject }
-            val model = when (index) {
-                0 -> JsonObject(original + ("expenses" to JsonPrimitive(4500)))
-                1 -> JsonObject(original + ("query" to JsonPrimitive("app")))
-                else -> JsonObject(original + ("answer" to JsonArray(listOf(JsonPrimitive("4")))))
+            val model = when (surfaceId) {
+                "budget-tool" -> JsonObject(original + ("expenses" to JsonPrimitive(4500)))
+                "filter-tool" -> JsonObject(original + ("query" to JsonPrimitive("app")))
+                "quiz-tool" -> JsonObject(original + ("answer" to JsonArray(listOf(JsonPrimitive("4")))))
+                else -> error("Unexpected script example: $surfaceId")
             }
-            val handler = if (index == 2) "score" else runtime.watch.single().handler
+            val automatic = surfaceId != "quiz-tool"
+            val handler = if (automatic) runtime.watch.single().handler else "score"
             val result = runner.execute(runtime, handler) { InteractiveScriptInput(model, JsonObject(emptyMap())) }
-            val updated = applyInteractiveScriptResult(model, result.result, runtime, index != 2)
-            when (index) {
-                0 -> assertEquals(500.0, updated.getValue("remaining").jsonPrimitive.double, 0.0)
-                1 -> assertEquals(1, updated.getValue("filtered").jsonArray.size)
-                else -> assertEquals(1, updated.getValue("score").jsonPrimitive.int)
+            val updated = applyInteractiveScriptResult(model, result.result, runtime, automatic)
+            when (surfaceId) {
+                "budget-tool" -> assertEquals(500.0, updated.getValue("remaining").jsonPrimitive.double, 0.0)
+                "filter-tool" -> assertEquals(1, updated.getValue("filtered").jsonArray.size)
+                "quiz-tool" -> assertEquals(1, updated.getValue("score").jsonPrimitive.int)
             }
+            testedSurfaces += surfaceId
         }
+        assertEquals(setOf("budget-tool", "filter-tool", "quiz-tool"), testedSurfaces)
     }
 
     @Test fun infiniteLoopsStackOverflowMemoryErrorsAndInvalidResultsPermitRecovery() = runBlocking {

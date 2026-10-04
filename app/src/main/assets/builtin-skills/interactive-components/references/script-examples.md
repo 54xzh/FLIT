@@ -1,24 +1,12 @@
 # Script examples
 
-Use labels in the user's language. These are independent complete surfaces.
-Initialize data before components. Keep result and feedback components present from the
-start, with concise initial text, and update their values without replacing the layout.
-
-## Budget calculation
-
-Both sliders update the result locally; submission requests assistant analysis once.
-
-```a2ui
-{"version":"v0.9.1","createSurface":{"surfaceId":"budget-tool","catalogId":"flit:interactive/v1","flitRuntime":{"version":1,"code":"({calculate({model}){const remaining=Number(model.income)-Number(model.expenses);return [{path:\"/remaining\",value:remaining},{path:\"/summary\",value:\"Remaining: \"+remaining.toFixed(2)}]}})","watch":[{"paths":["/income","/expenses"],"handler":"calculate"}]}}}
-{"version":"v0.9.1","updateDataModel":{"surfaceId":"budget-tool","path":"/","value":{"income":5000,"expenses":3000,"remaining":2000,"summary":"Remaining: 2000.00"}}}
-{"version":"v0.9.1","updateComponents":{"surfaceId":"budget-tool","components":[{"id":"root","component":"Column","children":["income","expenses","result","send"]},{"id":"income","component":"Slider","label":"Income","min":0,"max":10000,"value":{"path":"/income"}},{"id":"expenses","component":"Slider","label":"Expenses","min":0,"max":10000,"value":{"path":"/expenses"}},{"id":"result","component":"Text","text":{"path":"/summary"}},{"id":"send-label","component":"Text","text":"Ask assistant to analyze"},{"id":"send","component":"Button","child":"send-label","action":{"event":{"name":"analyze_budget","context":{"Income":{"path":"/income"},"Expenses":{"path":"/expenses"},"Remaining":{"path":"/remaining"}}}}}]}}
-```
-
 ## Local list filtering
 
 Search stays entirely local; no submit button is needed.
-Use this pattern only when filtering is needed. This deliberately small list limits height
-changes; avoid large changing result lists during every keystroke.
+Use `children: { "componentId": "item", "path": "/filtered" }` to repeat a template
+for each array element. Inside that template, relative paths such as `"name"` resolve
+against the current element; absolute paths still resolve against the surface's data root.
+The component limit counts expanded items, not just template definitions.
 
 ```a2ui
 {"version":"v0.9.1","createSurface":{"surfaceId":"filter-tool","catalogId":"flit:interactive/v1","flitRuntime":{"version":1,"code":"({filter({model}){const query=model.query.toLowerCase();return [{path:\"/filtered\",value:model.items.filter(item=>item.name.toLowerCase().includes(query))}]}})","watch":[{"paths":["/query","/items"],"handler":"filter"}]}}}
@@ -29,6 +17,9 @@ changes; avoid large changing result lists during every keystroke.
 ## Quiz scoring
 
 Check repeatedly locally; the explanation button submits once.
+Local practice quizzes may include answers, but the code and data sent to the device are
+inspectable. Never put secrets, keys, or answers that must remain confidential in
+flitRuntime.code or the data model; a confidential quiz needs grading outside this local tool.
 
 ```a2ui
 {"version":"v0.9.1","createSurface":{"surfaceId":"quiz-tool","catalogId":"flit:interactive/v1","flitRuntime":{"version":1,"code":"({score({model}){const correct=model.answer.length===1&&model.answer[0]===\"4\";return [{path:\"/score\",value:correct?1:0},{path:\"/feedback\",value:correct?\"Correct: 1 point\":\"Try again: 0 points\"}]}})","watch":[]}}}

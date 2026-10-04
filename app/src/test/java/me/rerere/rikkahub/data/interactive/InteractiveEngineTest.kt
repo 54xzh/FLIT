@@ -15,10 +15,23 @@ import org.junit.Test
 import java.io.File
 
 class InteractiveEngineTest {
-    private fun formExamples() = listOf("SKILL.md", "references/examples.md").flatMap { path ->
+    private fun packagedExamples() = listOf("SKILL.md", "references/script-examples.md").flatMap { path ->
         interactiveFences(File("src/main/assets/builtin-skills/interactive-components/$path").readText())
             .also { assertTrue("Missing examples in $path", it.isNotEmpty()) }
     }
+
+    // 参考文件精简后，仍独立覆盖必填字段和滑块提交，不依赖文档保留冗余示例。
+    private val validationAndBudgetForm = """
+        {"version":"v0.9.1","createSurface":{"surfaceId":"preferences","catalogId":"$FLIT_INTERACTIVE_CATALOG"}}
+        {"version":"v0.9.1","updateDataModel":{"surfaceId":"preferences","path":"/","value":{"name":"","budget":1000}}}
+        {"version":"v0.9.1","updateComponents":{"surfaceId":"preferences","components":[{"id":"root","component":"Column","children":["name","budget","submit"]},{"id":"name","component":"TextField","label":"Name","value":{"path":"/name"},"checks":[{"condition":{"call":"required","args":{"value":{"path":"/name"}}},"message":"Enter your name"}]},{"id":"budget","component":"Slider","label":"Budget","min":100,"max":5000,"value":{"path":"/budget"}},{"id":"submit-label","component":"Text","text":"Submit preferences"},{"id":"submit","component":"Button","child":"submit-label","action":{"event":{"name":"submit_preferences","context":{"Name":{"path":"/name"},"Budget":{"path":"/budget"}}}}}]}}
+    """.trimIndent()
+
+    private fun formExamples() = packagedExamples().filter { fence ->
+        val decoder = InteractiveDocument(FLIT_INTERACTIVE_CATALOG)
+        decoder.consume(fence.code, true)
+        decoder.runtime == null
+    } + InteractiveFence(0, validationAndBudgetForm, true)
 
     /** Android 的 JSON Reader 在设备测试验证；此处把同一描述交给真实引擎和目录校验。 */
     private suspend fun CoroutineScope.withSurface(code: String, check: suspend (A2uiCoreSurfaceModel, MutableList<A2uiClientToServerMessage>) -> Unit) {
@@ -34,7 +47,7 @@ class InteractiveEngineTest {
                     "createSurface" in envelope -> {
                         val body = envelope["createSurface"] as JsonObject
                         processor.processMessage(A2uiCreateSurfaceMessage(body.getValue("surfaceId").jsonPrimitive.content,
-                            body["catalogId"]?.jsonPrimitive?.content?.takeUnless { it == "<supported catalogId>" } ?: A2uiBasicCatalogV1.CatalogId))
+                            body["catalogId"]?.jsonPrimitive?.content ?: A2uiBasicCatalogV1.CatalogId))
                     }
                     "updateComponents" in envelope -> {
                         val body = envelope["updateComponents"] as JsonObject
@@ -82,7 +95,7 @@ class InteractiveEngineTest {
                     assertEquals(listOf("car"), events.filterIsInstance<A2uiClientEventMessage>().single().context["Travel mode"])
                 }
                 if (surface.dataModel[A2uiDataPath("/name")] != null) {
-                    val decoder = InteractiveDocument("<supported catalogId>")
+                    val decoder = InteractiveDocument(FLIT_INTERACTIVE_CATALOG)
                     decoder.consume(fence.code, true)
                     assertEquals("Enter your name", interactiveValidationError(surface, decoder.componentSnapshot))
                     surface.dataModel.update(A2uiDataPath("/name"), "Alice")
@@ -109,7 +122,7 @@ class InteractiveEngineTest {
     @Test fun `streamed component previews remain valid official protocol messages`() = runBlocking {
         val examples = formExamples()
         examples.forEach { fence ->
-            val decoder = InteractiveDocument("<supported catalogId>")
+            val decoder = InteractiveDocument(FLIT_INTERACTIVE_CATALOG)
             val messages = mutableListOf<String>()
             for (length in 1..fence.code.length step 17) messages += decoder.consume(fence.code.take(length), false)
             messages += decoder.consume(fence.code, true)
@@ -134,7 +147,11 @@ class InteractiveEngineTest {
     }
 
     @Test fun `script examples pass the native catalog schema including script button actions`() = runBlocking {
-        val examples = interactiveFences(File("src/main/assets/builtin-skills/interactive-components/references/script-examples.md").readText())
+        val examples = packagedExamples().filter { fence ->
+            val decoder = InteractiveDocument(FLIT_INTERACTIVE_CATALOG)
+            decoder.consume(fence.code, true)
+            decoder.runtime != null
+        }
         examples.forEach { fence ->
             withSurface(fence.code) { surface, events ->
                 assertTrue("Script catalog errors: $events", events.none { it is A2uiClientErrorMessage })
