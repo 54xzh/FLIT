@@ -161,6 +161,61 @@ class InteractiveComponentTest {
         assertEquals(1, submits.get())
     }
 
+    @Test fun missingFinalBracketIsRepairedAfterStreamingAndEnablesTheForm() {
+        val lines = description("Initial").lines()
+        val source = "${lines[0]}\n${lines[2]}\n${lines[1].dropLast(1)}\n"
+        var closed by mutableStateOf(false)
+        var generating by mutableStateOf(true)
+        val origin = InteractiveContentContext(Uuid.random(), Uuid.random(), 0, null, null, true, true,
+            emptyList(), isReadOnly = { _, _, _ -> false }, onSubmit = { false })
+        compose.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalInteractiveContentContext provides origin.copy(generating = generating)) {
+                    InteractiveBlock(source, closed, 0)
+                }
+            }
+        }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Initial").assertExists()
+        compose.onNode(hasSetTextAction()).assertIsNotEnabled()
+        compose.runOnIdle { closed = true; generating = false }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasSetTextAction() and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Initial").assertExists()
+        compose.onNodeWithText("Send").assertIsEnabled()
+    }
+
+    @Test fun malformedTailPreservesTheFormWithoutErrorTextAfterFinalizationAndReopening() {
+        val lines = description("Initial").lines()
+        val source = "${lines[0]}\n${lines[2]}\n${lines[1].dropLast(3)}," +
+            "{\"id\":\"broken\",\"component\":\"Text\",\"text\":\"unfinished"
+        var closed by mutableStateOf(false)
+        var generating by mutableStateOf(true)
+        var mounted by mutableStateOf(true)
+        val origin = InteractiveContentContext(Uuid.random(), Uuid.random(), 0, null, null, true, true,
+            emptyList(), isReadOnly = { _, _, _ -> false }, onSubmit = { fail("An incomplete form must not submit"); false })
+        val errorText = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+            .getString(me.rerere.rikkahub.R.string.interactive_components_error)
+        compose.setContent {
+            MaterialTheme {
+                if (mounted) CompositionLocalProvider(LocalInteractiveContentContext provides origin.copy(generating = generating)) {
+                    InteractiveBlock(source, closed, 0)
+                }
+            }
+        }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
+        compose.runOnIdle { closed = true; generating = false }
+        compose.waitForIdle()
+        compose.onNodeWithText("Initial").assertExists()
+        compose.onNodeWithText(errorText).assertDoesNotExist()
+        compose.onNode(hasSetTextAction()).assertIsNotEnabled()
+        compose.onNodeWithText("Send").assertIsNotEnabled()
+        compose.runOnIdle { mounted = false }
+        compose.runOnIdle { mounted = true }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Initial")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(errorText).assertDoesNotExist()
+        compose.onNodeWithText("Send").assertIsNotEnabled()
+    }
+
     @Test fun explicitScriptButtonsUpdateLocallyWithoutSubmitting() {
         val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
         val examples = context.assets.open("builtin-skills/interactive-components/references/script-examples.md")
@@ -180,6 +235,56 @@ class InteractiveComponentTest {
         compose.onNodeWithText("Check answer").performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(hasText("Check answer") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Correct: 1 point").assertExists()
+    }
+
+    @Test fun badJsonLineDoesNotBlockLaterComponentsWhileStreaming() {
+        val early = description("Initial") + "\n{bad}\n"
+        val following = """{"version":"v0.9.1","updateComponents":{"surfaceId":"form","components":[{"id":"label","component":"Text","text":"Recovered"}]}}"""
+        var code by mutableStateOf(early)
+        var closed by mutableStateOf(false)
+        var generating by mutableStateOf(true)
+        val origin = InteractiveContentContext(Uuid.random(), Uuid.random(), 0, null, null, true, true,
+            emptyList(), isReadOnly = { _, _, _ -> false }, onSubmit = { fail("An incomplete form must not submit"); false })
+        val errorText = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+            .getString(me.rerere.rikkahub.R.string.interactive_components_error)
+        compose.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalInteractiveContentContext provides origin.copy(generating = generating)) {
+                    InteractiveBlock(code, closed, 0)
+                }
+            }
+        }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Initial").assertExists()
+        compose.runOnIdle { code = early + following + "\n" }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Recovered")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Initial").assertExists()
+        compose.onNodeWithText(errorText).assertDoesNotExist()
+        compose.runOnIdle { closed = true; generating = false }
+        compose.waitForIdle()
+        compose.onNodeWithText("Recovered").assertIsNotEnabled()
+        compose.onNode(hasSetTextAction()).assertIsNotEnabled()
+        compose.onNodeWithText(errorText).assertDoesNotExist()
+    }
+
+    @Test fun nativeSchemaFailurePreservesTheFieldAndAllowsLaterValidMessages() {
+        val invalid = """{"version":"v0.9.1","updateComponents":{"surfaceId":"form","components":[{"id":"name","component":"TextField","label":[],"value":{"path":"/name"}}]}}"""
+        val following = """{"version":"v0.9.1","updateComponents":{"surfaceId":"form","components":[{"id":"label","component":"Text","text":"Recovered"}]}}"""
+        val code = description("Initial") + "\n$invalid\n$following"
+        val origin = InteractiveContentContext(Uuid.random(), Uuid.random(), 0, null, null, false, true,
+            emptyList(), isReadOnly = { _, _, _ -> false }, onSubmit = { fail("An incomplete form must not submit"); false })
+        val errorText = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+            .getString(me.rerere.rikkahub.R.string.interactive_components_error)
+        compose.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalInteractiveContentContext provides origin) { InteractiveBlock(code, true, 0) }
+            }
+        }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText("Recovered")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Initial").assertExists()
+        compose.onNodeWithText(errorText).assertDoesNotExist()
+        compose.onNode(hasSetTextAction()).assertIsNotEnabled()
+        compose.onNodeWithText("Recovered").assertIsNotEnabled()
     }
 
 }

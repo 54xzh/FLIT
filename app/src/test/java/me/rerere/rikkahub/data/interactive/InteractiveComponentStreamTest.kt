@@ -57,14 +57,87 @@ class InteractiveComponentStreamTest {
         assertEquals(JsonPrimitive(text), decoder.componentSnapshot.getValue("root")["text"])
     }
 
-    @Test fun `unknown components and malformed completed messages fail locally`() {
-        assertThrows(IllegalArgumentException::class.java) {
-            InteractiveDocument("catalog").consume("$create\n$header${first.replace("Text", "Unknown")},", false)
-        }
+    @Test fun `unknown components are isolated and malformed tails preserve completed previews`() {
+        val unknown = InteractiveDocument("catalog")
+        assertTrue(ids(unknown.consume("$create\n$header${first.replace("Text", "Unknown")},", false)).isEmpty())
+        assertTrue(unknown.hasIncompleteContent)
+        assertTrue(unknown.componentSnapshot.isEmpty())
         val decoder = InteractiveDocument("catalog")
         decoder.consume("$create\n$header$root,$first,", false)
-        assertThrows(Exception::class.java) { decoder.consume("$create\n$header$root,$first,broken", true) }
+        assertTrue(decoder.consume("$create\n$header$root,$first,broken", true).isEmpty())
+        assertTrue(decoder.hasIncompleteContent)
         assertEquals(listOf("root", "one"), decoder.componentSnapshot.keys.toList())
+    }
+
+    @Test fun `missing batch closing brackets are repaired without replaying previews`() {
+        val truncated = code.dropLast(3)
+        val decoder = InteractiveDocument("catalog")
+        assertEquals(listOf("root", "one", "two"), ids(decoder.consume(truncated, false)))
+        assertTrue(decoder.consume(truncated, true).isEmpty())
+        assertFalse(decoder.hasIncompleteContent)
+        assertTrue(decoder.consume(truncated, true).isEmpty())
+        assertFalse(decoder.hasChangedPrefix(truncated))
+        val reopened = InteractiveDocument("catalog")
+        assertEquals(listOf("root", "one", "two"), ids(reopened.consume(truncated, true)))
+        assertFalse(reopened.hasIncompleteContent)
+    }
+
+    @Test fun `newline before finalization does not turn a missing closing bracket into a fatal error`() {
+        val truncated = code.dropLast(1) + "\n"
+        val decoder = InteractiveDocument("catalog")
+        val messages = decoder.consume(truncated, false) + decoder.consume(truncated, true)
+        assertEquals(listOf("root", "one", "two"), ids(messages))
+        assertFalse(decoder.hasIncompleteContent)
+        assertTrue(decoder.consume(truncated, true).isEmpty())
+    }
+
+    @Test fun `reopening a truncated component keeps only the preceding complete objects`() {
+        val truncated = "$create\n$header$root,$first,{\"id\":\"two\",\"component\":\"Text\",\"text\":\"unfinished"
+        val decoder = InteractiveDocument("catalog")
+        assertEquals(listOf("root", "one"), ids(decoder.consume(truncated, true)))
+        assertTrue(decoder.hasIncompleteContent)
+        assertEquals(listOf("root", "one"), decoder.componentSnapshot.keys.toList())
+        assertTrue(decoder.consume(truncated, true).isEmpty())
+    }
+
+    @Test fun `invalid completed object does not discard earlier objects from the same chunk`() {
+        val broken = "$create\n$header$root,$first,{\"id\":\"two\",\"component\":\"Text\",\"text\":}]}}"
+        val decoder = InteractiveDocument("catalog")
+        assertEquals(listOf("root", "one"), ids(decoder.consume(broken, true)))
+        assertTrue(decoder.hasIncompleteContent)
+        val streaming = InteractiveDocument("catalog")
+        assertEquals(listOf("root", "one"), ids(streaming.consume(broken, false)))
+        assertTrue(streaming.consume(broken, true).isEmpty())
+        assertTrue(streaming.hasIncompleteContent)
+    }
+
+    @Test fun `a malformed later batch preserves earlier completed batches when reopened`() {
+        val decoder = InteractiveDocument("catalog")
+        val broken = "$code\n$header{\"id\":\"one\",\"component\":\"Text\",\"text\":\"unfinished"
+        assertEquals(listOf("root", "one", "two"), ids(decoder.consume(broken, true)))
+        assertTrue(decoder.hasIncompleteContent)
+        assertEquals(JsonPrimitive("First"), decoder.componentSnapshot.getValue("one")["text"])
+    }
+
+    @Test fun `indented streaming tails preserve the same complete components as reopening`() {
+        val early = "$create\n    $header$root,$first,"
+        val truncated = "$early$second,{\"id\":\"broken\",\"text\":\"unfinished"
+        val decoder = InteractiveDocument("catalog")
+        val messages = decoder.consume(early, false) + decoder.consume(truncated, true)
+        assertEquals(listOf("root", "one", "two"), ids(messages))
+        assertEquals(listOf("root", "one", "two"), ids(InteractiveDocument("catalog").consume(truncated, true)))
+        assertTrue(decoder.hasIncompleteContent)
+    }
+
+    @Test fun `repair does not bypass protocol and component limits`() {
+        listOf(
+            code.replace("v0.9.1", "v0.8").dropLast(1),
+            code.replace("\"component\":\"Text\"", "\"component\":\"Unknown\"").dropLast(1),
+            code.replace("\"text\":\"First\"", "\"text\":\"First\",\"weight\":-1").dropLast(1),
+            "$create\n$header${root.replace("\"one\",\"two\"", "\"root\"")},broken",
+        ).forEach { input ->
+            assertThrows(IllegalArgumentException::class.java) { InteractiveDocument("catalog").consume(input, true) }
+        }
     }
 
     @Test fun `later batches can update an earlier component exactly once`() {
@@ -74,6 +147,7 @@ class InteractiveComponentStreamTest {
         val messages = mutableListOf<String>()
         val next = "$code\n$update"
         for (length in code.length + 1..next.length) messages += decoder.consume(next.take(length), false)
+        messages += decoder.consume(next, true)
         assertEquals(listOf("one"), ids(messages))
         assertTrue(decoder.consume(next, true).isEmpty())
         assertEquals(JsonPrimitive("Updated"), decoder.componentSnapshot.getValue("one")["text"])

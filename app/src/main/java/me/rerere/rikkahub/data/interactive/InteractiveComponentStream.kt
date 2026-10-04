@@ -12,20 +12,19 @@ internal class InteractiveComponentStream {
     var appliedEnd = 0
         private set
 
-    fun drain(line: String): List<String> {
+    fun drain(line: String): Sequence<String> = sequence {
         if (header == null) {
-            val match = COMPONENTS_ARRAY.find(line) ?: return emptyList()
+            val match = COMPONENTS_ARRAY.find(line) ?: return@sequence
             val parsed = runCatching {
                 JsonInstant.parseToJsonElement(line.substring(0, match.range.last) + "[]}}") as? JsonObject
-            }.getOrNull() ?: return emptyList()
-            val body = parsed["updateComponents"] as? JsonObject ?: return emptyList()
+            }.getOrNull() ?: return@sequence
+            val body = parsed["updateComponents"] as? JsonObject ?: return@sequence
             // 只识别普通协议头，避免在标签文字或其他嵌套数据里误认数组。
             if (parsed.keys != setOf("version", "updateComponents") ||
-                body.keys != setOf("surfaceId", "components")) return emptyList()
+                body.keys != setOf("surfaceId", "components")) return@sequence
             header = parsed
             cursor = match.range.last + 1
         }
-        val messages = mutableListOf<String>()
         while (cursor < line.length) {
             var start = cursor
             while (start < line.length && line[start].isWhitespace()) start++
@@ -38,21 +37,24 @@ internal class InteractiveComponentStream {
             val end = objectEnd(line, start) ?: break
             val component = JsonInstant.parseToJsonElement(line.substring(start, end)) as? JsonObject
                 ?: error("Expected component object")
-            messages += message(listOf(component))
             cursor = end
             appliedEnd = end
             count++
             require(count <= InteractiveDocument.MAX_COMPONENTS) { "Too many components" }
+            yield(message(listOf(component)))
         }
-        return messages
     }
 
-    fun remaining(line: String): String? {
+    fun remaining(line: String, previewed: Map<String, JsonObject>): String? {
         val envelope = JsonInstant.parseToJsonElement(line) as? JsonObject ?: error("Expected message object")
         val body = envelope["updateComponents"] as? JsonObject ?: error("Expected updateComponents")
         val components = body["components"] as? JsonArray ?: error("Expected components array")
         require(components.size >= count) { "Interface content changed; restart rendering" }
-        val remaining = components.drop(count)
+        val remaining = components.filter { item ->
+            val component = item as? JsonObject
+            val id = (component?.get("id") as? kotlinx.serialization.json.JsonPrimitive)?.content
+            component == null || previewed[id] != component
+        }
         if (remaining.isEmpty()) return null
         return JsonObject(envelope + ("updateComponents" to JsonObject(body + ("components" to JsonArray(remaining))))).toString()
     }

@@ -40,13 +40,18 @@ class InteractiveDocumentTest {
         assertThrows(IllegalArgumentException::class.java) { InteractiveDocument(catalog).consume(complete.replace("Text", "Unknown"), true) }
         assertThrows(Exception::class.java) { InteractiveDocument(catalog).consume("$create\n{bad}", true) }
         val missing = components.replace("\"component\":\"Text\",\"text\":\"Hello\"", "\"component\":\"Card\",\"child\":\"absent\"")
-        assertThrows(IllegalArgumentException::class.java) { InteractiveDocument(catalog).consume("$create\n$missing", true) }
+        val partial = InteractiveDocument(catalog)
+        assertEquals(2, partial.consume("$create\n$missing", true).size)
+        assertTrue(partial.hasIncompleteContent)
         assertEquals(2, InteractiveDocument(catalog).consume(complete, true).size)
     }
 
     @Test fun `version catalog lifecycle and size are checked`() {
-        listOf(complete.replace("v0.9.1", "v0.8"), complete.replace("catalog", "other"), "$components\n$create", "$create\n$create\n$components")
+        listOf(complete.replace("v0.9.1", "v0.8"), complete.replace("catalog", "other"), "$components\n$create")
             .forEach { input -> assertThrows(IllegalArgumentException::class.java) { InteractiveDocument(catalog).consume(input, true) } }
+        val duplicate = InteractiveDocument(catalog)
+        assertEquals(listOf(create, components), duplicate.consume("$create\n$create\n$components", true))
+        assertTrue(duplicate.hasIncompleteContent)
         assertThrows(IllegalArgumentException::class.java) { InteractiveDocument(catalog).consume("x".repeat(InteractiveDocument.MAX_CHARS + 1), false) }
     }
 

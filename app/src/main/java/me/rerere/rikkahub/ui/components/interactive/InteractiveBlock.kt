@@ -46,15 +46,11 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
     val currentClosed by rememberUpdatedState(closed)
     val currentCode by rememberUpdatedState(code)
     var epoch by remember { mutableIntStateOf(0) }
-    val decoder = remember(epoch) { InteractiveDocument(A2uiBasicCatalogV1.CatalogId) }
     var componentSnapshot by remember(epoch) { mutableStateOf<Map<String, JsonObject>>(emptyMap()) }
     var runtimeConfig by remember(epoch) { mutableStateOf<InteractiveRuntime?>(null) }
+    var incomplete by remember(epoch) { mutableStateOf(false) }
     var scriptSession by remember(epoch) { mutableStateOf<InteractiveRuntimeSession?>(null) }
     var runtimeStatus by remember(epoch) { mutableStateOf(InteractiveRuntimeStatus()) }
-    if (decoder.hasChangedPrefix(code)) {
-        LaunchedEffect(code) { epoch++ }
-        return
-    }
     val catalog = remember { interactiveCatalog(localeProvider = androidx.a2ui.model.catalog.functions.A2uiLocaleProvider {
         currentAndroidContext.resources.configuration.locales[0]
     }) { url ->
@@ -62,16 +58,29 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
         if (android.net.Uri.parse(url).scheme in setOf("https", "http")) currentAndroidContext.openUrl(url)
     } }
     val scriptCatalog = remember(catalog) { interactiveScriptCatalog(catalog) }
+    val parser = remember { A2uiMessageParser() }
+    val validateMessage = remember(scriptCatalog) { interactiveMessageValidator(scriptCatalog) }
+    val decoder = remember(epoch) {
+        InteractiveDocument(A2uiBasicCatalogV1.CatalogId) { line ->
+            parser.parse(interactiveRendererMessage(line))
+            validateMessage(line)
+        }
+    }
+    if (decoder.hasChangedPrefix(code)) {
+        LaunchedEffect(code) { epoch++ }
+        return
+    }
     var runtimeSurface by remember(epoch) { mutableStateOf<A2uiCoreSurfaceModel?>(null) }
     var restorationQueued by remember(epoch) { mutableStateOf(false) }
     var ready by remember(epoch) { mutableStateOf(false) }
+    var finalized by remember(epoch) { mutableStateOf(false) }
     var error by remember(epoch) { mutableStateOf<String?>(null) }
     var notice by remember(epoch) { mutableStateOf<String?>(null) }
     var pending by remember(epoch) { mutableStateOf(false) }
     var persisted by remember(epoch) { mutableStateOf<InteractiveComponentStateEntity?>(null) }
     var renderedCode by remember(epoch) { mutableStateOf(code) }
     val fingerprint = remember(code) { interactiveFingerprint(code) }
-    if ((ready || error != null) && renderedCode != code) {
+    if ((ready || error != null || finalized) && renderedCode != code) {
         LaunchedEffect(code) { epoch++ }
         return
     }
@@ -82,8 +91,8 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
         (runtimeConfig == null && (submitted || decoder.surfaceId?.let { origin.isReadOnly(it, offset, fingerprint) } == true))
     val scriptWaiting = runtimeStatus.busy || runtimeStatus.error != null ||
         (runtimeConfig != null && closed && ready && scriptSession?.canSubmit() != true)
-    val controls = InteractiveControls(readOnly = readOnly || !ready || error != null,
-        canSubmit = closed && ready && !readOnly && !submitted && !scriptWaiting && origin?.generating == false,
+    val controls = InteractiveControls(readOnly = readOnly || !ready || error != null || incomplete,
+        canSubmit = closed && ready && !incomplete && !readOnly && !submitted && !scriptWaiting && origin?.generating == false,
         scriptBusy = scriptWaiting)
     val currentControls by rememberUpdatedState(controls)
     val processor = remember(catalog, epoch) {
@@ -111,7 +120,6 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
     val surfaces by processor.activeSurfaces.collectAsState()
     val surface = surfaces.firstOrNull() as? A2uiCoreSurfaceModel
     SideEffect { runtimeSurface = surface }
-    val parser = remember { A2uiMessageParser() }
     val marker = remember(epoch) { "FLIT_READY_${UUID.randomUUID()}" }
     val fingerprintState by rememberUpdatedState(fingerprint)
 
@@ -166,8 +174,10 @@ private fun InteractiveBlockContent(code: String, closed: Boolean, offset: Int, 
             val lines = decoder.consume(code, complete)
             componentSnapshot = decoder.componentSnapshot
             runtimeConfig = decoder.runtime
+            incomplete = decoder.hasIncompleteContent
+            finalized = complete
             lines.forEach { processor.processMessage(parser.parse(interactiveRendererMessage(it))) }
-            if (complete && !decoder.deleted && !restorationQueued) {
+            if (complete && !incomplete && !decoder.deleted && !restorationQueued) {
                 val host = currentOrigin
                 val initial = host?.let { InteractiveComponentStateEntity(it.conversationId.toString(), it.messageId.toString(),
                     it.partIndex, offset, fingerprint, decoder.surfaceId.orEmpty(), "", null, false) }

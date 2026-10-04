@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.data.interactive
 
+import kotlinx.serialization.SerializationException
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.*
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
@@ -52,10 +54,15 @@ fun interactiveFingerprint(text: String): String = MessageDigest.getInstance("SH
     .digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
 /** 完整行按协议消费，大数组内已闭合的组件提前显示；应用过的前缀变化时重建。 */
-class InteractiveDocument(private val catalogId: String) {
+class InteractiveDocument(
+    private val catalogId: String,
+    private val validateRendererMessage: (String) -> Unit = {},
+) {
     private var prefix = ""
     private var previewPrefix = ""
     private var componentStream: InteractiveComponentStream? = null
+    private var previewBaseIds: Set<String>? = null
+    private val previewedComponents = linkedMapOf<String, JsonObject>()
     private val components = linkedMapOf<String, JsonObject>()
     var surfaceId: String? = null
         private set
@@ -64,6 +71,8 @@ class InteractiveDocument(private val catalogId: String) {
     var runtime: InteractiveRuntime? = null
         private set
     var usesFlitCatalog: Boolean = false
+        private set
+    var hasIncompleteContent: Boolean = false
         private set
     val componentSnapshot: Map<String, JsonObject> get() = components.toMap()
 
@@ -80,30 +89,71 @@ class InteractiveDocument(private val catalogId: String) {
             val end = if (newline < 0) code.length else newline
             val line = code.substring(cursor, end).trim()
             if (line.isNotEmpty()) {
-                validate(line)
-                val preview = componentStream
-                if (preview != null && preview.count > 0) preview.remaining(line)?.let(result::add)
-                else result += line
+                isolate {
+                    validateJsonDepth(line)
+                    // 换行也表示消息已结束；只补这一行，不跨行拼接或猜测内容。
+                    val completedLine = try {
+                        JsonInstant.parseToJsonElement(line)
+                        line
+                    } catch (_: SerializationException) {
+                        completeInteractiveJson(line)
+                    }
+                    if (completedLine == null) {
+                        hasIncompleteContent = true
+                        previewComponents(code.substring(cursor, end), result)
+                    } else {
+                        validate(completedLine)
+                        val stream = componentStream
+                        if (stream != null && stream.count > 0) stream.remaining(completedLine, previewedComponents)?.let(result::add)
+                        else result += completedLine
+                    }
+                }
             }
             componentStream = null
+            previewBaseIds = null
+            previewedComponents.clear()
             previewPrefix = ""
             cursor = if (newline < 0) end else end + 1
             prefix = code.substring(0, cursor)
         }
         if (!complete && cursor < code.length) {
-            val stream = componentStream ?: InteractiveComponentStream().also { componentStream = it }
-            stream.drain(code.substring(cursor)).forEach { message ->
-                validate(message)
-                result += message
-            }
-            if (stream.appliedEnd > 0) previewPrefix = code.substring(0, cursor + stream.appliedEnd)
+            previewComponents(code.substring(cursor), result)
+            componentStream?.appliedEnd?.takeIf { it > 0 }?.let { previewPrefix = code.substring(0, cursor + it) }
         }
         if (complete && !deleted) {
             require(surfaceId != null) { "Missing createSurface" }
             require("root" in components) { "Missing root component" }
-            validateGraph(requireResolved = true)
+            isolate { validateGraph(requireResolved = !hasIncompleteContent) }
         }
         return result
+    }
+
+    /** 一行失败不影响其他行；缺失依赖的界面继续只读展示。 */
+    private inline fun isolate(block: () -> Unit) {
+        try { block() }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { hasIncompleteContent = true }
+    }
+
+    private fun previewComponents(line: String, result: MutableList<String>) {
+        val stream = componentStream ?: InteractiveComponentStream().also {
+            componentStream = it
+            previewBaseIds = components.keys.toSet()
+        }
+        isolate {
+            stream.drain(line).forEach { message ->
+                val envelope = JsonInstant.parseToJsonElement(message) as JsonObject
+                val component = (envelope["updateComponents"] as JsonObject)["components"]
+                    .let { it as JsonArray }.first() as JsonObject
+                val id = component["id"]?.jsonPrimitiveOrNull?.contentOrNull
+                // 已有组件的覆盖更新等待整行校验，避免后续坏组件留下半次更新。
+                if (id !in previewBaseIds.orEmpty()) isolate {
+                    validate(message)
+                    if (id != null) previewedComponents[id] = component
+                    result += message
+                }
+            }
+        }
     }
 
     private fun validate(line: String) {
@@ -118,15 +168,18 @@ class InteractiveDocument(private val catalogId: String) {
         val body = envelope[type] as? JsonObject ?: error("Expected message object")
         val id = body["surfaceId"]?.jsonPrimitiveOrNull?.contentOrNull
         require(!id.isNullOrBlank() && id.length <= 128) { "Invalid surfaceId" }
+        validateRendererMessage(line)
         if (type == "createSurface") {
             require(surfaceId == null) { "One surface per block; duplicate createSurface" }
             val requestedCatalog = body["catalogId"]?.jsonPrimitiveOrNull?.contentOrNull
             require(requestedCatalog == catalogId || requestedCatalog == FLIT_INTERACTIVE_CATALOG) { "Unsupported catalogId" }
-            usesFlitCatalog = requestedCatalog == FLIT_INTERACTIVE_CATALOG
-            body["flitRuntime"]?.let {
-                require(usesFlitCatalog) { "Scripts require the FLIT catalog" }
-                runtime = InteractiveRuntime.parse(it)
+            val flitCatalog = requestedCatalog == FLIT_INTERACTIVE_CATALOG
+            val configuredRuntime = body["flitRuntime"]?.let {
+                require(flitCatalog) { "Scripts require the FLIT catalog" }
+                InteractiveRuntime.parse(it)
             }
+            usesFlitCatalog = flitCatalog
+            runtime = configuredRuntime
             surfaceId = id
         } else {
             require(surfaceId == id && !deleted) { "Create this surface before updating it" }
@@ -134,6 +187,7 @@ class InteractiveDocument(private val catalogId: String) {
         if (type == "updateComponents") {
             val batch = body["components"] as? JsonArray ?: error("Expected components array")
             require(batch.size <= MAX_COMPONENTS) { "Too many components" }
+            val updated = LinkedHashMap(components)
             batch.forEach { item ->
                 val component = item as? JsonObject ?: error("Expected component object")
                 val componentId = component["id"]?.jsonPrimitiveOrNull?.contentOrNull
@@ -163,10 +217,12 @@ class InteractiveDocument(private val catalogId: String) {
                     } else if (value is JsonArray) value.forEach(::checkLocalCalls)
                 }
                 checkLocalCalls(component)
-                components[componentId] = component
+                updated[componentId] = component
             }
-            require(components.size <= MAX_COMPONENTS) { "Too many components" }
-            validateGraph(requireResolved = false)
+            require(updated.size <= MAX_COMPONENTS) { "Too many components" }
+            validateGraph(requireResolved = false, snapshot = updated)
+            components.clear()
+            components.putAll(updated)
         }
         if (type == "updateDataModel") {
             val path = body["path"]?.jsonPrimitiveOrNull?.contentOrNull ?: "/"
@@ -185,7 +241,7 @@ class InteractiveDocument(private val catalogId: String) {
         if (type == "deleteSurface") deleted = true
     }
 
-    private fun validateGraph(requireResolved: Boolean) {
+    private fun validateGraph(requireResolved: Boolean, snapshot: Map<String, JsonObject> = components) {
         fun children(value: JsonElement): List<String> = when (value) {
             is JsonObject -> value.entries.flatMap { (key, item) ->
                 if (key in CHILD_KEYS && item is JsonPrimitive && item.isString) listOf(item.content)
@@ -195,13 +251,13 @@ class InteractiveDocument(private val catalogId: String) {
             is JsonArray -> value.flatMap(::children)
             else -> emptyList()
         }
-        val edges = components.mapValues { children(it.value) }
+        val edges = snapshot.mapValues { children(it.value) }
         val depths = mutableMapOf<String, Int>()
         val sizes = mutableMapOf<String, Int>()
         fun walk(id: String, ancestors: Set<String>): Pair<Int, Int> {
             require(id !in ancestors) { "Cyclic component reference" }
             require(ancestors.size < MAX_DEPTH) { "Interface nesting is too deep" }
-            if (requireResolved) require(id in components) { "Missing child component: $id" }
+            if (requireResolved) require(id in snapshot) { "Missing child component: $id" }
             if (id in depths) return depths.getValue(id) to sizes.getValue(id)
             var depth = 1
             var size = 1
@@ -214,7 +270,7 @@ class InteractiveDocument(private val catalogId: String) {
             depths[id] = depth; sizes[id] = size
             return depth to size
         }
-        components.keys.forEach { walk(it, emptySet()) }
+        snapshot.keys.forEach { walk(it, emptySet()) }
     }
 
     companion object {
