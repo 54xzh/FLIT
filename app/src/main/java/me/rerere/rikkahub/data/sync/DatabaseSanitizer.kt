@@ -14,6 +14,8 @@ object DatabaseSanitizer {
     private const val TAG = "DatabaseSanitizer"
 
     internal val restorableTables = listOf(
+        // 项目资料与会话中的 project_id 必须一起恢复，保留原 ID 才能重新关联。
+        "projects",
         "ConversationEntity",
         "conversation_branch_counters",
         "MemoryEntity",
