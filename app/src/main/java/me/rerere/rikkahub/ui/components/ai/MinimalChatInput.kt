@@ -1584,8 +1584,6 @@ private fun MinimalPickerContent(
 
     // Search picker sheet (same as floating toolbar) - direct content, no intermediate button
     if (uiMode == ChatInputUiMode.Normal && showSearchPicker) {
-        val chatModel = settings.getCurrentChatModel()
-        
         ModalBottomSheet(
             onDismissRequest = { showSearchPicker = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -1609,7 +1607,7 @@ private fun MinimalPickerContent(
                 SearchPicker(
                     enableSearch = enableSearch,
                     settings = settings,
-                    model = chatModel,
+                    model = currentChatModel,
                     onToggleSearch = onToggleSearch,
                     onUpdateSearchService = { index ->
                         // Track this selection
