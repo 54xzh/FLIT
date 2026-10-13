@@ -1,8 +1,11 @@
 package me.rerere.rikkahub.data.datastore.migration
 
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.ai.provider.AgentPlatformMode
 import me.rerere.ai.provider.GooglePlatform
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.rikkahub.utils.JsonInstant
@@ -29,6 +32,7 @@ class PreferenceStoreV5MigrationTest {
         val providerJson = JsonInstant.parseToJsonElement(migrated).jsonObject
         assertEquals("google", providerJson["type"]?.jsonPrimitive?.content)
         assertEquals("agent_platform", providerJson["platform"]?.jsonPrimitive?.content)
+        assertEquals(providerJson, JsonInstant.parseToJsonElement(migrateLegacyVertexAiProviderJson(migrated)))
 
         val decoded = JsonInstant.decodeFromJsonElement(ProviderSetting.serializer(), providerJson)
         assertTrue(decoded is ProviderSetting.Google)
@@ -85,6 +89,71 @@ class PreferenceStoreV5MigrationTest {
         assertEquals("service@example.iam.gserviceaccount.com", decoded.serviceAccountEmail)
         assertEquals("asia-east1", decoded.location)
         assertEquals("gemini-2.5-pro", decoded.models.single().modelId)
+        assertEquals(
+            JsonInstant.parseToJsonElement(migrated),
+            JsonInstant.parseToJsonElement(migrateLegacyVertexAiProvidersSettingsJson(migrated)),
+        )
+    }
+
+    @Test
+    fun `current Agent Platform backup retains platform and both mode configurations`() {
+        AgentPlatformMode.entries.forEach { mode ->
+            val original = ProviderSetting.Google(
+                name = "Agent Platform",
+                platform = GooglePlatform.AGENT_PLATFORM,
+                agentPlatformMode = mode,
+                apiKey = "express-api-key",
+                serviceAccountEmail = "service@example.iam.gserviceaccount.com",
+                privateKey = "private-key",
+                projectId = "project-123",
+                location = "asia-east1",
+                useInteractionsApi = mode == AgentPlatformMode.STANDARD,
+            )
+            val settingsJson = JsonInstant.encodeToString(
+                JsonObject(mapOf(
+                    "providers" to JsonArray(listOf(
+                        JsonInstant.encodeToJsonElement(ProviderSetting.serializer(), original)
+                    ))
+                ))
+            )
+
+            val migrated = migrateLegacyVertexAiProvidersSettingsJson(settingsJson)
+            val restoredJson = JsonInstant.parseToJsonElement(migrated).jsonObject
+                .getValue("providers").jsonArray.single()
+            val restored = JsonInstant.decodeFromJsonElement(ProviderSetting.serializer(), restoredJson)
+                as ProviderSetting.Google
+
+            assertEquals(GooglePlatform.AGENT_PLATFORM, restored.platform)
+            assertEquals(mode, restored.agentPlatformMode)
+            assertEquals(original.apiKey, restored.apiKey)
+            assertEquals(original.serviceAccountEmail, restored.serviceAccountEmail)
+            assertEquals(original.privateKey, restored.privateKey)
+            assertEquals(original.projectId, restored.projectId)
+            assertEquals(original.location, restored.location)
+            assertEquals(original.useInteractionsApi, restored.useInteractionsApi)
+            assertEquals(
+                JsonInstant.parseToJsonElement(settingsJson),
+                JsonInstant.parseToJsonElement(migrated),
+            )
+            assertEquals(
+                JsonInstant.parseToJsonElement(migrated),
+                JsonInstant.parseToJsonElement(migrateLegacyVertexAiProvidersSettingsJson(migrated)),
+            )
+        }
+    }
+
+    @Test
+    fun `explicit platform takes priority over stale Vertex AI flag`() {
+        listOf("agent_platform" to false, "gemini" to true).forEach { (platform, vertexAI) ->
+            val migrated = migrateLegacyVertexAiProviderJson(
+                """{"type":"google","name":"Google","platform":"$platform","vertexAI":$vertexAI}"""
+            )
+            val providerJson = JsonInstant.parseToJsonElement(migrated).jsonObject
+
+            assertEquals(platform, providerJson["platform"]?.jsonPrimitive?.content)
+            assertEquals("Google", providerJson["name"]?.jsonPrimitive?.content)
+            assertFalse("vertexAI" in providerJson)
+        }
     }
 
     @Test

@@ -75,6 +75,10 @@ private fun migrateLegacyVertexAiProvider(provider: JsonObject): JsonObject {
         })
     }
     if (type != "google") return provider
+    // 新版配置的平台标记优先；重复迁移时也不能被旧开关覆盖。
+    if ("platform" in provider) {
+        return JsonObject(provider - "vertexAI")
+    }
 
     val isVertexAi = (provider["vertexAI"] as? JsonPrimitive)?.booleanOrNull == true
     return JsonObject(provider.toMutableMap().apply {

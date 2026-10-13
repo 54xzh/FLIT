@@ -31,6 +31,7 @@ class ShareSheetTest {
 
         val decoded = decodeProviderSetting(original.encodeForShare()) as ProviderSetting.Google
 
+        assertEquals(GooglePlatform.AGENT_PLATFORM, decoded.platform)
         assertEquals(AgentPlatformMode.EXPRESS, decoded.agentPlatformMode)
         assertEquals("express-api-key", decoded.apiKey)
         assertEquals("standard-project", decoded.projectId)
