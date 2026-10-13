@@ -177,8 +177,19 @@ object ModelRegistry {
         add(GEMINI_3_PRO, GEMINI_3_FLASH, GEMINI_3_1_PRO_PREVIEW, GEMINI_3_1_PRO_PREVIEW_CUSTOMTOOLS)
     }
 
+    val GEMINI_4_SERIES = defineModel {
+        tokens("gemini", "4")
+        visionInput()
+        toolReasoningAbility()
+    }
+
+    // 思考参数按系列识别，避免新型号或图片变体退回旧的预算参数。
+    val GEMINI_THINKING_LEVEL_MODELS = defineModel {
+        tokens("gemini", "3|4")
+    }
+
     val GEMINI_SERIES = defineGroup {
-        add(GEMINI_20_FLASH, GEMINI_2_5_FLASH, GEMINI_2_5_PRO, GEMINI_3_SERIES, GEMINI_LATEST)
+        add(GEMINI_20_FLASH, GEMINI_2_5_FLASH, GEMINI_2_5_PRO, GEMINI_3_SERIES, GEMINI_4_SERIES, GEMINI_LATEST)
     }
 
     private val CLAUDE_SONNET_3_5 = defineModel {
@@ -406,6 +417,7 @@ object ModelRegistry {
         GEMINI_3_1_PRO_PREVIEW,
         GEMINI_3_1_PRO_PREVIEW_CUSTOMTOOLS,
         GEMINI_3_1_FLASH_IMAGE,
+        GEMINI_4_SERIES,
         GEMINI_FLASH_LATEST,
         GEMINI_PRO_LATEST,
         CLAUDE_SONNET_3_5,

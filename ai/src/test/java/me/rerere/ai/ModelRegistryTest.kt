@@ -41,6 +41,23 @@ class ModelRegistryTest {
     }
 
     @Test
+    fun testGemini4Series() {
+        listOf("gemini-4-pro", "gemini-4-flash", "gemini-4.0-pro-preview", "google/Gemini4-Flash").forEach { modelId ->
+            assertTrue(modelId, ModelRegistry.GEMINI_SERIES.match(modelId))
+            assertEquals(
+                listOf(ModelAbility.TOOL, ModelAbility.REASONING),
+                ModelRegistry.MODEL_ABILITIES.getData(modelId),
+            )
+            assertEquals(
+                listOf(Modality.TEXT, Modality.IMAGE),
+                ModelRegistry.MODEL_INPUT_MODALITIES.getData(modelId),
+            )
+        }
+        assertFalse(ModelRegistry.GEMINI_4_SERIES.match("gemini-40-pro"))
+        assertFalse(ModelRegistry.GEMINI_4_SERIES.match("gpt-4"))
+    }
+
+    @Test
     fun testClaudeSeries() {
         assertTrue(ModelRegistry.CLAUDE_SERIES.match("claude-sonnet-4.5-20250929"))
         assertTrue(ModelRegistry.CLAUDE_SERIES.match("claude-4.5-sonnet"))

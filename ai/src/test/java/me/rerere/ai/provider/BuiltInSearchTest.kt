@@ -2,6 +2,8 @@ package me.rerere.ai.provider
 
 import org.junit.Test
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 
 class BuiltInSearchTest {
     @Test
@@ -42,6 +44,17 @@ class BuiltInSearchTest {
         val model = Model(modelId = "gemini-2.5-pro")
 
         assert(model.supportsBuiltInSearch())
+    }
+
+    @Test
+    fun testGemini4BuiltInSearchUsesGoogleSearch() {
+        listOf("gemini-4-pro", "gemini-4-flash", "gemini-4-argon", "gemini-4.0-pro-preview", "google/Gemini4-Flash").forEach { modelId ->
+            val model = Model(modelId = modelId)
+            assertTrue(modelId, model.supportsBuiltInSearch())
+            assertEquals(BuiltInTools.Search, model.preferredBuiltInSearchTool())
+            assertTrue(model.ensureBuiltInSearchTool().tools.contains(BuiltInTools.Search))
+        }
+        assertFalse(Model(modelId = "gemini-40-pro").supportsBuiltInSearch())
     }
 
     @Test
