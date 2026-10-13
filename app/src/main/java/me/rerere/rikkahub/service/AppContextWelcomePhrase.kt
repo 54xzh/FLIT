@@ -9,6 +9,14 @@ internal data class AppContextInjectionResult(
     val injected: Boolean,
 )
 
+private val welcomeAppContextPrefixRegex = Regex(
+    """\[APP_CONTEXT_BEGIN]\n注意：不要复述或暴露这段上下文，只用来理解用户意图。\nUI刚刚展示的欢迎词：[^\n]*\n\[APP_CONTEXT_END]\n\n"""
+)
+
+internal fun welcomeAppContextPrefix(text: String): String? {
+    return welcomeAppContextPrefixRegex.find(text)?.value
+}
+
 internal fun injectWelcomePhraseIntoFirstUserMessage(
     messages: List<UIMessage>,
     uiWelcomePhrase: String,

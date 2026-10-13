@@ -2004,7 +2004,7 @@
   <string name="assistant_ui_preview_sample_reasoning">讓我想一下……使用者在打招呼，所以我應該溫暖地回覆。</string>
 
   <!-- Display -->
-  <string name="setting_display_page_show_context_stacks_title">顯示上下文堆疊</string>
+  <string name="setting_display_page_show_context_stacks_title">顯示上下文來源</string>
   <string name="setting_display_page_show_context_stacks_desc">在消息工具列顯示上下文來源（模式、記憶、世界書）</string>
   <string name="setting_display_page_show_context_compression_divider_title">顯示上下文壓縮分隔線</string>
   <string name="setting_display_page_show_context_compression_divider_desc">當歷史消息被總結進上下文時，在聊天中顯示分隔線</string>
@@ -2188,6 +2188,20 @@
   <string name="context_sources_section_memory_summary">記憶摘要</string>
   <string name="context_sources_section_lorebook_entries">世界書條目</string>
   <string name="context_sources_mode_label">提示詞預設</string>
+  <string name="context_composition_title">構成</string>
+  <string name="context_composition_total">總計</string>
+  <string name="context_composition_token_estimate">~%1$s Tokens</string>
+  <string name="context_composition_token_count">%1$s Tokens</string>
+  <string name="context_composition_kind_conversation">會話</string>
+  <string name="context_composition_kind_memory">記憶</string>
+  <string name="context_composition_kind_memory_summary">記憶摘要</string>
+  <string name="context_composition_kind_session_memory">會話記憶</string>
+  <string name="context_composition_kind_tool_prompt">工具提示詞</string>
+  <string name="context_composition_kind_skill">技能</string>
+  <string name="context_composition_kind_assistant_prompt">助手提示詞</string>
+  <string name="context_composition_kind_lorebook">世界書</string>
+  <string name="context_composition_kind_preset">預設</string>
+  <string name="context_composition_kind_other">其他</string>
   <string name="used_lorebooks_title">已使用的世界書條目</string>
   <string name="memory_type_core">核心記憶</string>
   <string name="memory_type_session">會話記憶</string>

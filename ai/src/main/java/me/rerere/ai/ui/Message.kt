@@ -3,6 +3,7 @@ package me.rerere.ai.ui
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -41,7 +42,9 @@ data class UIMessage(
     val usedModes: List<UsedMode>? = null, // Modes used in this message
     val usedMemories: List<UsedMemory>? = null, // Memories used in this message
     val usedSessionMemories: List<UsedSessionMemory>? = null, // Conversation-scoped memories used in this message
-    val usedMemorySummary: UsedMemorySummary? = null // Assistant memory summary used in this message
+    val usedMemorySummary: UsedMemorySummary? = null, // Assistant memory summary used in this message
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val contextComposition: List<ContextCompositionSlice>? = null,
 ) {
     private fun appendChunk(chunk: MessageChunk): UIMessage {
         val choice = chunk.choices.getOrNull(0)
@@ -531,6 +534,40 @@ data class UsedMemorySummary(
     val content: String,
     val versionId: Long? = null,
 )
+
+/**
+ * One slice of the estimated prompt composition stored on the assistant message.
+ * Token counts are an offline estimate, not the provider's tokenizer.
+ */
+@Serializable
+data class ContextCompositionSlice(
+    val kind: ContextCompositionKind,
+    val estimatedTokens: Int,
+)
+
+@Serializable
+enum class ContextCompositionKind {
+    @SerialName("conversation")
+    CONVERSATION,
+    @SerialName("memory")
+    MEMORY,
+    @SerialName("memory_summary")
+    MEMORY_SUMMARY,
+    @SerialName("session_memory")
+    SESSION_MEMORY,
+    @SerialName("tool_prompt")
+    TOOL_PROMPT,
+    @SerialName("skill")
+    SKILL,
+    @SerialName("assistant_prompt")
+    ASSISTANT_PROMPT,
+    @SerialName("lorebook")
+    LOREBOOK,
+    @SerialName("preset")
+    PRESET,
+    @SerialName("other")
+    OTHER,
+}
 
 
 /**

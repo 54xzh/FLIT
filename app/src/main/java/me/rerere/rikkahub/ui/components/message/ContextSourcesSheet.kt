@@ -1,7 +1,11 @@
 package me.rerere.rikkahub.ui.components.message
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -10,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
@@ -38,30 +44,53 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToDown
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import me.rerere.ai.ui.ContextCompositionKind
+import me.rerere.ai.ui.ContextCompositionSlice
 import me.rerere.ai.ui.UsedLorebookEntry
 import me.rerere.ai.ui.UsedMemory
 import me.rerere.ai.ui.UsedMemorySummary
@@ -73,6 +102,15 @@ import me.rerere.rikkahub.data.model.SessionMemory
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.MemorySummaryRepository
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
+import me.rerere.rikkahub.data.datastore.getEffectiveDisplaySetting
+import me.rerere.rikkahub.data.ai.compositionPercentages
+import me.rerere.rikkahub.data.ai.compositionSegmentCenterFraction
+import me.rerere.rikkahub.data.ai.compositionSegmentIndexAt
+import me.rerere.rikkahub.data.ai.formatCompositionTokenMagnitude
+import me.rerere.rikkahub.data.ai.scaleCompositionTokens
+import me.rerere.rikkahub.ui.context.LocalSettings
+import me.rerere.rikkahub.ui.hooks.HapticPattern
+import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
 import me.rerere.rikkahub.ui.theme.AppShapes
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import org.koin.compose.koinInject
@@ -89,6 +127,13 @@ private data class ContextSourcePreview(
 private val groupCornerRadius = 24.dp
 private val itemCornerRadius = 10.dp
 
+private class CompositionOverlayBridge {
+    var dismiss: (() -> Unit)? = null
+    var sheetOrigin: Offset = Offset.Zero
+    var barBounds: Rect = Rect.Zero
+    var tooltipBounds: Rect = Rect.Zero
+}
+
 /**
  * Bottom sheet displaying all context sources used in a message:
  * modes, memories, and lorebook entries.
@@ -102,6 +147,8 @@ fun ContextSourcesSheet(
     assistantId: String? = null,
     currentSessionMemories: List<SessionMemory> = emptyList(),
     entries: List<UsedLorebookEntry> = emptyList(),
+    contextComposition: List<ContextCompositionSlice>? = null,
+    promptTokens: Int? = null,
     onModeClick: ((UsedMode) -> Unit)? = null,
     onSessionMemorySave: ((memoryId: Int, content: String) -> Unit)? = null,
     onSessionMemoryDelete: ((memoryId: Int) -> Unit)? = null,
@@ -131,6 +178,10 @@ fun ContextSourcesSheet(
     }
     val sortedMemories = remember(memories) { memories.sortedByDescending { it.priority } }
     val sortedEntries = remember(entries) { entries.sortedByDescending { it.priority } }
+    val compositionSlices = remember(contextComposition) {
+        contextComposition.orEmpty().filter { it.estimatedTokens > 0 }
+    }
+    val compositionOverlay = remember { CompositionOverlayBridge() }
 
     editingSessionMemory?.let { memory ->
         SessionMemoryEditDialog(
@@ -233,7 +284,22 @@ fun ContextSourcesSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .padding(bottom = 16.dp),
+                .padding(bottom = 16.dp)
+                .onGloballyPositioned { compositionOverlay.sheetOrigin = it.positionInWindow() }
+                .pointerInput(compositionOverlay) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val down = event.changes.firstOrNull { it.changedToDown() } ?: continue
+                            val dismiss = compositionOverlay.dismiss ?: continue
+                            if (compositionOverlay.barBounds == Rect.Zero) continue
+                            val point = compositionOverlay.sheetOrigin + down.position
+                            val onBar = compositionOverlay.barBounds.contains(point)
+                            val onTooltip = compositionOverlay.tooltipBounds.contains(point)
+                            if (!onBar && !onTooltip) dismiss()
+                        }
+                    }
+                },
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Header - centered
@@ -247,6 +313,17 @@ fun ContextSourcesSheet(
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                if (compositionSlices.isNotEmpty()) {
+                    item {
+                        ContextCompositionSection(
+                            slices = compositionSlices,
+                            promptTokens = promptTokens,
+                            overlay = compositionOverlay,
+                        )
+                    }
+                    item { Spacer(Modifier.height(12.dp)) }
+                }
+
                 // Modes Section
                 if (sortedModes.isNotEmpty()) {
                     item { SectionHeader(stringResource(R.string.context_sources_section_modes)) }
@@ -413,6 +490,316 @@ private fun getGroupedShape(index: Int, total: Int): RoundedCornerShape {
             bottomStart = groupCornerRadius, bottomEnd = groupCornerRadius
         )
         else -> RoundedCornerShape(itemCornerRadius)
+    }
+}
+
+@Composable
+private fun ContextCompositionSection(
+    slices: List<ContextCompositionSlice>,
+    promptTokens: Int?,
+    overlay: CompositionOverlayBridge,
+) {
+    val weights = remember(slices) { slices.map { it.estimatedTokens } }
+    val hasMeasuredTotal = promptTokens != null && promptTokens > 0
+    val displayedTokens = remember(weights, promptTokens) {
+        scaleCompositionTokens(weights, promptTokens)
+    }
+    val percentages = remember(weights) { compositionPercentages(weights) }
+    val totalTokens = promptTokens?.takeIf { it > 0 } ?: weights.sum()
+    val settings = LocalSettings.current
+    val haptics = rememberPremiumHaptics(enabled = settings.getEffectiveDisplaySetting().enableUIHaptics)
+    var selectedIndex by remember(slices) { mutableStateOf<Int?>(null) }
+    SideEffect {
+        overlay.dismiss = if (selectedIndex != null) {
+            { selectedIndex = null }
+        } else {
+            overlay.tooltipBounds = Rect.Zero
+            null
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeader(stringResource(R.string.context_composition_title))
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            CompositionBar(
+                slices = slices,
+                weights = weights,
+                selectedIndex = selectedIndex,
+                tooltip = selectedIndex?.let { index ->
+                    val slice = slices.getOrNull(index) ?: return@let null
+                    val kindLabel = stringResource(compositionKindLabel(slice.kind))
+                    val percent = percentages.getOrElse(index) { 0 }
+                    CompositionTooltipModel(
+                        label = kindLabel,
+                        percent = percent,
+                        value = stringResource(
+                            R.string.context_composition_token_estimate,
+                            formatCompositionTokenMagnitude(displayedTokens.getOrElse(index) { 0 }),
+                        ),
+                        centerFraction = compositionSegmentCenterFraction(weights, index),
+                    )
+                },
+                onBarBounds = { overlay.barBounds = it },
+                onTooltipBounds = { overlay.tooltipBounds = it },
+                onSelect = { index ->
+                    val updated = index.takeUnless { it == selectedIndex }
+                    if (updated != selectedIndex) haptics.perform(HapticPattern.Pop)
+                    selectedIndex = updated
+                },
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                slices.forEachIndexed { index, slice ->
+                    val percent = percentages.getOrElse(index) { 0 }
+                    CompositionDetailRow(
+                        label = stringResource(compositionKindLabel(slice.kind)),
+                        percent = percent,
+                        tokens = stringResource(
+                            R.string.context_composition_token_estimate,
+                            formatCompositionTokenMagnitude(displayedTokens.getOrElse(index) { 0 }),
+                        ),
+                        color = compositionColor(slice.kind),
+                        emphasized = selectedIndex == index,
+                    )
+                }
+                CompositionDetailRow(
+                    label = stringResource(R.string.context_composition_total),
+                    tokens = stringResource(
+                        if (hasMeasuredTotal) {
+                            R.string.context_composition_token_count
+                        } else {
+                            R.string.context_composition_token_estimate
+                        },
+                        formatCompositionTokenMagnitude(totalTokens),
+                    ),
+                    color = null,
+                    emphasized = false,
+                )
+            }
+        }
+    }
+}
+
+private data class CompositionTooltipModel(
+    val label: String,
+    val percent: Int,
+    val value: String,
+    val centerFraction: Float,
+)
+
+@Composable
+private fun CompositionBar(
+    slices: List<ContextCompositionSlice>,
+    weights: List<Int>,
+    selectedIndex: Int?,
+    tooltip: CompositionTooltipModel?,
+    onBarBounds: (Rect) -> Unit,
+    onTooltipBounds: (Rect) -> Unit,
+    onSelect: (Int) -> Unit,
+) {
+    val thickness by animateFloatAsState(
+        targetValue = if (selectedIndex != null) 1.35f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+        label = "composition_bar_thickness",
+    )
+    var barWidthPx by remember { mutableIntStateOf(0) }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(32.dp)
+            .onSizeChanged { barWidthPx = it.width }
+            .onGloballyPositioned { onBarBounds(it.boundsInWindow()) }
+            .pointerInput(weights) {
+                detectTapGestures { tap ->
+                    val index = compositionSegmentIndexAt(tap.x, size.width.toFloat(), weights)
+                    if (index >= 0) onSelect(index)
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(14.dp)
+                .graphicsLayer { scaleY = thickness }
+                .clip(AppShapes.ButtonPill),
+        ) {
+            slices.forEachIndexed { index, slice ->
+                val alpha by animateFloatAsState(
+                    targetValue = if (selectedIndex == null || selectedIndex == index) 1f else 0.38f,
+                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+                    label = "composition_segment_alpha",
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(slice.estimatedTokens.coerceAtLeast(1).toFloat())
+                        .fillMaxHeight()
+                        .graphicsLayer { this.alpha = alpha }
+                        .background(compositionColor(slice.kind)),
+                )
+            }
+        }
+        if (tooltip != null) {
+            CompositionSegmentTooltip(
+                model = tooltip,
+                barWidthPx = barWidthPx,
+                onBounds = onTooltipBounds,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompositionSegmentTooltip(
+    model: CompositionTooltipModel,
+    barWidthPx: Int,
+    onBounds: (Rect) -> Unit,
+) {
+    var tooltipWidth by remember { mutableIntStateOf(0) }
+    var tooltipHeight by remember { mutableIntStateOf(0) }
+    val scale = remember { Animatable(0.85f) }
+    LaunchedEffect(model.label, model.value) {
+        scale.snapTo(0.85f)
+        scale.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = 300f))
+    }
+    val density = LocalDensity.current
+    val lift = with(density) { 8.dp.roundToPx() }
+    val x = (barWidthPx * model.centerFraction - tooltipWidth / 2f).roundToInt()
+        .coerceIn(0, (barWidthPx - tooltipWidth).coerceAtLeast(0))
+    val y = -(tooltipHeight + lift)
+    Popup(
+        alignment = Alignment.TopStart,
+        offset = IntOffset(x, y),
+        properties = PopupProperties(
+            focusable = false,
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+            clippingEnabled = false,
+        ),
+    ) {
+        Surface(
+            modifier = Modifier
+                .onSizeChanged {
+                    tooltipWidth = it.width
+                    tooltipHeight = it.height
+                }
+                .onGloballyPositioned { onBounds(it.boundsInWindow()) }
+                .graphicsLayer {
+                    alpha = if (tooltipWidth > 0 && tooltipHeight > 0) 1f else 0f
+                    scaleX = scale.value
+                    scaleY = scale.value
+                },
+            shape = AppShapes.ButtonPill,
+            color = MaterialTheme.colorScheme.inverseSurface,
+            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+            shadowElevation = 4.dp,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                val percentColor = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.60f)
+                Text(
+                    text = buildAnnotatedString {
+                        append(model.label)
+                        withStyle(SpanStyle(color = percentColor)) {
+                            append(" (${model.percent}%)")
+                        }
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = model.value,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompositionDetailRow(
+    label: String,
+    tokens: String,
+    color: Color?,
+    emphasized: Boolean,
+    percent: Int? = null,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (color != null) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(color),
+            )
+        } else {
+            Spacer(Modifier.size(8.dp))
+        }
+        val percentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+        Text(
+            text = buildAnnotatedString {
+                append(label)
+                if (percent != null) {
+                    withStyle(SpanStyle(color = percentColor, fontWeight = FontWeight.Normal)) {
+                        append(" ($percent%)")
+                    }
+                }
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Normal,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = tokens,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun compositionColor(kind: ContextCompositionKind): Color {
+    val scheme = MaterialTheme.colorScheme
+    return when (kind) {
+        ContextCompositionKind.CONVERSATION -> scheme.primary
+        ContextCompositionKind.MEMORY -> scheme.tertiary
+        ContextCompositionKind.MEMORY_SUMMARY -> scheme.secondary
+        ContextCompositionKind.SESSION_MEMORY -> scheme.onTertiaryContainer
+        ContextCompositionKind.TOOL_PROMPT -> scheme.inversePrimary
+        ContextCompositionKind.SKILL -> scheme.onSecondaryContainer
+        ContextCompositionKind.ASSISTANT_PROMPT -> scheme.onPrimaryContainer
+        ContextCompositionKind.LOREBOOK -> scheme.onTertiary
+        ContextCompositionKind.PRESET -> scheme.onSecondary
+        ContextCompositionKind.OTHER -> scheme.outline
+    }
+}
+
+private fun compositionKindLabel(kind: ContextCompositionKind): Int {
+    return when (kind) {
+        ContextCompositionKind.CONVERSATION -> R.string.context_composition_kind_conversation
+        ContextCompositionKind.MEMORY -> R.string.context_composition_kind_memory
+        ContextCompositionKind.MEMORY_SUMMARY -> R.string.context_composition_kind_memory_summary
+        ContextCompositionKind.SESSION_MEMORY -> R.string.context_composition_kind_session_memory
+        ContextCompositionKind.TOOL_PROMPT -> R.string.context_composition_kind_tool_prompt
+        ContextCompositionKind.SKILL -> R.string.context_composition_kind_skill
+        ContextCompositionKind.ASSISTANT_PROMPT -> R.string.context_composition_kind_assistant_prompt
+        ContextCompositionKind.LOREBOOK -> R.string.context_composition_kind_lorebook
+        ContextCompositionKind.PRESET -> R.string.context_composition_kind_preset
+        ContextCompositionKind.OTHER -> R.string.context_composition_kind_other
     }
 }
 

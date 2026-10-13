@@ -163,6 +163,8 @@ fun ColumnScope.ChatMessageActionButtons(
             assistantId = assistantId,
             currentSessionMemories = currentSessionMemories,
             entries = usedEntries,
+            contextComposition = message.contextComposition,
+            promptTokens = message.usage?.promptTokens?.takeIf { it > 0 },
             onModeClick = { mode ->
                 showContextSheet = false
                 onModeClick?.invoke(mode)

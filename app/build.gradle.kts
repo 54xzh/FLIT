@@ -429,6 +429,9 @@ dependencies {
     // Local Chinese word segmentation for keyword memory retrieval
     implementation(libs.jieba.analysis)
 
+    // Offline token estimate for the context composition bar (cl100k_base).
+    implementation(libs.jtokkit)
+
     // Toast (Sonner)
     implementation(libs.sonner)
 

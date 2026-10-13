@@ -35,3 +35,6 @@
 
 # Downloaded LiteRT-LM JNI looks up these classes and members by name.
 -keep class com.google.ai.edge.litertlm.** { *; }
+
+# jtokkit loads cl100k vocab from its jar resources by path.
+-keep class com.knuddels.jtokkit.** { *; }
