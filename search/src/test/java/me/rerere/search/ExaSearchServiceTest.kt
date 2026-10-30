@@ -17,20 +17,23 @@ class ExaSearchServiceTest {
         val body = ExaSearchService.buildRequestBody(
             query = "latest Kotlin news",
             commonOptions = SearchCommonOptions(resultSize = 3),
-            serviceOptions = SearchServiceOptions.ExaOptions(searchType = ExaSearchType.DEEP_LITE),
+            serviceOptions = SearchServiceOptions.ExaOptions(
+                searchType = ExaSearchType.DEEP_LITE,
+                dynamicHighlights = true,
+            ),
         )
 
         assertEquals("latest Kotlin news", body.stringAt("query"))
         assertEquals("deep-lite", body.stringAt("type"))
         assertEquals("3", body["numResults"].toString())
         assertEquals(true, body.jsonObjectAt("contents")?.jsonObjectAt("highlights")?.get("dynamic")?.jsonPrimitive?.boolean)
-        val request = ExaSearchService.buildSearchRequest(body, SearchServiceOptions.ExaOptions())
+        val request = ExaSearchService.buildSearchRequest(body, SearchServiceOptions.ExaOptions(dynamicHighlights = true))
         assertEquals("dynamic-highlights-2026-08-28", request.header("Exa-Beta"))
     }
 
     @Test
-    fun disablingDynamicHighlightsKeepsRegularHighlightsWithoutBetaHeader() {
-        val options = SearchServiceOptions.ExaOptions(dynamicHighlights = false)
+    fun defaultOptionsUseRegularHighlightsWithoutBetaHeader() {
+        val options = SearchServiceOptions.ExaOptions()
         val body = ExaSearchService.buildRequestBody("Kotlin", SearchCommonOptions(), options)
 
         assertEquals(true, body.jsonObjectAt("contents")?.get("highlights")?.jsonPrimitive?.boolean)
@@ -38,14 +41,14 @@ class ExaSearchServiceTest {
     }
 
     @Test
-    fun oldExaSettingsEnableDynamicHighlightsAndDisabledSettingSurvivesSerialization() {
+    fun oldExaSettingsDisableDynamicHighlightsAndEnabledSettingSurvivesSerialization() {
         val oldSettings = """{"apiKey":"test-key","searchType":"fast"}"""
         val options = SearchService.json.decodeFromString<SearchServiceOptions.ExaOptions>(oldSettings)
 
-        assertTrue(options.dynamicHighlights)
+        assertFalse(options.dynamicHighlights)
         assertEquals(ExaSearchType.FAST, options.searchType)
-        val saved = SearchService.json.encodeToString(options.copy(dynamicHighlights = false))
-        assertFalse(SearchService.json.decodeFromString<SearchServiceOptions.ExaOptions>(saved).dynamicHighlights)
+        val saved = SearchService.json.encodeToString(options.copy(dynamicHighlights = true))
+        assertTrue(SearchService.json.decodeFromString<SearchServiceOptions.ExaOptions>(saved).dynamicHighlights)
     }
 
     @Test

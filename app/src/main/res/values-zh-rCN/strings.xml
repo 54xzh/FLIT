@@ -1865,7 +1865,7 @@
     <string name="setting_search_page_exa_search_type">搜索类型</string>
     <string name="setting_search_page_exa_search_type_desc">控制 Exa 搜索深度和速度</string>
     <string name="setting_search_page_exa_dynamic_highlights">动态高亮</string>
-    <string name="setting_search_page_exa_dynamic_highlights_desc">综合多条搜索结果提取相关段落，减少上下文用量。关闭后使用普通高亮。</string>
+    <string name="setting_search_page_exa_dynamic_highlights_desc">综合多条搜索结果提取相关段落，减少上下文用量，但开启后搜索可能较慢。</string>
     <string name="setting_search_page_grok_api_chat_completions">Chat Completions</string>
     <string name="setting_search_page_grok_api_responses">Responses</string>
     <string name="setting_search_page_grok_api_type">接口类型</string>
