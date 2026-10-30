@@ -23,7 +23,6 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import me.rerere.ai.BuildConfig
 import me.rerere.ai.core.MessageRole
-import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.core.parametersOrEmptyObject
 import me.rerere.ai.provider.AgentPlatformMode
@@ -40,8 +39,6 @@ import me.rerere.ai.ui.MessageChunk
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.UIMessagePart
-import me.rerere.ai.ui.WebSearchAction
-import me.rerere.ai.ui.WebSearchStatus
 import me.rerere.ai.ui.contentForModelInput
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
@@ -70,15 +67,10 @@ import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import org.apache.commons.text.StringEscapeUtils
-import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 private const val TAG = "InteractionsAPI"
 
-private fun String.isServerToolStepType(): Boolean {
-    return this !in setOf("function_call", "function_result", "model_output", "thought", "user_input") &&
-        (endsWith("_call") || endsWith("_result"))
-}
 
 class InteractionsAPI(
     private val client: OkHttpClient,
@@ -211,6 +203,7 @@ class InteractionsAPI(
 
                 val jsonData = runCatching { parseStreamEventData(data) }
                     .getOrElse { throwable ->
+                        sendSearchFinalization()
                         close(
                             RawResponseException(
                                 message = "Failed to parse stream event: ${throwable.message}",
@@ -221,6 +214,7 @@ class InteractionsAPI(
                         return
                     }
                 if (jsonData == null) {
+                    sendSearchFinalization()
                     close()
                     return
                 }
@@ -234,6 +228,7 @@ class InteractionsAPI(
                         stepTracker = stepTracker,
                     )
                 }.getOrElse { throwable ->
+                    sendSearchFinalization()
                     close(
                         RawResponseException(
                             message = "Failed to parse stream payload: ${throwable.message}",
@@ -247,6 +242,23 @@ class InteractionsAPI(
                 if (messageChunk != null) {
                     trySend(messageChunk)
                 }
+                if (type == "error" || jsonData["event_type"]?.jsonPrimitiveOrNull?.contentOrNull == "error") {
+                    sendSearchFinalization()
+                    close(RawResponseException(
+                        message = (jsonData["error"] as? JsonObject)?.get("message")?.jsonPrimitiveOrNull?.contentOrNull ?: "Interactions stream failed",
+                        rawResponse = rawEventBuffer.toString(),
+                    ))
+                }
+            }
+
+            private fun sendSearchFinalization() {
+                val parts = stepTracker.finishSearches()
+                if (parts.isNotEmpty()) trySend(MessageChunk(
+                    id = Uuid.random().toString(),
+                    model = params.model.modelId,
+                    choices = listOf(UIMessageChoice(index = 0,
+                        delta = UIMessage(role = MessageRole.ASSISTANT, parts = parts), message = null, finishReason = null)),
+                ))
             }
 
             override fun onFailure(
@@ -254,6 +266,7 @@ class InteractionsAPI(
                 t: Throwable?,
                 response: Response?
             ) {
+                sendSearchFinalization()
                 var exception = t
                 var rawFailureResponse = ""
                 t?.printStackTrace()
@@ -302,6 +315,7 @@ class InteractionsAPI(
 
             override fun onClosed(eventSource: EventSource) {
                 if (BuildConfig.DEBUG) Log.i(TAG, "[onClosed] stream closed")
+                sendSearchFinalization()
                 close()
             }
         }
@@ -352,12 +366,8 @@ class InteractionsAPI(
             if (params.maxTokens != null) put("max_output_tokens", params.maxTokens)
 
             if (params.model.abilities.contains(ModelAbility.REASONING)) {
-                when (params.reasoningLevel) {
-                    ReasoningLevel.AUTO -> {}
-                    ReasoningLevel.OFF -> put("thinking_level", "minimal")
-                    ReasoningLevel.LOW -> put("thinking_level", "low")
-                    ReasoningLevel.MEDIUM -> put("thinking_level", "medium")
-                    else -> put("thinking_level", "high")
+                googleThinkingLevel(params.model.modelId, params.reasoningLevel)?.let {
+                    put("thinking_level", it)
                 }
                 put("thinking_summaries", "auto")
             }
@@ -471,8 +481,18 @@ class InteractionsAPI(
                         }
 
                         MessageRole.ASSISTANT -> {
+                            val indexedSteps = message.parts.flatMap {
+                                it.metadataAs<GoogleThoughtMetadata>()?.interactionSteps.orEmpty()
+                            }.groupBy { it.turnId to it.index }.values.map { snapshots ->
+                                snapshots.maxBy { it.revision }
+                            }
+                            indexedSteps.groupBy { it.turnId }.values.forEach { turn ->
+                                turn.sortedBy { it.index }.forEach { add(it.step) }
+                            }
                             message.parts.forEach messagePart@ { part ->
-                                val interactionStep = part.metadataAs<GoogleThoughtMetadata>()?.interactionStep
+                                val googleMetadata = part.metadataAs<GoogleThoughtMetadata>()
+                                if (!googleMetadata?.interactionSteps.isNullOrEmpty()) return@messagePart
+                                val interactionStep = googleMetadata?.interactionStep
                                 if (interactionStep != null) {
                                     // Interactions 的 thought 与内置工具步骤带有服务端签名，
                                     // 无状态续聊时必须逐字保留，不能按通用消息模型重新拼装。
@@ -625,171 +645,29 @@ class InteractionsAPI(
     internal fun parseNonStreamResponse(
         bodyJson: JsonObject,
         modelId: String,
-        rawResponse: String
+        rawResponse: String,
     ): MessageChunk {
-        val steps = bodyJson["steps"] as? JsonArray ?: emptyList()
-        val parts = mutableListOf<UIMessagePart>()
-        var finishReason: String? = null
-
-        steps.forEach { stepElement ->
-            val stepObj = stepElement as? JsonObject ?: return@forEach
-            val stepType = stepObj["type"]?.jsonPrimitiveOrNull?.contentOrNull ?: ""
-            when (stepType) {
-                "thought" -> {
-                    val summaryArr = stepObj["summary"] as? JsonArray
-                        ?: stepObj["thought_summary"] as? JsonArray
-                    val summaryTextFromArr = summaryArr?.mapNotNull { elem ->
-                        (elem as? JsonObject)?.get("text")?.jsonPrimitiveOrNull?.contentOrNull
-                            ?: (elem as? JsonPrimitive)?.contentOrNull
-                    }?.joinToString("\n")?.takeIf { it.isNotEmpty() }
-
-                    val contentArr = stepObj["content"] as? JsonArray
-                    val contentTextFromArr = contentArr?.mapNotNull { elem ->
-                        (elem as? JsonObject)?.get("text")?.jsonPrimitiveOrNull?.contentOrNull
-                            ?: (elem as? JsonPrimitive)?.contentOrNull
-                    }?.joinToString("\n")?.takeIf { it.isNotEmpty() }
-
-                    val thoughtText = summaryTextFromArr
-                        ?: stepObj["summary"]?.jsonPrimitiveOrNull?.contentOrNull
-                        ?: stepObj["thought_summary"]?.jsonPrimitiveOrNull?.contentOrNull
-                        ?: contentTextFromArr
-                        ?: stepObj["text"]?.jsonPrimitiveOrNull?.contentOrNull
-                        ?: ""
-                    val signature = stepObj["signature"]?.jsonPrimitiveOrNull?.contentOrNull
-                        ?: stepObj["thought_signature"]?.jsonPrimitiveOrNull?.contentOrNull
-                    if (thoughtText.isNotEmpty() || signature != null) {
-                        parts.add(
-                            UIMessagePart.Reasoning(
-                                reasoning = thoughtText,
-                                createdAt = Clock.System.now(),
-                                finishedAt = Clock.System.now(),
-                                metadata = GoogleThoughtMetadata(
-                                    thoughtSignature = signature,
-                                    interactionStep = stepObj,
-                                ).toMetadata(),
-                            )
-                        )
-                    }
-                }
-
-                "model_output" -> {
-                    parts += parseModelOutputParts(stepObj["content"] as? JsonArray)
-                }
-
-                "function_call" -> {
-                    val name = stepObj["name"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
-                    val id = stepObj["call_id"]?.jsonPrimitiveOrNull?.contentOrNull
-                        ?: stepObj["id"]?.jsonPrimitiveOrNull?.contentOrNull
-                        ?: ""
-                    val argsElement = stepObj["arguments"]
-                    val argsStr = when (argsElement) {
-                        is JsonObject -> json.encodeToString(argsElement)
-                        is JsonPrimitive -> argsElement.content
-                        else -> "{}"
-                    }
-                    parts.add(
-                        UIMessagePart.ToolCall(
-                            toolCallId = id,
-                            toolName = name,
-                            arguments = argsStr
-                        )
-                    )
-                }
-
-                else -> {
-                    parseServerToolStep(stepObj)?.let(parts::add)
-                        ?: stepObj["text"]?.jsonPrimitiveOrNull?.contentOrNull
-                            ?.takeIf { it.isNotEmpty() }
-                            ?.let { text -> parts.add(UIMessagePart.Text(text = text)) }
-                }
-            }
-
-            val status = stepObj["status"]?.jsonPrimitiveOrNull?.contentOrNull
-            if (status != null && status != "in_progress") {
-                finishReason = status
+        val tracker = StepContextTracker()
+        var message = UIMessage(role = MessageRole.ASSISTANT, parts = emptyList())
+        (bodyJson["steps"] as? JsonArray).orEmpty().forEachIndexed { index, element ->
+            val step = element as? JsonObject ?: return@forEachIndexed
+            listOf(
+                buildJsonObject { put("index", index); put("step", step); put("event_type", "step.start") },
+                buildJsonObject { put("index", index); put("event_type", "step.stop") },
+            ).forEach { event ->
+                parseStreamMessageChunk(event, null, modelId, rawResponse, tracker)?.let { message += it }
             }
         }
-
-        if (finishReason == null) {
-            finishReason = bodyJson["status"]?.jsonPrimitiveOrNull?.contentOrNull
-        }
-
-        val usage = parseUsage(
-            bodyJson["usage"] as? JsonObject ?: bodyJson["usageMetadata"] as? JsonObject
-        )
-
+        val terminalEvent = buildJsonObject { put("interaction", bodyJson); put("event_type", "interaction.completed") }
+        parseStreamMessageChunk(terminalEvent, null, modelId, rawResponse, tracker)?.let { message += it }
+        val reason = bodyJson["status"]?.jsonPrimitiveOrNull?.contentOrNull
         return MessageChunk(
             id = bodyJson["id"]?.jsonPrimitiveOrNull?.contentOrNull ?: Uuid.random().toString(),
             model = modelId,
-            choices = listOf(
-                UIMessageChoice(
-                    index = 0,
-                    delta = null,
-                    message = UIMessage(
-                        role = MessageRole.ASSISTANT,
-                        parts = parts
-                    ),
-                    finishReason = finishReason
-                )
-            ),
-            usage = usage,
-            finishReasons = finishReason?.let { setOf(it) } ?: emptySet(),
+            choices = listOf(UIMessageChoice(index = 0, delta = null, message = message, finishReason = reason)),
+            usage = parseUsage(bodyJson["usage"] as? JsonObject ?: bodyJson["usageMetadata"] as? JsonObject),
+            finishReasons = reason?.let { setOf(it) } ?: emptySet(),
             rawResponse = rawResponse,
-        )
-    }
-
-    private fun parseModelOutputParts(content: JsonArray?): List<UIMessagePart> = content.orEmpty()
-        .mapNotNull { contentElement ->
-            val contentObject = contentElement as? JsonObject ?: return@mapNotNull null
-            when (contentObject["type"]?.jsonPrimitiveOrNull?.contentOrNull ?: "text") {
-                "text" -> contentObject["text"]?.jsonPrimitiveOrNull?.contentOrNull
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.let(UIMessagePart::Text)
-
-                "image" -> contentObject.toMediaDataUrl(defaultMimeType = "image/png")
-                    ?.let(UIMessagePart::Image)
-
-                "audio" -> contentObject.toMediaDataUrl(defaultMimeType = "audio/mp3")
-                    ?.let(UIMessagePart::Audio)
-
-                else -> null
-            }
-        }
-
-    private fun JsonObject.toMediaDataUrl(defaultMimeType: String): String? {
-        val data = this["data"]?.jsonPrimitiveOrNull?.contentOrNull?.takeIf { it.isNotBlank() }
-            ?: return null
-        if (data.startsWith("data:")) return data
-        val mimeType = this["mime_type"]?.jsonPrimitiveOrNull?.contentOrNull
-            ?.takeIf { it.isNotBlank() }
-            ?: defaultMimeType
-        return "data:$mimeType;base64,$data"
-    }
-
-    private fun parseServerToolStep(step: JsonObject): UIMessagePart.WebSearch? {
-        val type = step["type"]?.jsonPrimitiveOrNull?.contentOrNull ?: return null
-        if (!type.isServerToolStepType()) return null
-        val id = step[if (type.endsWith("_result")) "call_id" else "id"]
-            ?.jsonPrimitiveOrNull
-            ?.contentOrNull
-            ?.takeIf { it.isNotBlank() }
-            ?: return null
-        val status = if (type.endsWith("_result")) {
-            WebSearchStatus.Completed
-        } else {
-            WebSearchStatus.Searching
-        }
-        val action = when {
-            type.startsWith("google_search") -> WebSearchAction.Search
-            type.startsWith("url_context") -> WebSearchAction.OpenPage
-            else -> WebSearchAction.Unknown
-        }
-        return UIMessagePart.WebSearch(
-            callId = "google_interactions:$type:$id",
-            status = status,
-            action = action,
-            finishedAt = if (status == WebSearchStatus.Completed) Clock.System.now() else null,
-            metadata = GoogleThoughtMetadata(interactionStep = step).toMetadata(),
         )
     }
 
@@ -800,205 +678,28 @@ class InteractionsAPI(
         rawResponse: String,
         stepTracker: StepContextTracker,
     ): MessageChunk? {
-        val stepObj = jsonData["step"] as? JsonObject
-        val deltaObj = jsonData["delta"] as? JsonObject
-
-        // Handle step.start / step.stop or step update
-        if (stepObj != null) {
-            val stepType = stepObj["type"]?.jsonPrimitiveOrNull?.contentOrNull
-            val stepId = jsonData["index"]?.jsonPrimitiveOrNull?.contentOrNull
-                ?: stepObj["id"]?.jsonPrimitiveOrNull?.contentOrNull
-                ?: "step_${stepType ?: "active"}"
-            if (stepType != null) {
-                stepTracker.registerStep(stepId, stepType)
-                if (stepType == "thought") {
-                    stepTracker.recordThoughtStep(stepObj)
-                } else if (stepType.isServerToolStepType()) {
-                    stepTracker.recordServerToolStep(stepObj)
-                }
-            }
-            if (stepType == "function_call") {
-                val callId = stepObj["call_id"]?.jsonPrimitiveOrNull?.contentOrNull
-                    ?: stepObj["id"]?.jsonPrimitiveOrNull?.contentOrNull
-                val name = stepObj["name"]?.jsonPrimitiveOrNull?.contentOrNull
-                stepTracker.recordFunctionCall(callId, name)
-            }
-        }
-
-        val parts = mutableListOf<UIMessagePart>()
-        var finishReason: String? = null
-
-        // 1. Check if delta exists
-        if (deltaObj != null) {
-            val deltaType = deltaObj["type"]?.jsonPrimitiveOrNull?.contentOrNull
-            val currentType = deltaType ?: stepTracker.currentStepType
-            val deltaText = deltaObj["text"]?.jsonPrimitiveOrNull?.contentOrNull
-            val deltaContentText = deltaObj["content"]?.let { contentElem ->
-                when (contentElem) {
-                    is JsonObject -> contentElem["text"]?.jsonPrimitiveOrNull?.contentOrNull
-                    is JsonArray -> contentElem.mapNotNull {
-                        (it as? JsonObject)?.get("text")?.jsonPrimitiveOrNull?.contentOrNull
-                            ?: (it as? JsonPrimitive)?.contentOrNull
-                    }.joinToString("\n").takeIf { it.isNotEmpty() }
-                    is JsonPrimitive -> contentElem.contentOrNull
-                }
-            }
-            val summary = deltaContentText
-                ?: deltaObj["summary"]?.jsonPrimitiveOrNull?.contentOrNull
-                ?: deltaObj["thought_summary"]?.jsonPrimitiveOrNull?.contentOrNull
-            val signature = deltaObj["signature"]?.jsonPrimitiveOrNull?.contentOrNull
-                ?: deltaObj["thought_signature"]?.jsonPrimitiveOrNull?.contentOrNull
-
-            val partialArgs = deltaObj["partial_arguments"]?.jsonPrimitiveOrNull?.contentOrNull
-                ?: deltaObj["arguments"]?.let {
-                    if (it is JsonPrimitive) it.content else json.encodeToString(it)
-                }
-
-            val serverToolPart = stepTracker.updateServerToolStep(deltaObj)?.let(::parseServerToolStep)
-            if (serverToolPart != null) {
-                parts.add(serverToolPart)
-            } else if (stepTracker.currentStepType == "thought" ||
-                currentType in setOf("thought", "thought_summary", "thought_signature") ||
-                summary != null || signature != null
-            ) {
-                stepTracker.recordThoughtDelta(deltaObj)
-                val text = summary ?: deltaText ?: ""
-                val thoughtMetadata = stepTracker.currentThoughtMetadata()
-                if (text.isNotEmpty() || thoughtMetadata != null) {
-                    parts.add(
-                        UIMessagePart.Reasoning(
-                            reasoning = text,
-                            createdAt = Clock.System.now(),
-                            finishedAt = null,
-                            metadata = thoughtMetadata?.toMetadata(),
-                        )
-                    )
-                }
-            } else if (currentType == "function_call" || currentType == "arguments_delta" || partialArgs != null) {
-                val name = deltaObj["name"]?.jsonPrimitiveOrNull?.contentOrNull
-                    ?: stepTracker.currentFunctionName
-                    ?: ""
-                val callId = deltaObj["call_id"]?.jsonPrimitiveOrNull?.contentOrNull
-                    ?: deltaObj["id"]?.jsonPrimitiveOrNull?.contentOrNull
-                    ?: stepTracker.currentFunctionCallId
-                    ?: ""
-                if (name.isNotEmpty() || !partialArgs.isNullOrEmpty()) {
-                    parts.add(
-                        UIMessagePart.ToolCall(
-                            toolCallId = callId,
-                            toolName = name,
-                            arguments = partialArgs ?: ""
-                        )
-                    )
-                }
-            } else if (deltaType == "image") {
-                deltaObj.toMediaDataUrl(defaultMimeType = "image/png")?.let { dataUrl ->
-                    parts.add(UIMessagePart.Image(dataUrl))
-                }
-            } else if (deltaType == "audio") {
-                deltaObj.toMediaDataUrl(defaultMimeType = "audio/mp3")?.let { dataUrl ->
-                    parts.add(UIMessagePart.Audio(dataUrl))
-                }
-            } else if (!deltaText.isNullOrEmpty()) {
-                parts.add(
-                    UIMessagePart.Text(
-                        text = deltaText,
-                    )
-                )
-            }
-        }
-
-        // 2. Check direct step payload (if step carries content or status)
-        if (stepObj != null) {
-            val status = stepObj["status"]?.jsonPrimitiveOrNull?.contentOrNull
-            if (status == "completed" || status == "stop") {
-                finishReason = status
-            }
-            when (stepObj["type"]?.jsonPrimitiveOrNull?.contentOrNull) {
-                "thought" -> {
-                    stepTracker.currentThoughtMetadata()?.let { metadata ->
-                        parts.add(
-                            UIMessagePart.Reasoning(
-                                reasoning = "",
-                                createdAt = Clock.System.now(),
-                                finishedAt = null,
-                                metadata = metadata.toMetadata(),
-                            )
-                        )
-                    }
-                }
-
-                "model_output" -> parts += parseModelOutputParts(stepObj["content"] as? JsonArray)
-
-                "function_call" -> if (parts.isEmpty()) {
-                    val name = stepObj["name"]?.jsonPrimitiveOrNull?.contentOrNull.orEmpty()
-                    val id = stepObj["call_id"]?.jsonPrimitiveOrNull?.contentOrNull
-                        ?: stepObj["id"]?.jsonPrimitiveOrNull?.contentOrNull
-                        ?: ""
-                    val argsObj = stepObj["arguments"] as? JsonObject
-                    val argsStr = if (argsObj != null && argsObj.isNotEmpty()) {
-                        json.encodeToString(argsObj)
-                    } else {
-                        ""
-                    }
-                    parts.add(
-                        UIMessagePart.ToolCall(
-                            toolCallId = id,
-                            toolName = name,
-                            arguments = argsStr
-                        )
-                    )
-                }
-
-                else -> parseServerToolStep(stepTracker.currentServerToolStep ?: stepObj)?.let(parts::add)
-            }
-        }
-
-        val interactionObj = jsonData["interaction"] as? JsonObject
-        if (finishReason == null) {
-            val interactionStatus = interactionObj?.get("status")?.jsonPrimitiveOrNull?.contentOrNull
-                ?: jsonData["status"]?.jsonPrimitiveOrNull?.contentOrNull
-            if (!interactionStatus.isNullOrEmpty()) {
-                finishReason = interactionStatus
-            }
-        }
-
-        val usage = parseUsage(
-            jsonData["usage"] as? JsonObject
-                ?: jsonData["usageMetadata"] as? JsonObject
-                ?: interactionObj?.get("usage") as? JsonObject
-        )
-
-        if (parts.isEmpty() && usage == null && finishReason == null) {
-            return null
-        }
-
-        val chunkId = interactionObj?.get("id")?.jsonPrimitiveOrNull?.contentOrNull
-            ?: jsonData["id"]?.jsonPrimitiveOrNull?.contentOrNull
-            ?: Uuid.random().toString()
-
+        val (parts, annotations) = stepTracker.consume(jsonData, eventType)
+        val interaction = jsonData["interaction"] as? JsonObject
+        val status = interaction?.get("status")?.jsonPrimitiveOrNull?.contentOrNull
+            ?: jsonData["status"]?.jsonPrimitiveOrNull?.contentOrNull
+        // 只有整个 interaction 的终态才结束回答，步骤结束不等于回答结束。
+        val reason = status?.takeIf { it in setOf("completed", "incomplete", "failed", "cancelled", "requires_action") }
+        val usage = parseUsage(jsonData["usage"] as? JsonObject
+            ?: jsonData["usageMetadata"] as? JsonObject ?: interaction?.get("usage") as? JsonObject)
+        if (parts.isEmpty() && annotations.isEmpty() && usage == null && reason == null) return null
         return MessageChunk(
-            id = chunkId,
+            id = interaction?.get("id")?.jsonPrimitiveOrNull?.contentOrNull ?: Uuid.random().toString(),
             model = modelId,
-            choices = if (parts.isNotEmpty() || finishReason != null) {
-                listOf(
-                    UIMessageChoice(
-                        index = 0,
-                        delta = if (parts.isNotEmpty()) {
-                            UIMessage(
-                                role = MessageRole.ASSISTANT,
-                                parts = parts
-                            )
-                        } else null,
-                        message = null,
-                        finishReason = finishReason
-                    )
-                )
-            } else {
-                emptyList()
-            },
+            choices = if (parts.isNotEmpty() || annotations.isNotEmpty() || reason != null) {
+                listOf(UIMessageChoice(
+                    index = 0,
+                    delta = UIMessage(role = MessageRole.ASSISTANT, parts = parts, annotations = annotations),
+                    message = null,
+                    finishReason = reason,
+                ))
+            } else emptyList(),
             usage = usage,
-            finishReasons = finishReason?.let { setOf(it) } ?: emptySet(),
+            finishReasons = reason?.let { setOf(it) } ?: emptySet(),
             rawResponse = rawResponse,
         )
     }
@@ -1029,96 +730,5 @@ class InteractionsAPI(
         )
     }
 
-    class StepContextTracker {
-        private var _currentStepId: String? = null
-        private var _currentStepType: String? = null
-        private var _currentFunctionCallId: String? = null
-        private var _currentFunctionName: String? = null
-        private var _currentThoughtSignature: String? = null
-        private val currentThoughtSummary = mutableListOf<JsonElement>()
-        private var _currentServerToolStep: JsonObject? = null
-
-        val currentStepId: String? get() = _currentStepId
-        val currentStepType: String? get() = _currentStepType
-        val currentFunctionCallId: String? get() = _currentFunctionCallId
-        val currentFunctionName: String? get() = _currentFunctionName
-        val currentServerToolStep: JsonObject? get() = _currentServerToolStep
-
-        fun registerStep(stepId: String?, stepType: String) {
-            _currentStepId = stepId
-            _currentStepType = stepType
-            if (stepType != "thought") {
-                _currentThoughtSignature = null
-                currentThoughtSummary.clear()
-            }
-            if (!stepType.isServerToolStepType()) {
-                _currentServerToolStep = null
-            }
-        }
-
-        fun recordFunctionCall(callId: String?, functionName: String?) {
-            if (!callId.isNullOrBlank()) {
-                _currentFunctionCallId = callId
-            }
-            if (!functionName.isNullOrBlank()) {
-                _currentFunctionName = functionName
-            }
-        }
-
-        fun recordThoughtStep(step: JsonObject) {
-            _currentThoughtSignature = step["signature"]?.jsonPrimitiveOrNull?.contentOrNull
-                ?: step["thought_signature"]?.jsonPrimitiveOrNull?.contentOrNull
-            currentThoughtSummary.clear()
-            (step["summary"] as? JsonArray)?.let(currentThoughtSummary::addAll)
-        }
-
-        fun recordThoughtDelta(delta: JsonObject) {
-            delta["signature"]?.jsonPrimitiveOrNull?.contentOrNull
-                ?.takeIf { it.isNotBlank() }
-                ?.let { _currentThoughtSignature = it }
-            delta["thought_signature"]?.jsonPrimitiveOrNull?.contentOrNull
-                ?.takeIf { it.isNotBlank() }
-                ?.let { _currentThoughtSignature = it }
-            delta["content"]?.let { content ->
-                if (content is JsonArray) {
-                    currentThoughtSummary.addAll(content)
-                } else {
-                    currentThoughtSummary.add(content)
-                }
-            }
-        }
-
-        fun currentThoughtMetadata(): GoogleThoughtMetadata? {
-            if (_currentStepType != "thought") return null
-            return GoogleThoughtMetadata(
-                thoughtSignature = _currentThoughtSignature,
-                interactionStep = buildJsonObject {
-                    put("type", "thought")
-                    _currentThoughtSignature?.let { put("signature", it) }
-                    if (currentThoughtSummary.isNotEmpty()) {
-                        putJsonArray("summary") {
-                            currentThoughtSummary.forEach { add(it) }
-                        }
-                    }
-                },
-            )
-        }
-
-        fun recordServerToolStep(step: JsonObject) {
-            _currentServerToolStep = step
-        }
-
-        fun updateServerToolStep(delta: JsonObject): JsonObject? {
-            val current = _currentServerToolStep ?: return null
-            val currentType = current["type"]?.jsonPrimitiveOrNull?.contentOrNull ?: return null
-            if (!currentType.isServerToolStepType()) return null
-            val merged = current.toMutableMap()
-            delta.forEach { (key, value) ->
-                if (key != "type") {
-                    merged[key] = value
-                }
-            }
-            return JsonObject(merged).also { _currentServerToolStep = it }
-        }
-    }
+    internal class StepContextTracker : GoogleInteractionState()
 }

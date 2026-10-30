@@ -110,6 +110,22 @@ class GoogleProviderTest {
         assertTrue(tools.any { (it as? JsonObject)?.containsKey("google_search") == true })
     }
 
+    @Test
+    fun `Argon requests include summaries and only supported thinking levels`() {
+        val levels = mapOf(ReasoningLevel.AUTO to "medium", ReasoningLevel.OFF to "low",
+            ReasoningLevel.LOW to "low", ReasoningLevel.MEDIUM to "medium",
+            ReasoningLevel.HIGH to "high", ReasoningLevel.XHIGH to "high", ReasoningLevel.MAX to "high")
+        levels.forEach { (level, expected) ->
+            val body = buildCompletionRequestBody(
+                Model(modelId = "gemini-4-argon", abilities = listOf(ModelAbility.REASONING)), level)
+            val thinking = body["generationConfig"]?.jsonObject?.get("thinkingConfig")?.jsonObject
+                ?: error("Missing thinking config")
+            assertEquals(expected, thinking["thinkingLevel"]?.jsonPrimitive?.content)
+            assertEquals("true", thinking["includeThoughts"]?.jsonPrimitive?.content)
+            assertFalse(thinking.containsKey("thinkingBudget"))
+        }
+    }
+
     private fun parseMessagePart(part: JsonObject): UIMessagePart? {
         val method = GoogleProvider::class.java.getDeclaredMethod("parseMessagePart", JsonObject::class.java)
         method.isAccessible = true

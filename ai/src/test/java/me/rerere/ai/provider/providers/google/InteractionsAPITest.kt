@@ -20,8 +20,11 @@ import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.providers.vertex.ServiceAccountTokenProvider
 import me.rerere.ai.ui.GoogleThoughtMetadata
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.WebSearchStatus
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.finishGoogleSearches
 import me.rerere.ai.ui.metadataAs
+import me.rerere.ai.util.json
 import me.rerere.ai.util.KeyRoulette
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
@@ -574,5 +577,240 @@ class InteractionsAPITest {
             stepTracker = tracker,
         )?.choices?.single()?.delta?.parts?.single() as? UIMessagePart.Audio
         assertEquals("data:audio/wav;base64,YXVkaW8=", audio?.url)
+    }
+    private fun parseEvents(vararg events: String): UIMessage {
+        val tracker = InteractionsAPI.StepContextTracker()
+        var message = UIMessage(role = MessageRole.ASSISTANT, parts = emptyList())
+        events.forEach { raw ->
+            val event = interactionsAPI.parseStreamEventData(raw) ?: return@forEach
+            interactionsAPI.parseStreamMessageChunk(event, null, "gemini-4-argon", raw, tracker)
+                ?.let { message += it }
+        }
+        return message
+    }
+
+    @Test
+    fun `Argon interactions request enables summaries with legal levels`() {
+        listOf(ReasoningLevel.AUTO to "medium", ReasoningLevel.OFF to "low", ReasoningLevel.HIGH to "high").forEach { (level, expected) ->
+            val body = interactionsAPI.buildRequestBody(listOf(UIMessage.user("Hello")),
+                TextGenerationParams(model = Model(modelId = "gemini-4-argon", abilities = listOf(ModelAbility.REASONING)), reasoningLevel = level), true)
+            val config = body["generation_config"]?.jsonObject ?: error("Missing config")
+            assertEquals("auto", config["thinking_summaries"]?.jsonPrimitive?.content)
+            assertEquals(expected, config["thinking_level"]?.jsonPrimitive?.content)
+        }
+    }
+
+    @Test
+    fun `initial thought summary survives stop and repeated full snapshot without duplication`() {
+        val message = parseEvents(
+            """{"event_type":"step.start","index":0,"step":{"type":"thought","summary":[{"type":"text","text":"Planning"}]}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"thought_signature","signature":"signed"}}""",
+            """{"event_type":"step.stop","index":0,"step":{"type":"thought","summary":[{"type":"text","text":"Planning"}],"signature":"signed"}}""",
+        )
+        val thought = message.parts.filterIsInstance<UIMessagePart.Reasoning>().single()
+        assertEquals("Planning", thought.reasoning)
+        assertNotNull(thought.finishedAt)
+        assertEquals("signed", thought.metadataAs<GoogleThoughtMetadata>()?.thoughtSignature)
+    }
+
+    @Test
+    fun `search call and result form one step and preserve complete signed history`() {
+        val rawSteps = listOf(
+            """{"type":"thought","summary":[{"type":"text","text":"Before search"}],"signature":"before"}""",
+            """{"type":"google_search_call","id":"s1","arguments":{"queries":["Gemini Argon"]},"signature":"call-signature"}""",
+            """{"type":"thought","summary":[{"type":"text","text":"After call"}],"signature":"after"}""",
+            """{"type":"google_search_result","call_id":"s1","result":[{"search_suggestions":"<div>Google</div>"}],"signature":"result-signature"}""",
+            """{"type":"model_output","content":[{"type":"text","text":"Answer","annotations":[{"type":"url_citation","title":"Google","url":"https://ai.google.dev/"}]}]}""",
+        )
+        val response = json.parseToJsonElement("{\"id\":\"v1_test\",\"status\":\"completed\",\"steps\":[" + rawSteps.joinToString(",") + "]}").jsonObject
+        val message = interactionsAPI.parseNonStreamResponse(response, "gemini-4-argon", "").choices.single().message
+            ?: error("Missing message")
+        val search = message.parts.filterIsInstance<UIMessagePart.WebSearch>().single()
+        assertEquals(listOf("Gemini Argon"), search.queries)
+        assertEquals(WebSearchStatus.Completed, search.status)
+        assertEquals(2, search.metadataAs<GoogleThoughtMetadata>()?.interactionSteps?.size)
+        assertEquals(2, message.parts.filterIsInstance<UIMessagePart.Reasoning>().size)
+        assertEquals(1, search.sources.size)
+        val restored = json.decodeFromString<UIMessage>(json.encodeToString(UIMessage.serializer(), message))
+        val request = interactionsAPI.buildRequestBody(listOf(restored), TextGenerationParams(model = Model(modelId = "gemini-4-argon")), false)
+        assertEquals(rawSteps.map { json.parseToJsonElement(it) }, request["input"]?.jsonArray?.toList())
+    }
+
+    @Test
+    fun `search completes only after result stop and late updates cannot reopen it`() {
+        val tracker = InteractionsAPI.StepContextTracker()
+        var message = UIMessage(role = MessageRole.ASSISTANT, parts = emptyList())
+        val events = listOf(
+            """{"event_type":"step.start","index":0,"step":{"type":"google_search_call","id":"s1"}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"google_search_call","arguments":{"queries":["one","two"]}}}""",
+            """{"event_type":"step.stop","index":0}""",
+            """{"event_type":"step.start","index":1,"step":{"type":"google_search_result","call_id":"s1"}}""",
+            """{"event_type":"step.delta","index":1,"delta":{"type":"google_search_result","signature":"result"}}""",
+            """{"event_type":"step.stop","index":1}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"google_search_call","signature":"call"}}""",
+        )
+        events.forEachIndexed { index, raw ->
+            interactionsAPI.parseStreamMessageChunk(json.parseToJsonElement(raw).jsonObject, null, "gemini-4-argon", raw, tracker)?.let { message += it }
+            val search = message.parts.filterIsInstance<UIMessagePart.WebSearch>().single()
+            assertEquals(if (index < 5) WebSearchStatus.Searching else WebSearchStatus.Completed, search.status)
+        }
+        assertEquals(listOf("one", "two"), message.parts.filterIsInstance<UIMessagePart.WebSearch>().single().queries)
+    }
+
+    @Test
+    fun `annotations arrive separately and multiple searches keep shared sources`() {
+        val message = parseEvents(
+            """{"event_type":"step.start","index":0,"step":{"type":"google_search_call","id":"s1","arguments":{"queries":["first"]}}}""",
+            """{"event_type":"step.start","index":1,"step":{"type":"google_search_result","call_id":"s1"}}""",
+            """{"event_type":"step.stop","index":1}""",
+            """{"event_type":"step.start","index":2,"step":{"type":"google_search_call","id":"s2","arguments":{"queries":["second"]}}}""",
+            """{"event_type":"step.start","index":3,"step":{"type":"google_search_result","call_id":"s2"}}""",
+            """{"event_type":"step.stop","index":3}""",
+            """{"event_type":"step.start","index":4,"step":{"type":"model_output"}}""",
+            """{"event_type":"step.delta","index":4,"delta":{"type":"text","text":"中文回答"}}""",
+            """{"event_type":"step.delta","index":4,"delta":{"type":"text_annotation_delta","annotations":[{"type":"url_citation","title":"Source","url":"https://example.com"}]}}""",
+            """{"event_type":"interaction.completed","interaction":{"status":"completed"}}""",
+        )
+        assertEquals("中文回答", message.parts.filterIsInstance<UIMessagePart.Text>().single().text)
+        assertEquals(1, message.annotations.size)
+        val searches = message.parts.filterIsInstance<UIMessagePart.WebSearch>()
+        assertEquals(2, searches.size)
+        assertTrue(searches.all { it.sources.isEmpty() && it.status == WebSearchStatus.Completed })
+    }
+
+    @Test
+    fun `failed search and unfinished call both stop loading`() {
+        val message = parseEvents(
+            """{"event_type":"step.start","index":0,"step":{"type":"google_search_call","id":"failed"}}""",
+            """{"event_type":"step.start","index":1,"step":{"type":"google_search_result","call_id":"failed"}}""",
+            """{"event_type":"step.delta","index":1,"delta":{"type":"google_search_result","is_error":true}}""",
+            """{"event_type":"step.start","index":2,"step":{"type":"google_search_call","id":"unfinished"}}""",
+            """{"event_type":"interaction.completed","interaction":{"status":"incomplete"}}""",
+        )
+        assertTrue(message.parts.filterIsInstance<UIMessagePart.WebSearch>().all { it.status == WebSearchStatus.Failed && it.finishedAt != null })
+    }
+
+    @Test
+    fun `thought fragments concatenate without extra line breaks`() {
+        val message = parseEvents(
+            """{"event_type":"step.start","index":0,"step":{"type":"thought"}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"thought_summary","content":{"type":"text","text":"I will "}}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"thought_summary","content":{"type":"text","text":"search now."}}}""",
+            """{"event_type":"step.stop","index":0}""",
+        )
+        assertEquals("I will search now.", message.parts.filterIsInstance<UIMessagePart.Reasoning>().single().reasoning)
+    }
+
+    @Test
+    fun `media and annotation snapshots replay the newest complete output`() {
+        val message = parseEvents(
+            """{"event_type":"step.start","index":0,"step":{"type":"model_output"}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"text","text":"Answer"}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"image","data":"aW1hZ2U=","mime_type":"image/jpeg"}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"audio","data":"YXVkaW8=","mime_type":"audio/wav"}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"text_annotation_delta","annotations":[{"type":"url_citation","url":"https://example.com","title":"Source"}]}}""",
+            """{"event_type":"step.stop","index":0}""",
+        )
+        assertEquals(1, message.parts.filterIsInstance<UIMessagePart.Audio>().size)
+        val input = interactionsAPI.buildRequestBody(listOf(message), TextGenerationParams(model = Model(modelId = "gemini-4-argon")), false)["input"]?.jsonArray ?: error("Missing input")
+        assertEquals(1, input.size)
+        val content = input.single().jsonObject["content"]?.jsonArray ?: error("Missing content")
+        assertEquals(3, content.size)
+        assertEquals(1, content[0].jsonObject["annotations"]?.jsonArray?.size)
+    }
+
+    @Test
+    fun `temporary search id is replaced and interrupted searches finish`() {
+        val message = parseEvents(
+            """{"event_type":"step.start","index":0,"step":{"type":"google_search_call"}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"google_search_call","id":"real-id","arguments":{"queries":["test"]}}}""",
+        )
+        val search = message.parts.filterIsInstance<UIMessagePart.WebSearch>().single()
+        assertTrue(search.callId.endsWith(":real-id"))
+        val finalized = message.finishGoogleSearches()
+        val stoppedSearch = finalized.parts.filterIsInstance<UIMessagePart.WebSearch>().single()
+        assertEquals(WebSearchStatus.Failed, stoppedSearch.status)
+        assertEquals(search.metadata, stoppedSearch.metadata)
+        assertNotNull(stoppedSearch.finishedAt)
+    }
+
+    @Test
+    fun `late call identity joins a previously separate result without losing history`() {
+        val message = parseEvents(
+            """{"event_type":"step.start","index":0,"step":{"type":"google_search_call","arguments":{"queries":["test"]}}}""",
+            """{"event_type":"step.start","index":1,"step":{"type":"google_search_result","call_id":"linked"}}""",
+            """{"event_type":"step.stop","index":1}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"google_search_call","id":"linked"}}""",
+        )
+        val search = message.parts.filterIsInstance<UIMessagePart.WebSearch>().single()
+        assertEquals(WebSearchStatus.Completed, search.status)
+        assertEquals(listOf("test"), search.queries)
+        assertEquals(2, search.metadataAs<GoogleThoughtMetadata>()?.interactionSteps?.size)
+    }
+
+    @Test
+    fun `incremental function arguments replay as a single signed call`() {
+        val message = parseEvents(
+            """{"event_type":"step.start","index":0,"step":{"type":"function_call","id":"f1","name":"lookup","arguments":{}}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"function_call","partial_arguments":"{\"q\":"}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"function_call","partial_arguments":"\"Gemini\"}","signature":"signed"}}""",
+            """{"event_type":"step.stop","index":0}""",
+        )
+        val call = message.parts.filterIsInstance<UIMessagePart.ToolCall>().single()
+        assertEquals("{\"q\":\"Gemini\"}", call.arguments)
+        val input = interactionsAPI.buildRequestBody(listOf(message), TextGenerationParams(model = Model(modelId = "gemini-4-argon")), false)["input"]?.jsonArray ?: error("Missing input")
+        assertEquals(1, input.size)
+        assertEquals("Gemini", input.single().jsonObject["arguments"]?.jsonObject?.get("q")?.jsonPrimitive?.content)
+        assertEquals("signed", input.single().jsonObject["signature"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `search call is emitted while streaming before any result or completion event`() {
+        val message = parseEvents(
+            """{"event_type":"step.start","index":0,"step":{"type":"thought","summary":[{"type":"text","text":"Planning"}]}}""",
+            """{"event_type":"step.start","index":1,"step":{"type":"model_output","content":[{"type":"text","text":"Let me search."}]}}""",
+            """{"event_type":"step.start","index":2,"step":{"type":"google_search_call","id":"s1","arguments":{"queries":["Gemini"]}}}""",
+        )
+        assertTrue(message.parts[0] is UIMessagePart.Reasoning)
+        assertTrue(message.parts[1] is UIMessagePart.Text)
+        val search = message.parts[2] as UIMessagePart.WebSearch
+        assertEquals(WebSearchStatus.Searching, search.status)
+        assertEquals(listOf("Gemini"), search.queries)
+        assertEquals(null, search.finishedAt)
+    }
+
+    @Test
+    fun `text stages remain around searches while raw output steps are replayed once`() {
+        val message = parseEvents(
+            """{"event_type":"step.start","index":0,"step":{"type":"model_output"}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"text","text":"先查资料"}}""",
+            """{"event_type":"step.start","index":1,"step":{"type":"google_search_call","id":"s1","arguments":{"queries":["资料"]}}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"text","text":"查完整理"}}""",
+            """{"event_type":"step.start","index":2,"step":{"type":"model_output"}}""",
+            """{"event_type":"step.delta","index":2,"delta":{"type":"text","text":"最终回答"}}""",
+        )
+        val visible = message.parts.filterNot { it is UIMessagePart.Text && it.text.isEmpty() }
+        assertEquals("先查资料", (visible[0] as UIMessagePart.Text).text)
+        assertTrue(visible[1] is UIMessagePart.WebSearch)
+        assertEquals("查完整理", (visible[2] as UIMessagePart.Text).text)
+        assertEquals("最终回答", (visible[3] as UIMessagePart.Text).text)
+        val replay = interactionsAPI.buildRequestBody(listOf(message), TextGenerationParams(model = Model(modelId = "gemini-4-argon")), true)["input"]?.jsonArray ?: error("Missing input")
+        assertEquals(3, replay.size)
+        assertEquals("先查资料查完整理", replay[0].jsonObject["content"]?.jsonArray?.single()?.jsonObject?.get("text")?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `annotation only output from Agent Platform preserves citation in replay`() {
+        val message = parseEvents(
+            """{"event_type":"step.start","index":0,"step":{"type":"model_output"}}""",
+            """{"event_type":"step.delta","index":0,"delta":{"type":"text","text":"正文"}}""",
+            """{"event_type":"step.start","index":1,"step":{"type":"model_output"}}""",
+            """{"event_type":"step.delta","index":1,"delta":{"type":"text_annotation_delta","annotations":[{"type":"url_citation","url":"https://example.com","title":"Source"}]}}""",
+        )
+        assertEquals("正文", message.toContentText())
+        assertEquals(1, message.annotations.size)
+        val replay = interactionsAPI.buildRequestBody(listOf(message), TextGenerationParams(model = Model(modelId = "gemini-3.8-flash")), true)["input"]?.jsonArray ?: error("Missing input")
+        assertEquals(2, replay.size)
+        assertEquals("https://example.com", replay[1].jsonObject["content"]?.jsonArray?.single()?.jsonObject?.get("annotations")?.jsonArray?.single()?.jsonObject?.get("url")?.jsonPrimitive?.content)
     }
 }

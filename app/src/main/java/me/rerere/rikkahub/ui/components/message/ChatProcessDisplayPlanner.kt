@@ -15,9 +15,16 @@ internal data class ChatProcessDisplayPlan(
     val hiddenNodeIndexes: Set<Int> = emptySet(),
 )
 
+/** 一个 Google 搜索调用可以包含多条查询，时间线逐条显示，原始调用仍保持完整。 */
+internal fun List<UIMessagePart>.expandGoogleSearchQueriesForDisplay(): List<UIMessagePart> = flatMap { part ->
+    if (part is UIMessagePart.WebSearch && part.callId.startsWith("google_interactions:") && part.queries.size > 1) {
+        part.queries.map { query -> part.copy(queries = listOf(query)) }
+    } else listOf(part)
+}
+
 internal fun UIMessagePart.isProcessDisplayPart(): Boolean {
     return when (this) {
-        is UIMessagePart.Reasoning,
+        is UIMessagePart.Reasoning -> reasoning.isNotBlank() || metadata?.containsKey("google_interactions_reasoning_id") != true
         is UIMessagePart.Thinking,
         is UIMessagePart.WebSearch,
         is UIMessagePart.ToolCall,

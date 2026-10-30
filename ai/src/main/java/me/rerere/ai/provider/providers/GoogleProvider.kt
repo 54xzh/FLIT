@@ -82,6 +82,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
+import me.rerere.ai.provider.providers.google.googleThinkingLevel
 import me.rerere.ai.provider.providers.google.InteractionsAPI
 
 private const val TAG = "GoogleProvider"
@@ -469,28 +470,18 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                     val usesThinkingLevel =
                         ModelRegistry.GEMINI_THINKING_LEVEL_MODELS.match(params.model.modelId)
 
-                    when (params.reasoningLevel) {
-                        ReasoningLevel.AUTO -> {} // 自动模式，不设置参数
-
-                        ReasoningLevel.OFF -> {
-                            if (usesThinkingLevel) {
-                                put("thinkingLevel", "minimal")
-                            } else if (!isGeminiPro) {
+                    if (usesThinkingLevel) {
+                        googleThinkingLevel(params.model.modelId, params.reasoningLevel)?.let {
+                            put("thinkingLevel", it)
+                        }
+                    } else {
+                        when (params.reasoningLevel) {
+                            ReasoningLevel.AUTO -> Unit
+                            ReasoningLevel.OFF -> if (!isGeminiPro) {
                                 put("thinkingBudget", 0)
                                 put("includeThoughts", false)
                             }
-                        }
-
-                        else -> {
-                            if (usesThinkingLevel) {
-                                when (params.reasoningLevel) {
-                                    ReasoningLevel.LOW -> put("thinkingLevel", "low")
-                                    ReasoningLevel.MEDIUM -> put("thinkingLevel", "medium")
-                                    else -> put("thinkingLevel", "high") // HIGH, XHIGH, MAX
-                                }
-                            } else {
-                                put("thinkingBudget", params.reasoningLevel.budgetTokens)
-                            }
+                            else -> put("thinkingBudget", params.reasoningLevel.budgetTokens)
                         }
                     }
                 })

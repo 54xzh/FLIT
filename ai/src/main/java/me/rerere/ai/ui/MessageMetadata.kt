@@ -2,6 +2,10 @@ package me.rerere.ai.ui
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.intOrNull
+import me.rerere.common.http.jsonPrimitiveOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
@@ -37,7 +41,45 @@ data class ClaudeReasoningMetadata(
 data class GoogleThoughtMetadata(
     val thoughtSignature: String? = null,
     val interactionStep: JsonObject? = null,
+    val interactionSteps: List<GoogleInteractionStep>? = null,
 ) : PartMetadata
+
+@Serializable
+data class GoogleInteractionStep(
+    val turnId: String,
+    val index: Int,
+    val step: JsonObject,
+    val revision: Int = 0,
+)
+
+/** 合并展示时保留每个原始步骤，后到的完整快照更新同一序号。 */
+internal fun mergeGooglePartMetadata(existing: JsonObject?, incoming: JsonObject?): JsonObject? {
+    if (incoming == null) return existing
+    if (existing == null) return incoming
+    val oldSteps = (existing["interactionSteps"] as? JsonArray).orEmpty()
+    val newSteps = (incoming["interactionSteps"] as? JsonArray).orEmpty()
+    return buildJsonObject {
+        existing.forEach { (key, value) -> put(key, value) }
+        incoming.forEach { (key, value) -> put(key, value) }
+        if (oldSteps.isNotEmpty() || newSteps.isNotEmpty()) {
+            val steps = linkedMapOf<Pair<kotlinx.serialization.json.JsonElement?, kotlinx.serialization.json.JsonElement?>, kotlinx.serialization.json.JsonElement>()
+            (oldSteps + newSteps).forEach { element ->
+                val step = element as? JsonObject ?: return@forEach
+                val key = step["turnId"] to step["index"]
+                val previous = steps[key] as? JsonObject
+                if ((step["revision"]?.jsonPrimitiveOrNull?.intOrNull ?: 0) >=
+                    (previous?.get("revision")?.jsonPrimitiveOrNull?.intOrNull ?: 0)) steps[key] = step
+            }
+            put("interactionSteps", JsonArray(steps.values.toList()))
+        }
+    }
+}
+
+internal fun UIMessagePart.sharesGoogleInteractionStep(other: UIMessagePart): Boolean {
+    val own = metadataAs<GoogleThoughtMetadata>()?.interactionSteps.orEmpty()
+    val incoming = other.metadataAs<GoogleThoughtMetadata>()?.interactionSteps.orEmpty()
+    return own.any { step -> incoming.any { it.turnId == step.turnId && it.index == step.index } }
+}
 
 /**
  * 将 metadata 解析为类型化的 [PartMetadata], 解析失败或 metadata 为 null 时返回 null

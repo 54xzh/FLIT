@@ -3,6 +3,10 @@ package me.rerere.rikkahub.ui.components.message
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.GoogleInteractionStep
+import me.rerere.ai.ui.GoogleThoughtMetadata
+import me.rerere.ai.ui.WebSearchStatus
+import me.rerere.ai.ui.toMetadata
 import me.rerere.rikkahub.data.model.WORKSPACE_FILE_REFERENCE_WORKSPACE_ID_METADATA_KEY
 import me.rerere.rikkahub.data.model.WorkspaceFileReferenceContext
 import org.junit.Assert.assertEquals
@@ -149,6 +153,58 @@ class ChatMessageRenderPlannerTest {
         org.junit.Assert.assertSame(second, blocks.last().sourceParts)
         assertEquals(0, blocks.first().sourcePartIndex)
         assertEquals(0, blocks.last().sourcePartIndex)
+    }
+
+    @Test
+    fun `hidden Google snapshots do not split process or add text blocks`() {
+        val blocks = buildMessageRenderBlocks(
+            leadingProcessParts = emptyList(),
+            parts = listOf(
+                UIMessagePart.Text("", buildJsonObject { put("interactionSteps", kotlinx.serialization.json.JsonArray(emptyList())) }),
+                UIMessagePart.Reasoning("", metadata = buildJsonObject { put("google_interactions_reasoning_id", "turn:0") }),
+            ),
+        )
+        assertTrue(blocks.isEmpty())
+    }
+
+    private fun googleStepMetadata(index: Int, type: String) = GoogleThoughtMetadata(
+        interactionSteps = listOf(GoogleInteractionStep("turn", index, buildJsonObject { put("type", type) })),
+    ).toMetadata()
+
+    @Test
+    fun `Google search appears after preceding reasoning as soon as the call arrives`() {
+        val reasoning = UIMessagePart.Reasoning("先想一想", finishedAt = null, metadata = googleStepMetadata(0, "thought"))
+        val text = UIMessagePart.Text("我来搜索一下", metadata = googleStepMetadata(1, "model_output"))
+        val search = UIMessagePart.WebSearch("google_interactions:google_search:turn:s1",
+            status = WebSearchStatus.Searching, metadata = googleStepMetadata(2, "google_search_call"))
+
+        val beforeSearch = buildMessageRenderBlocks(emptyList(), listOf(reasoning, text))
+        assertEquals(MessageRenderBlock.ProcessGroup(listOf(reasoning)), beforeSearch.first())
+        val duringSearch = buildMessageRenderBlocks(emptyList(), listOf(reasoning, text, search))
+        assertEquals(listOf(
+            MessageRenderBlock.ProcessGroup(listOf(reasoning)),
+            MessageRenderBlock.TextBlock(text, textIndex = 0),
+            MessageRenderBlock.ProcessGroup(listOf(search)),
+        ), duringSearch)
+        assertEquals(WebSearchStatus.Searching, search.status)
+    }
+
+    @Test
+    fun `Google reasoning search reasoning order survives a preceding text block and result updates`() {
+        val first = UIMessagePart.Reasoning("搜索前", metadata = googleStepMetadata(0, "thought"))
+        val text = UIMessagePart.Text("过渡文字和最终回答", metadata = googleStepMetadata(1, "model_output"))
+        val search = UIMessagePart.WebSearch("google_interactions:google_search:turn:s1",
+            status = WebSearchStatus.Searching, metadata = googleStepMetadata(2, "google_search_call"))
+        val last = UIMessagePart.Reasoning("搜索后", metadata = googleStepMetadata(3, "thought"))
+        listOf(WebSearchStatus.Searching, WebSearchStatus.Completed).forEach { status ->
+            val updatedSearch = search.copy(status = status)
+            val blocks = buildMessageRenderBlocks(emptyList(), listOf(first, text, updatedSearch, last))
+            assertEquals(listOf(
+                MessageRenderBlock.ProcessGroup(listOf(first)),
+                MessageRenderBlock.TextBlock(text, textIndex = 0),
+                MessageRenderBlock.ProcessGroup(listOf(updatedSearch, last)),
+            ), blocks)
+        }
     }
 
 }

@@ -177,6 +177,12 @@ object ModelRegistry {
         add(GEMINI_3_PRO, GEMINI_3_FLASH, GEMINI_3_1_PRO_PREVIEW, GEMINI_3_1_PRO_PREVIEW_CUSTOMTOOLS)
     }
 
+    val GEMINI_4_ARGON = defineModel {
+        tokens("gemini", "4", "argon")
+        visionInput()
+        toolReasoningAbility()
+    }
+
     val GEMINI_4_SERIES = defineModel {
         tokens("gemini", "4")
         visionInput()

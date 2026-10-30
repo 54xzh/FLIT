@@ -103,7 +103,12 @@ internal fun buildMessageRenderBlocks(
                     pendingProcessParts += part
                 }
 
-            is UIMessagePart.Reasoning,
+            is UIMessagePart.Reasoning -> {
+                if (part.reasoning.isNotBlank() || part.metadata?.containsKey("google_interactions_reasoning_id") != true) {
+                    flushMediaParts()
+                    pendingProcessParts += part
+                }
+            }
             is UIMessagePart.Thinking,
             is UIMessagePart.WebSearch,
             is UIMessagePart.AskUser,
@@ -118,6 +123,7 @@ internal fun buildMessageRenderBlocks(
             }
 
             is UIMessagePart.Text -> {
+                if (part.text.isEmpty() && part.metadata?.containsKey("interactionSteps") == true) return@forEach
                 flushMediaParts()
                 flushProcessParts()
                 val context = part.workspaceFileReferenceContextOrNull() ?: workspaceFileReferenceContext
@@ -183,20 +189,20 @@ private fun List<UIMessagePart>.normalizeMessagePartsForDisplay(): List<UIMessag
     val firstRenderableContentIndex = indexOfFirst { it.isRenderableContentPart() }
     if (firstRenderableContentIndex < 0) return this
 
-    val deferredReasoningParts = withIndex()
+    val deferredProcessParts = withIndex()
         .filter { indexedValue ->
             indexedValue.index > firstRenderableContentIndex &&
-                indexedValue.value.isReasoningDisplayPart()
+                indexedValue.value.isDeferredProcessDisplayPart()
         }
         .map { it.value }
-    if (deferredReasoningParts.isEmpty()) return this
+    if (deferredProcessParts.isEmpty()) return this
 
     val normalizedParts = mutableListOf<UIMessagePart>()
     forEachIndexed { index, part ->
         if (index == firstRenderableContentIndex) {
-            normalizedParts += deferredReasoningParts
+            normalizedParts += deferredProcessParts
         }
-        if (index > firstRenderableContentIndex && part.isReasoningDisplayPart()) {
+        if (index > firstRenderableContentIndex && part.isDeferredProcessDisplayPart()) {
             return@forEachIndexed
         }
         normalizedParts += part
@@ -204,7 +210,9 @@ private fun List<UIMessagePart>.normalizeMessagePartsForDisplay(): List<UIMessag
     return normalizedParts
 }
 
-private fun UIMessagePart.isReasoningDisplayPart(): Boolean {
+private fun UIMessagePart.isDeferredProcessDisplayPart(): Boolean {
+    // Interactions 已保存各阶段的位置，不能将搜索后的思考挪回搜索之前。
+    if (metadata?.containsKey("interactionSteps") == true) return false
     return this is UIMessagePart.Reasoning || this is UIMessagePart.Thinking
 }
 

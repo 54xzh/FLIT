@@ -53,19 +53,46 @@ data class UIMessage(
             var newParts = delta.parts.fold(parts) { acc, deltaPart ->
                 when (deltaPart) {
                     is UIMessagePart.Text -> {
-                        val existingTextPart =
-                            acc.find { it is UIMessagePart.Text } as? UIMessagePart.Text
-                        if (existingTextPart != null) {
-                            acc.map { part ->
-                                if (part is UIMessagePart.Text) {
-                                    part.copy(
-                                        text = existingTextPart.text + deltaPart.text,
-                                        metadata = deltaPart.metadata ?: part.metadata,
-                                    )
-                                } else part
+                        if (deltaPart.metadata?.containsKey("interactionSteps") == true) {
+                            val displayId = deltaPart.metadata?.get("google_interactions_text_id")
+                            val matchingIndex = acc.indexOfLast { part ->
+                                part is UIMessagePart.Text && if (displayId != null) {
+                                    part.metadata?.get("google_interactions_text_id") == displayId
+                                } else part.sharesGoogleInteractionStep(deltaPart)
+                            }
+                            val existingIndex = matchingIndex.takeIf { it >= 0 } ?: acc.indexOfLast { part ->
+                                part is UIMessagePart.Text && part.text.isEmpty() && deltaPart.text.isNotEmpty() &&
+                                    part.sharesGoogleInteractionStep(deltaPart)
+                            }
+                            val existingPart = acc.getOrNull(existingIndex) as? UIMessagePart.Text
+                            if (existingPart == null) acc + deltaPart
+                            else if (existingPart.text.isEmpty() && deltaPart.text.isNotEmpty()) {
+                                // 空快照没有显示位置；第一段正文到达时才确定它的位置。
+                                acc.filterIndexed { index, _ -> index != existingIndex } + deltaPart.copy(
+                                    metadata = mergeGooglePartMetadata(existingPart.metadata, deltaPart.metadata),
+                                )
+                            } else acc.mapIndexed { index, part ->
+                                if (index == existingIndex && part is UIMessagePart.Text) part.copy(
+                                    text = part.text + deltaPart.text,
+                                    metadata = mergeGooglePartMetadata(part.metadata, deltaPart.metadata),
+                                ) else part
                             }
                         } else {
-                            acc + deltaPart
+                            val existingTextPart =
+                                acc.find { it is UIMessagePart.Text } as? UIMessagePart.Text
+                            if (existingTextPart != null) {
+                                acc.map { part ->
+                                    if (part is UIMessagePart.Text) {
+                                        part.copy(
+                                            text = existingTextPart.text + deltaPart.text,
+                                            metadata = if (part.metadata?.containsKey("interactionSteps") == true || deltaPart.metadata?.containsKey("interactionSteps") == true)
+                                                mergeGooglePartMetadata(part.metadata, deltaPart.metadata) else deltaPart.metadata ?: part.metadata,
+                                        )
+                                    } else part
+                                }
+                            } else {
+                                acc + deltaPart
+                            }
                         }
                     }
 
@@ -80,7 +107,8 @@ data class UIMessage(
                                             existingUrl = existingImagePart.url,
                                             incomingUrl = deltaPart.url,
                                         ),
-                                        metadata = deltaPart.metadata ?: part.metadata,
+                                        metadata = if (part.metadata?.containsKey("interactionSteps") == true || deltaPart.metadata?.containsKey("interactionSteps") == true)
+                                            mergeGooglePartMetadata(part.metadata, deltaPart.metadata) else deltaPart.metadata ?: part.metadata,
                                     )
                                 } else part
                             }
@@ -92,26 +120,49 @@ data class UIMessage(
                         }
                     }
 
+                    is UIMessagePart.Audio -> {
+                        val existingIndex = acc.indexOfLast { part ->
+                            part is UIMessagePart.Audio && part.sharesGoogleInteractionStep(deltaPart)
+                        }
+                        if (existingIndex < 0) acc + deltaPart else acc.mapIndexed { index, part ->
+                            if (index == existingIndex) deltaPart.copy(
+                                metadata = mergeGooglePartMetadata(part.metadata, deltaPart.metadata),
+                            ) else part
+                        }
+                    }
+
                     is UIMessagePart.Reasoning -> {
                         val incomingReasoningId = deltaPart.metadata
-                            ?.get("openai_reasoning_id")
+                            ?.let { it["openai_reasoning_id"] ?: it["google_interactions_reasoning_id"] }
                             ?.jsonPrimitive
                             ?.contentOrNull
                             ?.takeIf { it.isNotBlank() }
-                        val existingReasoningIndex = if (incomingReasoningId == null) {
+                        val matchingReasoningIndex = if (incomingReasoningId == null) {
                             acc.indexOfLast { it is UIMessagePart.Reasoning }
                         } else {
                             acc.indexOfLast { part ->
                                 part is UIMessagePart.Reasoning &&
                                     part.metadata
-                                        ?.get("openai_reasoning_id")
+                                        ?.let { it["openai_reasoning_id"] ?: it["google_interactions_reasoning_id"] }
                                         ?.jsonPrimitive
                                         ?.contentOrNull == incomingReasoningId
                             }
                         }
+                        val existingReasoningIndex = if (matchingReasoningIndex >= 0 ||
+                            deltaPart.metadata?.containsKey("google_interactions_reasoning_id") != true) {
+                            matchingReasoningIndex
+                        } else acc.indexOfLast { part ->
+                            part is UIMessagePart.Reasoning && part.reasoning.isEmpty() && deltaPart.reasoning.isNotEmpty() &&
+                                part.sharesGoogleInteractionStep(deltaPart)
+                        }
                         val existingReasoningPart = acc.getOrNull(existingReasoningIndex) as? UIMessagePart.Reasoning
                         if (existingReasoningPart == null || existingReasoningIndex < 0) {
                             acc + deltaPart
+                        } else if (existingReasoningPart.reasoning.isEmpty() && deltaPart.reasoning.isNotEmpty() &&
+                            deltaPart.metadata?.containsKey("google_interactions_reasoning_id") == true) {
+                            acc.filterIndexed { index, _ -> index != existingReasoningIndex } + deltaPart.copy(
+                                metadata = mergePartMetadata(existingReasoningPart.metadata, deltaPart.metadata),
+                            )
                         } else if (
                             incomingReasoningId != null &&
                             deltaPart.reasoning.isBlank() &&
@@ -123,6 +174,8 @@ data class UIMessage(
                             acc.mapIndexed { index, part ->
                                 if (index == existingReasoningIndex) {
                                     existingReasoningPart.copy(
+                                        finishedAt = if (deltaPart.metadata?.containsKey("google_interactions_reasoning_id") == true)
+                                            deltaPart.finishedAt ?: existingReasoningPart.finishedAt else existingReasoningPart.finishedAt,
                                         metadata = mergePartMetadata(
                                             existing = existingReasoningPart.metadata,
                                             incoming = deltaPart.metadata,
@@ -133,7 +186,8 @@ data class UIMessage(
                                 }
                             }
                         } else {
-                            val resumedCreatedAt = if (existingReasoningPart.finishedAt != null) {
+                            val resumedCreatedAt = if (existingReasoningPart.finishedAt != null &&
+                                deltaPart.metadata?.containsKey("google_interactions_reasoning_id") != true) {
                                 val accumulated = existingReasoningPart.finishedAt - existingReasoningPart.createdAt
                                 Clock.System.now() - accumulated
                             } else {
@@ -142,7 +196,8 @@ data class UIMessage(
                             val mergedReasoning = UIMessagePart.Reasoning(
                                 reasoning = existingReasoningPart.reasoning + deltaPart.reasoning,
                                 createdAt = resumedCreatedAt,
-                                finishedAt = null,
+                                finishedAt = if (deltaPart.metadata?.containsKey("google_interactions_reasoning_id") == true)
+                                    deltaPart.finishedAt ?: existingReasoningPart.finishedAt else null,
                                 metadata = mergePartMetadata(
                                     existing = existingReasoningPart.metadata,
                                     incoming = deltaPart.metadata,
@@ -159,9 +214,12 @@ data class UIMessage(
                     }
 
                     is UIMessagePart.WebSearch -> {
-                        val existingIndex = acc.indexOfLast { part ->
-                            part is UIMessagePart.WebSearch && part.callId == deltaPart.callId
+                        val existingIndexes = acc.indices.filter { index ->
+                            val part = acc[index]
+                            part is UIMessagePart.WebSearch && (part.callId == deltaPart.callId ||
+                                part.sharesGoogleInteractionStep(deltaPart))
                         }
+                        val existingIndex = existingIndexes.firstOrNull() ?: -1
                         val existing = acc.getOrNull(existingIndex) as? UIMessagePart.WebSearch
                         if (existing == null || existingIndex < 0) {
                             // 网页搜索是 Responses 输出中的独立过程项。到达时先收束前一个
@@ -175,8 +233,15 @@ data class UIMessage(
                                 }
                             } + deltaPart
                         } else {
-                            acc.mapIndexed { index, part ->
-                                if (index == existingIndex) existing.merge(deltaPart) else part
+                            val merged = existingIndexes.drop(1).fold(existing) { combined, index ->
+                                combined.merge(acc[index] as UIMessagePart.WebSearch)
+                            }.merge(deltaPart)
+                            acc.mapIndexedNotNull { index, part ->
+                                when {
+                                    index == existingIndex -> merged
+                                    index in existingIndexes -> null
+                                    else -> part
+                                }
                             }
                         }
                     }
@@ -307,7 +372,10 @@ data class UIMessage(
                     .isEmpty()
             ) {
                 newParts = newParts.map { part ->
-                    if (part is UIMessagePart.Reasoning && part.finishedAt == null) {
+                    if (part is UIMessagePart.Reasoning && part.finishedAt == null &&
+                        (part.metadata?.get("google_interactions_reasoning_id") == null || delta.parts.any {
+                            it is UIMessagePart.Text && it.text.isNotEmpty() || it is UIMessagePart.ToolCall
+                        })) {
                         part.copy(finishedAt = Clock.System.now())
                     } else part
                 }
@@ -345,12 +413,7 @@ data class UIMessage(
         existing: JsonObject?,
         incoming: JsonObject?,
     ): JsonObject? {
-        if (incoming == null) return existing
-        if (existing == null) return incoming
-        return buildJsonObject {
-            existing.forEach { (key, value) -> put(key, value) }
-            incoming.forEach { (key, value) -> put(key, value) }
-        }
+        return mergeGooglePartMetadata(existing, incoming)
     }
 
     private fun extractBase64Payload(url: String): String {
@@ -701,7 +764,7 @@ fun List<UIMessage>.finalizeInterruptedGenerationMessages(
 ): List<UIMessage> {
     if (isEmpty()) return this
 
-    val messages = map { it.finishReasoning() }.toMutableList()
+    val messages = map { it.finishReasoning().finishGoogleSearches() }.toMutableList()
 
     // 1) 占位工具结果: 给没有结果的工具调用补占位 result, 保证工具调用序列合法.
     //    与下方打断标记互不影响, 仅看 "是否已有结果".
@@ -1144,7 +1207,9 @@ sealed class UIMessagePart {
     ) : UIMessagePart() {
         fun merge(other: WebSearch): WebSearch {
             return copy(
-                status = other.status,
+                callId = other.callId,
+                status = if (callId.startsWith("google_interactions:") && status in setOf(WebSearchStatus.Completed, WebSearchStatus.Failed) &&
+                    other.status in setOf(WebSearchStatus.InProgress, WebSearchStatus.Searching)) status else other.status,
                 action = if (other.action == WebSearchAction.Unknown) action else other.action,
                 queries = other.queries.takeIf { it.isNotEmpty() } ?: queries,
                 url = other.url?.takeIf { it.isNotBlank() } ?: url,
@@ -1165,17 +1230,8 @@ sealed class UIMessagePart {
 
         override val priority: Int = 0
 
-        private fun mergeMetadata(
-            existing: JsonObject?,
-            incoming: JsonObject?,
-        ): JsonObject? {
-            if (incoming == null) return existing
-            if (existing == null) return incoming
-            return buildJsonObject {
-                existing.forEach { (key, value) -> put(key, value) }
-                incoming.forEach { (key, value) -> put(key, value) }
-            }
-        }
+        private fun mergeMetadata(existing: JsonObject?, incoming: JsonObject?): JsonObject? =
+            mergeGooglePartMetadata(existing, incoming)
     }
 
     @Deprecated("Deprecated")
@@ -1355,6 +1411,14 @@ fun UIMessagePart.Image.isPersistentContextImage(): Boolean {
 fun List<UIMessagePart>.toSortedMessageParts(): List<UIMessagePart> {
     return sortedBy { it.priority }
 }
+
+/** 用户中止时只收尾 Gemini 的未完成搜索，保留已完成步骤和原始元数据。 */
+fun UIMessage.finishGoogleSearches(): UIMessage = copy(parts = parts.map { part ->
+    if (part is UIMessagePart.WebSearch && part.callId.startsWith("google_interactions:") &&
+        part.status in setOf(WebSearchStatus.InProgress, WebSearchStatus.Searching)) {
+        part.copy(status = WebSearchStatus.Failed, finishedAt = Clock.System.now())
+    } else part
+})
 
 fun UIMessage.finishReasoning(): UIMessage {
     return copy(

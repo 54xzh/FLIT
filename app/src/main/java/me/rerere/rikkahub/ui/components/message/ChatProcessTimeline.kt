@@ -210,7 +210,7 @@ internal fun ChatProcessTimeline(
 
                 else -> part.isProcessDisplayPart()
             }
-        }
+        }.expandGoogleSearchQueriesForDisplay()
     }
     if (visibleParts.isEmpty()) return
 
