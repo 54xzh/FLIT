@@ -559,6 +559,7 @@ private fun hasGoodLocalIcon(name: String): Boolean {
            lowerName.contains("qwen") ||
            lowerName.contains("mistral") ||
            lowerName.contains("llama") ||
+           lowerName.contains("muse") ||
            lowerName.contains("gemma") ||
            lowerName.contains("grok") ||
            lowerName.contains("openai") ||
@@ -830,6 +831,7 @@ private fun matchModelPattern(modelName: String): String? {
         PATTERN_DEEPSEEK_MODEL.containsMatchIn(modelName) -> "deepseek-color.svg"
         PATTERN_GROK_MODEL.containsMatchIn(modelName) -> "grok.svg"
         PATTERN_OLLAMA.containsMatchIn(modelName) -> "ollama.svg" // Must be before PATTERN_LLAMA
+        PATTERN_MUSE.containsMatchIn(modelName) -> "meta-color.svg"
         PATTERN_LLAMA.containsMatchIn(modelName) -> "meta-color.svg"
         PATTERN_QWEN_MODEL.containsMatchIn(modelName) -> "qwen-color.svg"
         PATTERN_MISTRAL_MODEL.containsMatchIn(modelName) -> "mistral-color.svg"
@@ -891,6 +893,7 @@ private fun matchIconPattern(searchName: String): String? {
         PATTERN_ZHIPU.containsMatchIn(searchName) -> "zhipu-color.svg"
         PATTERN_MISTRAL.containsMatchIn(searchName) -> "mistral-color.svg"
         PATTERN_META.containsMatchIn(searchName) -> "meta-color.svg"
+        PATTERN_MUSE.containsMatchIn(searchName) -> "meta-color.svg"
         PATTERN_HUNYUAN.containsMatchIn(searchName) -> "hunyuan-color.svg"
         PATTERN_GEMMA.containsMatchIn(searchName) -> "gemma-color.svg"
         PATTERN_PERPLEXITY.containsMatchIn(searchName) -> "perplexity-color.svg"
@@ -992,6 +995,7 @@ private val PATTERN_SEARCH_JINA = Regex("jina")
 
 // Model family patterns (for matching model names in OpenRouter format)
 private val PATTERN_LLAMA = Regex("llama")
+private val PATTERN_MUSE = Regex("muse")
 private val PATTERN_QWEN_MODEL = Regex("qwen|qwq|qvq")
 private val PATTERN_MISTRAL_MODEL = Regex("mistral")
 private val PATTERN_PHI = Regex("\\bphi\\b|phi-")

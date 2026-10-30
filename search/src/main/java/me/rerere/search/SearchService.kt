@@ -223,6 +223,7 @@ sealed class SearchServiceOptions {
         val apiKey: String = "",
         val searchType: ExaSearchType = ExaSearchType.AUTO,
         val alias: String = "",
+        val dynamicHighlights: Boolean = true,
     ) : SearchServiceOptions()
 
     @Serializable

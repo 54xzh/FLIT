@@ -1714,6 +1714,8 @@
   <string name="setting_search_page_depth_standard">標準</string>
   <string name="setting_search_page_exa_search_type">搜尋類型</string>
   <string name="setting_search_page_exa_search_type_desc">控制 Exa 搜尋深度和速度</string>
+  <string name="setting_search_page_exa_dynamic_highlights">動態醒目摘要</string>
+  <string name="setting_search_page_exa_dynamic_highlights_desc">綜合多筆搜尋結果擷取相關段落，減少上下文用量。關閉後使用一般醒目摘要。</string>
   <string name="setting_search_page_enable_search_agent">啟用搜尋子代理</string>
   <string name="setting_search_page_enable_search_agent_desc">使用子代理進行搜尋、讀取網頁並總結結果</string>
   <string name="setting_search_page_override_original_tools">覆蓋原搜尋工具</string>

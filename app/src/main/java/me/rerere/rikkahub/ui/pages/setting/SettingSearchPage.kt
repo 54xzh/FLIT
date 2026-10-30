@@ -1207,6 +1207,16 @@ private fun ExaOptions(
             }
         }
     }
+    FormItem(
+        label = { Text(stringResource(R.string.setting_search_page_exa_dynamic_highlights)) },
+        description = { Text(stringResource(R.string.setting_search_page_exa_dynamic_highlights_desc)) },
+        tail = {
+            HapticSwitch(
+                checked = options.dynamicHighlights,
+                onCheckedChange = { onUpdateOptions(options.copy(dynamicHighlights = it)) }
+            )
+        }
+    )
 }
 
 @Composable

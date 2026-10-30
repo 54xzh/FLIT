@@ -1341,7 +1341,7 @@ private fun resolveAiIconAssetPath(name: String): String? {
         "deepseek" in lowerName -> "deepseek-color.svg"
         "qwen" in lowerName || "alibaba" in lowerName -> "qwen-color.svg"
         "mistral" in lowerName -> "mistral-color.svg"
-        "llama" in lowerName || "meta" in lowerName -> "meta-color.svg"
+        "llama" in lowerName || "meta" in lowerName || "muse" in lowerName -> "meta-color.svg"
         "cohere" in lowerName -> "cohere-color.svg"
         "perplexity" in lowerName -> "perplexity-color.svg"
         "groq" in lowerName -> "groq.svg"

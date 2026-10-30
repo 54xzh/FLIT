@@ -12,8 +12,10 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.search.SearchResult.SearchResultItem
@@ -49,7 +51,16 @@ object ExaSearchService : SearchService<SearchServiceOptions.ExaOptions> {
             required = listOf("query")
         )
 
-    override val scrapingParameters: InputSchema? = null
+    override val scrapingParameters: InputSchema
+        get() = InputSchema.Obj(
+            properties = buildJsonObject {
+                put("url", buildJsonObject {
+                    put("type", "string")
+                    put("description", "URL to scrape for full page content")
+                })
+            },
+            required = listOf("url")
+        )
 
     override suspend fun search(
         params: JsonObject,
@@ -57,34 +68,11 @@ object ExaSearchService : SearchService<SearchServiceOptions.ExaOptions> {
         serviceOptions: SearchServiceOptions.ExaOptions
     ): Result<SearchResult> = withContext(Dispatchers.IO) {
         runCatching {
-            val query = params["query"]?.jsonPrimitive?.content ?: error("query is required")
+            val query = (params["query"] as? JsonPrimitive)?.contentOrNull
+                ?.takeIf { it.isNotBlank() } ?: error("query is required")
             val body = buildRequestBody(query, commonOptions, serviceOptions)
-
-            val request = Request.Builder()
-                .url("https://api.exa.ai/search")
-                .post(json.encodeToString(body).toRequestBody("application/json".toMediaType()))
-                .addHeader("Authorization", "Bearer ${serviceOptions.apiKey}")
-                .build()
-
-            val response = httpClient.newCall(request).execute()
-            if (response.isSuccessful) {
-                val bodyRaw = response.body?.string() ?: error("Failed to get response body")
-                val response = runCatching {
-                    json.decodeFromString<ExaData>(bodyRaw)
-                }.onFailure {
-                    throw SerializationException(
-                        "Failed to decode Exa response: ${bodyRaw.take(500)}"
-                    )
-                }.getOrThrow()
-
-                return@withContext Result.success(
-                    SearchResult(
-                        items = response.toSearchResultItems()
-                    ))
-            } else {
-                println(response.body?.string())
-                error("response failed #${response.code}")
-            }
+            val response = executeRequest(buildSearchRequest(body, serviceOptions))
+            SearchResult(items = response.toSearchResultItems())
         }
     }
 
@@ -97,8 +85,41 @@ object ExaSearchService : SearchService<SearchServiceOptions.ExaOptions> {
         put("type", JsonPrimitive(serviceOptions.searchType.value))
         put("numResults", JsonPrimitive(commonOptions.resultSize))
         put("contents", buildJsonObject {
-            put("highlights", JsonPrimitive(true))
+            if (serviceOptions.dynamicHighlights) {
+                put("highlights", buildJsonObject {
+                    put("dynamic", true)
+                })
+            } else {
+                put("highlights", true)
+            }
         })
+    }
+
+    internal fun buildSearchRequest(
+        body: JsonObject,
+        serviceOptions: SearchServiceOptions.ExaOptions,
+    ): Request = buildRequest("search", body, serviceOptions.apiKey).apply {
+        if (serviceOptions.dynamicHighlights) {
+            addHeader("Exa-Beta", "dynamic-highlights-2026-08-28")
+        }
+    }.build()
+
+    private fun buildRequest(path: String, body: JsonObject, apiKey: String): Request.Builder =
+        Request.Builder()
+            .url("https://api.exa.ai/$path")
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .addHeader("Authorization", "Bearer $apiKey")
+
+    private suspend fun executeRequest(request: Request): ExaData {
+        return httpClient.newCall(request).await().use { response ->
+            if (!response.isSuccessful) error("response failed #${response.code}")
+            val bodyRaw = response.body?.string() ?: error("Failed to get response body")
+            try {
+                json.decodeFromString<ExaData>(bodyRaw)
+            } catch (e: SerializationException) {
+                throw SerializationException("Failed to decode Exa response: ${bodyRaw.take(500)}", e)
+            }
+        }
     }
 
     internal fun ExaData.toSearchResultItems(): List<SearchResultItem> {
@@ -118,8 +139,36 @@ object ExaSearchService : SearchService<SearchServiceOptions.ExaOptions> {
         params: JsonObject,
         commonOptions: SearchCommonOptions,
         serviceOptions: SearchServiceOptions.ExaOptions
-    ): Result<ScrapedResult> {
-        return Result.failure(Exception("Scraping is not supported for Exa"))
+    ): Result<ScrapedResult> = withContext(Dispatchers.IO) {
+        runCatching {
+            val url = (params["url"] as? JsonPrimitive)?.contentOrNull
+                ?.takeIf { it.isNotBlank() } ?: error("url is required")
+            val body = buildScrapeRequestBody(url)
+            val request = buildRequest("contents", body, serviceOptions.apiKey).build()
+            executeRequest(request).toScrapedResult()
+        }
+    }
+
+    internal fun buildScrapeRequestBody(url: String): JsonObject = buildJsonObject {
+        put("urls", buildJsonArray { add(url) })
+        put("text", true)
+    }
+
+    internal fun ExaData.toScrapedResult(): ScrapedResult {
+        val urls = results.mapNotNull { item ->
+            item.text?.takeIf { it.isNotBlank() }?.let { content ->
+                ScrapedResultUrl(
+                    url = item.url,
+                    content = content,
+                    metadata = ScrapedResultMetadata(title = item.title),
+                )
+            }
+        }
+        if (urls.isEmpty()) {
+            val reason = statuses.firstOrNull { it.status == "error" }?.error?.tag
+            error("Exa returned no page content${reason?.let { ": $it" }.orEmpty()}")
+        }
+        return ScrapedResult(urls = urls)
     }
 
     @Serializable
@@ -133,8 +182,19 @@ object ExaSearchService : SearchService<SearchServiceOptions.ExaOptions> {
         @SerialName("results")
         val results: List<ExaResult> = emptyList(),
         @SerialName("costDollars")
-        val costDollars: ExaCostDollars? = null
+        val costDollars: ExaCostDollars? = null,
+        val statuses: List<ExaContentStatus> = emptyList(),
     )
+
+    @Serializable
+    data class ExaContentStatus(
+        val id: String? = null,
+        val status: String,
+        val error: ExaContentError? = null,
+    )
+
+    @Serializable
+    data class ExaContentError(val tag: String? = null)
 
     @Serializable
     data class ExaResult(
