@@ -1759,6 +1759,9 @@ private fun ChatPageContent(
                             navController.navigate(Screen.SettingLorebookDetail(lorebookId))
                         },
                         onRefreshContext = { vm.refreshContext() },
+                        onClearThoughtSignatures = {
+                            vm.clearGeminiThoughtSignatures(currentChatModel?.modelId)
+                        },
                         autoHideSuggestions = autoHideSuggestions,
                         onSuggestionsTopYChanged = { suggestionsTopInWindow = it },
                     )

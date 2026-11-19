@@ -2279,6 +2279,20 @@
     <string name="minimal_input_lorebooks_desc">Add context from your lorebooks</string>
     <string name="minimal_input_summarize">Summarize</string>
     <string name="minimal_input_summarize_desc">Summarize the conversation</string>
+    <string name="minimal_input_context_management">Context</string>
+    <string name="minimal_input_context_management_desc">Manage injections and chat context</string>
+    <string name="context_management_summarize_title">Summarize conversation</string>
+    <string name="context_management_summarize_desc">Compress earlier messages into a summary</string>
+    <string name="clear_thought_signatures_title">Clear thought signatures</string>
+    <string name="clear_thought_signatures_desc">Fix signature errors after switching providers; keeps all messages</string>
+    <string name="clear_thought_signatures_confirm_title">Clear thought signatures?</string>
+    <string name="clear_thought_signatures_confirm_message">Removes Gemini thought signatures saved from previous providers to resolve signature errors after switching channels.\n\nYour messages and visible thinking text remain intact. This cannot be undone.</string>
+    <string name="clear_thought_signatures_confirm_action">Clear</string>
+    <string name="clear_thought_signatures_success">Cleared thought signatures from %1$d messages</string>
+    <string name="clear_thought_signatures_empty">No thought signatures found in the current context</string>
+    <string name="clear_thought_signatures_unsupported_model">Only Gemini models support clearing thought signatures</string>
+    <string name="clear_thought_signatures_generating">Wait for the current response to finish</string>
+    <string name="clear_thought_signatures_failed">Failed to clear thought signatures</string>
 
     <string name="menu_statistics_title">Statistics</string>
     <string name="menu_stat_daily_streak">Daily Streak</string>

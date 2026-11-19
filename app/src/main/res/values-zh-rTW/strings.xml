@@ -2268,6 +2268,20 @@
   <string name="minimal_input_lorebooks_desc">從世界書加入上下文</string>
   <string name="minimal_input_summarize">總結</string>
   <string name="minimal_input_summarize_desc">總結對話</string>
+  <string name="minimal_input_context_management">上下文管理</string>
+  <string name="minimal_input_context_management_desc">管理注入與對話上下文</string>
+  <string name="context_management_summarize_title">總結對話</string>
+  <string name="context_management_summarize_desc">將較早訊息壓縮為摘要，減輕上下文負擔</string>
+  <string name="clear_thought_signatures_title">清除歷史思考簽名</string>
+  <string name="clear_thought_signatures_desc">切換渠道報錯時清理舊簽名，保留對話內容</string>
+  <string name="clear_thought_signatures_confirm_title">清除歷史思考簽名？</string>
+  <string name="clear_thought_signatures_confirm_message">將清除本對話中舊渠道遺留的 Gemini 思考簽名，用於解決切換渠道後出現的簽名校驗報錯。\n\n已產生的回答正文與思考過程會完整保留，此操作不可復原。</string>
+  <string name="clear_thought_signatures_confirm_action">清除簽名</string>
+  <string name="clear_thought_signatures_success">已清除 %1$d 則訊息的歷史思考簽名</string>
+  <string name="clear_thought_signatures_empty">目前上下文沒有可清除的思考簽名</string>
+  <string name="clear_thought_signatures_unsupported_model">僅 Gemini 系列模型支援清除思考簽名</string>
+  <string name="clear_thought_signatures_generating">回覆產生中，請完成後再試</string>
+  <string name="clear_thought_signatures_failed">清除思考簽名失敗</string>
 
     <string name="menu_statistics_title">統計</string>
     <string name="menu_stat_daily_streak">連續天數</string>

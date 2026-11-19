@@ -299,7 +299,10 @@ class ConversationRepository(
         }
     }
 
-    suspend fun updateConversation(conversation: Conversation) {
+    suspend fun updateConversation(
+        conversation: Conversation,
+        preserveConsolidation: Boolean = false,
+    ) {
         val preparedConversation = prepareConversationForStorage(conversation)
         conversationWriteMutex.withLock {
             val conversationToStore = sanitizeWorkspaceOverride(preparedConversation)
@@ -308,13 +311,14 @@ class ConversationRepository(
             val hasConsolidationHistory = memoryConsolidationDao.hasRecordsOfConversation(conversationId)
             // A worker updates the database directly. Any later UI snapshot may still
             // carry false, so consult persisted state before deciding whether it changed.
-            val previous = if (conversationToStore.isConsolidated || persistedConsolidated || hasConsolidationHistory) {
+            val previous = if (!preserveConsolidation && (conversationToStore.isConsolidated || persistedConsolidated || hasConsolidationHistory)) {
                 conversationDAO.getConversationById(conversationId)
                     ?.let(::conversationEntityToConversation)
             } else {
                 null
             }
-            val shouldInvalidateConsolidation = (persistedConsolidated || hasConsolidationHistory) &&
+            val shouldInvalidateConsolidation = !preserveConsolidation &&
+                (persistedConsolidated || hasConsolidationHistory) &&
                 previous?.let { hasConversationContentChanged(it, conversationToStore) } == true
 
             // Invalidation Logic: If a consolidated conversation is updated (e.g. new message),

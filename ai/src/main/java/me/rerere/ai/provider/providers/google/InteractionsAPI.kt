@@ -34,6 +34,7 @@ import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.providers.vertex.ServiceAccountTokenProvider
+import me.rerere.ai.ui.GEMINI_BUILTIN_SIGNED_INTERACTION_STEP_TYPES
 import me.rerere.ai.ui.GoogleThoughtMetadata
 import me.rerere.ai.ui.MessageChunk
 import me.rerere.ai.ui.UIMessage
@@ -481,22 +482,44 @@ class InteractionsAPI(
                         }
 
                         MessageRole.ASSISTANT -> {
+                            val hasClearedSignatures = message.parts.any {
+                                it.metadataAs<GoogleThoughtMetadata>()?.thoughtSignatureCleared == true
+                            }
                             val indexedSteps = message.parts.flatMap {
                                 it.metadataAs<GoogleThoughtMetadata>()?.interactionSteps.orEmpty()
                             }.groupBy { it.turnId to it.index }.values.map { snapshots ->
                                 snapshots.maxBy { it.revision }
                             }
                             indexedSteps.groupBy { it.turnId }.values.forEach { turn ->
-                                turn.sortedBy { it.index }.forEach { add(it.step) }
+                                val skippedCallIds = mutableSetOf<String>()
+                                turn.sortedBy { it.index }.forEach { indexedStep ->
+                                    val step = indexedStep.step
+                                    if (shouldSkipInteractionStep(step, hasClearedSignatures, skippedCallIds)) {
+                                        recordSkippedInteractionCallId(step, skippedCallIds)
+                                    } else {
+                                        add(step)
+                                    }
+                                }
                             }
+                            val fallbackSkippedCallIds = mutableSetOf<String>()
                             message.parts.forEach messagePart@ { part ->
                                 val googleMetadata = part.metadataAs<GoogleThoughtMetadata>()
                                 if (!googleMetadata?.interactionSteps.isNullOrEmpty()) return@messagePart
                                 val interactionStep = googleMetadata?.interactionStep
                                 if (interactionStep != null) {
                                     // Interactions 的 thought 与内置工具步骤带有服务端签名，
-                                    // 无状态续聊时必须逐字保留，不能按通用消息模型重新拼装。
-                                    add(interactionStep)
+                                    // 无状态续聊时必须逐字保留，不能按通用消息模型重新拼装；
+                                    // 手动清除思考签名后跳过无签名的 thought 与内置服务端工具步骤，避免换渠道校验失败。
+                                    if (shouldSkipInteractionStep(
+                                            step = interactionStep,
+                                            hasClearedSignatures = hasClearedSignatures || googleMetadata.thoughtSignatureCleared == true,
+                                            skippedCallIds = fallbackSkippedCallIds,
+                                        )
+                                    ) {
+                                        recordSkippedInteractionCallId(interactionStep, fallbackSkippedCallIds)
+                                    } else {
+                                        add(interactionStep)
+                                    }
                                     return@messagePart
                                 }
 
@@ -728,6 +751,38 @@ class InteractionsAPI(
             cachedTokens = cachedTokens,
             totalTokens = totalTokens
         )
+    }
+
+    private fun shouldSkipInteractionStep(
+        step: JsonObject,
+        hasClearedSignatures: Boolean,
+        skippedCallIds: Set<String>,
+    ): Boolean {
+        val type = step["type"]?.jsonPrimitiveOrNull?.contentOrNull ?: return false
+        val signature = step["signature"]?.jsonPrimitiveOrNull?.contentOrNull
+            ?: step["thought_signature"]?.jsonPrimitiveOrNull?.contentOrNull
+        val hasSignature = !signature.isNullOrBlank()
+        if (type == "thought" && !hasSignature) return true
+        if (type in GEMINI_BUILTIN_SIGNED_INTERACTION_STEP_TYPES) {
+            if (hasClearedSignatures && !hasSignature) return true
+            if (type.endsWith("_result")) {
+                val callId = step["call_id"]?.jsonPrimitiveOrNull?.contentOrNull
+                if (callId != null && callId in skippedCallIds) return true
+            }
+        }
+        return false
+    }
+
+    private fun recordSkippedInteractionCallId(
+        step: JsonObject,
+        skippedCallIds: MutableSet<String>,
+    ) {
+        val type = step["type"]?.jsonPrimitiveOrNull?.contentOrNull ?: return
+        if (type.endsWith("_call")) {
+            step["id"]?.jsonPrimitiveOrNull?.contentOrNull
+                ?.takeIf { it.isNotBlank() }
+                ?.let(skippedCallIds::add)
+        }
     }
 
     internal class StepContextTracker : GoogleInteractionState()

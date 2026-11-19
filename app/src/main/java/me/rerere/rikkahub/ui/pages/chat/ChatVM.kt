@@ -1197,6 +1197,15 @@ class ChatVM(
         return chatService.summarizeAndRefresh(_conversationId)
     }
 
+    suspend fun clearGeminiThoughtSignatures(
+        currentModelId: String?,
+    ): ChatService.ClearThoughtSignaturesResult {
+        return chatService.clearGeminiThoughtSignatures(
+            conversationId = _conversationId,
+            currentModelId = currentModelId,
+        )
+    }
+
     suspend fun updateContextSummary(summary: String): Boolean {
         return chatService.updateContextSummary(_conversationId, summary)
     }

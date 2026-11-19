@@ -23,6 +23,7 @@ import me.rerere.search.displayName
 import coil3.compose.AsyncImage
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.isGeminiThoughtSignatureModelId
 import me.rerere.rikkahub.utils.deleteChatFiles
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -76,6 +77,7 @@ import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Stop
@@ -206,6 +208,9 @@ fun MinimalChatInput(
     onLongSendClick: () -> Unit,
     onNavigateToLorebook: (String) -> Unit = {},
     onRefreshContext: suspend () -> ChatService.ContextRefreshResult = { ChatService.ContextRefreshResult(false, errorMessage = "Not configured") },
+    onClearThoughtSignatures: suspend () -> ChatService.ClearThoughtSignaturesResult = {
+        ChatService.ClearThoughtSignaturesResult(ChatService.ClearThoughtSignaturesStatus.FAILED)
+    },
     autoHideSuggestions: Boolean = false,
     onSuggestionsTopYChanged: (Float) -> Unit = {},
 ) {
@@ -244,6 +249,7 @@ fun MinimalChatInput(
     
     var showPicker by remember { mutableStateOf(false) }
     var showContextRefreshDialog by remember { mutableStateOf(false) }
+    var showClearThoughtSignaturesDialog by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
     var isFullScreen by remember { mutableStateOf(false) }
 
@@ -762,6 +768,7 @@ fun MinimalChatInput(
                 onUpdateSearchService = onUpdateSearchService,
                 onNavigateToLorebook = onNavigateToLorebook,
                 onShowContextRefreshDialog = { showContextRefreshDialog = true },
+                onShowClearThoughtSignaturesDialog = { showClearThoughtSignaturesDialog = true },
                 onDismiss = { showPicker = false }
             )
         }
@@ -772,6 +779,54 @@ fun MinimalChatInput(
             conversation = conversation,
             onRefresh = onRefreshContext,
             onDismiss = { showContextRefreshDialog = false }
+        )
+    }
+
+    if (showClearThoughtSignaturesDialog) {
+        ClearThoughtSignaturesConfirmDialog(
+            onConfirm = onClearThoughtSignatures,
+            onResult = { result ->
+                showClearThoughtSignaturesDialog = false
+                when (result.status) {
+                    ChatService.ClearThoughtSignaturesStatus.CLEARED -> {
+                        showPicker = false
+                        haptics.perform(HapticPattern.Success)
+                        toaster.show(
+                            context.getString(R.string.clear_thought_signatures_success, result.clearedMessageCount),
+                            type = ToastType.Success,
+                        )
+                    }
+
+                    ChatService.ClearThoughtSignaturesStatus.NO_SIGNATURES_IN_CONTEXT -> {
+                        toaster.show(
+                            context.getString(R.string.clear_thought_signatures_empty),
+                            type = ToastType.Info,
+                        )
+                    }
+
+                    ChatService.ClearThoughtSignaturesStatus.UNSUPPORTED_MODEL -> {
+                        toaster.show(
+                            context.getString(R.string.clear_thought_signatures_unsupported_model),
+                            type = ToastType.Warning,
+                        )
+                    }
+
+                    ChatService.ClearThoughtSignaturesStatus.GENERATING -> {
+                        toaster.show(
+                            context.getString(R.string.clear_thought_signatures_generating),
+                            type = ToastType.Warning,
+                        )
+                    }
+
+                    ChatService.ClearThoughtSignaturesStatus.FAILED -> {
+                        toaster.show(
+                            context.getString(R.string.clear_thought_signatures_failed),
+                            type = ToastType.Error,
+                        )
+                    }
+                }
+            },
+            onDismiss = { showClearThoughtSignaturesDialog = false },
         )
     }
 }
@@ -793,6 +848,7 @@ private fun MinimalPickerContent(
     onUpdateSearchService: (Int) -> Unit,
     onNavigateToLorebook: (String) -> Unit,
     onShowContextRefreshDialog: () -> Unit,
+    onShowClearThoughtSignaturesDialog: () -> Unit,
     onDismiss: () -> Unit,
     currentChatModel: Model? = null,
 ) {
@@ -821,6 +877,7 @@ private fun MinimalPickerContent(
     // Sub-picker states
     var showModelPicker by remember { mutableStateOf(false) }
     var showReasoningPicker by remember { mutableStateOf(false) }
+    var showContextManagementSheet by remember { mutableStateOf(false) }
     var showInjectionPicker by remember { mutableStateOf(false) }
     var showSearchPicker by remember { mutableStateOf(false) }
     var showMcpPicker by remember { mutableStateOf(false) }
@@ -1036,6 +1093,35 @@ private fun MinimalPickerContent(
         }
     }
     
+    val activeModesCount = settings.modes.count { mode ->
+        conversation.enabledModeIds.contains(mode.id)
+    }
+    val activeLorebooksCount = settings.lorebooks.count { lorebook ->
+        lorebook.id in assistant.enabledLorebookIds
+    }
+    val showSkillsTab = uiMode == ChatInputUiMode.Normal && enabledSkills.isNotEmpty()
+    val activeSkillCount = if (showSkillsTab) activeExplicitSkillNames.size else 0
+    val activeInjectionCount = activeModesCount + activeLorebooksCount + activeSkillCount
+    val injectionSummary = injectionPickerSummaryText(
+        showSkills = showSkillsTab,
+        activeSkillCount = activeSkillCount,
+        totalSkillCount = enabledSkills.size,
+        activeLorebookCount = activeLorebooksCount,
+        totalLorebookCount = settings.lorebooks.size,
+        activeModeCount = activeModesCount,
+        totalModeCount = settings.modes.size,
+    )
+    val canSummarizeConversation = uiMode == ChatInputUiMode.Normal &&
+        assistant.enableContextRefresh &&
+        conversation.currentMessages.size > 2
+    val canClearThoughtSignatures = uiMode == ChatInputUiMode.Normal &&
+        isGeminiThoughtSignatureModelId(currentChatModel?.modelId)
+    val contextManagementSubtitle = when {
+        activeInjectionCount > 0 -> injectionSummary
+        uiMode == ChatInputUiMode.Normal -> stringResource(R.string.minimal_input_context_management_desc)
+        else -> injectionSummary
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1316,60 +1402,22 @@ private fun MinimalPickerContent(
 
         }
 
-        val activeModesCount = settings.modes.count { mode ->
-            conversation.enabledModeIds.contains(mode.id)
-        }
-        val activeLorebooksCount = settings.lorebooks.count { lorebook ->
-            lorebook.id in assistant.enabledLorebookIds
-        }
-        val showSkillsTab = uiMode == ChatInputUiMode.Normal && enabledSkills.isNotEmpty()
-        val activeSkillCount = if (showSkillsTab) activeExplicitSkillNames.size else 0
-        val activeInjectionCount = activeModesCount + activeLorebooksCount + activeSkillCount
-        val injectionSummary = injectionPickerSummaryText(
-            showSkills = showSkillsTab,
-            activeSkillCount = activeSkillCount,
-            totalSkillCount = enabledSkills.size,
-            activeLorebookCount = activeLorebooksCount,
-            totalLorebookCount = settings.lorebooks.size,
-            activeModeCount = activeModesCount,
-            totalModeCount = settings.modes.size,
-        )
         MinimalPickerItem(
             icon = {
                 Icon(
-                    imageVector = Icons.Rounded.AutoFixHigh,
+                    imageVector = Icons.Rounded.Layers,
                     contentDescription = null,
                     modifier = Modifier.size(24.dp),
-                    tint = if (activeInjectionCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = if (activeInjectionCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             },
-            title = stringResource(R.string.injection_picker_title),
-            subtitle = injectionSummary,
+            title = stringResource(R.string.minimal_input_context_management),
+            subtitle = contextManagementSubtitle,
             onClick = {
-                showInjectionPicker = true
-            }
+                haptics.perform(HapticPattern.Pop)
+                showContextManagementSheet = true
+            },
         )
-
-        if (uiMode == ChatInputUiMode.Normal) {
-            // Summarize button - only show when context refresh is enabled and there are enough messages
-            if (assistant.enableContextRefresh && conversation.currentMessages.size > 2) {
-                MinimalPickerItem(
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Summarize,
-                            contentDescription = null,
-                            modifier = Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    title = stringResource(R.string.minimal_input_summarize),
-                    subtitle = stringResource(R.string.minimal_input_summarize_desc),
-                    onClick = {
-                        onShowContextRefreshDialog()
-                    }
-                )
-            }
-        }
 
         // 会话级工作区覆写入口：放在总结按钮之后
         if (showWorkspaceOverrideEntry) {
@@ -1480,6 +1528,28 @@ private fun MinimalPickerContent(
         }
     }
     
+    if (showContextManagementSheet) {
+        ContextManagementSheet(
+            activeInjectionCount = activeInjectionCount,
+            injectionSummary = injectionSummary,
+            showSummarize = canSummarizeConversation,
+            showClearThoughtSignatures = canClearThoughtSignatures,
+            onOpenInjection = {
+                showContextManagementSheet = false
+                showInjectionPicker = true
+            },
+            onOpenSummarize = {
+                showContextManagementSheet = false
+                onShowContextRefreshDialog()
+            },
+            onOpenClearThoughtSignatures = {
+                showContextManagementSheet = false
+                onShowClearThoughtSignaturesDialog()
+            },
+            onDismissRequest = { showContextManagementSheet = false },
+        )
+    }
+
     if (showInjectionPicker) {
         InjectionPickerSheet(
             settings = settings,

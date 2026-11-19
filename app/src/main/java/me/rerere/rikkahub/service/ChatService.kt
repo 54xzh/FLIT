@@ -84,6 +84,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.finishReasoning
 import me.rerere.ai.ui.finalizeInterruptedGenerationMessages
+import me.rerere.ai.ui.isGeminiThoughtSignatureModelId
 import me.rerere.ai.ui.truncate
 import me.rerere.common.android.Logging
 import me.rerere.rikkahub.AppScope
@@ -5269,6 +5270,19 @@ class ChatService(
         val errorMessage: String? = null
     )
 
+    enum class ClearThoughtSignaturesStatus {
+        CLEARED,
+        NO_SIGNATURES_IN_CONTEXT,
+        UNSUPPORTED_MODEL,
+        GENERATING,
+        FAILED,
+    }
+
+    data class ClearThoughtSignaturesResult(
+        val status: ClearThoughtSignaturesStatus,
+        val clearedMessageCount: Int = 0,
+    )
+
     private fun setContextSummaryPendingDivider(conversationId: Uuid, markerIndex: Int) {
         val current = getConversationFlow(conversationId).value
         if (markerIndex !in current.messageNodes.indices) return
@@ -5585,6 +5599,109 @@ class ChatService(
         } catch (e: Exception) {
             Log.e(TAG, "updateContextSummary failed", e)
             false
+        }
+    }
+
+    /**
+     * 手动清除当前会话中的 Gemini 历史思考签名。
+     * 先校验模型匹配、非生成中且当前有效上下文确实存在可清除签名；
+     * 满足条件后清除整段会话（含分支与更早分页历史）中的签名，同时保留正文与思考内容。
+     */
+    suspend fun clearGeminiThoughtSignatures(
+        conversationId: Uuid,
+        currentModelId: String? = null,
+    ): ClearThoughtSignaturesResult = withContext(Dispatchers.IO) {
+        try {
+            val settings = settingsStore.settingsFlow.first()
+            val resolvedModelId = currentModelId ?: settings.getCurrentChatModel()?.modelId
+            if (!isGeminiThoughtSignatureModelId(resolvedModelId)) {
+                return@withContext ClearThoughtSignaturesResult(ClearThoughtSignaturesStatus.UNSUPPORTED_MODEL)
+            }
+            if (isGenerating(conversationId)) {
+                return@withContext ClearThoughtSignaturesResult(ClearThoughtSignaturesStatus.GENERATING)
+            }
+
+            val writeMutex = writeMutexFor(conversationId)
+            writeMutex.withLock {
+                if (deletedConversationIds.contains(conversationId)) {
+                    return@withContext ClearThoughtSignaturesResult(ClearThoughtSignaturesStatus.FAILED)
+                }
+                if (isGenerating(conversationId)) {
+                    return@withContext ClearThoughtSignaturesResult(ClearThoughtSignaturesStatus.GENERATING)
+                }
+
+                val current = getConversationFlow(conversationId).value
+                if (current.id != conversationId) {
+                    return@withContext ClearThoughtSignaturesResult(ClearThoughtSignaturesStatus.FAILED)
+                }
+                if (settings.groupChatTemplates.any { it.id == current.assistantId }) {
+                    return@withContext ClearThoughtSignaturesResult(ClearThoughtSignaturesStatus.UNSUPPORTED_MODEL)
+                }
+
+                val assistant = settings.assistants.firstOrNull { it.id == current.assistantId }
+                    ?: settings.getCurrentAssistant()
+                val isTemporary = temporaryConversations.contains(conversationId)
+                val prefixNodes = if (current.loadedNodeStartIndex > 0 && !isTemporary) {
+                    conversationRepo.loadMessageNodeChunk(
+                        conversationId = conversationId,
+                        startInclusive = 0,
+                        endExclusive = current.loadedNodeStartIndex,
+                    )?.nodes.orEmpty()
+                } else {
+                    emptyList()
+                }
+                val fullNodes = prefixNodes + current.messageNodes
+                if (!hasGeminiThoughtSignatureInEffectiveContext(
+                        fullNodes = fullNodes,
+                        truncateIndex = current.truncateIndex,
+                        contextSummary = current.contextSummary,
+                        contextSummaryUpToIndex = current.contextSummaryUpToIndex,
+                        enableHistorySummarization = assistant.enableHistorySummarization,
+                        maxHistoryMessages = assistant.maxHistoryMessages,
+                        contextMessageSize = assistant.contextMessageSize,
+                    )
+                ) {
+                    return@withContext ClearThoughtSignaturesResult(ClearThoughtSignaturesStatus.NO_SIGNATURES_IN_CONTEXT)
+                }
+
+                val prefixCleared = clearGeminiThoughtSignaturesInNodes(prefixNodes)
+                val loadedCleared = clearGeminiThoughtSignaturesInNodes(current.messageNodes)
+                val totalClearedMessages = prefixCleared.clearedMessageCount + loadedCleared.clearedMessageCount
+                if (totalClearedMessages <= 0) {
+                    return@withContext ClearThoughtSignaturesResult(ClearThoughtSignaturesStatus.NO_SIGNATURES_IN_CONTEXT)
+                }
+
+                val updatedInMemory = current.copy(messageNodes = loadedCleared.nodes)
+                updateConversation(conversationId, updatedInMemory)
+
+                if (!isTemporary && (updatedInMemory.title.isNotBlank() || fullNodes.isNotEmpty())) {
+                    val allClearedNodes = prefixCleared.nodes + loadedCleared.nodes
+                    val toPersist = updatedInMemory.copy(
+                        messageNodes = allClearedNodes,
+                        loadedNodeStartIndex = 0,
+                        totalMessageNodeCount = maxOf(current.totalMessageNodeCount, allClearedNodes.size),
+                    )
+                    if (!conversationRepo.conversationExists(toPersist.id)) {
+                        conversationRepo.insertConversation(toPersist)
+                    } else {
+                        conversationRepo.updateConversation(toPersist, preserveConsolidation = true)
+                    }
+                }
+
+                Log.i(
+                    TAG,
+                    "clearGeminiThoughtSignatures: conversationId=$conversationId clearedMessages=$totalClearedMessages"
+                )
+                ClearThoughtSignaturesResult(
+                    status = ClearThoughtSignaturesStatus.CLEARED,
+                    clearedMessageCount = totalClearedMessages,
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "clearGeminiThoughtSignatures failed", e)
+            ClearThoughtSignaturesResult(ClearThoughtSignaturesStatus.FAILED)
         }
     }
 

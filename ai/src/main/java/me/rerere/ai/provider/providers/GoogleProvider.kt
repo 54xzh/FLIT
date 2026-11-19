@@ -42,6 +42,7 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.providers.vertex.ServiceAccountTokenProvider
 import me.rerere.ai.registry.ModelRegistry
+import me.rerere.ai.ui.GOOGLE_SKIP_THOUGHT_SIGNATURE_VALIDATOR
 import me.rerere.ai.ui.GoogleThoughtMetadata
 import me.rerere.ai.ui.ImageGenerationItem
 import me.rerere.ai.ui.ImageGenerationResult
@@ -796,12 +797,17 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                                 }
 
                                 is UIMessagePart.ToolCall -> {
+                                    val googleMetadata = part.metadataAs<GoogleThoughtMetadata>()
+                                    val thoughtSignature = googleMetadata?.thoughtSignature
+                                        ?: GOOGLE_SKIP_THOUGHT_SIGNATURE_VALIDATOR.takeIf {
+                                            googleMetadata?.thoughtSignatureCleared == true
+                                        }
                                     add(buildJsonObject {
                                         put("functionCall", buildJsonObject {
                                             put("name", part.toolName)
                                             put("args", json.parseToJsonElement(part.arguments))
                                         })
-                                        part.metadataAs<GoogleThoughtMetadata>()?.thoughtSignature?.let {
+                                        thoughtSignature?.let {
                                             put("thoughtSignature", it)
                                         }
                                     })
