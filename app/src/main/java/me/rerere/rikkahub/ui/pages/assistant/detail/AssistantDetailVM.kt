@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -33,6 +35,7 @@ import me.rerere.rikkahub.data.model.MemoryRetrievalMode
 import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
 import me.rerere.rikkahub.data.model.requiresEmbedding
 import me.rerere.rikkahub.data.model.Avatar
+import me.rerere.rikkahub.data.model.Project
 import me.rerere.rikkahub.data.model.Tag
 import me.rerere.rikkahub.data.repository.AssistantMemoryStats
 import me.rerere.rikkahub.data.repository.MemoryRepository
@@ -46,6 +49,7 @@ import me.rerere.rikkahub.data.db.entity.MemorySummaryVersionEntity
 import me.rerere.rikkahub.data.repository.MemoryRetrievalHit
 import me.rerere.rikkahub.data.repository.MemoryRetrievalRequest
 import me.rerere.rikkahub.data.repository.MemoryRetrievalService
+import me.rerere.rikkahub.data.repository.ProjectRepository
 import me.rerere.rikkahub.service.MemorySummaryRequirementChangeResult
 import me.rerere.rikkahub.service.MemorySummaryRequirementChangeService
 import me.rerere.rikkahub.service.MemorySummaryWorker
@@ -56,6 +60,21 @@ private const val TAG = "AssistantDetailVM"
 private const val UI_EPISODE_LIMIT = 400
 private const val UI_EPISODE_CONTENT_PREVIEW_LIMIT = 1200
 
+sealed interface MemorySourceFilter {
+    data object OutsideProjects : MemorySourceFilter
+    data object All : MemorySourceFilter
+    data class Project(val projectId: String) : MemorySourceFilter
+
+    fun toDbFilterMode(): Int = when (this) {
+        All -> 0
+        OutsideProjects -> 1
+        is Project -> 2
+    }
+
+    fun toDbProjectId(): String? = (this as? Project)?.projectId
+}
+
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class AssistantDetailVM(
     private val id: String,
     private val settingsStore: SettingsStore,
@@ -63,6 +82,7 @@ class AssistantDetailVM(
     private val memorySummaryRepository: MemorySummaryRepository,
     private val memoryRetrievalService: MemoryRetrievalService,
     private val conversationRepository: me.rerere.rikkahub.data.repository.ConversationRepository,
+    private val projectRepository: ProjectRepository,
     private val context: Application,
     private val chatEpisodeDAO: ChatEpisodeDAO,
     private val memorySummaryRequirementChangeService: MemorySummaryRequirementChangeService,
@@ -88,6 +108,10 @@ class AssistantDetailVM(
             scope = viewModelScope, started = SharingStarted.Lazily, initialValue = Assistant()
         )
 
+    val projects: StateFlow<List<Project>> = projectRepository
+        .getProjectsOfAssistant(assistantId)
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
     private val _memorySearchQuery = MutableStateFlow("")
     val memorySearchQuery = _memorySearchQuery.asStateFlow()
 
@@ -95,15 +119,41 @@ class AssistantDetailVM(
         _memorySearchQuery.value = query
     }
 
+    private val _memorySourceFilter = MutableStateFlow<MemorySourceFilter>(MemorySourceFilter.OutsideProjects)
+    val memorySourceFilter: StateFlow<MemorySourceFilter> = combine(
+        _memorySourceFilter,
+        settings.map { it.projectFeatureEnabled }.distinctUntilChanged(),
+        projects,
+    ) { filter, projectFeatureEnabled, projectList ->
+        if (!projectFeatureEnabled || projectList.isEmpty()) {
+            MemorySourceFilter.All
+        } else if (filter is MemorySourceFilter.Project && projectList.none { it.id.toString() == filter.projectId }) {
+            MemorySourceFilter.OutsideProjects
+        } else {
+            filter
+        }
+    }.stateIn(viewModelScope, SharingStarted.Lazily, MemorySourceFilter.All)
+
+    fun updateMemorySourceFilter(filter: MemorySourceFilter) {
+        _memorySourceFilter.value = filter
+    }
+
+    fun resetMemorySourceFilter() {
+        _memorySourceFilter.value = MemorySourceFilter.OutsideProjects
+    }
+
     fun getPagedMemories(
         memoryType: Int,
         sortOrder: Int,
         searchQuery: String = memorySearchQuery.value,
+        sourceFilter: MemorySourceFilter = memorySourceFilter.value,
     ): Flow<PagingData<AssistantMemory>> = memoryRepository.getAssistantMemoriesPaging(
         assistantId = assistantId.toString(),
         memoryType = memoryType,
         searchQuery = searchQuery,
-        sortOrder = sortOrder
+        sortOrder = sortOrder,
+        projectFilterMode = sourceFilter.toDbFilterMode(),
+        filterProjectId = sourceFilter.toDbProjectId(),
     ).cachedIn(viewModelScope)
 
     private val uiEpisodesFlow = chatEpisodeDAO.getEpisodesForUiFlow(
@@ -112,11 +162,19 @@ class AssistantDetailVM(
         contentPreviewLimit = UI_EPISODE_CONTENT_PREVIEW_LIMIT,
     )
 
-    val memoryStats = memoryRepository.getAssistantMemoryStatsFlow(assistantId.toString()).stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.Lazily,
-        initialValue = AssistantMemoryStats()
-    )
+    val memoryStats: StateFlow<AssistantMemoryStats> = memorySourceFilter
+        .flatMapLatest { filter ->
+            memoryRepository.getFilteredMemoryStatsFlow(
+                assistantId = assistantId.toString(),
+                projectFilterMode = filter.toDbFilterMode(),
+                filterProjectId = filter.toDbProjectId(),
+            )
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Lazily,
+            initialValue = AssistantMemoryStats()
+        )
 
     val memorySummaryStatus: StateFlow<MemorySummaryStatus> = memorySummaryRepository
         .observeStatus(assistantId.toString())
@@ -204,6 +262,12 @@ class AssistantDetailVM(
                     MemorySummaryRequirementChangeResult.STALE_ACTIVE_VERSION -> {
                         _snackbarMessage.value = context.getString(
                             R.string.assistant_page_memory_summary_requirement_change_stale,
+                        )
+                    }
+
+                    MemorySummaryRequirementChangeResult.SUMMARY_DISABLED -> {
+                        _snackbarMessage.value = context.getString(
+                            R.string.assistant_page_memory_summary_disabled,
                         )
                     }
                 }
@@ -400,12 +464,20 @@ class AssistantDetailVM(
         viewModelScope.launch {
             val normalizedContent = memory.content.trim()
             if (normalizedContent.isEmpty()) return@launch
-            memoryRepository.addMemory(
-                assistantId = assistantId.toString(),
-                content = normalizedContent,
-                pinned = memory.pinned,
-                generateEmbedding = assistant.value.effectiveMemoryRetrievalMode().requiresEmbedding,
-            )
+            val selectedProjectId = (memorySourceFilter.value as? MemorySourceFilter.Project)?.projectId
+            val selectedProject = selectedProjectId?.let { pid ->
+                projects.value.firstOrNull { it.id.toString() == pid }
+            }
+            withContext(Dispatchers.IO) {
+                memoryRepository.addMemory(
+                    assistantId = assistantId.toString(),
+                    content = normalizedContent,
+                    pinned = memory.pinned,
+                    generateEmbedding = assistant.value.effectiveMemoryRetrievalMode().requiresEmbedding,
+                    projectId = selectedProjectId,
+                    exposeToExternal = selectedProject?.exposeToExternal ?: false,
+                )
+            }
         }
     }
 
@@ -715,7 +787,8 @@ class AssistantDetailVM(
                 }
 
                 MemorySummaryVersionOperationResult.CANNOT_DELETE_ACTIVE,
-                MemorySummaryVersionOperationResult.STALE_ACTIVE_VERSION -> Unit
+                MemorySummaryVersionOperationResult.STALE_ACTIVE_VERSION,
+                MemorySummaryVersionOperationResult.SUMMARY_DISABLED -> Unit
             }
         }
     }

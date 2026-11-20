@@ -17,6 +17,7 @@ data class AssistantMemoryPagingRow(
     val timestamp: Long,
     val significance: Int?,
     val pinned: Boolean,
+    val projectId: String?,
 )
 
 data class AssistantMemoryStatsRow(
@@ -162,7 +163,8 @@ interface MemoryDAO {
                 embedding_model_id AS embeddingModelId,
                 created_at AS timestamp,
                 NULL AS significance,
-                pinned AS pinned
+                pinned AS pinned,
+                project_id AS projectId
             FROM memoryentity
             WHERE assistant_id = :assistantId
 
@@ -179,12 +181,18 @@ interface MemoryDAO {
                 embedding_model_id AS embeddingModelId,
                 start_time AS timestamp,
                 significance AS significance,
-                0 AS pinned
+                0 AS pinned,
+                project_id AS projectId
             FROM chatepisodeentity
             WHERE assistant_id = :assistantId
         )
         WHERE (:memoryType < 0 OR type = :memoryType)
           AND (:searchQuery = '' OR content LIKE '%' || :searchQuery || '%')
+          AND (
+              :projectFilterMode = 0
+              OR (:projectFilterMode = 1 AND projectId IS NULL)
+              OR (:projectFilterMode = 2 AND projectId = :filterProjectId)
+          )
         ORDER BY
             pinned DESC,
             CASE WHEN pinned = 1 THEN timestamp END ASC,
@@ -200,7 +208,61 @@ interface MemoryDAO {
         searchQuery: String,
         sortOrder: Int,
         episodeContentPreviewLimit: Int,
+        projectFilterMode: Int = 0,
+        filterProjectId: String? = null,
     ): PagingSource<Int, AssistantMemoryPagingRow>
+
+    @Query(
+        """
+        SELECT
+            (
+                SELECT COUNT(*) FROM memoryentity
+                WHERE assistant_id = :assistantId
+                  AND (
+                      :projectFilterMode = 0
+                      OR (:projectFilterMode = 1 AND project_id IS NULL)
+                      OR (:projectFilterMode = 2 AND project_id = :filterProjectId)
+                  )
+            ) AS coreCount,
+            (
+                SELECT COUNT(*) FROM chatepisodeentity
+                WHERE assistant_id = :assistantId
+                  AND (
+                      :projectFilterMode = 0
+                      OR (:projectFilterMode = 1 AND project_id IS NULL)
+                      OR (:projectFilterMode = 2 AND project_id = :filterProjectId)
+                  )
+            ) AS episodicCount,
+            (
+                (
+                    SELECT COUNT(*) FROM memoryentity
+                    WHERE assistant_id = :assistantId
+                      AND embedding_model_id IS NOT NULL AND embedding_model_id != ''
+                      AND (
+                          :projectFilterMode = 0
+                          OR (:projectFilterMode = 1 AND project_id IS NULL)
+                          OR (:projectFilterMode = 2 AND project_id = :filterProjectId)
+                      )
+                )
+                +
+                (
+                    SELECT COUNT(*) FROM chatepisodeentity
+                    WHERE assistant_id = :assistantId
+                      AND embedding_model_id IS NOT NULL AND embedding_model_id != ''
+                      AND (
+                          :projectFilterMode = 0
+                          OR (:projectFilterMode = 1 AND project_id IS NULL)
+                          OR (:projectFilterMode = 2 AND project_id = :filterProjectId)
+                      )
+                )
+            ) AS embeddedCount
+        """
+    )
+    fun getFilteredMemoryStatsFlow(
+        assistantId: String,
+        projectFilterMode: Int = 0,
+        filterProjectId: String? = null,
+    ): Flow<AssistantMemoryStatsRow>
 
     @Query(
         """

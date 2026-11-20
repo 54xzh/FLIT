@@ -96,4 +96,22 @@ class MemorySummaryPromptsTest {
         assertFalse(prompt.contains("previous summary marker"))
         assertTrue(prompt.contains("keep the profile concise"))
     }
+
+    @Test
+    fun projectPromptUsesConciseProjectTemplateAndProjectName() {
+        val prompt = buildMemorySummaryPrompt(
+            promptTemplate = DEFAULT_PROJECT_MEMORY_SUMMARY_PROMPT,
+            mode = MemorySummaryPromptMode.FULL,
+            currentDate = "2026-11-20",
+            previousSummary = "old project summary",
+            memories = "project memory item",
+            projectName = "FLIT Refactor",
+        )
+
+        assertTrue(prompt.contains("project-specific long-term memory summary"))
+        assertTrue(prompt.contains("Project:\nFLIT Refactor"))
+        assertTrue(prompt.contains("150 to 300 words"))
+        assertFalse(prompt.contains("Personal Profile"))
+        assertFalse(prompt.contains("{project_header_section}"))
+    }
 }

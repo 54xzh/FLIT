@@ -65,6 +65,10 @@ val viewModelModule = module {
             projectRepo = get(),
             settingsStore = get(),
             chatService = get(),
+            memoryRepository = get(),
+            memorySummaryRepository = get(),
+            memorySummaryRequirementChangeService = get(),
+            context = get(),
         )
     }
     viewModel<AssistantDetailVM> {
@@ -75,6 +79,7 @@ val viewModelModule = module {
             memorySummaryRepository = get(),
             memoryRetrievalService = get(),
             conversationRepository = get(),
+            projectRepository = get(),
             context = get(),
             chatEpisodeDAO = get(),
             memorySummaryRequirementChangeService = get(),

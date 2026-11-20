@@ -168,6 +168,7 @@ val appModule = module {
             summaryRepository = get(),
             providerManager = get(),
             requestLogManager = get(),
+            projectRepository = get(),
         )
     }
 

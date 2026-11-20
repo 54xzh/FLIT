@@ -13,6 +13,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.data.ai.AIRequestLogManager
 import me.rerere.rikkahub.data.ai.AIRequestSource
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_MEMORY_SUMMARY_PROMPT
+import me.rerere.rikkahub.data.ai.prompts.DEFAULT_PROJECT_MEMORY_SUMMARY_PROMPT
 import me.rerere.rikkahub.data.ai.prompts.MemorySummaryPromptMode
 import me.rerere.rikkahub.data.ai.prompts.buildMemorySummaryPrompt
 import me.rerere.rikkahub.data.datastore.SettingsStore
@@ -78,13 +79,16 @@ class MemorySummaryWorker(
         } else {
             MemorySummaryTarget.Project(assistantId, projectId)
         }
-        val targetEnabled = when (target) {
-            is MemorySummaryTarget.Global -> assistant.enableMemorySummary
+        val targetProject = when (target) {
+            is MemorySummaryTarget.Global -> null
             is MemorySummaryTarget.Project -> {
                 runCatching { kotlin.uuid.Uuid.parse(target.projectId) }.getOrNull()
                     ?.let { projectRepository.getProjectById(it) }
-                    ?.enableMemorySummary == true
             }
+        }
+        val targetEnabled = when (target) {
+            is MemorySummaryTarget.Global -> assistant.enableMemorySummary
+            is MemorySummaryTarget.Project -> targetProject?.enableMemorySummary == true
         }
         if (!assistant.enableMemory || !targetEnabled) {
             return if (forceManual) Result.failure(workDataOf(OUTPUT_ERROR_TYPE to ERROR_TYPE_DISABLED)) else Result.success()
@@ -164,14 +168,20 @@ class MemorySummaryWorker(
                 expectedActiveVersionId = activeVersion?.id,
                 expectedRevision = activeSnapshot.revision,
             )
-            if (!published) summaryRepository.scheduleAutomaticCheck(target)
-            return if (published) {
-                Result.success()
-            } else if (forceManual) {
-                Result.failure(workDataOf(OUTPUT_ERROR_TYPE to ERROR_TYPE_PUBLISH_FAILED))
-            } else {
-                Result.success()
+            if (!published) {
+                val stillEnabled = isTargetStillEnabled(parsedId, target)
+                if (stillEnabled) summaryRepository.scheduleAutomaticCheck(target)
+                return if (forceManual) {
+                    Result.failure(
+                        workDataOf(
+                            OUTPUT_ERROR_TYPE to if (stillEnabled) ERROR_TYPE_PUBLISH_FAILED else ERROR_TYPE_DISABLED,
+                        )
+                    )
+                } else {
+                    Result.success()
+                }
             }
+            return Result.success()
         }
         // An explicit immediate update is allowed to refresh an existing incremental
         // summary even when there are no pending additions. Automatic work never
@@ -203,8 +213,12 @@ class MemorySummaryWorker(
             isFullUpdate -> MemorySummaryPromptMode.FULL
             else -> MemorySummaryPromptMode.INCREMENTAL
         }
+        val promptTemplate = when (target) {
+            is MemorySummaryTarget.Global -> assistant.memorySummaryPrompt.ifBlank { DEFAULT_MEMORY_SUMMARY_PROMPT }
+            is MemorySummaryTarget.Project -> DEFAULT_PROJECT_MEMORY_SUMMARY_PROMPT
+        }
         val prompt = buildMemorySummaryPrompt(
-            promptTemplate = assistant.memorySummaryPrompt.ifBlank { DEFAULT_MEMORY_SUMMARY_PROMPT },
+            promptTemplate = promptTemplate,
             mode = promptMode,
             currentDate = LocalDate.now().toString(),
             previousSummary = activeVersion?.content.orEmpty(),
@@ -214,6 +228,7 @@ class MemorySummaryWorker(
             } else {
                 emptyList()
             },
+            projectName = targetProject?.name,
         )
         val requestMessages = listOf(UIMessage.user(prompt))
         var requestBodyJson: String? = null
@@ -235,14 +250,20 @@ class MemorySummaryWorker(
                 expectedActiveVersionId = activeVersion?.id,
                 expectedRevision = activeSnapshot.revision,
             )
-            if (!published) summaryRepository.scheduleAutomaticCheck(target)
-            return if (published) {
-                Result.success()
-            } else if (forceManual) {
-                Result.failure(workDataOf(OUTPUT_ERROR_TYPE to ERROR_TYPE_PUBLISH_FAILED))
-            } else {
-                Result.success()
+            if (!published) {
+                val stillEnabled = isTargetStillEnabled(parsedId, target)
+                if (stillEnabled) summaryRepository.scheduleAutomaticCheck(target)
+                return if (forceManual) {
+                    Result.failure(
+                        workDataOf(
+                            OUTPUT_ERROR_TYPE to if (stillEnabled) ERROR_TYPE_PUBLISH_FAILED else ERROR_TYPE_DISABLED,
+                        )
+                    )
+                } else {
+                    Result.success()
+                }
             }
+            return Result.success()
         } catch (error: Throwable) {
             failure = error
             throw error
@@ -261,6 +282,24 @@ class MemorySummaryWorker(
                 durationMs = duration,
                 error = failure,
             )
+        }
+    }
+
+    private suspend fun isTargetStillEnabled(
+        assistantId: kotlin.uuid.Uuid,
+        target: MemorySummaryTarget,
+    ): Boolean {
+        val latestAssistant = settingsStore.settingsFlow.value.getAssistantById(assistantId) ?: return false
+        if (!latestAssistant.enableMemory) return false
+        return when (target) {
+            is MemorySummaryTarget.Global -> latestAssistant.enableMemorySummary
+            is MemorySummaryTarget.Project -> {
+                val project = runCatching { kotlin.uuid.Uuid.parse(target.projectId) }.getOrNull()
+                    ?.let { projectRepository.getProjectById(it) }
+                project != null &&
+                    project.assistantId == assistantId &&
+                    project.enableMemorySummary
+            }
         }
     }
 

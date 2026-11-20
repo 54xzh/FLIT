@@ -222,6 +222,8 @@ class MemoryRepository internal constructor(
         memoryType: Int,
         searchQuery: String,
         sortOrder: Int,
+        projectFilterMode: Int = 0,
+        filterProjectId: String? = null,
     ): Flow<PagingData<AssistantMemory>> {
         val normalizedQuery = searchQuery.trim()
         return Pager(
@@ -238,7 +240,9 @@ class MemoryRepository internal constructor(
                     memoryType = memoryType,
                     searchQuery = normalizedQuery,
                     sortOrder = sortOrder,
-                    episodeContentPreviewLimit = PAGING_EPISODE_CONTENT_PREVIEW_LIMIT
+                    episodeContentPreviewLimit = PAGING_EPISODE_CONTENT_PREVIEW_LIMIT,
+                    projectFilterMode = projectFilterMode,
+                    filterProjectId = filterProjectId,
                 )
             }
         ).flow.map { pagingData ->
@@ -252,6 +256,7 @@ class MemoryRepository internal constructor(
                     timestamp = row.timestamp,
                     significance = row.significance,
                     pinned = row.pinned,
+                    projectId = row.projectId,
                 )
             }
         }
@@ -302,6 +307,24 @@ class MemoryRepository internal constructor(
                     totalCount = row.coreCount + row.episodicCount
                 )
             }
+
+    fun getFilteredMemoryStatsFlow(
+        assistantId: String,
+        projectFilterMode: Int = 0,
+        filterProjectId: String? = null,
+    ): Flow<AssistantMemoryStats> =
+        memoryDAO.getFilteredMemoryStatsFlow(
+            assistantId = assistantId,
+            projectFilterMode = projectFilterMode,
+            filterProjectId = filterProjectId,
+        ).map { row ->
+            AssistantMemoryStats(
+                coreCount = row.coreCount,
+                episodicCount = row.episodicCount,
+                embeddedCount = row.embeddedCount,
+                totalCount = row.coreCount + row.episodicCount
+            )
+        }
 
     fun hasPendingEmbeddingsFlow(assistantId: String): Flow<Boolean> =
         memoryDAO.getPendingEmbeddingCountFlow(assistantId)
@@ -402,6 +425,7 @@ class MemoryRepository internal constructor(
             embeddingModelId = memory.embeddingModelId,
             timestamp = memory.createdAt,
             pinned = memory.pinned,
+            projectId = memory.projectId,
         )
     }
 
@@ -415,6 +439,7 @@ class MemoryRepository internal constructor(
             embeddingModelId = episode.embeddingModelId,
             timestamp = episode.startTime,
             significance = episode.significance,
+            projectId = episode.projectId,
         )
     }
 

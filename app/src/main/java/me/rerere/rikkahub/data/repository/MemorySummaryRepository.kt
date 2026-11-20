@@ -58,6 +58,7 @@ enum class MemorySummaryVersionOperationResult {
     CANNOT_DELETE_ACTIVE,
     EMPTY_CONTENT,
     UNCHANGED_CONTENT,
+    SUMMARY_DISABLED,
 }
 
 data class MemorySummarySource(
@@ -148,6 +149,19 @@ class MemorySummaryRepository(
     suspend fun getRecentRequirements(target: MemorySummaryTarget): List<String> =
         getRecentRequirements(target.storageKey)
 
+    private suspend fun isTargetWritableInTransaction(
+        target: MemorySummaryTarget,
+        requireSummaryEnabled: Boolean,
+    ): Boolean = when (target) {
+        is MemorySummaryTarget.Global -> true
+        is MemorySummaryTarget.Project -> {
+            val project = database.projectDao().getProjectById(target.projectId)
+            project != null &&
+                project.assistantId == target.assistantId &&
+                (!requireSummaryEnabled || project.enableMemorySummary)
+        }
+    }
+
     suspend fun publishVersion(
         target: MemorySummaryTarget,
         content: String,
@@ -155,14 +169,54 @@ class MemorySummaryRepository(
         snapshotChanges: List<MemorySummaryChangeEntity>,
         expectedActiveVersionId: Long?,
         expectedRevision: Long,
-    ): Boolean = publishVersion(
-        assistantId = target.storageKey,
-        content = content,
-        updateMode = updateMode,
-        snapshotChanges = snapshotChanges,
-        expectedActiveVersionId = expectedActiveVersionId,
-        expectedRevision = expectedRevision,
-    )
+    ): Boolean {
+        val storageKey = target.storageKey
+        return database.withTransaction {
+            if (!isTargetWritableInTransaction(target, requireSummaryEnabled = true)) {
+                return@withTransaction false
+            }
+            val currentState = summaryDao.getState(storageKey)
+            val matchesExpectedState = if (expectedActiveVersionId == null) {
+                currentState == null && expectedRevision == 0L
+            } else {
+                currentState?.activeVersionId == expectedActiveVersionId &&
+                    currentState.revision == expectedRevision
+            }
+            if (!matchesExpectedState) return@withTransaction false
+
+            val versionId = summaryDao.insertVersion(
+                MemorySummaryVersionEntity(
+                    assistantId = storageKey,
+                    content = content.trim(),
+                    generatedAt = System.currentTimeMillis(),
+                    updateMode = updateMode,
+                    sourceChangeCount = snapshotChanges.size,
+                )
+            )
+            summaryDao.upsertState(
+                MemorySummaryStateEntity(
+                    assistantId = storageKey,
+                    activeVersionId = versionId,
+                    requiresFullUpdate = false,
+                    revision = expectedRevision + 1,
+                )
+            )
+            val staleIds = memorySummaryVersionIdsToPrune(
+                versionsNewestFirst = summaryDao.getVersions(storageKey),
+                activeVersionId = versionId,
+            )
+            if (staleIds.isNotEmpty()) summaryDao.deleteVersions(staleIds)
+            snapshotChanges.forEach { change ->
+                summaryDao.deleteChangeIfTokenMatches(
+                    assistantId = change.assistantId,
+                    memoryType = change.memoryType,
+                    memoryId = change.memoryId,
+                    changeToken = change.changeToken,
+                )
+            }
+            true
+        }
+    }
 
     fun requestManualUpdate(target: MemorySummaryTarget, options: MemorySummaryUpdateOptions): UUID =
         scheduler.enqueueManual(target, options)
@@ -336,7 +390,10 @@ class MemorySummaryRepository(
         requestedType: Int,
     ) {
         val storageKey = target.storageKey
-        database.withTransaction {
+        val recorded = database.withTransaction {
+            if (!isTargetWritableInTransaction(target, requireSummaryEnabled = false)) {
+                return@withTransaction false
+            }
             val existing = summaryDao.getChange(storageKey, memoryType, memoryId)
             val mergedType = mergeMemorySummaryChangeType(existing?.changeType, requestedType)
             if (mergedType == null) {
@@ -353,8 +410,11 @@ class MemorySummaryRepository(
                     )
                 )
             }
+            true
         }
-        scheduler.enqueueAutomatic(target)
+        if (recorded) {
+            scheduler.enqueueAutomatic(target)
+        }
     }
 
     /**
@@ -464,29 +524,56 @@ class MemorySummaryRepository(
     suspend fun activateVersion(
         assistantId: String,
         versionId: Long,
+    ): MemorySummaryVersionOperationResult = activateVersion(
+        target = MemorySummaryTarget.Global(assistantId),
+        versionId = versionId,
+    )
+
+    suspend fun activateVersion(
+        target: MemorySummaryTarget,
+        versionId: Long,
     ): MemorySummaryVersionOperationResult {
+        val storageKey = target.storageKey
         val result = database.withTransaction {
-            val version = summaryDao.getVersion(assistantId, versionId)
+            if (!isTargetWritableInTransaction(target, requireSummaryEnabled = false)) {
+                return@withTransaction MemorySummaryVersionOperationResult.VERSION_NOT_FOUND
+            }
+            val version = summaryDao.getVersion(storageKey, versionId)
                 ?: return@withTransaction MemorySummaryVersionOperationResult.VERSION_NOT_FOUND
-            val currentState = summaryDao.getState(assistantId)
+            val currentState = summaryDao.getState(storageKey)
             if (currentState?.activeVersionId == version.id) {
                 return@withTransaction MemorySummaryVersionOperationResult.SUCCESS
             }
             summaryDao.upsertState(
                 MemorySummaryStateEntity(
-                    assistantId = assistantId,
+                    assistantId = storageKey,
                     activeVersionId = version.id,
                     requiresFullUpdate = true,
                     revision = (currentState?.revision ?: 0) + 1,
                 )
             )
-            resyncPendingChanges(assistantId)
+            resyncPendingChanges(target)
             MemorySummaryVersionOperationResult.SUCCESS
         }
         if (result == MemorySummaryVersionOperationResult.SUCCESS) {
-            scheduler.enqueueAutomatic(assistantId)
+            scheduler.enqueueAutomatic(target)
         }
         return result
+    }
+
+    suspend fun createManualVersion(
+        target: MemorySummaryTarget,
+        baseVersionId: Long,
+        content: String,
+    ): MemorySummaryVersionOperationResult = database.withTransaction {
+        if (!isTargetWritableInTransaction(target, requireSummaryEnabled = false)) {
+            return@withTransaction MemorySummaryVersionOperationResult.VERSION_NOT_FOUND
+        }
+        createManualVersionInternal(
+            assistantId = target.storageKey,
+            baseVersionId = baseVersionId,
+            content = content,
+        )
     }
 
     suspend fun createManualVersion(
@@ -494,14 +581,26 @@ class MemorySummaryRepository(
         baseVersionId: Long,
         content: String,
     ): MemorySummaryVersionOperationResult = database.withTransaction {
+        createManualVersionInternal(
+            assistantId = assistantId,
+            baseVersionId = baseVersionId,
+            content = content,
+        )
+    }
+
+    private suspend fun createManualVersionInternal(
+        assistantId: String,
+        baseVersionId: Long,
+        content: String,
+    ): MemorySummaryVersionOperationResult {
         val baseVersion = summaryDao.getVersion(assistantId, baseVersionId)
-            ?: return@withTransaction MemorySummaryVersionOperationResult.VERSION_NOT_FOUND
+            ?: return MemorySummaryVersionOperationResult.VERSION_NOT_FOUND
         val normalizedContent = content.trim()
         if (normalizedContent.isEmpty()) {
-            return@withTransaction MemorySummaryVersionOperationResult.EMPTY_CONTENT
+            return MemorySummaryVersionOperationResult.EMPTY_CONTENT
         }
         if (normalizedContent == baseVersion.content.trim()) {
-            return@withTransaction MemorySummaryVersionOperationResult.UNCHANGED_CONTENT
+            return MemorySummaryVersionOperationResult.UNCHANGED_CONTENT
         }
         val currentState = summaryDao.getState(assistantId)
         val editingHistory = currentState?.activeVersionId != baseVersion.id
@@ -527,7 +626,7 @@ class MemorySummaryRepository(
             activeVersionId = versionId,
         )
         if (staleIds.isNotEmpty()) summaryDao.deleteVersions(staleIds)
-        MemorySummaryVersionOperationResult.SUCCESS
+        return MemorySummaryVersionOperationResult.SUCCESS
     }
 
     /**
@@ -536,16 +635,53 @@ class MemorySummaryRepository(
      * the summary, not the memory library it was built from.
      */
     suspend fun publishRequirementChangeVersion(
+        target: MemorySummaryTarget,
+        expectedActiveVersionId: Long,
+        expectedRevision: Long,
+        content: String,
+        requirement: String,
+    ): MemorySummaryRequirementChangePublishResult = database.withTransaction {
+        if (!isTargetWritableInTransaction(target, requireSummaryEnabled = true)) {
+            return@withTransaction MemorySummaryRequirementChangePublishResult(
+                operation = MemorySummaryVersionOperationResult.SUMMARY_DISABLED,
+            )
+        }
+        publishRequirementChangeVersionInternal(
+            assistantId = target.storageKey,
+            expectedActiveVersionId = expectedActiveVersionId,
+            expectedRevision = expectedRevision,
+            content = content,
+            requirement = requirement,
+        )
+    }
+
+    suspend fun publishRequirementChangeVersion(
         assistantId: String,
         expectedActiveVersionId: Long,
         expectedRevision: Long,
         content: String,
         requirement: String,
     ): MemorySummaryRequirementChangePublishResult = database.withTransaction {
+        publishRequirementChangeVersionInternal(
+            assistantId = assistantId,
+            expectedActiveVersionId = expectedActiveVersionId,
+            expectedRevision = expectedRevision,
+            content = content,
+            requirement = requirement,
+        )
+    }
+
+    private suspend fun publishRequirementChangeVersionInternal(
+        assistantId: String,
+        expectedActiveVersionId: Long,
+        expectedRevision: Long,
+        content: String,
+        requirement: String,
+    ): MemorySummaryRequirementChangePublishResult {
         val normalizedContent = content.trim()
         val normalizedRequirement = requirement.trim()
         if (normalizedContent.isEmpty()) {
-            return@withTransaction MemorySummaryRequirementChangePublishResult(
+            return MemorySummaryRequirementChangePublishResult(
                 operation = MemorySummaryVersionOperationResult.EMPTY_CONTENT,
             )
         }
@@ -557,12 +693,12 @@ class MemorySummaryRepository(
                 expectedRevision = expectedRevision,
             )
         ) {
-            return@withTransaction MemorySummaryRequirementChangePublishResult(
+            return MemorySummaryRequirementChangePublishResult(
                 operation = MemorySummaryVersionOperationResult.STALE_ACTIVE_VERSION,
             )
         }
         val activeVersion = summaryDao.getVersion(assistantId, expectedActiveVersionId)
-            ?: return@withTransaction MemorySummaryRequirementChangePublishResult(
+            ?: return MemorySummaryRequirementChangePublishResult(
                 operation = MemorySummaryVersionOperationResult.VERSION_NOT_FOUND,
             )
         check(normalizedRequirement.isNotEmpty()) { "Memory summary requirement cannot be blank" }
@@ -575,7 +711,7 @@ class MemorySummaryRepository(
         )
         summaryDao.deleteRequirementsExceptLatest(assistantId, RECENT_REQUIREMENT_LIMIT)
         if (normalizedContent == activeVersion.content.trim()) {
-            return@withTransaction MemorySummaryRequirementChangePublishResult(
+            return MemorySummaryRequirementChangePublishResult(
                 operation = MemorySummaryVersionOperationResult.UNCHANGED_CONTENT,
             )
         }
@@ -601,7 +737,7 @@ class MemorySummaryRepository(
             activeVersionId = versionId,
         )
         if (staleIds.isNotEmpty()) summaryDao.deleteVersions(staleIds)
-        MemorySummaryRequirementChangePublishResult(
+        return MemorySummaryRequirementChangePublishResult(
             operation = MemorySummaryVersionOperationResult.SUCCESS,
             versionId = versionId,
         )
@@ -610,31 +746,40 @@ class MemorySummaryRepository(
     suspend fun deleteVersion(
         assistantId: String,
         versionId: Long,
+    ): MemorySummaryVersionOperationResult = deleteVersion(
+        target = MemorySummaryTarget.Global(assistantId),
+        versionId = versionId,
+    )
+
+    suspend fun deleteVersion(
+        target: MemorySummaryTarget,
+        versionId: Long,
     ): MemorySummaryVersionOperationResult {
+        val storageKey = target.storageKey
         val result = database.withTransaction {
-            val version = summaryDao.getVersion(assistantId, versionId)
+            val version = summaryDao.getVersion(storageKey, versionId)
                 ?: return@withTransaction MemorySummaryVersionOperationResult.VERSION_NOT_FOUND
-            val currentState = summaryDao.getState(assistantId)
+            val currentState = summaryDao.getState(storageKey)
             val isActive = currentState?.activeVersionId == version.id
             if (isActive) {
-                val allVersions = summaryDao.getVersions(assistantId)
+                val allVersions = summaryDao.getVersions(storageKey)
                 val remaining = allVersions.filterNot { it.id == version.id }
                 if (remaining.isNotEmpty()) {
                     val nextActive = remaining.first()
                     summaryDao.upsertState(
                         MemorySummaryStateEntity(
-                            assistantId = assistantId,
+                            assistantId = storageKey,
                             activeVersionId = nextActive.id,
                             requiresFullUpdate = true,
                             revision = (currentState?.revision ?: 0) + 1,
                         )
                     )
                 } else {
-                    summaryDao.deleteStateOfAssistant(assistantId)
+                    summaryDao.deleteStateOfAssistant(storageKey)
                 }
             } else {
                 currentState?.let { state ->
-                    val activeVer = summaryDao.getActiveVersion(assistantId)
+                    val activeVer = summaryDao.getActiveVersion(storageKey)
                     if (activeVer != null && version.generatedAt > activeVer.generatedAt) {
                         summaryDao.upsertState(
                             state.copy(
@@ -645,15 +790,15 @@ class MemorySummaryRepository(
                     }
                 }
             }
-            if (summaryDao.deleteVersion(assistantId, version.id) == 0) {
+            if (summaryDao.deleteVersion(storageKey, version.id) == 0) {
                 MemorySummaryVersionOperationResult.VERSION_NOT_FOUND
             } else {
-                resyncPendingChanges(assistantId)
+                resyncPendingChanges(target)
                 MemorySummaryVersionOperationResult.SUCCESS
             }
         }
         if (result == MemorySummaryVersionOperationResult.SUCCESS) {
-            scheduler.enqueueAutomatic(assistantId)
+            scheduler.enqueueAutomatic(target)
         }
         return result
     }
@@ -663,15 +808,27 @@ class MemorySummaryRepository(
         versionId: Long,
     ): MemorySummaryVersionOperationResult = deleteVersion(assistantId, versionId)
 
-    suspend fun resyncPendingChanges(assistantId: String) {
+    suspend fun deleteHistoryVersion(
+        target: MemorySummaryTarget,
+        versionId: Long,
+    ): MemorySummaryVersionOperationResult = deleteVersion(target, versionId)
+
+    suspend fun resyncPendingChanges(assistantId: String) =
+        resyncPendingChanges(MemorySummaryTarget.Global(assistantId))
+
+    suspend fun resyncPendingChanges(target: MemorySummaryTarget) {
+        val storageKey = target.storageKey
         database.withTransaction {
-            val activeVersion = summaryDao.getActiveVersion(assistantId)
+            val activeVersion = summaryDao.getActiveVersion(storageKey)
             val cutoff = activeVersion?.generatedAt ?: 0L
 
-            val existingChanges = summaryDao.getChanges(assistantId)
+            val existingChanges = summaryDao.getChanges(storageKey)
             val existingMap = existingChanges.associateBy { it.memoryType to it.memoryId }
 
-            val memories = memoryDao.getMemoriesOfAssistant(assistantId)
+            val memories = when (target) {
+                is MemorySummaryTarget.Global -> memoryDao.getExposedMemoriesOfAssistant(target.assistantId)
+                is MemorySummaryTarget.Project -> memoryDao.getMemoriesOfProject(target.assistantId, target.projectId)
+            }
             for (memory in memories) {
                 val timestamp = memory.updatedAt ?: memory.createdAt
                 if (timestamp > cutoff) {
@@ -684,7 +841,7 @@ class MemorySummaryRepository(
                         }
                         summaryDao.upsertChange(
                             MemorySummaryChangeEntity(
-                                assistantId = assistantId,
+                                assistantId = storageKey,
                                 memoryType = MemoryType.CORE,
                                 memoryId = memory.id,
                                 changeType = changeType,
@@ -696,7 +853,10 @@ class MemorySummaryRepository(
                 }
             }
 
-            val episodes = episodeDao.getEpisodesOfAssistant(assistantId)
+            val episodes = when (target) {
+                is MemorySummaryTarget.Global -> episodeDao.getExposedEpisodesOfAssistant(target.assistantId)
+                is MemorySummaryTarget.Project -> episodeDao.getEpisodesOfProject(target.assistantId, target.projectId)
+            }
             for (episode in episodes) {
                 val timestamp = episode.updatedAt ?: episode.endTime
                 if (timestamp > cutoff) {
@@ -709,7 +869,7 @@ class MemorySummaryRepository(
                         }
                         summaryDao.upsertChange(
                             MemorySummaryChangeEntity(
-                                assistantId = assistantId,
+                                assistantId = storageKey,
                                 memoryType = MemoryType.EPISODIC,
                                 memoryId = episode.id,
                                 changeType = changeType,
@@ -737,8 +897,10 @@ class MemorySummaryRepository(
         }
     }
 
-    suspend fun clearAllForTarget(target: MemorySummaryTarget) =
+    suspend fun clearAllForTarget(target: MemorySummaryTarget) {
+        scheduler.cancelAllForTarget(target)
         clearAllForAssistant(target.storageKey)
+    }
 
     fun requestManualUpdate(assistantId: String, options: MemorySummaryUpdateOptions): UUID =
         scheduler.enqueueManual(assistantId, options)
@@ -747,14 +909,24 @@ class MemorySummaryRepository(
         scheduler.cancelManual(assistantId)
     }
 
+    suspend fun cancelManualUpdate(target: MemorySummaryTarget) {
+        scheduler.cancelManual(target)
+    }
+
     fun observeManualRunning(assistantId: String): Flow<Boolean> =
         scheduler.observeManualRunning(assistantId)
+
+    fun observeManualRunning(target: MemorySummaryTarget): Flow<Boolean> =
+        scheduler.observeManualRunning(target)
 
     fun observeWorkInfo(id: UUID): Flow<WorkInfo?> =
         scheduler.observeWorkInfo(id)
 
     suspend fun getUnfinishedManualWork(assistantId: String): WorkInfo? =
         scheduler.getUnfinishedManualWork(assistantId)
+
+    suspend fun getUnfinishedManualWork(target: MemorySummaryTarget): WorkInfo? =
+        scheduler.getUnfinishedManualWork(target)
 
     fun scheduleAutomaticCheck(assistantId: String) {
         scheduler.enqueueAutomatic(assistantId)

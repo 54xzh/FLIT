@@ -13,20 +13,28 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,19 +58,32 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
+import me.rerere.rikkahub.data.model.AssistantMemory
+import me.rerere.rikkahub.data.model.MemoryRetrievalMode
+import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
+import me.rerere.rikkahub.data.model.requiresEmbedding
 import me.rerere.rikkahub.ui.components.ai.ModelSelector
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.DebouncedTextField
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
 import me.rerere.rikkahub.ui.context.LocalNavController
+import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.HapticPattern
 import me.rerere.rikkahub.ui.hooks.rememberPremiumHaptics
+import me.rerere.rikkahub.ui.hooks.useEditState
+import me.rerere.rikkahub.ui.pages.assistant.detail.MemoryEditDialog
+import me.rerere.rikkahub.ui.pages.assistant.detail.MemoryManagerSheet
+import me.rerere.rikkahub.ui.pages.assistant.detail.MemorySummaryUpdateDialog
 import me.rerere.rikkahub.ui.pages.setting.components.SettingGroupItem
 import me.rerere.rikkahub.ui.pages.setting.components.SettingsGroup
 import me.rerere.rikkahub.ui.theme.AppShapes
+import me.rerere.rikkahub.ui.theme.LocalDarkMode
 import me.rerere.rikkahub.utils.navigateToChatPage
+import me.rerere.rikkahub.utils.toLocalString
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
+import java.time.Instant
+import java.time.ZoneId
 
 @Composable
 fun ProjectDetailPage(
@@ -73,9 +94,31 @@ fun ProjectDetailPage(
     )
     val settings by vm.settings.collectAsStateWithLifecycle()
     val project by vm.project.collectAsStateWithLifecycle()
+    val assistant by vm.assistant.collectAsStateWithLifecycle()
+    val projectMemoryStats by vm.projectMemoryStats.collectAsStateWithLifecycle()
+    val projectSummaryStatus by vm.projectSummaryStatus.collectAsStateWithLifecycle()
+    val projectSummaryVersions by vm.projectSummaryVersions.collectAsStateWithLifecycle()
+    val isManualSummaryRunning by vm.isManualProjectSummaryRunning.collectAsStateWithLifecycle()
+    val memorySearchQuery by vm.memorySearchQuery.collectAsStateWithLifecycle()
+    val currentEmbeddingModelId by vm.currentEmbeddingModelId.collectAsStateWithLifecycle()
+    val memorySummaryRequirement by vm.memorySummaryRequirement.collectAsStateWithLifecycle()
+    val isMemorySummaryRequirementChangeRunning by vm.isMemorySummaryRequirementChangeRunning.collectAsStateWithLifecycle()
+    val memorySummaryRequirementChangeSuccessEvent by vm.memorySummaryRequirementChangeSuccessEvent.collectAsStateWithLifecycle()
+    val latestMemorySummaryRequirementChangeVersionId by vm.latestMemorySummaryRequirementChangeVersionId.collectAsStateWithLifecycle()
+    val snackbarMessage by vm.snackbarMessage.collectAsStateWithLifecycle()
+
     val currentProject = project
+    val effectiveAssistant = assistant ?: settings.getCurrentAssistant()
     val navController = LocalNavController.current
     val haptics = rememberPremiumHaptics()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(snackbarMessage) {
+        snackbarMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            vm.clearSnackbarMessage()
+        }
+    }
 
     LaunchedEffect(settings.init, settings.projectFeatureEnabled) {
         if (!settings.init && !settings.projectFeatureEnabled) {
@@ -90,10 +133,25 @@ fun ProjectDetailPage(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showPromptDialog by remember { mutableStateOf(false) }
     var showIconPickerSheet by remember { mutableStateOf(false) }
+    var showMemoryManager by remember { mutableStateOf(false) }
+    var memoryManagerInitialTab by remember { mutableStateOf<Int?>(null) }
+    var showUpdateSummaryDialog by remember { mutableStateOf(false) }
+
+    val memoryDialogState = useEditState<AssistantMemory> { memory ->
+        if (memory.id == 0) {
+            vm.addMemory(memory)
+        } else {
+            vm.updateMemory(memory)
+        }
+    }
 
     val defaultProjectName = stringResource(R.string.project_name)
+    val showMemoryTypes = effectiveAssistant.enableMemoryConsolidation || projectMemoryStats.episodicCount > 0
+    val showSummarySection = (currentProject?.enableMemorySummary == true) || projectSummaryVersions.isNotEmpty()
+    val summaryTabIndex = if (showMemoryTypes) 2 else 1
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -210,20 +268,24 @@ fun ProjectDetailPage(
                     }
                 )
 
-                val promptPreview = currentProject.systemPrompt.ifBlank {
-                    stringResource(R.string.project_context_empty)
-                }
+                val promptPreview = currentProject.systemPrompt
+                    .lineSequence()
+                    .filterNot { it.isBlank() }
+                    .joinToString("\n") { it.trimEnd() }
+                    .ifBlank { stringResource(R.string.project_context_empty) }
                 SettingGroupItem(
                     title = stringResource(R.string.project_context_title),
                     subtitle = promptPreview,
+                    subtitleMaxLines = 2,
+                    subtitleOverflow = TextOverflow.Ellipsis,
                     onClick = { showPromptDialog = true },
                 )
             }
 
             // 模型设置
             SettingsGroup(title = stringResource(R.string.project_model_settings)) {
-                val assistant = settings.getCurrentAssistant()
-                val assistantModel = assistant.chatModelId?.let { settings.findModelById(it) } ?: settings.getCurrentChatModel()
+                val assistantModel = effectiveAssistant.chatModelId?.let { settings.findModelById(it) }
+                    ?: settings.getCurrentChatModel()
                 val effectiveModelSubtitle = if (currentProject.modelId != null) {
                     settings.findModelById(currentProject.modelId)?.displayName
                         ?: stringResource(R.string.project_model_inherit_generic)
@@ -238,24 +300,55 @@ fun ProjectDetailPage(
                 SettingGroupItem(
                     title = stringResource(R.string.project_model_title),
                     subtitle = effectiveModelSubtitle,
+                    subtitleMaxLines = 1,
+                    subtitleOverflow = TextOverflow.Ellipsis,
                     trailing = {
-                        ModelSelector(
-                            modelId = currentProject.modelId,
-                            providers = settings.providers,
-                            type = ModelType.CHAT,
-                            allowClear = true,
-                            onClear = { vm.updateModelId(null) },
-                            onSelect = { model ->
-                                val shouldClear = model.displayName.isBlank() && model.modelId.isBlank()
-                                vm.updateModelId(if (shouldClear) null else model.id)
-                            },
-                        )
+                        Box(
+                            modifier = Modifier.fillMaxWidth(0.48f),
+                            contentAlignment = Alignment.CenterEnd,
+                        ) {
+                            ModelSelector(
+                                modelId = currentProject.modelId,
+                                providers = settings.providers,
+                                type = ModelType.CHAT,
+                                allowClear = true,
+                                onClear = { vm.updateModelId(null) },
+                                onSelect = { model ->
+                                    val shouldClear = model.displayName.isBlank() && model.modelId.isBlank()
+                                    vm.updateModelId(if (shouldClear) null else model.id)
+                                },
+                            )
+                        }
                     }
                 )
             }
 
             // 记忆策略
+            val assistantMemoryEnabled = effectiveAssistant.enableMemory
+            val assistantConsolidationAvailable = assistantMemoryEnabled &&
+                effectiveAssistant.enableMemoryConsolidation &&
+                effectiveAssistant.effectiveMemoryRetrievalMode() != MemoryRetrievalMode.OFF
+
             SettingsGroup(title = stringResource(R.string.project_memory_strategy)) {
+                if (!assistantMemoryEnabled) {
+                    Surface(
+                        color = if (LocalDarkMode.current) {
+                            MaterialTheme.colorScheme.surfaceContainerLow
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHighest
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.project_memory_assistant_disabled_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+
                 SettingGroupItem(
                     title = stringResource(R.string.project_enable_memory_tools),
                     subtitle = stringResource(R.string.project_enable_memory_tools_desc),
@@ -267,9 +360,15 @@ fun ProjectDetailPage(
                     }
                 )
 
+                val consolidationSubtitle = if (assistantMemoryEnabled && !assistantConsolidationAvailable) {
+                    stringResource(R.string.project_enable_consolidation_desc) + "\n" +
+                        stringResource(R.string.project_memory_consolidation_assistant_disabled_hint)
+                } else {
+                    stringResource(R.string.project_enable_consolidation_desc)
+                }
                 SettingGroupItem(
                     title = stringResource(R.string.project_enable_consolidation),
-                    subtitle = stringResource(R.string.project_enable_consolidation_desc),
+                    subtitle = consolidationSubtitle,
                     trailing = {
                         HapticSwitch(
                             checked = currentProject.enableConsolidation,
@@ -317,7 +416,243 @@ fun ProjectDetailPage(
                     }
                 )
             }
+
+            // 项目记忆
+            SettingsGroup(title = stringResource(R.string.project_memory_section)) {
+                val memoryOverviewSubtitle = when {
+                    projectMemoryStats.totalCount == 0 && projectSummaryVersions.isEmpty() -> {
+                        stringResource(R.string.project_memory_manage_empty)
+                    }
+                    showMemoryTypes && showSummarySection -> {
+                        stringResource(
+                            R.string.project_memory_manage_counts_with_summary,
+                            projectMemoryStats.coreCount,
+                            projectMemoryStats.episodicCount,
+                            projectSummaryVersions.size,
+                        )
+                    }
+                    showMemoryTypes -> {
+                        stringResource(
+                            R.string.project_memory_manage_counts,
+                            projectMemoryStats.coreCount,
+                            projectMemoryStats.episodicCount,
+                        )
+                    }
+                    showSummarySection -> {
+                        stringResource(
+                            R.string.project_memory_manage_total_with_summary,
+                            projectMemoryStats.totalCount,
+                            projectSummaryVersions.size,
+                        )
+                    }
+                    else -> {
+                        stringResource(
+                            R.string.project_memory_manage_total,
+                            projectMemoryStats.totalCount,
+                        )
+                    }
+                }
+
+                SettingGroupItem(
+                    title = stringResource(R.string.project_memory_manage_title),
+                    subtitle = memoryOverviewSubtitle,
+                    onClick = {
+                        memoryManagerInitialTab = 0
+                        showMemoryManager = true
+                    },
+                )
+
+                AnimatedVisibility(
+                    visible = showSummarySection,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        val activeSummary = projectSummaryStatus.activeVersion
+                        val pendingCount = projectSummaryStatus.pendingChangeCount
+                        val summarySubtitle = when {
+                            activeSummary != null -> {
+                                val time = Instant.ofEpochMilli(activeSummary.generatedAt)
+                                    .atZone(ZoneId.systemDefault())
+                                    .toLocalDateTime()
+                                    .toLocalString()
+                                if (pendingCount > 0) {
+                                    stringResource(
+                                        R.string.project_memory_summary_status_updated_pending,
+                                        time,
+                                        pendingCount,
+                                    )
+                                } else {
+                                    stringResource(R.string.project_memory_summary_status_updated, time)
+                                }
+                            }
+                            pendingCount > 0 -> {
+                                stringResource(
+                                    R.string.project_memory_summary_status_empty_pending,
+                                    pendingCount,
+                                )
+                            }
+                            else -> {
+                                stringResource(R.string.project_memory_summary_status_empty)
+                            }
+                        }
+
+                        SettingGroupItem(
+                            title = stringResource(R.string.project_enable_memory_summary),
+                            subtitle = summarySubtitle,
+                            onClick = {
+                                memoryManagerInitialTab = summaryTabIndex
+                                showMemoryManager = true
+                            },
+                        )
+
+                        AnimatedVisibility(
+                            visible = currentProject.enableMemorySummary || isManualSummaryRunning,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
+                            Surface(
+                                color = if (LocalDarkMode.current) {
+                                    MaterialTheme.colorScheme.surfaceContainerLow
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainerHighest
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    val canTriggerSummaryUpdate = assistantMemoryEnabled && currentProject.enableMemorySummary
+                                    Button(
+                                        onClick = {
+                                            haptics.perform(HapticPattern.Pop)
+                                            if (isManualSummaryRunning) {
+                                                vm.cancelProjectSummary()
+                                            } else {
+                                                showUpdateSummaryDialog = true
+                                            }
+                                        },
+                                        enabled = isManualSummaryRunning || canTriggerSummaryUpdate,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = AppShapes.ButtonPill,
+                                    ) {
+                                        if (isManualSummaryRunning) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Close,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(stringResource(R.string.assistant_page_memory_summary_cancel))
+                                        } else {
+                                            Text(stringResource(R.string.assistant_page_memory_summary_update_now))
+                                        }
+                                    }
+
+                                    if (!isManualSummaryRunning && !canTriggerSummaryUpdate) {
+                                        Text(
+                                            text = if (!assistantMemoryEnabled) {
+                                                stringResource(R.string.project_memory_assistant_disabled_hint)
+                                            } else {
+                                                stringResource(R.string.project_memory_summary_disabled_hint)
+                                            },
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+
+                                    AnimatedVisibility(
+                                        visible = isManualSummaryRunning,
+                                        enter = expandVertically(spring(dampingRatio = 0.6f, stiffness = 300f)) + fadeIn(),
+                                        exit = shrinkVertically(spring(dampingRatio = 0.6f, stiffness = 300f)) + fadeOut(),
+                                    ) {
+                                        LinearWavyProgressIndicator(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 4.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    // 项目记忆编辑弹窗
+    memoryDialogState.EditStateContent { memory, update ->
+        MemoryEditDialog(
+            memory = memory,
+            onUpdate = update,
+            onDismiss = { memoryDialogState.dismiss() },
+            onConfirm = { memoryDialogState.confirm() },
+        )
+    }
+
+    // 项目记忆管理面板（复用助手记忆管理面板）
+    if (currentProject != null) {
+        MemoryManagerSheet(
+            visible = showMemoryManager,
+            onDismiss = {
+                showMemoryManager = false
+                memoryManagerInitialTab = null
+            },
+            title = stringResource(R.string.project_memory_manage_title),
+            memoryStats = projectMemoryStats,
+            useRagMemoryRetrieval = effectiveAssistant.effectiveMemoryRetrievalMode().requiresEmbedding,
+            pagedMemoriesFactory = { memoryType, sortOrder, searchQuery ->
+                vm.getPagedMemories(
+                    memoryType = memoryType,
+                    sortOrder = sortOrder,
+                    searchQuery = searchQuery,
+                )
+            },
+            pagedMemoriesKey = currentProject.id,
+            onAddMemory = { memoryDialogState.open(AssistantMemory(0, "")) },
+            onEditMemory = { memory ->
+                vm.resolveMemoryForEditing(memory) { resolved ->
+                    memoryDialogState.open(resolved)
+                }
+            },
+            onDeleteMemory = vm::deleteMemory,
+            memorySearchQuery = memorySearchQuery,
+            onSearchQueryChange = vm::updateMemorySearchQuery,
+            currentEmbeddingModelId = currentEmbeddingModelId,
+            showMemoryTypes = showMemoryTypes,
+            summaryVersions = projectSummaryVersions,
+            summaryActiveVersionId = projectSummaryStatus.activeVersion?.id,
+            showSummaryTab = showSummarySection,
+            canEditSummaryRequirement = effectiveAssistant.enableMemory && currentProject.enableMemorySummary,
+            memorySummaryRequirement = memorySummaryRequirement,
+            isMemorySummaryRequirementChangeRunning = isMemorySummaryRequirementChangeRunning,
+            memorySummaryRequirementChangeSuccessEvent = memorySummaryRequirementChangeSuccessEvent,
+            latestMemorySummaryRequirementChangeVersionId = latestMemorySummaryRequirementChangeVersionId,
+            onUpdateMemorySummaryRequirement = vm::updateMemorySummaryRequirement,
+            onSubmitMemorySummaryRequirementChange = vm::submitMemorySummaryRequirementChange,
+            onCancelMemorySummaryRequirementChange = vm::cancelMemorySummaryRequirementChange,
+            onActivateSummaryVersion = vm::activateProjectSummaryVersion,
+            onSaveManualSummaryVersion = vm::saveManualProjectSummaryVersion,
+            onDeleteSummaryVersion = vm::deleteProjectSummaryHistoryVersion,
+            initialMemoryTab = memoryManagerInitialTab,
+        )
+    }
+
+    if (showUpdateSummaryDialog && currentProject != null) {
+        MemorySummaryUpdateDialog(
+            activeVersionId = projectSummaryStatus.activeVersion?.id,
+            requiresFullUpdate = projectSummaryStatus.requiresFullUpdate,
+            onDismiss = { showUpdateSummaryDialog = false },
+            onConfirm = { options ->
+                vm.updateProjectSummary(options)
+                showUpdateSummaryDialog = false
+            },
+        )
     }
 
     // 项目提示词编辑弹窗

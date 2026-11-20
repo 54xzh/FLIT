@@ -2625,12 +2625,15 @@ class ChatService(
             } else null
             // Project context is deliberately first: it is private and more specific than the
             // assistant-wide summary. A project that blocks external memory never receives global text.
+            val projectSummaryLabel = currentProject?.name?.trim()?.takeIf { it.isNotEmpty() }
+                ?.let { "[Project memory summary: $it]" }
+                ?: "[Project memory summary]"
             val memorySummary = when {
                 projectSummary != null && globalSummary != null -> listOf(
-                    "[Project memory summary]\n${projectSummary.content}",
+                    "$projectSummaryLabel\n${projectSummary.content}",
                     "[Assistant global memory summary]\n${globalSummary.content}",
                 ).joinToString("\n\n")
-                projectSummary != null -> projectSummary.content
+                projectSummary != null -> "$projectSummaryLabel\n${projectSummary.content}"
                 globalSummary != null -> globalSummary.content
                 else -> null
             }

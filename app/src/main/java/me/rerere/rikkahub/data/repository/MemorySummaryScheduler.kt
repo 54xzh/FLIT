@@ -61,22 +61,39 @@ class MemorySummaryScheduler(
         return request.id
     }
 
-    suspend fun cancelManual(assistantId: String) = withContext(Dispatchers.IO) {
-        WorkManager.getInstance(context).cancelUniqueWork(manualWorkName(assistantId)).result.get()
-        WorkManager.getInstance(context).cancelAllWorkByTag(manualWorkTag(assistantId)).result.get()
+    suspend fun cancelManual(assistantId: String) =
+        cancelManual(MemorySummaryTarget.Global(assistantId))
+
+    suspend fun cancelManual(target: MemorySummaryTarget) = withContext(Dispatchers.IO) {
+        val storageKey = target.storageKey
+        WorkManager.getInstance(context).cancelUniqueWork(manualWorkName(storageKey)).result.get()
+        WorkManager.getInstance(context).cancelAllWorkByTag(manualWorkTag(storageKey)).result.get()
+    }
+
+    suspend fun cancelAllForTarget(target: MemorySummaryTarget) = withContext(Dispatchers.IO) {
+        val storageKey = target.storageKey
+        WorkManager.getInstance(context).cancelUniqueWork(manualWorkName(storageKey)).result.get()
+        WorkManager.getInstance(context).cancelAllWorkByTag(manualWorkTag(storageKey)).result.get()
+        WorkManager.getInstance(context).cancelUniqueWork(automaticWorkName(storageKey)).result.get()
     }
 
     fun observeManualRunning(assistantId: String): Flow<Boolean> =
+        observeManualRunning(MemorySummaryTarget.Global(assistantId))
+
+    fun observeManualRunning(target: MemorySummaryTarget): Flow<Boolean> =
         WorkManager.getInstance(context)
-            .getWorkInfosByTagFlow(manualWorkTag(assistantId))
+            .getWorkInfosByTagFlow(manualWorkTag(target.storageKey))
             .map { workInfos -> workInfos.any { !it.state.isFinished } }
 
     fun observeWorkInfo(id: UUID): Flow<WorkInfo?> =
         WorkManager.getInstance(context).getWorkInfoByIdFlow(id)
 
-    suspend fun getUnfinishedManualWork(assistantId: String): WorkInfo? = withContext(Dispatchers.IO) {
+    suspend fun getUnfinishedManualWork(assistantId: String): WorkInfo? =
+        getUnfinishedManualWork(MemorySummaryTarget.Global(assistantId))
+
+    suspend fun getUnfinishedManualWork(target: MemorySummaryTarget): WorkInfo? = withContext(Dispatchers.IO) {
         WorkManager.getInstance(context)
-            .getWorkInfosByTag(manualWorkTag(assistantId))
+            .getWorkInfosByTag(manualWorkTag(target.storageKey))
             .get()
             .firstOrNull { !it.state.isFinished }
     }

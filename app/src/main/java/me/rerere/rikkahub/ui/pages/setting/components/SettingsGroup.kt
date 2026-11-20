@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import me.rerere.rikkahub.ui.hooks.HapticPattern
@@ -66,6 +67,8 @@ fun SettingsGroup(
 fun SettingGroupItem(
     title: String,
     subtitle: String? = null,
+    subtitleMaxLines: Int = Int.MAX_VALUE,
+    subtitleOverflow: TextOverflow = TextOverflow.Clip,
     icon: (@Composable () -> Unit)? = null,
     trailing: @Composable (() -> Unit)? = null,
     contentPadding: PaddingValues = PaddingValues(16.dp),
@@ -127,7 +130,9 @@ fun SettingGroupItem(
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = subtitleMaxLines,
+                        overflow = subtitleOverflow,
                     )
                 }
             }

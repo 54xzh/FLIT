@@ -28,7 +28,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -101,8 +103,10 @@ import android.widget.Toast
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import kotlinx.coroutines.flow.Flow
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
@@ -214,80 +218,35 @@ fun AssistantMemorySettings(
 
     // Memory edit dialog
     memoryDialogState.EditStateContent { memory, update ->
-        val haptics = rememberPremiumHaptics()
-        val canPin = memory.type == 0 && memory.id >= 0
-        val canSaveMemory = memory.content.trim().isNotEmpty()
-        val pinInteractionSource = remember { MutableInteractionSource() }
-        val isPinPressed by pinInteractionSource.collectIsPressedAsState()
-        val pinScale by animateFloatAsState(
-            targetValue = if (isPinPressed) 0.85f else 1f,
-            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
-            label = "memory_pin_scale",
-        )
-        AlertDialog(
-            onDismissRequest = { memoryDialogState.dismiss() },
-            title = { Text(stringResource(R.string.assistant_page_manage_memory_title)) },
-            text = {
-                TextField(
-                    value = memory.content,
-                    onValueChange = { update(memory.copy(content = it)) },
-                    label = { Text(stringResource(R.string.assistant_page_manage_memory_title)) },
-                    minLines = 1,
-                    maxLines = 8
-                )
-            },
-            confirmButton = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (canPin) {
-                        FilterChip(
-                            selected = memory.pinned,
-                            onClick = {
-                                haptics.perform(HapticPattern.Pop)
-                                update(memory.copy(pinned = !memory.pinned))
-                            },
-                            label = { Text(stringResource(R.string.assistant_page_memory_pinned_badge)) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Rounded.PushPin,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            },
-                            interactionSource = pinInteractionSource,
-                            shape = RoundedCornerShape(50),
-                            modifier = Modifier.graphicsLayer {
-                                scaleX = pinScale
-                                scaleY = pinScale
-                            },
-                        )
-                    } else {
-                        Spacer(modifier = Modifier.width(1.dp))
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TextButton(onClick = { memoryDialogState.dismiss() }) {
-                            Text(stringResource(R.string.assistant_page_cancel))
-                        }
-                        TextButton(
-                            onClick = { memoryDialogState.confirm() },
-                            enabled = canSaveMemory
-                        ) {
-                            Text(stringResource(R.string.assistant_page_save))
-                        }
-                    }
-                }
-            }
+        MemoryEditDialog(
+            memory = memory,
+            onUpdate = update,
+            onDismiss = { memoryDialogState.dismiss() },
+            onConfirm = { memoryDialogState.confirm() },
         )
     }
 
+    val settings by assistantDetailVM.settings.collectAsStateWithLifecycle()
+    val projects by assistantDetailVM.projects.collectAsStateWithLifecycle()
+    val memorySourceFilter by assistantDetailVM.memorySourceFilter.collectAsStateWithLifecycle()
     val memorySearchQuery by assistantDetailVM.memorySearchQuery.collectAsState()
     val currentEmbeddingModelId by assistantDetailVM.currentEmbeddingModelId.collectAsState()
     val memorySummaryStatus by assistantDetailVM.memorySummaryStatus.collectAsState()
     val memorySummaryVersions by assistantDetailVM.memorySummaryVersions.collectAsState()
+    val memorySummaryRequirement by assistantDetailVM.memorySummaryRequirement.collectAsStateWithLifecycle()
+    val isMemorySummaryRequirementChangeRunning by assistantDetailVM
+        .isMemorySummaryRequirementChangeRunning
+        .collectAsStateWithLifecycle()
+    val memorySummaryRequirementChangeSuccessEvent by assistantDetailVM
+        .memorySummaryRequirementChangeSuccessEvent
+        .collectAsStateWithLifecycle()
+    val latestMemorySummaryRequirementChangeVersionId by assistantDetailVM
+        .latestMemorySummaryRequirementChangeVersionId
+        .collectAsStateWithLifecycle()
+    val projectNamesById = remember(projects) {
+        projects.associate { it.id.toString() to it.name }
+    }
+    val showProjectFilter = settings.projectFeatureEnabled && projects.isNotEmpty()
     val currentMode = getMemoryMode(assistant)
     var showMemoryManager by remember { mutableStateOf(false) }
 
@@ -296,6 +255,11 @@ fun AssistantMemorySettings(
             showMemoryManager = true
             assistantDetailVM.resolveMemoryByRoute(scrollToMemoryId, initialMemoryTab) { resolved ->
                 if (resolved != null) {
+                    if (showProjectFilter && resolved.projectId != null) {
+                        assistantDetailVM.updateMemorySourceFilter(
+                            MemorySourceFilter.Project(resolved.projectId),
+                        )
+                    }
                     memoryDialogState.open(resolved)
                 }
             }
@@ -566,9 +530,21 @@ fun AssistantMemorySettings(
         if (assistant.enableMemory) {
             MemoryManagerSheet(
                 visible = showMemoryManager,
-                onDismiss = { showMemoryManager = false },
+                onDismiss = {
+                    showMemoryManager = false
+                    assistantDetailVM.resetMemorySourceFilter()
+                },
                 memoryStats = memoryStats,
-                assistant = assistant,
+                useRagMemoryRetrieval = assistant.effectiveMemoryRetrievalMode().requiresEmbedding,
+                pagedMemoriesFactory = { memoryType, sortOrder, searchQuery ->
+                    assistantDetailVM.getPagedMemories(
+                        memoryType = memoryType,
+                        sortOrder = sortOrder,
+                        searchQuery = searchQuery,
+                        sourceFilter = memorySourceFilter,
+                    )
+                },
+                pagedMemoriesKey = memorySourceFilter,
                 onAddMemory = { memoryDialogState.open(AssistantMemory(0, "")) },
                 onEditMemory = {
                     assistantDetailVM.resolveMemoryForEditing(it) { resolved ->
@@ -580,13 +556,81 @@ fun AssistantMemorySettings(
                 needsEmbeddingRegeneration = needsEmbeddingRegeneration,
                 memorySearchQuery = memorySearchQuery,
                 onSearchQueryChange = { assistantDetailVM.updateMemorySearchQuery(it) },
-                assistantDetailVM = assistantDetailVM,
                 currentEmbeddingModelId = currentEmbeddingModelId,
                 showMemoryTypes = assistant.enableMemoryConsolidation,
                 summaryVersions = memorySummaryVersions,
                 summaryActiveVersionId = memorySummaryStatus.activeVersion?.id,
                 showSummaryTab = assistant.enableMemorySummary || memorySummaryVersions.isNotEmpty(),
+                canEditSummaryRequirement = assistant.enableMemory && assistant.enableMemorySummary,
+                memorySummaryRequirement = memorySummaryRequirement,
+                isMemorySummaryRequirementChangeRunning = isMemorySummaryRequirementChangeRunning,
+                memorySummaryRequirementChangeSuccessEvent = memorySummaryRequirementChangeSuccessEvent,
+                latestMemorySummaryRequirementChangeVersionId = latestMemorySummaryRequirementChangeVersionId,
+                onUpdateMemorySummaryRequirement = assistantDetailVM::updateMemorySummaryRequirement,
+                onSubmitMemorySummaryRequirementChange = assistantDetailVM::submitMemorySummaryRequirementChange,
+                onCancelMemorySummaryRequirementChange = assistantDetailVM::cancelMemorySummaryRequirementChange,
+                onActivateSummaryVersion = assistantDetailVM::activateMemorySummaryVersion,
+                onSaveManualSummaryVersion = assistantDetailVM::saveManualMemorySummaryVersion,
+                onDeleteSummaryVersion = assistantDetailVM::deleteMemorySummaryHistoryVersion,
                 initialMemoryTab = initialMemoryTab,
+                projectNameResolver = if (showProjectFilter) { pid -> projectNamesById[pid] } else null,
+                memoryFilterBar = if (showProjectFilter) {
+                    {
+                        val filterHaptics = rememberPremiumHaptics()
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            item(key = "outside_projects") {
+                                FilterChip(
+                                    selected = memorySourceFilter == MemorySourceFilter.OutsideProjects,
+                                    onClick = {
+                                        filterHaptics.perform(HapticPattern.Pop)
+                                        assistantDetailVM.updateMemorySourceFilter(MemorySourceFilter.OutsideProjects)
+                                    },
+                                    label = {
+                                        Text(stringResource(R.string.assistant_page_memory_filter_outside_projects))
+                                    },
+                                    shape = RoundedCornerShape(50),
+                                )
+                            }
+                            item(key = "all") {
+                                FilterChip(
+                                    selected = memorySourceFilter == MemorySourceFilter.All,
+                                    onClick = {
+                                        filterHaptics.perform(HapticPattern.Pop)
+                                        assistantDetailVM.updateMemorySourceFilter(MemorySourceFilter.All)
+                                    },
+                                    label = {
+                                        Text(stringResource(R.string.assistant_page_memory_filter_all))
+                                    },
+                                    shape = RoundedCornerShape(50),
+                                )
+                            }
+                            items(projects, key = { it.id.toString() }) { project ->
+                                val targetFilter = MemorySourceFilter.Project(project.id.toString())
+                                FilterChip(
+                                    selected = memorySourceFilter == targetFilter,
+                                    onClick = {
+                                        filterHaptics.perform(HapticPattern.Pop)
+                                        assistantDetailVM.updateMemorySourceFilter(targetFilter)
+                                    },
+                                    label = {
+                                        Text(
+                                            text = project.name,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.widthIn(max = 140.dp),
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(50),
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    null
+                },
             )
         }
 
@@ -1312,106 +1356,202 @@ private fun MemorySummarySettingsCard(
     }
 
     if (showUpdateSummaryDialog) {
-        var includeActiveSummary by remember(activeVersionId) { mutableStateOf(hasActiveSummary) }
-        var includeRecentRequirements by remember { mutableStateOf(true) }
-        var memoryScope by remember(activeVersionId, status.requiresFullUpdate) {
-            mutableStateOf(if (hasActiveSummary && !status.requiresFullUpdate) MemorySummaryMemoryScope.ADDED else MemorySummaryMemoryScope.ALL)
-        }
-        val scopeOptions = listOf(
-            MemorySummaryMemoryScope.ADDED to
-                stringResource(R.string.assistant_page_memory_summary_memory_scope_added),
-            MemorySummaryMemoryScope.ALL to
-                stringResource(R.string.assistant_page_memory_summary_memory_scope_all),
-        )
-        AlertDialog(
-            onDismissRequest = { showUpdateSummaryDialog = false },
-            title = { Text(stringResource(R.string.assistant_page_memory_summary_update_now)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = stringResource(R.string.assistant_page_memory_summary_update_context_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.assistant_page_memory_summary_include_active),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        HapticSwitch(
-                            checked = includeActiveSummary,
-                            enabled = hasActiveSummary,
-                            onCheckedChange = { enabled ->
-                                includeActiveSummary = enabled
-                                if (!enabled) memoryScope = MemorySummaryMemoryScope.ALL
-                            },
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.assistant_page_memory_summary_include_requirements),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        HapticSwitch(
-                            checked = includeRecentRequirements,
-                            onCheckedChange = { includeRecentRequirements = it },
-                        )
-                    }
-                    Text(
-                        text = stringResource(R.string.assistant_page_memory_summary_memory_scope),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 16.dp),
-                    )
-                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                        scopeOptions.forEachIndexed { index, (scope, label) ->
-                            SegmentedButton(
-                                selected = memoryScope == scope,
-                                enabled = includeActiveSummary || scope == MemorySummaryMemoryScope.ALL,
-                                onClick = {
-                                    haptics.perform(HapticPattern.Pop)
-                                    memoryScope = scope
-                                },
-                                shape = SegmentedButtonDefaults.itemShape(index, scopeOptions.size),
-                            ) {
-                                Text(label)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        haptics.perform(HapticPattern.Pop)
-                        onUpdateSummary(
-                            MemorySummaryUpdateOptions(
-                                includeActiveSummary = includeActiveSummary,
-                                includeRecentRequirements = includeRecentRequirements,
-                                memoryScope = memoryScope,
-                            ),
-                        )
-                        showUpdateSummaryDialog = false
-                    },
-                ) {
-                    Text(stringResource(R.string.assistant_page_memory_summary_update_now))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showUpdateSummaryDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
+        MemorySummaryUpdateDialog(
+            activeVersionId = activeVersionId,
+            requiresFullUpdate = status.requiresFullUpdate,
+            onDismiss = { showUpdateSummaryDialog = false },
+            onConfirm = { options ->
+                onUpdateSummary(options)
+                showUpdateSummaryDialog = false
             },
         )
     }
+}
+
+@Composable
+internal fun MemoryEditDialog(
+    memory: AssistantMemory,
+    onUpdate: (AssistantMemory) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val haptics = rememberPremiumHaptics()
+    val canPin = memory.type == 0 && memory.id >= 0
+    val canSaveMemory = memory.content.trim().isNotEmpty()
+    val pinInteractionSource = remember { MutableInteractionSource() }
+    val isPinPressed by pinInteractionSource.collectIsPressedAsState()
+    val pinScale by animateFloatAsState(
+        targetValue = if (isPinPressed) 0.85f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+        label = "memory_pin_scale",
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.assistant_page_manage_memory_title)) },
+        text = {
+            TextField(
+                value = memory.content,
+                onValueChange = { onUpdate(memory.copy(content = it)) },
+                label = { Text(stringResource(R.string.assistant_page_manage_memory_title)) },
+                minLines = 1,
+                maxLines = 8
+            )
+        },
+        confirmButton = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (canPin) {
+                    FilterChip(
+                        selected = memory.pinned,
+                        onClick = {
+                            haptics.perform(HapticPattern.Pop)
+                            onUpdate(memory.copy(pinned = !memory.pinned))
+                        },
+                        label = { Text(stringResource(R.string.assistant_page_memory_pinned_badge)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.PushPin,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        },
+                        interactionSource = pinInteractionSource,
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = pinScale
+                            scaleY = pinScale
+                        },
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(1.dp))
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = onDismiss) {
+                        Text(stringResource(R.string.assistant_page_cancel))
+                    }
+                    TextButton(
+                        onClick = onConfirm,
+                        enabled = canSaveMemory
+                    ) {
+                        Text(stringResource(R.string.assistant_page_save))
+                    }
+                }
+            }
+        }
+    )
+}
+
+@Composable
+internal fun MemorySummaryUpdateDialog(
+    activeVersionId: Long?,
+    requiresFullUpdate: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (MemorySummaryUpdateOptions) -> Unit,
+) {
+    val hasActiveSummary = activeVersionId != null
+    val haptics = rememberPremiumHaptics()
+    var includeActiveSummary by remember(activeVersionId) { mutableStateOf(hasActiveSummary) }
+    var includeRecentRequirements by remember { mutableStateOf(true) }
+    var memoryScope by remember(activeVersionId, requiresFullUpdate) {
+        mutableStateOf(if (hasActiveSummary && !requiresFullUpdate) MemorySummaryMemoryScope.ADDED else MemorySummaryMemoryScope.ALL)
+    }
+    val scopeOptions = listOf(
+        MemorySummaryMemoryScope.ADDED to
+            stringResource(R.string.assistant_page_memory_summary_memory_scope_added),
+        MemorySummaryMemoryScope.ALL to
+            stringResource(R.string.assistant_page_memory_summary_memory_scope_all),
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.assistant_page_memory_summary_update_now)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = stringResource(R.string.assistant_page_memory_summary_update_context_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.assistant_page_memory_summary_include_active),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    HapticSwitch(
+                        checked = includeActiveSummary,
+                        enabled = hasActiveSummary,
+                        onCheckedChange = { enabled ->
+                            includeActiveSummary = enabled
+                            if (!enabled) memoryScope = MemorySummaryMemoryScope.ALL
+                        },
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.assistant_page_memory_summary_include_requirements),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    HapticSwitch(
+                        checked = includeRecentRequirements,
+                        onCheckedChange = { includeRecentRequirements = it },
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.assistant_page_memory_summary_memory_scope),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    scopeOptions.forEachIndexed { index, (scope, label) ->
+                        SegmentedButton(
+                            selected = memoryScope == scope,
+                            enabled = includeActiveSummary || scope == MemorySummaryMemoryScope.ALL,
+                            onClick = {
+                                haptics.perform(HapticPattern.Pop)
+                                memoryScope = scope
+                            },
+                            shape = SegmentedButtonDefaults.itemShape(index, scopeOptions.size),
+                        ) {
+                            Text(label)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    haptics.perform(HapticPattern.Pop)
+                    onConfirm(
+                        MemorySummaryUpdateOptions(
+                            includeActiveSummary = includeActiveSummary,
+                            includeRecentRequirements = includeRecentRequirements,
+                            memoryScope = memoryScope,
+                        ),
+                    )
+                },
+            ) {
+                Text(stringResource(R.string.assistant_page_memory_summary_update_now))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+    )
 }
 
 @Composable
@@ -1530,43 +1670,54 @@ private fun StatItem(
 }
 
 @Composable
-private fun MemoryManagerSheet(
+internal fun MemoryManagerSheet(
     visible: Boolean,
     onDismiss: () -> Unit,
     memoryStats: AssistantMemoryStats,
-    assistant: Assistant,
+    useRagMemoryRetrieval: Boolean,
+    pagedMemoriesFactory: (memoryType: Int, sortOrder: Int, searchQuery: String) -> Flow<PagingData<AssistantMemory>>,
     onAddMemory: () -> Unit,
     onEditMemory: (AssistantMemory) -> Unit,
     onDeleteMemory: (AssistantMemory) -> Unit,
-    onRegenerateEmbeddings: (() -> Unit)?,
-    needsEmbeddingRegeneration: Boolean,
+    onRegenerateEmbeddings: (() -> Unit)? = null,
+    needsEmbeddingRegeneration: Boolean = false,
     memorySearchQuery: String,
     onSearchQueryChange: (String) -> Unit,
-    assistantDetailVM: AssistantDetailVM,
     currentEmbeddingModelId: String,
     showMemoryTypes: Boolean,
     summaryVersions: List<MemorySummaryVersionEntity>,
     summaryActiveVersionId: Long?,
     showSummaryTab: Boolean,
+    canEditSummaryRequirement: Boolean = true,
+    memorySummaryRequirement: String,
+    isMemorySummaryRequirementChangeRunning: Boolean,
+    memorySummaryRequirementChangeSuccessEvent: Int,
+    latestMemorySummaryRequirementChangeVersionId: Long?,
+    onUpdateMemorySummaryRequirement: (String) -> Unit,
+    onSubmitMemorySummaryRequirementChange: () -> Unit,
+    onCancelMemorySummaryRequirementChange: () -> Unit,
+    onActivateSummaryVersion: (Long) -> Unit,
+    onSaveManualSummaryVersion: (Long, String) -> Unit,
+    onDeleteSummaryVersion: (Long) -> Unit,
+    title: String? = null,
+    pagedMemoriesKey: Any? = null,
     initialMemoryTab: Int? = null,
+    projectNameResolver: ((String) -> String?)? = null,
+    memoryFilterBar: (@Composable () -> Unit)? = null,
 ) {
     var selectedTab by remember { mutableIntStateOf(initialMemoryTab ?: 0) }
     var sortOrder by remember { mutableStateOf(MemorySortOrder.NEWEST_FIRST) }
     var summarySortOrder by rememberSaveable { mutableStateOf(MemorySummarySortOrder.NEWEST_FIRST) }
     var selectedSummaryVersion by remember { mutableStateOf<MemorySummaryVersionEntity?>(null) }
-    val memorySummaryRequirement by assistantDetailVM.memorySummaryRequirement.collectAsStateWithLifecycle()
-    val isMemorySummaryRequirementChangeRunning by assistantDetailVM
-        .isMemorySummaryRequirementChangeRunning
-        .collectAsStateWithLifecycle()
-    val memorySummaryRequirementChangeSuccessEvent by assistantDetailVM
-        .memorySummaryRequirementChangeSuccessEvent
-        .collectAsStateWithLifecycle()
-    val latestMemorySummaryRequirementChangeVersionId by assistantDetailVM
-        .latestMemorySummaryRequirementChangeVersionId
-        .collectAsStateWithLifecycle()
     val haptics = rememberPremiumHaptics()
     val summaryTabIndex = if (showMemoryTypes) 2 else 1
-    val isSummaryTab = showSummaryTab && selectedTab == summaryTabIndex
+    val maxTabIndex = when {
+        showSummaryTab -> summaryTabIndex
+        showMemoryTypes -> 1
+        else -> 0
+    }
+    val effectiveSelectedTab = selectedTab.coerceIn(0, maxTabIndex)
+    val isSummaryTab = showSummaryTab && effectiveSelectedTab == summaryTabIndex
 
     LaunchedEffect(memorySummaryRequirementChangeSuccessEvent) {
         if (memorySummaryRequirementChangeSuccessEvent > 0) {
@@ -1574,13 +1725,12 @@ private fun MemoryManagerSheet(
         }
     }
 
-    LaunchedEffect(initialMemoryTab) {
-        if (initialMemoryTab != null) {
-            selectedTab = initialMemoryTab
+    LaunchedEffect(visible, initialMemoryTab, maxTabIndex) {
+        if (visible && initialMemoryTab != null) {
+            selectedTab = initialMemoryTab.coerceIn(0, maxTabIndex)
+        } else if (selectedTab > maxTabIndex) {
+            selectedTab = 0
         }
-    }
-
-    LaunchedEffect(visible) {
         if (!visible) selectedSummaryVersion = null
     }
 
@@ -1592,18 +1742,18 @@ private fun MemoryManagerSheet(
         val scope = androidx.compose.runtime.rememberCoroutineScope()
         var showSortMenu by remember { mutableStateOf(false) }
         val memoryType = if (showMemoryTypes && !isSummaryTab) {
-            when (selectedTab) {
+            when (effectiveSelectedTab) {
                 0 -> 0
                 else -> 1
             }
         } else {
             -1
         }
-        val pagingFlow = remember(memorySearchQuery, sortOrder, memoryType) {
-            assistantDetailVM.getPagedMemories(
-                memoryType = memoryType,
-                sortOrder = sortOrder.toDatabaseSortOrder(),
-                searchQuery = memorySearchQuery
+        val pagingFlow = remember(memorySearchQuery, sortOrder, memoryType, pagedMemoriesKey) {
+            pagedMemoriesFactory(
+                memoryType,
+                sortOrder.toDatabaseSortOrder(),
+                memorySearchQuery,
             )
         }
         val pagedMemories = pagingFlow.collectAsLazyPagingItems()
@@ -1634,7 +1784,7 @@ private fun MemoryManagerSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = stringResource(R.string.assistant_page_manage_memory_title),
+                        text = title ?: stringResource(R.string.assistant_page_manage_memory_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -1683,7 +1833,7 @@ private fun MemoryManagerSheet(
                         }
 
                         if (!isSummaryTab) {
-                            if (onRegenerateEmbeddings != null && assistant.effectiveMemoryRetrievalMode().requiresEmbedding && needsEmbeddingRegeneration) {
+                            if (onRegenerateEmbeddings != null && useRagMemoryRetrieval && needsEmbeddingRegeneration) {
                                 IconButton(onClick = onRegenerateEmbeddings) {
                                     Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.assistant_page_regenerate_embeddings_content_desc))
                                 }
@@ -1701,33 +1851,33 @@ private fun MemoryManagerSheet(
                     exit = fadeOut() + shrinkVertically()
                 ) {
                     TabRow(
-                        selectedTabIndex = selectedTab,
+                        selectedTabIndex = effectiveSelectedTab,
                         containerColor = Color.Transparent,
                         modifier = Modifier.clip(RoundedCornerShape(10.dp))
                     ) {
                         if (showMemoryTypes) {
                             Tab(
-                                selected = selectedTab == 0,
+                                selected = effectiveSelectedTab == 0,
                                 onClick = { selectedTab = 0 },
                                 text = { Text(tabCoreText) },
                                 icon = { Icon(Icons.Rounded.AutoAwesome, null, modifier = Modifier.size(18.dp)) }
                             )
                             Tab(
-                                selected = selectedTab == 1,
+                                selected = effectiveSelectedTab == 1,
                                 onClick = { selectedTab = 1 },
                                 text = { Text(tabEpisodicText) },
                                 icon = { Icon(Icons.Rounded.History, null, modifier = Modifier.size(18.dp)) }
                             )
                         } else {
                             Tab(
-                                selected = selectedTab == 0,
+                                selected = effectiveSelectedTab == 0,
                                 onClick = { selectedTab = 0 },
                                 text = { Text(stringResource(R.string.assistant_page_manage_memory_title)) },
                             )
                         }
                         if (showSummaryTab) {
                             Tab(
-                                selected = selectedTab == summaryTabIndex,
+                                selected = effectiveSelectedTab == summaryTabIndex,
                                 onClick = { selectedTab = summaryTabIndex },
                                 text = { Text(stringResource(R.string.assistant_page_memory_summary_tab)) },
                                 icon = { Icon(Icons.Rounded.History, null, modifier = Modifier.size(18.dp)) },
@@ -1750,13 +1900,16 @@ private fun MemoryManagerSheet(
                             unfocusedIndicatorColor = Color.Transparent
                         )
                     )
+                    memoryFilterBar?.invoke()
                 } else {
                     val canEditRequirement =
-                        summaryActiveVersionId != null && !isMemorySummaryRequirementChangeRunning
+                        canEditSummaryRequirement &&
+                            summaryActiveVersionId != null &&
+                            !isMemorySummaryRequirementChangeRunning
                     val canSubmitRequirement = canEditRequirement && memorySummaryRequirement.trim().isNotEmpty()
                     TextField(
                         value = memorySummaryRequirement,
-                        onValueChange = assistantDetailVM::updateMemorySummaryRequirement,
+                        onValueChange = onUpdateMemorySummaryRequirement,
                         modifier = Modifier.fillMaxWidth(),
                         enabled = canEditRequirement,
                         placeholder = {
@@ -1768,7 +1921,7 @@ private fun MemoryManagerSheet(
                                 enabled = canSubmitRequirement,
                                 onClick = {
                                     haptics.perform(HapticPattern.Pop)
-                                    assistantDetailVM.submitMemorySummaryRequirementChange()
+                                    onSubmitMemorySummaryRequirementChange()
                                 },
                             ) {
                                 Icon(
@@ -1785,7 +1938,7 @@ private fun MemoryManagerSheet(
                             onSend = {
                                 if (canSubmitRequirement) {
                                     haptics.perform(HapticPattern.Pop)
-                                    assistantDetailVM.submitMemorySummaryRequirementChange()
+                                    onSubmitMemorySummaryRequirementChange()
                                 }
                             },
                         ),
@@ -1803,9 +1956,9 @@ private fun MemoryManagerSheet(
                         activeVersionId = summaryActiveVersionId,
                         sortOrder = summarySortOrder,
                         onOpen = { selectedSummaryVersion = it },
-                        onActivate = assistantDetailVM::activateMemorySummaryVersion,
-                        onSaveManualVersion = assistantDetailVM::saveManualMemorySummaryVersion,
-                        onDelete = assistantDetailVM::deleteMemorySummaryHistoryVersion,
+                        onActivate = onActivateSummaryVersion,
+                        onSaveManualVersion = onSaveManualSummaryVersion,
+                        onDelete = onDeleteSummaryVersion,
                         scrollToVersionId = latestMemorySummaryRequirementChangeVersionId,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
@@ -1858,9 +2011,10 @@ private fun MemoryManagerSheet(
                                     memory = memory,
                                     onEditMemory = onEditMemory,
                                     onDeleteMemory = onDeleteMemory,
-                                    useRagMemoryRetrieval = assistant.effectiveMemoryRetrievalMode().requiresEmbedding,
+                                    useRagMemoryRetrieval = useRagMemoryRetrieval,
                                     currentEmbeddingModelId = currentEmbeddingModelId,
                                     showType = showMemoryTypes,
+                                    projectName = memory.projectId?.let { pid -> projectNameResolver?.invoke(pid) },
                                     position = groupedCardPosition(index, pagedMemories.itemCount)
                                 )
                             }
@@ -1933,7 +2087,7 @@ private fun MemoryManagerSheet(
                 }
             },
             confirmButton = {
-                TextButton(onClick = assistantDetailVM::cancelMemorySummaryRequirementChange) {
+                TextButton(onClick = onCancelMemorySummaryRequirementChange) {
                     Text(stringResource(R.string.assistant_page_cancel))
                 }
             },
@@ -2336,6 +2490,7 @@ private fun MemoryItem(
     useRagMemoryRetrieval: Boolean = false,
     currentEmbeddingModelId: String = "",
     showType: Boolean = false,
+    projectName: String? = null,
     position: GroupedCardPosition = GroupedCardPosition.MIDDLE,
 ) {
     var showDeleteConfirmation by remember { mutableStateOf(false) }
@@ -2422,7 +2577,7 @@ private fun MemoryItem(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 // Show type and embedding badges only when needed
-                val showBadges = memory.pinned || showType || (useRagMemoryRetrieval && !memory.hasEmbedding)
+                val showBadges = memory.pinned || showType || !projectName.isNullOrBlank() || (useRagMemoryRetrieval && !memory.hasEmbedding)
                 AnimatedVisibility(
                     visible = showBadges,
                     enter = fadeIn() + expandVertically(),
@@ -2456,6 +2611,24 @@ private fun MemoryItem(
                                     style = MaterialTheme.typography.labelSmall,
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                                     color = if (memory.type == 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+
+                        if (!projectName.isNullOrBlank()) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                shape = MaterialTheme.shapes.extraSmall
+                            ) {
+                                Text(
+                                    text = projectName,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .widthIn(max = 120.dp)
+                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }

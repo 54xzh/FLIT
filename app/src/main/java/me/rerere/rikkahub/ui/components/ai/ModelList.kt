@@ -139,7 +139,7 @@ fun ModelSelector(
                 onClick = {
                     popup = true
                 },
-                modifier = modifier
+                modifier = modifier.weight(1f, fill = false)
             ) {
                 model?.let { m ->
                     val provider = m.findProvider(providers = providers)
