@@ -50,16 +50,26 @@ class GoogleProviderTest {
 
     @Test
     fun `Gemini 3 and 4 requests use thinking levels instead of budgets`() {
-        listOf(
-            "gemini-3-pro-preview",
-            "gemini-3-flash-preview",
-            "gemini-3.1-pro-preview",
-            "gemini-3.1-flash-image-preview",
-            "gemini-4-pro",
-            "gemini-4-flash",
-            "gemini-4.0-pro-preview",
-            "google/Gemini4-Flash",
-        ).forEach { modelId ->
+        val standard = listOf("low", null, "low", "medium", "high", "high", "high")
+        val minimal = listOf("minimal", null, "low", "medium", "high", "high", "high")
+        val extended = listOf("low", null, "low", "medium", "high", "xhigh", "xhigh")
+        val image = listOf("minimal", null, "minimal", "minimal", "high", "high", "high")
+        mapOf(
+            "gemini-3-pro-preview" to listOf("low", null, "low", "low", "high", "high", "high"),
+            "gemini-3-flash-preview" to minimal,
+            "gemini-3.1-pro-preview" to standard,
+            "gemini-3.1-flash-image-preview" to image,
+            "gemini-3.1-flash-lite-image" to image,
+            "gemini-3.5-flash-lite" to minimal,
+            "gemini-3.6-flash" to minimal,
+            "gemini-3.7-flash" to standard,
+            "gemini-3.8-flash" to standard,
+            "gemini-4-carbon" to standard,
+            "gemini-4-neon" to extended,
+            "google/Gemini4hydrogen" to extended,
+            "gemini-flash-latest" to List(ReasoningLevel.entries.size) { null },
+            "gemini-3.9-pro" to List(ReasoningLevel.entries.size) { null },
+        ).forEach { (modelId, expectedLevels) ->
             ReasoningLevel.entries.forEach { level ->
                 val body = buildCompletionRequestBody(
                     Model(modelId = modelId, abilities = listOf(ModelAbility.REASONING)),
@@ -68,14 +78,7 @@ class GoogleProviderTest {
                 val config = body["generationConfig"]?.jsonObject?.get("thinkingConfig") as? JsonObject
                     ?: error("Missing thinkingConfig for $modelId/$level")
                 assertFalse("$modelId/$level", config.containsKey("thinkingBudget"))
-                val expectedLevel = when (level) {
-                    ReasoningLevel.AUTO -> null
-                    ReasoningLevel.OFF -> "minimal"
-                    ReasoningLevel.LOW -> "low"
-                    ReasoningLevel.MEDIUM -> "medium"
-                    else -> "high"
-                }
-                assertEquals("$modelId/$level", expectedLevel, config["thinkingLevel"]?.jsonPrimitive?.content)
+                assertEquals("$modelId/$level", expectedLevels[level.ordinal], config["thinkingLevel"]?.jsonPrimitive?.content)
             }
         }
     }

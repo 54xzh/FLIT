@@ -189,11 +189,6 @@ object ModelRegistry {
         toolReasoningAbility()
     }
 
-    // 思考参数按系列识别，避免新型号或图片变体退回旧的预算参数。
-    val GEMINI_THINKING_LEVEL_MODELS = defineModel {
-        tokens("gemini", "3|4")
-    }
-
     val GEMINI_SERIES = defineGroup {
         add(GEMINI_20_FLASH, GEMINI_2_5_FLASH, GEMINI_2_5_PRO, GEMINI_3_SERIES, GEMINI_4_SERIES, GEMINI_LATEST)
     }

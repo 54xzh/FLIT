@@ -48,12 +48,12 @@ class MemorySummaryWorker(
             updateSummary(forceManual)
         } catch (error: CancellationException) {
             throw error
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             Log.e(TAG, "Memory summary update failed", error)
-            if (forceManual) {
-                Result.failure()
-            } else {
+            if (!forceManual && shouldRetryMemoryWork(error, runAttemptCount)) {
                 Result.retry()
+            } else {
+                Result.failure()
             }
         }
     }

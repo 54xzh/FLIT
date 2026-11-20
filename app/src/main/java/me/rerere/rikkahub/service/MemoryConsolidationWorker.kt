@@ -78,16 +78,21 @@ class MemoryConsolidationWorker(
     private val embeddingService: EmbeddingService by inject()
     private val providerManager: me.rerere.ai.provider.ProviderManager by inject()
     private val requestLogManager: AIRequestLogManager by inject()
+    private val retries = MemoryConsolidationRetries(context)
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
             consolidateMemories()
-            Result.success()
+            val isManual = isManualConsolidation(
+                inputData.getBoolean(INPUT_FULL_SCAN, false),
+                inputData.getString(INPUT_FORCE_CONVERSATION_ID),
+            )
+            if (isManual && retries.hasFailures) Result.failure() else Result.success()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.e("MemoryConsolidation", "Error consolidating memories", e)
-            Result.retry()
+            if (shouldRetryMemoryWork(e, runAttemptCount)) Result.retry() else Result.failure()
         }
     }
 
@@ -326,7 +331,7 @@ class MemoryConsolidationWorker(
         val backgroundModelId = summarizerModelId ?: assistant.backgroundModelId ?: settings.chatModelId
         val model = settings.findModelById(backgroundModelId) ?: return
         val provider = model.findProvider(settings.providers) ?: return
-        val providerHandler = providerManager.getProviderByType(provider)
+        val modelKey = consolidationModelKey(provider, model)
 
         var trackACount = 0
         val now = System.currentTimeMillis()
@@ -378,6 +383,7 @@ class MemoryConsolidationWorker(
                     now = now,
                     provider = provider,
                     model = model,
+                    modelKey = modelKey,
                 )
                 if (processed) {
                     trackACount++
@@ -394,7 +400,7 @@ class MemoryConsolidationWorker(
             }
         
         // Update Track A Stats
-        if (trackACount > 0 || isFullScan) {
+        if (trackACount > 0 || (isFullScan && !retries.hasFailures)) {
             val resultMsg = if (trackACount > 0) "Processed $trackACount chats" else "No new chats ready"
             settingsStore.update { currentSettings ->
                 currentSettings.copy(
@@ -495,7 +501,7 @@ class MemoryConsolidationWorker(
         val integrationModelId = template.integrationModelId ?: return
         val model = settings.findModelById(integrationModelId) ?: return
         val provider = model.findProvider(settings.providers) ?: return
-        val providerHandler = providerManager.getProviderByType(provider)
+        val modelKey = consolidationModelKey(provider, model)
 
         val targetAssistants = template.seats
             .asSequence()
@@ -593,6 +599,7 @@ class MemoryConsolidationWorker(
                 template = template,
                 provider = provider,
                 model = model,
+                modelKey = modelKey,
                 seatDisplayNames = seatDisplayNames,
                 assistantsById = assistantsById,
                 templateName = templateName,
@@ -619,6 +626,7 @@ class MemoryConsolidationWorker(
         now: Long,
         provider: ProviderSetting,
         model: Model,
+        modelKey: String,
     ): Boolean {
         val providerHandler = providerManager.getProviderByType(provider)
         val allMessages = getMessagesForConsolidationOrNull(conversation) ?: return false
@@ -684,17 +692,20 @@ class MemoryConsolidationWorker(
         var responseText = ""
         var rawResponseText = ""
         var failure: Throwable? = null
+        var attempted = false
 
         try {
-            val response = providerHandler.generateText(
-                providerSetting = provider,
-                messages = requestMessages,
-                params = params,
-            )
+            val requested = retries.runRequest(modelKey, conversationId, prompt, isManual) {
+                ensureNotCancelled()
+                attempted = true
+                val response = providerHandler.generateText(provider, requestMessages, params)
+                ensureNotCancelled()
+                rawResponseText = response.rawResponse.orEmpty()
+                responseText = response.choices.firstOrNull()?.message?.toContentText().orEmpty()
+                check(responseText.isNotBlank()) { "Memory consolidation response is empty" }
+            }
+            if (!requested) return false
             ensureNotCancelled()
-            rawResponseText = response.rawResponse.orEmpty()
-            responseText = response.choices.firstOrNull()?.message?.toContentText().orEmpty()
-            if (responseText.isBlank()) return false
 
             var summary = responseText
             var significance = 5
@@ -822,7 +833,7 @@ class MemoryConsolidationWorker(
                 runCatching { releaseClaim(conversationId, claimToken) }
                     .onFailure { Log.w("MemoryConsolidation", "Failed to release conversation claim", it) }
                 val durationMs = System.currentTimeMillis() - startAt
-                requestLogManager.logTextGeneration(
+                if (attempted) requestLogManager.logTextGeneration(
                     source = AIRequestSource.MEMORY_CONSOLIDATION,
                     providerSetting = provider,
                     params = params,
@@ -855,6 +866,7 @@ class MemoryConsolidationWorker(
         template: GroupChatTemplate,
         provider: ProviderSetting,
         model: Model,
+        modelKey: String,
         seatDisplayNames: Map<kotlin.uuid.Uuid, String>,
         assistantsById: Map<kotlin.uuid.Uuid, Assistant>,
         templateName: String,
@@ -952,17 +964,20 @@ class MemoryConsolidationWorker(
         var responseText = ""
         var rawResponseText = ""
         var failure: Throwable? = null
+        var attempted = false
 
         try {
-            val response = providerHandler.generateText(
-                providerSetting = provider,
-                messages = requestMessages,
-                params = params,
-            )
+            val requested = retries.runRequest(modelKey, conversationId, prompt, isManual) {
+                ensureNotCancelled()
+                attempted = true
+                val response = providerHandler.generateText(provider, requestMessages, params)
+                ensureNotCancelled()
+                rawResponseText = response.rawResponse.orEmpty()
+                responseText = response.choices.firstOrNull()?.message?.toContentText().orEmpty()
+                check(responseText.isNotBlank()) { "Memory consolidation response is empty" }
+            }
+            if (!requested) return
             ensureNotCancelled()
-            rawResponseText = response.rawResponse.orEmpty()
-            responseText = response.choices.firstOrNull()?.message?.toContentText().orEmpty()
-            if (responseText.isBlank()) return
 
             var summary = responseText
             var significance = 5
@@ -1110,7 +1125,7 @@ class MemoryConsolidationWorker(
                 runCatching { releaseClaim(conversationId, claimToken) }
                     .onFailure { Log.w("MemoryConsolidation", "Failed to release conversation claim", it) }
                 val durationMs = System.currentTimeMillis() - startAt
-                requestLogManager.logTextGeneration(
+                if (attempted) requestLogManager.logTextGeneration(
                     source = AIRequestSource.MEMORY_CONSOLIDATION,
                     providerSetting = provider,
                     params = params,

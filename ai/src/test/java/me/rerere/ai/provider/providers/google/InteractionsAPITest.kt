@@ -601,6 +601,31 @@ class InteractionsAPITest {
     }
 
     @Test
+    fun `background Interactions requests choose the lowest documented thinking level`() {
+        val cases = mapOf(
+            "Gemini4hydrogen" to "low",
+            "gemini-4-neon" to "low",
+            "gemini-4-carbon" to "low",
+            "gemini-3.8-flash" to "low",
+            "gemini-3.1-pro-preview" to "low",
+            "gemini-3.6-flash" to "minimal",
+            "gemini-3.1-flash-image" to "minimal",
+            "gemini-2.5-flash-lite" to null,
+            "gemini-flash-latest" to null,
+        )
+        cases.forEach { (modelId, expected) ->
+            val model = Model(modelId = modelId, abilities = listOf(ModelAbility.REASONING))
+            val body = interactionsAPI.buildRequestBody(
+                listOf(UIMessage.user("Hello")),
+                TextGenerationParams(model = model),
+                stream = false,
+            )
+            val config = body["generation_config"]?.jsonObject ?: error("Missing config")
+            assertEquals(modelId, expected, config["thinking_level"]?.jsonPrimitive?.content)
+        }
+    }
+
+    @Test
     fun `initial thought summary survives stop and repeated full snapshot without duplication`() {
         val message = parseEvents(
             """{"event_type":"step.start","index":0,"step":{"type":"thought","summary":[{"type":"text","text":"Planning"}]}}""",

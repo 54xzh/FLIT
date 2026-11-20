@@ -466,23 +466,21 @@ class GoogleProvider(private val client: OkHttpClient) : Provider<ProviderSettin
                 put("thinkingConfig", buildJsonObject {
                     put("includeThoughts", true)
 
-                    val isGeminiPro =
-                        params.model.modelId.contains(Regex("2\\.5.*pro", RegexOption.IGNORE_CASE))
-                    val usesThinkingLevel =
-                        ModelRegistry.GEMINI_THINKING_LEVEL_MODELS.match(params.model.modelId)
+                    val modelId = params.model.modelId
+                    val usesProBudget = ModelRegistry.GEMINI_2_5_PRO.match(modelId)
 
-                    if (usesThinkingLevel) {
-                        googleThinkingLevel(params.model.modelId, params.reasoningLevel)?.let {
-                            put("thinkingLevel", it)
-                        }
-                    } else {
+                    if (usesProBudget || ModelRegistry.GEMINI_2_5_FLASH.match(modelId)) {
                         when (params.reasoningLevel) {
                             ReasoningLevel.AUTO -> Unit
-                            ReasoningLevel.OFF -> if (!isGeminiPro) {
+                            ReasoningLevel.OFF -> if (!usesProBudget) {
                                 put("thinkingBudget", 0)
                                 put("includeThoughts", false)
                             }
                             else -> put("thinkingBudget", params.reasoningLevel.budgetTokens)
+                        }
+                    } else {
+                        googleThinkingLevel(modelId, params.reasoningLevel)?.let {
+                            put("thinkingLevel", it)
                         }
                     }
                 })
