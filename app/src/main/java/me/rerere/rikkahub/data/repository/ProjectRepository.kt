@@ -96,6 +96,10 @@ class ProjectRepository(
         projectDAO.updateName(id.toString(), newName.trim(), System.currentTimeMillis())
     }
 
+    suspend fun clearWorkspaceByWorkspaceId(workspaceId: String) = withContext(Dispatchers.IO) {
+        projectDAO.clearWorkspaceByWorkspaceId(workspaceId, System.currentTimeMillis())
+    }
+
     /**
      * 删除项目时安全迁移：绝不删除项目内的会话和记忆，而是将它们的 projectId 清空，移到项目外。
      */

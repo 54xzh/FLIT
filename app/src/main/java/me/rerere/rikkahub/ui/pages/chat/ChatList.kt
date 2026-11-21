@@ -117,8 +117,10 @@ import me.rerere.rikkahub.data.datastore.getEffectiveDisplaySetting
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.Project
 import me.rerere.rikkahub.data.model.WorkspaceFileReferenceContext
 import me.rerere.rikkahub.data.model.buildSeatDisplayNames
+import me.rerere.rikkahub.data.model.resolveEffectiveWorkspaceLocation
 import me.rerere.rikkahub.ui.components.message.ChatMessage
 import me.rerere.rikkahub.ui.components.message.ChatMessageAssistantAvatar
 import me.rerere.rikkahub.ui.components.message.ChatProcessTimeline
@@ -208,6 +210,7 @@ private fun resolveWorkspaceFileReferenceFallbackWorkspaceId(
     message: UIMessage,
     conversation: Conversation,
     settings: Settings,
+    activeProject: Project? = null,
 ): String? {
     val groupTemplate = settings.groupChatTemplates.firstOrNull { it.id == conversation.assistantId }
     val seatAssistant = message.speakerSeatId
@@ -216,12 +219,19 @@ private fun resolveWorkspaceFileReferenceFallbackWorkspaceId(
     val assistant = seatAssistant
         ?: message.speakerAssistantId?.let(settings::getAssistantById)
         ?: settings.getAssistantById(conversation.assistantId)
-    val overrideWorkspaceId = if (groupTemplate == null && assistant?.allowConversationWorkspaceOverride == true) {
-        conversation.workspaceOverrideId
+    return if (groupTemplate == null) {
+        resolveEffectiveWorkspaceLocation(
+            assistantWorkspaceId = assistant?.workspaceId,
+            projectWorkspaceId = activeProject?.workspaceId,
+            projectWorkspaceCwd = activeProject?.workspaceCwd,
+            conversationWorkspaceId = conversation.workspaceOverrideId,
+            conversationWorkspaceCwd = conversation.workspaceCwd,
+            allowConversationOverride = assistant?.allowConversationWorkspaceOverride == true,
+            projectFeatureEnabled = settings.projectFeatureEnabled,
+        ).workspaceId
     } else {
-        null
+        assistant?.workspaceId
     }
-    return overrideWorkspaceId ?: assistant?.workspaceId
 }
 
 private fun resolveStreamingContentUpdateIntervalMs(
@@ -368,6 +378,7 @@ internal fun ChatList(
     loading: Boolean,
     previewMode: Boolean,
     settings: Settings,
+    activeProject: Project? = null,
     recentlyRestoredNodeIds: Set<Uuid> = emptySet(),
     initialSearchQuery: String? = null,
     onAssistantAvatarLongPress: ((Assistant) -> Unit)? = null,
@@ -394,6 +405,7 @@ internal fun ChatList(
         conversationInitialized,
         conversation.messageNodes,
         conversation.workspaceOverrideId,
+        activeProject?.workspaceId,
         settings.assistants,
         settings.groupChatTemplates,
     ) {
@@ -405,6 +417,7 @@ internal fun ChatList(
                     message = message,
                     conversation = conversation,
                     settings = settings,
+                    activeProject = activeProject,
                 )
             },
         )
@@ -441,6 +454,7 @@ internal fun ChatList(
                         state = state,
                         loading = loading,
                         settings = settings,
+                        activeProject = activeProject,
                         recentlyRestoredNodeIds = recentlyRestoredNodeIds,
                         onAssistantAvatarLongPress = onAssistantAvatarLongPress,
                         onRegenerate = onRegenerate,
@@ -555,6 +569,7 @@ private fun SharedTransitionScope.ChatListNormal(
     state: LazyListState,
     loading: Boolean,
     settings: Settings,
+    activeProject: Project? = null,
     recentlyRestoredNodeIds: Set<Uuid> = emptySet(),
     onAssistantAvatarLongPress: ((Assistant) -> Unit)?,
     onRegenerate: (UIMessage) -> Unit,
@@ -723,14 +738,20 @@ private fun SharedTransitionScope.ChatListNormal(
     fun resolveWorkspaceFileReferenceContextForMessage(
         assistant: Assistant?,
     ): WorkspaceFileReferenceContext? {
-        val overrideWorkspaceId = if (groupChatTemplateForConversation == null &&
-            assistant?.allowConversationWorkspaceOverride == true
-        ) {
-            conversation.workspaceOverrideId
+        val workspaceId = if (groupChatTemplateForConversation == null) {
+            resolveEffectiveWorkspaceLocation(
+                assistantWorkspaceId = assistant?.workspaceId,
+                projectWorkspaceId = activeProject?.workspaceId,
+                projectWorkspaceCwd = activeProject?.workspaceCwd,
+                conversationWorkspaceId = conversation.workspaceOverrideId,
+                conversationWorkspaceCwd = conversation.workspaceCwd,
+                allowConversationOverride = assistant?.allowConversationWorkspaceOverride == true,
+                projectFeatureEnabled = settings.projectFeatureEnabled,
+            ).workspaceId
         } else {
-            null
+            assistant?.workspaceId
         }
-        return (overrideWorkspaceId ?: assistant?.workspaceId)
+        return workspaceId
             ?.takeIf { it.isNotBlank() }
             ?.let(::WorkspaceFileReferenceContext)
     }

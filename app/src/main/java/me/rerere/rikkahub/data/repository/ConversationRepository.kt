@@ -284,6 +284,7 @@ class ConversationRepository(
                 contextSummaryBoundaries = entity.contextSummaryBoundaries,
                 sessionMemories = entity.sessionMemories,
                 workspaceOverrideId = entity.workspaceOverrideId,
+                workspaceCwd = entity.workspaceCwd,
             )
         )
         JsonInstantPretty.encodeToString(payload)
@@ -400,7 +401,7 @@ class ConversationRepository(
             ?.let(unavailableWorkspaceOverrideIds::contains)
             ?: false
         return if (workspaceOverrideUnavailable) {
-            conversation.copy(workspaceOverrideId = null)
+            conversation.copy(workspaceOverrideId = null, workspaceCwd = null)
         } else {
             conversation
         }
@@ -555,6 +556,7 @@ class ConversationRepository(
             contextSummaryBoundaries = JsonInstant.encodeToString(normalizedSummaryBoundaries),
             sessionMemories = JsonInstant.encodeToString(conversation.sessionMemories),
             workspaceOverrideId = conversation.workspaceOverrideId,
+            workspaceCwd = me.rerere.rikkahub.data.model.normalizeWorkspaceCwd(conversation.workspaceCwd),
             projectId = conversation.projectId?.toString(),
         )
     }
@@ -604,6 +606,7 @@ class ConversationRepository(
             contextSummaryBoundaries = summaryBoundaries,
             sessionMemories = sessionMemories,
             workspaceOverrideId = conversationEntity.workspaceOverrideId,
+            workspaceCwd = me.rerere.rikkahub.data.model.normalizeWorkspaceCwd(conversationEntity.workspaceCwd),
             loadedNodeStartIndex = decodedWindow.startIndex,
             totalMessageNodeCount = decodedWindow.totalCount,
             projectId = conversationEntity.projectId?.let { runCatching { Uuid.parse(it) }.getOrNull() },
@@ -1421,6 +1424,8 @@ private data class RawConversationEntity(
     val sessionMemories: String = "[]",
     @SerialName("workspace_override_id")
     val workspaceOverrideId: String? = null,
+    @SerialName("workspace_cwd")
+    val workspaceCwd: String? = null,
 )
 
 /**

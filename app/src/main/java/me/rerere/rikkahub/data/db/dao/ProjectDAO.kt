@@ -34,6 +34,9 @@ interface ProjectDAO {
     @Query("UPDATE projects SET icon = :icon, updated_at = :updatedAt WHERE id = :id")
     suspend fun updateIcon(id: String, icon: String, updatedAt: Long = System.currentTimeMillis())
 
+    @Query("UPDATE projects SET workspace_id = NULL, workspace_cwd = NULL, updated_at = :updatedAt WHERE workspace_id = :workspaceId")
+    suspend fun clearWorkspaceByWorkspaceId(workspaceId: String, updatedAt: Long = System.currentTimeMillis())
+
     @Query("DELETE FROM projects WHERE id = :id")
     suspend fun deleteById(id: String)
 

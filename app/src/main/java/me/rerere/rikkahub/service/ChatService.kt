@@ -421,7 +421,11 @@ class ChatService(
      * 同步更新内存缓存中会话的 projectId，防止旧快照覆盖回数据库
      */
     fun updateConversationProjectId(conversationId: Uuid, projectId: Uuid?) {
-        conversations[conversationId]?.update { it.copy(projectId = projectId) }
+        conversations[conversationId]?.update { current ->
+            // 若旧数据仅存了相对目录而未绑定工作区，迁移项目时一并清空，防止旧目录套到新项目工作区
+            val sanitizedCwd = if (current.workspaceOverrideId == null) null else current.workspaceCwd
+            current.copy(projectId = projectId, workspaceCwd = sanitizedCwd)
+        }
     }
 
     /**
@@ -1260,7 +1264,7 @@ class ChatService(
             if (flow.value.workspaceOverrideId == workspaceId) changed++
             flow.update { current ->
                 if (current.workspaceOverrideId == workspaceId) {
-                    current.copy(workspaceOverrideId = null)
+                    current.copy(workspaceOverrideId = null, workspaceCwd = null)
                 } else {
                     current
                 }
@@ -1931,8 +1935,9 @@ class ChatService(
                 messageNodes = emptyList(),
                 truncateIndex = -1,
                 chatSuggestions = emptyList(),
-                // 换助手后清空会话级工作区覆写，会话重新跟随新助手绑定。
+                // 换助手后清空会话级工作区和目录覆写，会话重新跟随新助手绑定。
                 workspaceOverrideId = null,
+                workspaceCwd = null,
             )
             .updateCurrentMessages(assistant.presetMessages)
 
@@ -2593,22 +2598,24 @@ class ChatService(
                         lorebook.enabled && assistant.enabledLorebookIds.contains(lorebook.id)
                     }
 
-            val overrideWorkspaceId = if (assistant.allowConversationWorkspaceOverride) {
-                conversation.workspaceOverrideId
-            } else {
-                null
-            }
-            var effectiveWorkspaceId = overrideWorkspaceId ?: assistant.workspaceId
-            var boundWorkspace = effectiveWorkspaceId?.let { workspaceRepository.getById(it) }
-            if (boundWorkspace == null && effectiveWorkspaceId != assistant.workspaceId) {
-                effectiveWorkspaceId = assistant.workspaceId
-                boundWorkspace = effectiveWorkspaceId?.let { workspaceRepository.getById(it) }
-            }
+            val knownWorkspaceIds = workspaceRepository.getAll().map { it.id }.toSet()
+            val effectiveWorkspaceLocation = me.rerere.rikkahub.data.model.resolveEffectiveWorkspaceLocation(
+                assistantWorkspaceId = assistant.workspaceId,
+                projectWorkspaceId = currentProject?.workspaceId,
+                projectWorkspaceCwd = currentProject?.workspaceCwd,
+                conversationWorkspaceId = conversation.workspaceOverrideId,
+                conversationWorkspaceCwd = conversation.workspaceCwd,
+                allowConversationOverride = assistant.allowConversationWorkspaceOverride,
+                projectFeatureEnabled = settings.projectFeatureEnabled,
+                workspaceExists = { it in knownWorkspaceIds },
+            )
+            val effectiveWorkspaceId = effectiveWorkspaceLocation.workspaceId
             val workspaceAssistant = assistant.copy(workspaceId = effectiveWorkspaceId)
             val workspaceToolSet = workspaceToolFactory.createForAssistant(
                 assistant = workspaceAssistant,
                 settingsSnapshot = settings,
                 conversationId = conversationId.toString(),
+                defaultCwd = effectiveWorkspaceLocation.cwd,
             )
             val workspaceFileReferenceContext = workspaceToolSet.referenceContext
             val projectSummary = currentProject
@@ -2866,15 +2873,22 @@ class ChatService(
                                     val latestConversation = getConversationFlow(conversation.id).value
                                     val latestAssistant = latestSettings.getAssistantById(assistant.id)
                                         ?.takeIf { latestConversation.assistantId == assistant.id }
-                                    val requestedWorkspaceOverride = latestConversation.workspaceOverrideId
-                                        ?.takeIf { latestAssistant?.allowConversationWorkspaceOverride == true }
-                                    var invocationWorkspaceId = requestedWorkspaceOverride
-                                        ?: latestAssistant?.workspaceId
-                                    if (requestedWorkspaceOverride != null &&
-                                        workspaceRepository.getById(requestedWorkspaceOverride) == null
-                                    ) {
-                                        invocationWorkspaceId = latestAssistant?.workspaceId
+                                    val latestProject = if (latestSettings.projectFeatureEnabled) {
+                                        latestConversation.projectId?.let { projectRepository.getProjectById(it) }
+                                    } else {
+                                        null
                                     }
+                                    val latestWorkspaceIds = workspaceRepository.getAll().map { ws -> ws.id }.toSet()
+                                    val invocationWorkspaceId = me.rerere.rikkahub.data.model.resolveEffectiveWorkspaceLocation(
+                                        assistantWorkspaceId = latestAssistant?.workspaceId,
+                                        projectWorkspaceId = latestProject?.workspaceId,
+                                        projectWorkspaceCwd = latestProject?.workspaceCwd,
+                                        conversationWorkspaceId = latestConversation.workspaceOverrideId,
+                                        conversationWorkspaceCwd = latestConversation.workspaceCwd,
+                                        allowConversationOverride = latestAssistant?.allowConversationWorkspaceOverride == true,
+                                        projectFeatureEnabled = latestSettings.projectFeatureEnabled,
+                                        workspaceExists = { wsId -> wsId in latestWorkspaceIds },
+                                    ).workspaceId
                                     mcpManager.callToolForAssistant(
                                         selectedServerIds = latestAssistant?.mcpServers.orEmpty(),
                                         effectiveWorkspaceId = invocationWorkspaceId,

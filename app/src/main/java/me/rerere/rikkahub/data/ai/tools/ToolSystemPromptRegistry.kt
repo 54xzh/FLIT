@@ -178,6 +178,7 @@ object ToolSystemPromptRegistry {
             toolName = SANDBOX_WORKSPACE_PROMPT_NAME,
             group = ToolSystemPromptGroup.Workspace,
             defaultTemplate = SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE,
+            variables = listOf(ToolSystemPromptVariable(SANDBOX_CWD_NOTE_VARIABLE)),
             affectedToolNames = SANDBOX_WORKSPACE_TOOL_NAMES,
             injectedByToolNames = SANDBOX_WORKSPACE_TOOL_NAMES,
         ),
@@ -224,6 +225,7 @@ const val SESSION_MEMORY_CONTEXT_VARIABLE = "session_memory_context"
 const val SKILL_LIST_VARIABLE = "skill_list"
 const val SKILL_NOTE_VARIABLE = "skill_note"
 const val WORKSPACE_COMMON_RULES_VARIABLE = "workspace_common_rules"
+const val SANDBOX_CWD_NOTE_VARIABLE = "sandbox_cwd_note"
 
 val MEMORY_MANAGEMENT_AFFECTED_TOOL_NAMES = listOf(
     "create_memory",

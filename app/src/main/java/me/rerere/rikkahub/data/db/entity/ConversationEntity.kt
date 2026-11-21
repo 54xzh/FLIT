@@ -62,6 +62,8 @@ data class ConversationEntity(
     val sessionMemories: String = "[]",
     @ColumnInfo(name = "workspace_override_id", defaultValue = "NULL")
     val workspaceOverrideId: String? = null,
+    @ColumnInfo(name = "workspace_cwd", defaultValue = "NULL")
+    val workspaceCwd: String? = null,
     @ColumnInfo(name = "project_id", defaultValue = "NULL")
     val projectId: String? = null,
 )

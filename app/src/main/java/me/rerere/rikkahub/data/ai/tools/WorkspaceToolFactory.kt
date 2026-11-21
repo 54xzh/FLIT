@@ -22,6 +22,7 @@ import me.rerere.rikkahub.data.db.entity.WorkspaceType
 import me.rerere.rikkahub.data.db.entity.toolDefaultNeedsApproval
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.WorkspaceFileReferenceContext
+import me.rerere.rikkahub.data.model.normalizeWorkspaceCwd
 import me.rerere.rikkahub.data.repository.SafRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.utils.SkillScriptPathUtils
@@ -126,6 +127,7 @@ class WorkspaceToolFactory(
         settingsSnapshot: Settings,
         mode: WorkspaceToolExecutionMode = WorkspaceToolExecutionMode.INTERACTIVE,
         conversationId: String? = null,
+        defaultCwd: String = "",
     ): WorkspaceToolSet {
         if (!shouldAttachWorkspaceTools(assistant)) {
             return WorkspaceToolSet.EMPTY
@@ -151,6 +153,11 @@ class WorkspaceToolFactory(
         } else {
             assistant.copy(workspaceId = workspaceId)
         }
+        val normalizedDefaultCwd = normalizeWorkspaceCwd(defaultCwd).orEmpty()
+        // 组装工具前先统一解析实际存在的目录，让系统提示词、文件工具和沙盒命令与界面选择器看到同一路径
+        val effectiveDefaultCwd = withContext(Dispatchers.IO) {
+            workspaceRepository.resolveExistingWorkspaceDirectory(workspace.id, normalizedDefaultCwd).resolvedCwd
+        }
 
         val allTools = withContext(Dispatchers.IO) {
             when (workspace.type) {
@@ -158,12 +165,14 @@ class WorkspaceToolFactory(
                     assistant = workspaceAssistant,
                     settingsSnapshot = settingsSnapshot,
                     conversationId = conversationId,
+                    defaultCwd = effectiveDefaultCwd,
                 )
                 WorkspaceType.SANDBOX -> createSandboxWorkspaceTools(
                     workspaceId = workspace.id,
                     workspaceRepository = workspaceRepository,
                     conversationId = conversationId,
                     enableConversationUploads = mode == WorkspaceToolExecutionMode.INTERACTIVE,
+                    defaultCwd = effectiveDefaultCwd,
                 )
             }
         }
@@ -250,18 +259,40 @@ class WorkspaceToolFactory(
         assistant: Assistant,
         settingsSnapshot: Settings,
         conversationId: String?,
+        defaultCwd: String,
     ): List<Tool> {
         return listOf(
-            createWorkspaceListTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
+            createWorkspaceListTool(
+                assistant = assistant,
+                settingsSnapshot = settingsSnapshot,
+                defaultCwd = defaultCwd,
+            ),
             createWorkspaceReadFileTool(
                 assistant = assistant,
                 settingsSnapshot = settingsSnapshot,
                 conversationId = conversationId,
+                defaultCwd = defaultCwd,
             ),
-            createWorkspaceWriteFileTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
-            createWorkspaceMkdirTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
-            createWorkspaceDeleteTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
-            createWorkspaceRenameTool(assistant = assistant, settingsSnapshot = settingsSnapshot),
+            createWorkspaceWriteFileTool(
+                assistant = assistant,
+                settingsSnapshot = settingsSnapshot,
+                defaultCwd = defaultCwd,
+            ),
+            createWorkspaceMkdirTool(
+                assistant = assistant,
+                settingsSnapshot = settingsSnapshot,
+                defaultCwd = defaultCwd,
+            ),
+            createWorkspaceDeleteTool(
+                assistant = assistant,
+                settingsSnapshot = settingsSnapshot,
+                defaultCwd = defaultCwd,
+            ),
+            createWorkspaceRenameTool(
+                assistant = assistant,
+                settingsSnapshot = settingsSnapshot,
+                defaultCwd = defaultCwd,
+            ),
         )
     }
 
@@ -339,44 +370,64 @@ class WorkspaceToolFactory(
     }
 
 
-    private fun workspaceToolsCommonSystemPrompt(): String {
-        return WORKSPACE_COMMON_RULES_PROMPT
+    private fun workspaceToolsCommonSystemPrompt(defaultCwd: String = ""): String {
+        val normalized = normalizeWorkspaceCwd(defaultCwd).orEmpty()
+        if (normalized.isEmpty()) return WORKSPACE_COMMON_RULES_PROMPT
+        return buildString {
+            appendLine(WORKSPACE_COMMON_RULES_PROMPT)
+            appendLine()
+            appendLine("### active working directory")
+            appendLine("- The active working directory is `$normalized` (relative to the workspace root).")
+            appendLine("- Omitting `path` in `workspace_list` lists `$normalized`; pass `\"\"` or `\"/\"` explicitly to inspect the workspace root.")
+            appendLine("- Prefer reading, editing, and placing new deliverables under `$normalized/...` instead of creating a new folder at the workspace root, unless the user explicitly asks for another location.")
+            append("- Still pass full workspace-relative paths (such as `$normalized/file.md`) to workspace file tools and use `[file name](/workspace/$normalized/file.md)` Markdown links.")
+        }
     }
 
-    private fun workspaceToolPromptVariables(includeCommonRules: Boolean): Map<String, String> {
+    private fun workspaceToolPromptVariables(
+        includeCommonRules: Boolean,
+        defaultCwd: String = "",
+    ): Map<String, String> {
         return mapOf(
             WORKSPACE_COMMON_RULES_VARIABLE to if (includeCommonRules) {
-                workspaceToolsCommonSystemPrompt()
+                workspaceToolsCommonSystemPrompt(defaultCwd)
             } else {
                 ""
             }
         )
     }
 
-    private fun workspaceToolCustomPromptVariables(): Map<String, String> {
+    private fun workspaceToolCustomPromptVariables(defaultCwd: String = ""): Map<String, String> {
         return mapOf(
-            WORKSPACE_COMMON_RULES_VARIABLE to workspaceToolsCommonSystemPrompt()
+            WORKSPACE_COMMON_RULES_VARIABLE to workspaceToolsCommonSystemPrompt(defaultCwd)
         )
     }
 
     private fun workspaceToolSystemPrompt(
         toolName: String,
         includeCommonRules: Boolean,
+        defaultCwd: String = "",
     ): String {
         return renderToolSystemPromptTemplate(
             template = workspaceToolSystemPromptTemplate(
                 toolName = toolName,
                 includeCommonRules = includeCommonRules,
             ),
-            variables = workspaceToolPromptVariables(includeCommonRules),
+            variables = workspaceToolPromptVariables(includeCommonRules, defaultCwd),
         )
     }
 
     private suspend fun createWorkspaceListTool(
         assistant: Assistant,
         settingsSnapshot: Settings,
+        defaultCwd: String = "",
     ): Tool {
         val requiresApproval = toolNeedsApproval(assistant, "workspace_list")
+        val pathDesc = if (defaultCwd.isNotEmpty()) {
+            "Relative path inside the assistant workspace directory. Omit to list the active working directory (\"$defaultCwd\"); pass \"\" or \"/\" for workspace root."
+        } else {
+            "Relative path inside the assistant workspace directory. Omit or use empty string for root."
+        }
         return Tool(
             name = "workspace_list",
             description = "List workspace files and directories.",
@@ -385,7 +436,7 @@ class WorkspaceToolFactory(
                     properties = buildJsonObject {
                         put("path", buildJsonObject {
                             put("type", "string")
-                            put("description", "Relative path inside the assistant workspace directory. Omit or use empty string for root.")
+                            put("description", pathDesc)
                         })
                         put("recursive", buildJsonObject {
                             put("type", "boolean")
@@ -401,6 +452,7 @@ class WorkspaceToolFactory(
             requiresUserApproval = requiresApproval,
             execute = { args ->
                 val obj = args.jsonObject
+                val hasExplicitPath = obj.containsKey("path") || obj.containsKey("dir") || obj.containsKey("directory")
                 val rawPath = parseWorkspaceToolString(obj, "path", "dir", "directory")
                 val normalizedPath = normalizeWorkspaceListToolPath(rawPath)
                     ?: return@Tool workspaceToolInvalidPathError(toolName = "workspace_list", rawPath = rawPath)
@@ -411,19 +463,39 @@ class WorkspaceToolFactory(
                 runCatching {
                     withContext(Dispatchers.IO) {
                         val workDir = resolveAssistantWorkspaceDir(assistant)
-                        val dir = if (normalizedPath.isBlank()) {
-                            workDir
+                        val effectivePath: String
+                        val dir: DocumentFile = if (!hasExplicitPath && defaultCwd.isNotEmpty()) {
+                            val resolvedCwd = assistant.workspaceId
+                                ?.let { wsId -> workspaceRepository.resolveExistingWorkspaceDirectory(wsId, defaultCwd).resolvedCwd }
+                                .orEmpty()
+                            val resolvedDir = if (resolvedCwd.isEmpty()) {
+                                workDir
+                            } else {
+                                safRepository.resolve(workDir, resolvedCwd)?.takeIf { it.isDirectory }
+                            }
+                            if (resolvedDir != null) {
+                                effectivePath = resolvedCwd
+                                resolvedDir
+                            } else {
+                                effectivePath = ""
+                                workDir
+                            }
                         } else {
-                            safRepository.resolve(workDir, normalizedPath)
-                        } ?: return@withContext buildJsonObject {
-                            put("ok", false)
-                            put("error", "Path not found: ${normalizedPath.ifBlank { "/" }}")
+                            effectivePath = normalizedPath
+                            if (normalizedPath.isBlank()) {
+                                workDir
+                            } else {
+                                safRepository.resolve(workDir, normalizedPath)
+                            } ?: return@withContext buildJsonObject {
+                                put("ok", false)
+                                put("error", "Path not found: ${normalizedPath.ifBlank { "/" }}")
+                            }
                         }
 
                         if (!dir.isDirectory) {
                             return@withContext buildJsonObject {
                                 put("ok", false)
-                                put("error", "Not a directory: ${normalizedPath.ifBlank { "/" }}")
+                                put("error", "Not a directory: ${effectivePath.ifBlank { "/" }}")
                             }
                         }
 
@@ -431,7 +503,7 @@ class WorkspaceToolFactory(
                         var count = 0
                         val entries = buildJsonArray {
                             val stack = ArrayDeque<Pair<DocumentFile, String>>()
-                            stack.addLast(dir to normalizedPath)
+                            stack.addLast(dir to effectivePath)
                             while (stack.isNotEmpty()) {
                                 val (current, prefix) = stack.removeLast()
                                 current.listFiles().forEach { child ->
@@ -459,7 +531,7 @@ class WorkspaceToolFactory(
 
                         buildJsonObject {
                             put("ok", true)
-                            put("path", normalizedPath.ifBlank { "/" })
+                            put("path", effectivePath.ifBlank { "/" })
                             put("entries", entries)
                             put("truncated", truncated)
                         }
@@ -472,9 +544,10 @@ class WorkspaceToolFactory(
                 workspaceToolSystemPrompt(
                     toolName = "workspace_list",
                     includeCommonRules = true,
+                    defaultCwd = defaultCwd,
                 )
             },
-            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
+            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables(defaultCwd) },
         )
     }
 
@@ -482,6 +555,7 @@ class WorkspaceToolFactory(
         assistant: Assistant,
         settingsSnapshot: Settings,
         conversationId: String?,
+        defaultCwd: String = "",
     ): Tool {
         val requiresApproval = toolNeedsApproval(assistant, "workspace_read_file")
         return Tool(
@@ -612,15 +686,17 @@ class WorkspaceToolFactory(
                 workspaceToolSystemPrompt(
                     toolName = "workspace_read_file",
                     includeCommonRules = false,
+                    defaultCwd = defaultCwd,
                 )
             },
-            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
+            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables(defaultCwd) },
         )
     }
 
     private suspend fun createWorkspaceWriteFileTool(
         assistant: Assistant,
         settingsSnapshot: Settings,
+        defaultCwd: String = "",
     ): Tool {
         val requiresApproval = toolNeedsApproval(assistant, "workspace_write_file")
         return Tool(
@@ -740,15 +816,17 @@ class WorkspaceToolFactory(
                 workspaceToolSystemPrompt(
                     toolName = "workspace_write_file",
                     includeCommonRules = false,
+                    defaultCwd = defaultCwd,
                 )
             },
-            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
+            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables(defaultCwd) },
         )
     }
 
     private suspend fun createWorkspaceMkdirTool(
         assistant: Assistant,
         settingsSnapshot: Settings,
+        defaultCwd: String = "",
     ): Tool {
         val requiresApproval = toolNeedsApproval(assistant, "workspace_mkdir")
         return Tool(
@@ -829,15 +907,17 @@ class WorkspaceToolFactory(
                 workspaceToolSystemPrompt(
                     toolName = "workspace_mkdir",
                     includeCommonRules = false,
+                    defaultCwd = defaultCwd,
                 )
             },
-            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
+            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables(defaultCwd) },
         )
     }
 
     private suspend fun createWorkspaceDeleteTool(
         assistant: Assistant,
         settingsSnapshot: Settings,
+        defaultCwd: String = "",
     ): Tool {
         val requiresApproval = toolNeedsApproval(assistant, "workspace_delete")
         return Tool(
@@ -911,15 +991,17 @@ class WorkspaceToolFactory(
                 workspaceToolSystemPrompt(
                     toolName = "workspace_delete",
                     includeCommonRules = false,
+                    defaultCwd = defaultCwd,
                 )
             },
-            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
+            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables(defaultCwd) },
         )
     }
 
     private suspend fun createWorkspaceRenameTool(
         assistant: Assistant,
         settingsSnapshot: Settings,
+        defaultCwd: String = "",
     ): Tool {
         val requiresApproval = toolNeedsApproval(assistant, "workspace_rename")
         return Tool(
@@ -1064,9 +1146,10 @@ class WorkspaceToolFactory(
                 workspaceToolSystemPrompt(
                     toolName = "workspace_rename",
                     includeCommonRules = false,
+                    defaultCwd = defaultCwd,
                 )
             },
-            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables() },
+            systemPromptVariables = { _, _ -> workspaceToolCustomPromptVariables(defaultCwd) },
         )
     }
 

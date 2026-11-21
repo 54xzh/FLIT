@@ -1054,6 +1054,170 @@ class WorkspaceRepository(
     suspend fun resolveWorkspaceFile(id: String, path: String): WorkspaceFileEntry? =
         resolveWorkspaceEntry(id, path)?.takeIf { !it.isDirectory }
 
+    /**
+     * 列出工作区内指定目录下的子目录，用于工作目录（cwd）选择器。
+     * 轻量工作区与沙盒工作区（含外部挂载手机目录）统一走此入口。
+     */
+    suspend fun listWorkspaceDirectories(id: String, path: String = ""): List<WorkspaceFileEntry> =
+        withContext(Dispatchers.IO) {
+            val workspace = getById(id) ?: error("Workspace is unavailable")
+            val normalized = normalizeWorkspaceRelativePath(path)
+            when (workspace.type) {
+                WorkspaceType.LIGHTWEIGHT -> {
+                    val root = workspace.treeUri?.let(::resolveRoot)
+                        ?: error("Workspace folder is unavailable")
+                    val target = if (normalized.isEmpty()) root else safRepository.resolve(root, normalized)
+                    require(target != null && target.isDirectory) { "Directory is unavailable" }
+                    safRepository.listChildren(root, normalized).filter { it.isDirectory }
+                }
+
+                WorkspaceType.SANDBOX -> {
+                    listSandboxFiles(id, normalized, SandboxStorageArea.FILES).filter { it.isDirectory }
+                }
+            }
+        }
+
+    /**
+     * 在工作区内创建子目录，供工作目录选择器内“新建文件夹”使用。
+     */
+    suspend fun createWorkspaceDirectory(
+        id: String,
+        parentPath: String,
+        folderName: String,
+    ): WorkspaceFileEntry = withContext(Dispatchers.IO) {
+        val workspace = getById(id) ?: error("Workspace is unavailable")
+        val normalizedParent = normalizeWorkspaceRelativePath(parentPath)
+        val cleanName = folderName.trim().take(200)
+        require(cleanName.isNotEmpty()) { "Folder name is required" }
+        require(
+            cleanName != "." &&
+                cleanName != ".." &&
+                !cleanName.contains('/') &&
+                !cleanName.contains('\\') &&
+                !cleanName.contains('\u0000')
+        ) {
+            "Folder name is invalid"
+        }
+        val targetRel = joinRelative(normalizedParent, cleanName)
+        when (workspace.type) {
+            WorkspaceType.LIGHTWEIGHT -> {
+                val root = workspace.treeUri?.let(::resolveRoot)
+                    ?: error("Workspace folder is unavailable")
+                val parent = if (normalizedParent.isEmpty()) {
+                    root
+                } else {
+                    safRepository.resolve(root, normalizedParent)
+                } ?: error("Parent directory not found")
+                require(parent.isDirectory) { "Parent path is not a directory" }
+                val existing = parent.findFile(cleanName)
+                if (existing != null) {
+                    require(existing.isDirectory) { "A file with the same name already exists" }
+                    WorkspaceFileEntry(
+                        path = targetRel,
+                        name = existing.name ?: cleanName,
+                        isDirectory = true,
+                        sizeBytes = 0L,
+                        updatedAt = existing.lastModified(),
+                    )
+                } else {
+                    val created = parent.createDirectory(cleanName)
+                        ?: error("Failed to create directory")
+                    WorkspaceFileEntry(
+                        path = targetRel,
+                        name = created.name ?: cleanName,
+                        isDirectory = true,
+                        sizeBytes = 0L,
+                        updatedAt = created.lastModified(),
+                    )
+                }
+            }
+
+            WorkspaceType.SANDBOX -> sandboxLock(id).withLock {
+                val mounts = dao.getSandboxMounts(id)
+                val resolvedTarget = resolveSandboxMount(mounts, targetRel)
+                if (resolvedTarget != null) {
+                    val sourceRoot = mountSourceFile(resolvedTarget.mount)
+                    val targetDir = if (resolvedTarget.relativePath.isEmpty()) {
+                        sourceRoot
+                    } else {
+                        File(sourceRoot, resolvedTarget.relativePath)
+                    }
+                    val canonicalRoot = sourceRoot.canonicalFile
+                    val canonicalParent = targetDir.parentFile?.canonicalFile ?: canonicalRoot
+                    require(
+                        canonicalParent.path == canonicalRoot.path ||
+                            canonicalParent.path.startsWith(canonicalRoot.path + File.separator)
+                    ) { "Path escapes mounted folder" }
+                    if (targetDir.exists()) {
+                        require(targetDir.isDirectory) { "A file with the same name already exists" }
+                    } else {
+                        require(targetDir.mkdirs() || targetDir.isDirectory) { "Failed to create directory" }
+                    }
+                    WorkspaceFileEntry(
+                        path = targetRel,
+                        name = targetDir.name,
+                        isDirectory = true,
+                        sizeBytes = 0L,
+                        updatedAt = targetDir.lastModified(),
+                        mountId = resolvedTarget.mount.id,
+                    )
+                } else {
+                    val existing = sandboxManager.resolveEntry(id, targetRel)
+                    if (existing != null) {
+                        require(existing.isDirectory) { "A file with the same name already exists" }
+                        existing.toWorkspaceEntry()
+                    } else {
+                        sandboxManager.ensureFilesDirectory(id, targetRel)
+                        sandboxManager.resolveEntry(id, targetRel)?.toWorkspaceEntry()
+                            ?: WorkspaceFileEntry(
+                                path = targetRel,
+                                name = cleanName,
+                                isDirectory = true,
+                                sizeBytes = 0L,
+                                updatedAt = System.currentTimeMillis(),
+                            )
+                    }
+                }
+            }
+        }
+    }
+
+    /** 检查工作区内某目录当前是否存在（空路径检查工作区根目录本身）。 */
+    suspend fun workspaceDirectoryExists(id: String, path: String): Boolean = withContext(Dispatchers.IO) {
+        val workspace = getById(id) ?: return@withContext false
+        val normalized = runCatching { normalizeWorkspaceRelativePath(path) }.getOrNull()
+            ?: return@withContext false
+        if (normalized.isEmpty()) {
+            return@withContext when (workspace.type) {
+                WorkspaceType.LIGHTWEIGHT -> workspace.treeUri?.let(::resolveRoot) != null
+                WorkspaceType.SANDBOX -> sandboxManager.workspaceDirAvailable(id)
+            }
+        }
+        resolveWorkspaceEntry(id, normalized)?.isDirectory == true
+    }
+
+    /**
+     * 统一解析工作区内实际存在的目录（轻量 SAF 与沙盒工作区共用）。
+     *
+     * 若目标目录已不存在，逐级向上回退到最近一个真实存在的上级目录（最远退回根目录 `""`），
+     * 不擅自重建已删除目录，保证界面选择器、模型提示词、文件工具和沙盒命令看到同一目录。
+     */
+    suspend fun resolveExistingWorkspaceDirectory(
+        id: String,
+        preferredCwd: String,
+    ): me.rerere.rikkahub.data.model.ResolvedWorkspaceDirectory = withContext(Dispatchers.IO) {
+        me.rerere.rikkahub.data.model.resolveExistingWorkspaceDirectoryPath(preferredCwd) { candidate ->
+            workspaceDirectoryExists(id, candidate)
+        }
+    }
+
+    /**
+     * 解析沙盒命令的默认工作目录（相对 `/workspace` 的路径）。
+     * 复用于统一的存在性解析逻辑，绝不擅自重建已删除的目录，也避免 `proot -w` 启动报错。
+     */
+    suspend fun resolveEffectiveSandboxCwd(id: String, preferredCwd: String): String =
+        resolveExistingWorkspaceDirectory(id, preferredCwd).resolvedCwd
+
     /** Return a direct URI when the file is SAF-backed; sandbox files need a temporary export. */
     suspend fun resolveWorkspaceFileUri(id: String, path: String): Uri? = withContext(Dispatchers.IO) {
         val workspace = getById(id) ?: return@withContext null
@@ -1405,6 +1569,14 @@ class WorkspaceRepository(
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "cleanupAssistantReferences: clearWorkspaceOverrideByWorkspaceId failed for $workspaceId (${e.message})", e)
+        }
+        // 同步清空项目侧绑定到该工作区的引用，避免项目设置指向已删除工作区。
+        try {
+            db.projectDao().clearWorkspaceByWorkspaceId(workspaceId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "cleanupAssistantReferences: clearWorkspaceByWorkspaceId failed for $workspaceId (${e.message})", e)
         }
         // 同步清内存：已加载到 ChatService 的会话里残留的覆写也一并置空，
         // UI 和下次工具装配都立刻看到「跟随助手」。

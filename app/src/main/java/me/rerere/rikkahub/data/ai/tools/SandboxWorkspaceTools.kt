@@ -8,6 +8,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
+import me.rerere.rikkahub.data.model.normalizeWorkspaceCwd
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.db.entity.toolDefaultNeedsApproval
 
@@ -18,24 +19,50 @@ suspend fun createSandboxWorkspaceTools(
     workspaceRepository: WorkspaceRepository,
     conversationId: String? = null,
     enableConversationUploads: Boolean = true,
+    defaultCwd: String = "",
 ): List<Tool> {
     val overrides = workspaceRepository.getById(workspaceId)?.toolApprovalOverrides().orEmpty()
     fun approval(name: String): Boolean = overrides[name] ?: toolDefaultNeedsApproval(name)
     // 无会话上下文（如定时任务）时不会挂载 /upload，描述里不宣传它，避免模型调用后报错
     val hasUploads = enableConversationUploads && !conversationId.isNullOrBlank()
+    val normalizedDefaultCwd = normalizeWorkspaceCwd(defaultCwd).orEmpty()
     return listOf(
-        sandboxReadTool(workspaceId, workspaceRepository, conversationId, hasUploads, ::approval),
-        sandboxWriteTool(workspaceId, workspaceRepository, ::approval),
-        sandboxEditTool(workspaceId, workspaceRepository, ::approval),
-        sandboxShellTool(workspaceId, workspaceRepository, conversationId.takeIf { hasUploads }, ::approval),
+        sandboxReadTool(workspaceId, workspaceRepository, conversationId, hasUploads, normalizedDefaultCwd, ::approval),
+        sandboxWriteTool(workspaceId, workspaceRepository, normalizedDefaultCwd, ::approval),
+        sandboxEditTool(workspaceId, workspaceRepository, normalizedDefaultCwd, ::approval),
+        sandboxShellTool(workspaceId, workspaceRepository, conversationId.takeIf { hasUploads }, normalizedDefaultCwd, ::approval),
     )
 }
+
+internal fun sandboxCwdSystemPromptNote(defaultCwd: String): String {
+    val normalized = normalizeWorkspaceCwd(defaultCwd).orEmpty()
+    if (normalized.isEmpty()) return ""
+    val absolute = "/workspace/$normalized"
+    return """
+### active working directory
+- The active working directory is `$absolute`.
+- `sandbox_shell` starts in `$absolute` when `cwd` is omitted.
+- Read, edit, and save new deliverables under `$absolute` by default instead of creating a new folder at the `/workspace` root, unless the user explicitly asks for another location.
+- Still pass full `/workspace/...` absolute paths to sandbox file tools and use `[file name]($absolute/...)` Markdown links for files here.
+""".trimIndent()
+}
+
+private fun sandboxCwdPromptVariables(defaultCwd: String): Map<String, String> = mapOf(
+    SANDBOX_CWD_NOTE_VARIABLE to sandboxCwdSystemPromptNote(defaultCwd),
+)
+
+private fun sandboxRenderedSystemPrompt(defaultCwd: String): String =
+    renderToolSystemPromptTemplate(
+        template = SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE,
+        variables = sandboxCwdPromptVariables(defaultCwd),
+    )
 
 private fun sandboxReadTool(
     id: String,
     repository: WorkspaceRepository,
     conversationId: String?,
     hasUploads: Boolean,
+    defaultCwd: String,
     approval: (String) -> Boolean,
 ) = Tool(
     name = "sandbox_read_file",
@@ -45,7 +72,8 @@ private fun sandboxReadTool(
         InputSchema.Obj(properties = buildJsonObject { putSandboxPath(required = true) }, required = listOf("path"))
     },
     requiresUserApproval = approval("sandbox_read_file"),
-    systemPrompt = { _, _ -> SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE },
+    systemPrompt = { _, _ -> sandboxRenderedSystemPrompt(defaultCwd) },
+    systemPromptVariables = { _, _ -> sandboxCwdPromptVariables(defaultCwd) },
     execute = { args ->
         val path = args.jsonObject.sandboxReadPath("path", hasUploads)
         val relativePath = path.removePrefix("/workspace/").removePrefix("/workspace")
@@ -108,7 +136,12 @@ private fun sandboxReadTool(
     },
 )
 
-private fun sandboxWriteTool(id: String, repository: WorkspaceRepository, approval: (String) -> Boolean) = Tool(
+private fun sandboxWriteTool(
+    id: String,
+    repository: WorkspaceRepository,
+    defaultCwd: String,
+    approval: (String) -> Boolean,
+) = Tool(
     name = "sandbox_write_file",
     description = "Write a UTF-8 file in the persistent sandbox. The path must be absolute under /workspace.",
     parameters = {
@@ -122,7 +155,8 @@ private fun sandboxWriteTool(id: String, repository: WorkspaceRepository, approv
         )
     },
     requiresUserApproval = approval("sandbox_write_file"),
-    systemPrompt = { _, _ -> SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE },
+    systemPrompt = { _, _ -> sandboxRenderedSystemPrompt(defaultCwd) },
+    systemPromptVariables = { _, _ -> sandboxCwdPromptVariables(defaultCwd) },
     execute = { args ->
         val params = args.jsonObject
         val path = params.sandboxPath("path")
@@ -133,7 +167,12 @@ private fun sandboxWriteTool(id: String, repository: WorkspaceRepository, approv
     },
 )
 
-private fun sandboxEditTool(id: String, repository: WorkspaceRepository, approval: (String) -> Boolean) = Tool(
+private fun sandboxEditTool(
+    id: String,
+    repository: WorkspaceRepository,
+    defaultCwd: String,
+    approval: (String) -> Boolean,
+) = Tool(
     name = "sandbox_edit_file",
     description = "Make a precise replacement in a UTF-8 sandbox file. The path must be absolute under /workspace.",
     parameters = {
@@ -148,7 +187,8 @@ private fun sandboxEditTool(id: String, repository: WorkspaceRepository, approva
         )
     },
     requiresUserApproval = approval("sandbox_edit_file"),
-    systemPrompt = { _, _ -> SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE },
+    systemPrompt = { _, _ -> sandboxRenderedSystemPrompt(defaultCwd) },
+    systemPromptVariables = { _, _ -> sandboxCwdPromptVariables(defaultCwd) },
     execute = { args ->
         val params = args.jsonObject
         val path = params.sandboxPath("path")
@@ -171,6 +211,7 @@ private fun sandboxShellTool(
     id: String,
     repository: WorkspaceRepository,
     conversationId: String?,
+    defaultCwd: String,
     approval: (String) -> Boolean,
 ): Tool {
     val hasUploads = !conversationId.isNullOrBlank()
@@ -179,6 +220,7 @@ private fun sandboxShellTool(
     } else {
         ""
     }
+    val defaultAbsoluteCwd = if (defaultCwd.isEmpty()) "/workspace" else "/workspace/$defaultCwd"
     return Tool(
     name = "sandbox_shell",
     description = "Run a shell command in the sandbox Rootfs. /workspace, /skills and /tool_outputs are mounted and writable$uploadNote. Folders mounted from the phone under /workspace modify the original phone files. Always inspect the command before approving it.",
@@ -186,25 +228,31 @@ private fun sandboxShellTool(
         InputSchema.Obj(
             properties = buildJsonObject {
                 put("command", buildJsonObject { put("type", "string") })
-                put("cwd", buildJsonObject { put("type", "string"); put("description", "Optional absolute /workspace path; defaults to /workspace") })
+                put("cwd", buildJsonObject { put("type", "string"); put("description", "Optional absolute /workspace path; defaults to $defaultAbsoluteCwd") })
                 put("timeout", buildJsonObject { put("type", "integer"); put("description", "Seconds, default 30, max 600") })
             },
             required = listOf("command"),
         )
     },
     requiresUserApproval = approval("sandbox_shell"),
-    systemPrompt = { _, _ -> SANDBOX_WORKSPACE_SYSTEM_PROMPT_TEMPLATE },
+    systemPrompt = { _, _ -> sandboxRenderedSystemPrompt(defaultCwd) },
+    systemPromptVariables = { _, _ -> sandboxCwdPromptVariables(defaultCwd) },
     execute = { args ->
         val params = args.jsonObject
         val command = params.string("command")?.takeIf { it.isNotBlank() } ?: error("command is required")
-        val cwd = params["cwd"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifBlank { "/workspace" }
-        require(cwd == "/workspace" || cwd.startsWith("/workspace/")) { "cwd must be inside /workspace" }
+        val rawCwd = params["cwd"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val resolvedRelativeCwd = if (rawCwd.isBlank()) {
+            repository.resolveEffectiveSandboxCwd(id, defaultCwd)
+        } else {
+            require(rawCwd == "/workspace" || rawCwd.startsWith("/workspace/")) { "cwd must be inside /workspace" }
+            rawCwd.relativeSandboxPath()
+        }
         val timeout = params["timeout"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()?.coerceIn(1, SANDBOX_MAX_TIMEOUT_SECONDS)?.times(1_000)
             ?: 30_000L
         val result = repository.executeSandboxCommand(
             id,
             command,
-            cwd.relativeSandboxPath(),
+            resolvedRelativeCwd,
             timeout,
             conversationId = conversationId,
         )
@@ -266,6 +314,7 @@ Do not output file://, content://, or system absolute paths for workspace files.
 - If the user specifies a path, follow it.
 - Revised versions of an existing file stay in its current directory (see deliverable versioning); this rule is for new files.
 - Temporary or internal scratch files may stay anywhere convenient.
+{{$SANDBOX_CWD_NOTE_VARIABLE}}
 """
 
 private fun kotlinx.serialization.json.JsonObjectBuilder.putSandboxPath(required: Boolean) {

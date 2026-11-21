@@ -63,6 +63,7 @@ val viewModelModule = module {
         ProjectDetailVM(
             id = params.get(),
             projectRepo = get(),
+            workspaceRepository = get(),
             settingsStore = get(),
             chatService = get(),
             memoryRepository = get(),

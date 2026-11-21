@@ -155,6 +155,10 @@ import me.rerere.rikkahub.data.model.buildAssistantProviderSearchMode
 import me.rerere.rikkahub.data.model.withBuiltInSearchDisabled
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.ModelModeState
+import me.rerere.rikkahub.data.model.Project
+import me.rerere.rikkahub.data.model.WorkspaceLocationSource
+import me.rerere.rikkahub.data.model.formatWorkspaceCwdForDisplay
+import me.rerere.rikkahub.data.model.resolveEffectiveWorkspaceLocation
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.ui.components.crop.CropImageScreen
 import me.rerere.rikkahub.ui.components.ui.UIAvatar
@@ -191,6 +195,7 @@ fun MinimalChatInput(
     settings: Settings,
     mcpManager: McpManager,
     currentChatModel: Model? = null,
+    currentProject: Project? = null,
     uiMode: ChatInputUiMode = ChatInputUiMode.Normal,
     enableSearch: Boolean,
     onToggleSearch: (Boolean) -> Unit,
@@ -756,6 +761,7 @@ fun MinimalChatInput(
                 conversation = conversation,
                 settings = settings,
                 currentChatModel = currentChatModel,
+                currentProject = currentProject,
                 mcpManager = mcpManager,
                 assistant = assistant,
                 uiMode = uiMode,
@@ -851,6 +857,7 @@ private fun MinimalPickerContent(
     onShowClearThoughtSignaturesDialog: () -> Unit,
     onDismiss: () -> Unit,
     currentChatModel: Model? = null,
+    currentProject: Project? = null,
 ) {
     val context = LocalContext.current
     val localSettings = LocalSettings.current
@@ -901,24 +908,84 @@ private fun MinimalPickerContent(
         org.koin.compose.koinInject()
     val workspaces by remember(workspaceRepository) { workspaceRepository.listFlow() }
         .collectAsStateWithLifecycle(emptyList())
-    // 会话级工作区覆写入口门闩：
+    // 会话级工作位置覆写入口门闩：
     // - uiMode == Normal：排除群聊模板（群聊座位各自用各自助手的工作区，覆写会被忽略，不显示入口避免误导）；
     // - 助手需显式开启 allowConversationWorkspaceOverride。
     val showWorkspaceOverrideEntry = uiMode == ChatInputUiMode.Normal &&
         assistant.allowConversationWorkspaceOverride
-    val overrideWorkspace = conversation.workspaceOverrideId
-        ?.takeIf { assistant.allowConversationWorkspaceOverride }
-        ?.let { id -> workspaces.firstOrNull { it.id == id } }
-    val assistantWorkspaceId = assistant.workspaceId?.takeIf { id -> workspaces.any { it.id == id } }
-    val effectiveWorkspaceId = overrideWorkspace?.id ?: assistantWorkspaceId
+    val workspaceIdSet = remember(workspaces) { workspaces.map { it.id }.toSet() }
+    val inheritedWorkspaceLocation = remember(
+        assistant.workspaceId,
+        currentProject?.workspaceId,
+        currentProject?.workspaceCwd,
+        workspaceIdSet,
+    ) {
+        resolveEffectiveWorkspaceLocation(
+            assistantWorkspaceId = assistant.workspaceId,
+            projectWorkspaceId = currentProject?.workspaceId,
+            projectWorkspaceCwd = currentProject?.workspaceCwd,
+            workspaceExists = { it in workspaceIdSet },
+        )
+    }
+    val effectiveWorkspaceLocation = remember(
+        assistant.workspaceId,
+        currentProject?.workspaceId,
+        currentProject?.workspaceCwd,
+        conversation.workspaceOverrideId,
+        conversation.workspaceCwd,
+        assistant.allowConversationWorkspaceOverride,
+        workspaceIdSet,
+    ) {
+        resolveEffectiveWorkspaceLocation(
+            assistantWorkspaceId = assistant.workspaceId,
+            projectWorkspaceId = currentProject?.workspaceId,
+            projectWorkspaceCwd = currentProject?.workspaceCwd,
+            conversationWorkspaceId = conversation.workspaceOverrideId,
+            conversationWorkspaceCwd = conversation.workspaceCwd,
+            allowConversationOverride = assistant.allowConversationWorkspaceOverride,
+            workspaceExists = { it in workspaceIdSet },
+        )
+    }
+    val effectiveWorkspaceId = effectiveWorkspaceLocation.workspaceId
     // 当前会话生效的沙盒能否按需读取 /upload 附件，否则附件选择只接受可直接解析的文档
     val sandboxWorkspaceManager = org.koin.compose.koinInject<me.rerere.rikkahub.workspace.SandboxWorkspaceManager>()
     val effectiveWorkspace = workspaces.firstOrNull { it.id == effectiveWorkspaceId }
     val sandboxReady = isSandboxUploadReady(assistant, effectiveWorkspace) { workspaceId ->
         runCatching { sandboxWorkspaceManager.hasRootfs(workspaceId) }.getOrDefault(false)
     }
-    val workspaceOverrideSubtitle = overrideWorkspace?.name
-        ?: stringResource(R.string.chat_input_workspace_override_follow_assistant)
+    val hasConversationWorkspaceOverride =
+        effectiveWorkspaceLocation.workspaceSource == WorkspaceLocationSource.CONVERSATION ||
+            effectiveWorkspaceLocation.cwdSource == WorkspaceLocationSource.CONVERSATION
+    val inheritedWorkspaceLabel = if (currentProject != null) {
+        stringResource(R.string.chat_input_workspace_override_follow_project)
+    } else {
+        stringResource(R.string.chat_input_workspace_override_follow_assistant)
+    }
+    val workspaceOverrideSubtitle = when {
+        hasConversationWorkspaceOverride -> when {
+            effectiveWorkspaceLocation.workspaceSource == WorkspaceLocationSource.CONVERSATION &&
+                effectiveWorkspaceLocation.cwd.isNotEmpty() ->
+                "${effectiveWorkspace?.name.orEmpty()} · ${formatWorkspaceCwdForDisplay(effectiveWorkspaceLocation.cwd, effectiveWorkspace?.type)}"
+            effectiveWorkspaceLocation.workspaceSource == WorkspaceLocationSource.CONVERSATION ->
+                effectiveWorkspace?.name.orEmpty()
+            effectiveWorkspaceLocation.cwd.isNotEmpty() ->
+                formatWorkspaceCwdForDisplay(effectiveWorkspaceLocation.cwd, effectiveWorkspace?.type)
+            else -> stringResource(R.string.project_workspace_root_label)
+        }
+        currentProject != null -> when {
+            inheritedWorkspaceLocation.cwd.isNotEmpty() ->
+                stringResource(
+                    R.string.chat_input_workspace_override_follow_project_detail,
+                    formatWorkspaceCwdForDisplay(inheritedWorkspaceLocation.cwd, effectiveWorkspace?.type),
+                )
+            effectiveWorkspace != null && inheritedWorkspaceLocation.workspaceSource == WorkspaceLocationSource.PROJECT ->
+                stringResource(R.string.chat_input_workspace_override_follow_project_detail, effectiveWorkspace.name)
+            else -> stringResource(R.string.chat_input_workspace_override_follow_project)
+        }
+        effectiveWorkspace != null ->
+            stringResource(R.string.chat_input_workspace_override_follow_assistant_detail, effectiveWorkspace.name)
+        else -> stringResource(R.string.chat_input_workspace_override_follow_assistant)
+    }
     val visibleMcpServers = remember(mcpServers, effectiveWorkspaceId) {
         mcpServers.filter {
             it.commonOptions.enable && it.isVisibleForWorkspace(effectiveWorkspaceId)
@@ -1427,9 +1494,8 @@ private fun MinimalPickerContent(
                         imageVector = Icons.Rounded.Folder,
                         contentDescription = null,
                         modifier = Modifier.size(24.dp),
-                        // 按「有效工作区」高亮：覆写指向已删除工作区时不高亮，
-                        // 与「跟随助手」语义一致（此时实际会回退到助手绑定）。
-                        tint = if (overrideWorkspace != null)
+                        // 按「有效覆写」高亮：会话切了目录或工作区时高亮，失效回退时不高亮。
+                        tint = if (hasConversationWorkspaceOverride)
                             MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1573,16 +1639,25 @@ private fun MinimalPickerContent(
 
     if (showWorkspacePicker) {
         val navController = me.rerere.rikkahub.ui.context.LocalNavController.current
-        WorkspaceSelectSheet(
+        WorkspaceLocationSheet(
+            title = stringResource(R.string.chat_input_workspace_override_title),
+            inheritedWorkspaceId = inheritedWorkspaceLocation.workspaceId,
+            inheritedCwd = inheritedWorkspaceLocation.cwd,
+            inheritedLabel = inheritedWorkspaceLabel,
             selectedWorkspaceId = conversation.workspaceOverrideId,
+            selectedCwd = conversation.workspaceCwd,
             workspaces = workspaces,
-            onSelect = { id ->
-                onUpdateConversation(conversation.copy(workspaceOverrideId = id))
-                showWorkspacePicker = false
+            workspaceRepository = workspaceRepository,
+            onApply = { workspaceId, workspaceCwd ->
+                onUpdateConversation(
+                    conversation.copy(
+                        workspaceOverrideId = workspaceId,
+                        workspaceCwd = workspaceCwd,
+                    )
+                )
             },
-            onManage = { navController.navigate(me.rerere.rikkahub.Screen.Workspaces) },
+            onManageWorkspaces = { navController.navigate(me.rerere.rikkahub.Screen.Workspaces) },
             onDismiss = { showWorkspacePicker = false },
-            noneOptionTitle = stringResource(R.string.chat_input_workspace_override_follow_assistant),
         )
     }
     

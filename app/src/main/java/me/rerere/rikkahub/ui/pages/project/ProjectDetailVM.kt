@@ -44,6 +44,8 @@ import me.rerere.rikkahub.data.repository.MemorySummaryTarget
 import me.rerere.rikkahub.data.repository.MemorySummaryUpdateOptions
 import me.rerere.rikkahub.data.repository.MemorySummaryVersionOperationResult
 import me.rerere.rikkahub.data.repository.ProjectRepository
+import me.rerere.rikkahub.data.repository.Workspace
+import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.service.MemorySummaryRequirementChangeResult
 import me.rerere.rikkahub.service.MemorySummaryRequirementChangeService
@@ -57,6 +59,7 @@ private const val TAG = "ProjectDetailVM"
 class ProjectDetailVM(
     id: String,
     private val projectRepo: ProjectRepository,
+    val workspaceRepository: WorkspaceRepository,
     private val settingsStore: SettingsStore,
     private val chatService: ChatService,
     private val memoryRepository: MemoryRepository,
@@ -67,6 +70,9 @@ class ProjectDetailVM(
     val projectId: Uuid? = runCatching { Uuid.parse(id) }.getOrNull()
 
     val settings: StateFlow<Settings> = settingsStore.settingsFlow
+
+    val workspaces: StateFlow<List<Workspace>> = workspaceRepository.listFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val project: StateFlow<Project?> = if (projectId != null) {
         projectRepo.getProjectByIdFlow(projectId)
@@ -484,6 +490,18 @@ class ProjectDetailVM(
         val p = project.value ?: return
         viewModelScope.launch {
             projectRepo.updateProject(p.copy(modelId = modelId))
+        }
+    }
+
+    fun updateWorkspaceLocation(workspaceId: String?, workspaceCwd: String?) {
+        val p = project.value ?: return
+        viewModelScope.launch {
+            projectRepo.updateProject(
+                p.copy(
+                    workspaceId = workspaceId?.trim()?.takeIf { it.isNotEmpty() },
+                    workspaceCwd = me.rerere.rikkahub.data.model.normalizeWorkspaceCwd(workspaceCwd),
+                )
+            )
         }
     }
 

@@ -20,6 +20,8 @@ data class Project(
     val enableMemorySummary: Boolean = false,
     val sortIndex: Int = 0,
     val icon: String = "",
+    val workspaceId: String? = null,
+    val workspaceCwd: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
 )
@@ -38,6 +40,8 @@ fun ProjectEntity.toProject(): Project = Project(
     enableMemorySummary = enableMemorySummary,
     sortIndex = sortIndex,
     icon = icon,
+    workspaceId = workspaceId?.trim()?.takeIf { it.isNotEmpty() },
+    workspaceCwd = normalizeWorkspaceCwd(workspaceCwd),
     createdAt = createdAt,
     updatedAt = updatedAt,
 )
@@ -56,6 +60,8 @@ fun Project.toEntity(): ProjectEntity = ProjectEntity(
     enableMemorySummary = enableMemorySummary,
     sortIndex = sortIndex,
     icon = icon,
+    workspaceId = workspaceId?.trim()?.takeIf { it.isNotEmpty() },
+    workspaceCwd = normalizeWorkspaceCwd(workspaceCwd),
     createdAt = createdAt,
     updatedAt = updatedAt,
 )

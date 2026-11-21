@@ -55,14 +55,19 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.ai.provider.ModelType
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.model.MemoryRetrievalMode
+import me.rerere.rikkahub.data.model.WorkspaceLocationSource
 import me.rerere.rikkahub.data.model.effectiveMemoryRetrievalMode
+import me.rerere.rikkahub.data.model.formatWorkspaceCwdForDisplay
 import me.rerere.rikkahub.data.model.requiresEmbedding
+import me.rerere.rikkahub.data.model.resolveEffectiveWorkspaceLocation
 import me.rerere.rikkahub.ui.components.ai.ModelSelector
+import me.rerere.rikkahub.ui.components.ai.WorkspaceLocationSheet
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.DebouncedTextField
 import me.rerere.rikkahub.ui.components.ui.HapticSwitch
@@ -95,6 +100,7 @@ fun ProjectDetailPage(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val project by vm.project.collectAsStateWithLifecycle()
     val assistant by vm.assistant.collectAsStateWithLifecycle()
+    val workspaces by vm.workspaces.collectAsStateWithLifecycle()
     val projectMemoryStats by vm.projectMemoryStats.collectAsStateWithLifecycle()
     val projectSummaryStatus by vm.projectSummaryStatus.collectAsStateWithLifecycle()
     val projectSummaryVersions by vm.projectSummaryVersions.collectAsStateWithLifecycle()
@@ -133,6 +139,7 @@ fun ProjectDetailPage(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showPromptDialog by remember { mutableStateOf(false) }
     var showIconPickerSheet by remember { mutableStateOf(false) }
+    var showWorkspaceLocationSheet by remember { mutableStateOf(false) }
     var showMemoryManager by remember { mutableStateOf(false) }
     var memoryManagerInitialTab by remember { mutableStateOf<Int?>(null) }
     var showUpdateSummaryDialog by remember { mutableStateOf(false) }
@@ -320,6 +327,50 @@ fun ProjectDetailPage(
                             )
                         }
                     }
+                )
+            }
+
+            // 工作区与工作目录设置
+            val projectWorkspaceLocation = remember(
+                effectiveAssistant.workspaceId,
+                currentProject.workspaceId,
+                currentProject.workspaceCwd,
+                workspaces,
+            ) {
+                resolveEffectiveWorkspaceLocation(
+                    assistantWorkspaceId = effectiveAssistant.workspaceId,
+                    projectWorkspaceId = currentProject.workspaceId,
+                    projectWorkspaceCwd = currentProject.workspaceCwd,
+                    workspaceExists = { wsId -> workspaces.any { it.id == wsId } },
+                )
+            }
+            val effectiveProjectWorkspace = remember(workspaces, projectWorkspaceLocation.workspaceId) {
+                projectWorkspaceLocation.workspaceId?.let { wsId -> workspaces.firstOrNull { it.id == wsId } }
+            }
+            val hasProjectWorkspaceOverride =
+                projectWorkspaceLocation.workspaceSource == WorkspaceLocationSource.PROJECT ||
+                    projectWorkspaceLocation.cwdSource == WorkspaceLocationSource.PROJECT
+            val projectWorkspaceSubtitle = when {
+                effectiveProjectWorkspace == null ->
+                    stringResource(R.string.project_workspace_unbound_hint)
+                !hasProjectWorkspaceOverride ->
+                    stringResource(
+                        R.string.chat_input_workspace_override_follow_assistant_detail,
+                        effectiveProjectWorkspace.name,
+                    )
+                projectWorkspaceLocation.cwd.isEmpty() ->
+                    "${effectiveProjectWorkspace.name} · ${stringResource(R.string.project_workspace_root_label)}"
+                else ->
+                    "${effectiveProjectWorkspace.name} · ${formatWorkspaceCwdForDisplay(projectWorkspaceLocation.cwd, effectiveProjectWorkspace.type)}"
+            }
+
+            SettingsGroup(title = stringResource(R.string.project_workspace_settings)) {
+                SettingGroupItem(
+                    title = stringResource(R.string.project_workspace_cwd_title),
+                    subtitle = projectWorkspaceSubtitle,
+                    subtitleMaxLines = 1,
+                    subtitleOverflow = TextOverflow.Ellipsis,
+                    onClick = { showWorkspaceLocationSheet = true },
                 )
             }
 
@@ -725,6 +776,26 @@ fun ProjectDetailPage(
                 vm.updateIcon(newIcon)
             },
             onDismiss = { showIconPickerSheet = false }
+        )
+    }
+
+    if (showWorkspaceLocationSheet && currentProject != null) {
+        WorkspaceLocationSheet(
+            title = stringResource(R.string.project_workspace_cwd_title),
+            inheritedWorkspaceId = effectiveAssistant.workspaceId,
+            inheritedCwd = "",
+            inheritedLabel = stringResource(R.string.chat_input_workspace_override_follow_assistant),
+            selectedWorkspaceId = currentProject.workspaceId,
+            selectedCwd = currentProject.workspaceCwd,
+            workspaces = workspaces,
+            workspaceRepository = vm.workspaceRepository,
+            onApply = { workspaceId, workspaceCwd ->
+                vm.updateWorkspaceLocation(workspaceId, workspaceCwd)
+            },
+            onManageWorkspaces = {
+                navController.navigate(Screen.Workspaces)
+            },
+            onDismiss = { showWorkspaceLocationSheet = false },
         )
     }
 }

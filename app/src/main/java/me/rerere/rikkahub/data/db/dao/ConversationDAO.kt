@@ -158,10 +158,18 @@ interface ConversationDAO {
     @Query("UPDATE conversationentity SET search_text = :searchText, search_text_version = :version WHERE id = :id")
     suspend fun updateSearchText(id: String, searchText: String, version: Int)
 
-    @Query("UPDATE conversationentity SET project_id = :projectId WHERE id = :conversationId")
+    @Query(
+        "UPDATE conversationentity SET project_id = :projectId, " +
+            "workspace_cwd = CASE WHEN workspace_override_id IS NULL THEN NULL ELSE workspace_cwd END " +
+            "WHERE id = :conversationId"
+    )
     suspend fun updateProjectId(conversationId: String, projectId: String?)
 
-    @Query("UPDATE conversationentity SET project_id = NULL WHERE project_id = :projectId")
+    @Query(
+        "UPDATE conversationentity SET project_id = NULL, " +
+            "workspace_cwd = CASE WHEN workspace_override_id IS NULL THEN NULL ELSE workspace_cwd END " +
+            "WHERE project_id = :projectId"
+    )
     suspend fun clearProjectId(projectId: String)
 
     @Query("SELECT * FROM conversationentity WHERE id = :id")
@@ -219,9 +227,9 @@ interface ConversationDAO {
     suspend fun getAllExplicitSkillContexts(): List<ExplicitSkillContextRow>
 
     /**
-     * 删除工作区时调用：把所有覆写指向该工作区的会话覆写清空，使其回退到助手绑定。
+     * 删除工作区时调用：把所有覆写指向该工作区的会话覆写及对应目录一并清空，使其回退到上级绑定。
      */
-    @Query("UPDATE conversationentity SET workspace_override_id = NULL WHERE workspace_override_id = :workspaceId")
+    @Query("UPDATE conversationentity SET workspace_override_id = NULL, workspace_cwd = NULL WHERE workspace_override_id = :workspaceId")
     suspend fun clearWorkspaceOverrideByWorkspaceId(workspaceId: String)
 
     /**

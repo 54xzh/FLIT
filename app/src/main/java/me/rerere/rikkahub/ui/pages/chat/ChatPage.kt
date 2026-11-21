@@ -1205,6 +1205,19 @@ private fun ChatPageContent(
                     }
                 }
 
+                // A new chat follows the project currently selected in the drawer; a saved
+                // conversation always keeps the project that was stored with it.
+                val visibleProjectId = if (setting.projectFeatureEnabled) {
+                    conversation.projectId ?: selectedProjectId.takeUnless {
+                        conversationExistsInStorage
+                    }
+                } else {
+                    null
+                }
+                val activeProject = remember(visibleProjectId, projects) {
+                    visibleProjectId?.let { projectId -> projects.find { it.id == projectId } }
+                }
+
                 val hazeStateLocal = hazeState
                 ChatList(
                     modifier = Modifier
@@ -1223,6 +1236,7 @@ private fun ChatPageContent(
                     loading = loadingJob != null,
                     previewMode = previewMode,
                     settings = setting,
+                    activeProject = activeProject,
                     recentlyRestoredNodeIds = vm.recentlyRestoredNodeIds.collectAsStateWithLifecycle().value,
                     initialSearchQuery = initialSearchQuery,
                     onAssistantAvatarLongPress = if (isGroupChatTemplate) {
@@ -1423,19 +1437,6 @@ private fun ChatPageContent(
                     setting.getAssistantById(conversation.assistantId) ?: setting.getCurrentAssistant()
                 }
                 val hasAnyPresetMessages = assistantForConversation?.presetMessages?.isNotEmpty() == true
-
-                // A new chat follows the project currently selected in the drawer; a saved
-                // conversation always keeps the project that was stored with it.
-                val visibleProjectId = if (setting.projectFeatureEnabled) {
-                    conversation.projectId ?: selectedProjectId.takeUnless {
-                        conversationExistsInStorage
-                    }
-                } else {
-                    null
-                }
-                val activeProject = remember(visibleProjectId, projects) {
-                    visibleProjectId?.let { projectId -> projects.find { it.id == projectId } }
-                }
 
                 val welcomeText = if (visibleProjectId == null) {
                     assistantForConversation?.let { assistant ->
@@ -1678,6 +1679,7 @@ private fun ChatPageContent(
                         state = inputState,
                         settings = setting,
                         currentChatModel = currentChatModel,
+                        currentProject = activeProject,
                         conversation = conversation,
                         mcpManager = vm.mcpManager,
                         uiMode = if (isGroupChatTemplate) ChatInputUiMode.GroupChat else ChatInputUiMode.Normal,
@@ -1773,6 +1775,7 @@ private fun ChatPageContent(
                         state = inputState,
                         settings = setting,
                         currentChatModel = currentChatModel,
+                        currentProject = activeProject,
                         conversation = conversation,
                         mcpManager = vm.mcpManager,
                         uiMode = if (isGroupChatTemplate) ChatInputUiMode.GroupChat else ChatInputUiMode.Normal,

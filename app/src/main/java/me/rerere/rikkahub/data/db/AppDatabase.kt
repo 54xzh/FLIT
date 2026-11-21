@@ -97,7 +97,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         LocalModelEntity::class,
         ProjectEntity::class,
     ],
-    version = 57,
+    version = 58,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -198,6 +198,36 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         const val TAG = "AppDatabase"
+        val MIGRATION_57_58 = object : Migration(57, 58) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                fun existingColumns(table: String): Set<String> {
+                    val columns = mutableSetOf<String>()
+                    db.query("PRAGMA table_info(`$table`)").use { cursor ->
+                        val nameIndex = cursor.getColumnIndex("name")
+                        while (cursor.moveToNext()) {
+                            if (nameIndex != -1) {
+                                columns.add(cursor.getString(nameIndex))
+                            }
+                        }
+                    }
+                    return columns
+                }
+
+                val projectCols = existingColumns("projects")
+                if ("workspace_id" !in projectCols) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `workspace_id` TEXT DEFAULT NULL")
+                }
+                if ("workspace_cwd" !in projectCols) {
+                    db.execSQL("ALTER TABLE `projects` ADD COLUMN `workspace_cwd` TEXT DEFAULT NULL")
+                }
+
+                val conversationCols = existingColumns("ConversationEntity")
+                if ("workspace_cwd" !in conversationCols) {
+                    db.execSQL("ALTER TABLE `ConversationEntity` ADD COLUMN `workspace_cwd` TEXT DEFAULT NULL")
+                }
+                Log.i(TAG, "migrate: migrate from 57 to 58 success")
+            }
+        }
         val MIGRATION_56_57 = object : Migration(56, 57) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE interactive_component_state ADD COLUMN submittedDataModel TEXT")

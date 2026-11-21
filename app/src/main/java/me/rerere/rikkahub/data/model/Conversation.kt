@@ -108,7 +108,8 @@ data class Conversation(
     val contextSummaryBoundaries: List<Int> = emptyList(), // History of summary boundary indices
     val contextSummaryPendingBoundaryIndex: Int = -1, // In-memory marker for active context compression divider
     val sessionMemories: List<SessionMemory> = emptyList(), // Memories that only apply to this conversation
-    val workspaceOverrideId: String? = null, // 会话级工作区覆写；null = 跟随助手绑定
+    val workspaceOverrideId: String? = null, // 会话级工作区覆写；null = 跟随上级绑定
+    val workspaceCwd: String? = null, // 会话级工作目录覆写；null = 跟随上级，"" = 显式根目录
     val loadedNodeStartIndex: Int = 0, // Absolute start index of currently loaded node window
     val totalMessageNodeCount: Int = 0, // Total node count stored in DB for this conversation
     val projectId: Uuid? = null,
@@ -192,6 +193,7 @@ data class Conversation(
  */
 internal fun Conversation.inheritForkStateFrom(source: Conversation): Conversation = copy(
     workspaceOverrideId = source.workspaceOverrideId,
+    workspaceCwd = source.workspaceCwd,
     enabledModeIds = source.enabledModeIds,
     explicitSkillContexts = source.explicitSkillContexts,
     sessionMemories = source.sessionMemories,

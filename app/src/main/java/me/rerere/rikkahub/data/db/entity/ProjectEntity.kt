@@ -38,6 +38,10 @@ data class ProjectEntity(
     val sortIndex: Int = 0,
     @ColumnInfo(name = "icon", defaultValue = "''")
     val icon: String = "",
+    @ColumnInfo(name = "workspace_id", defaultValue = "NULL")
+    val workspaceId: String? = null,
+    @ColumnInfo(name = "workspace_cwd", defaultValue = "NULL")
+    val workspaceCwd: String? = null,
     @ColumnInfo(name = "created_at", defaultValue = "0")
     val createdAt: Long = 0L,
     @ColumnInfo(name = "updated_at", defaultValue = "0")
